@@ -44,14 +44,7 @@ func Markdown(r result.Report) string {
 	writeTestTable(&b, r.Discovery.Tests)
 	fmt.Fprintln(&b)
 	if len(r.Discovery.Models) > 0 {
-		ids := make([]string, 0, len(r.Discovery.Models))
-		for _, m := range r.Discovery.Models {
-			if id, _ := m["id"].(string); id != "" {
-				ids = append(ids, id)
-			}
-		}
-		sort.Strings(ids)
-		fmt.Fprintf(&b, "Discovered models: %s.\n\n", codeList(ids))
+		fmt.Fprintf(&b, "Discovered models: **%d**. Full model metadata is available in the JSON report.\n\n", len(r.Discovery.Models))
 	}
 
 	fmt.Fprintln(&b, "## Models")
