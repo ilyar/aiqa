@@ -121,7 +121,7 @@ func Markdown(r result.Report) string {
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "- **Pass** means the expected protocol or observable behavior was demonstrated.")
 	fmt.Fprintln(&b, "- **Warn** means the request was accepted, but semantic effect could not be proved, validation was lax, or evidence was statistical.")
-	fmt.Fprintln(&b, "- **Unsupported** is an explicit 4xx rejection of an optional feature. It is a capability gap, not necessarily a broken core API.")
+	fmt.Fprintln(&b, "- **N/S** means an explicit 4xx rejection of an optional feature. It is a capability gap, not necessarily a broken core API.")
 	fmt.Fprintln(&b, "- **Fail** means a required contract or an accepted feature behaved incompatibly. **Error** is an inconclusive transport/provider failure.")
 	fmt.Fprintln(&b, "- Context results distinguish a measured accepted lower bound from an estimated first rejected boundary. Token counts are exact only when the provider returns `usage.prompt_tokens`.")
 	fmt.Fprintln(&b, "- Temperature, `top_p`, and seed checks are statistical. A warning does not prove that a parameter is ignored; it says this run did not produce enough evidence to claim effectiveness.")
@@ -248,7 +248,7 @@ func statusLabel(status result.Status) string {
 	case result.StatusWarn:
 		return "WARN"
 	case result.StatusUnsupported:
-		return "UNSUPPORTED"
+		return "N/S"
 	case result.StatusSkip:
 		return "SKIP"
 	case result.StatusError:
