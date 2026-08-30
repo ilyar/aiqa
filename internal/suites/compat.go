@@ -924,12 +924,41 @@ func probeInvalidAuth(parent context.Context, env Environment, model string) res
 
 func probeInvalidJSON(parent context.Context, env Environment) result.TestResult {
 	t := testBase(env.Profile, "error.invalid_json", "compat")
-	ctx, cancel := env.probeContext(parent)
-	defer cancel()
-	resp, err := env.Client.ChatRaw(ctx, []byte(`{"model":`), "application/json")
-	t.DurationMS = resp.Duration.Milliseconds()
-	t.HTTP = httpObservation(resp)
-	return evaluateErrorProbe(t, resp, err, []int{400, 422}, "malformed JSON")
+	variants := []struct{ name, body string }{
+		{"truncated_value", `{"model":`},
+		{"trailing_comma", `{"model":"test",}`},
+		{"unterminated_string", `{"model":"test}`},
+	}
+	statuses := make(map[string]any, len(variants))
+	passed := 0
+	for _, variant := range variants {
+		ctx, cancel := env.probeContext(parent)
+		resp, err := env.Client.ChatRaw(ctx, []byte(variant.body), "application/json")
+		cancel()
+		base := testBase(env.Profile, "error.invalid_json", "compat")
+		base.DurationMS = resp.Duration.Milliseconds()
+		base.HTTP = httpObservation(resp)
+		attempt := evaluateErrorProbe(base, resp, err, []int{400, 422}, "malformed JSON")
+		t.DurationMS += attempt.DurationMS
+		statuses[variant.name] = map[string]any{"status": attempt.Status, "http": resp.StatusCode, "summary": attempt.Summary}
+		if attempt.Status == result.StatusPass {
+			passed++
+		}
+		if t.HTTP.StatusCode == 0 {
+			t.HTTP = attempt.HTTP
+		}
+	}
+	t.Metrics["variants"] = statuses
+	t.Metrics["passed_variants"] = passed
+	t.Metrics["total_variants"] = len(variants)
+	if passed == len(variants) {
+		t.Status = result.StatusPass
+		t.Summary = "all malformed JSON variants returned client errors with OpenAI-shaped bodies"
+	} else {
+		t.Status = result.StatusFail
+		t.Summary = fmt.Sprintf("%d/%d malformed JSON variants returned the expected client error", passed, len(variants))
+	}
+	return t
 }
 
 func probeInvalidTypes(parent context.Context, env Environment, model string) result.TestResult {
