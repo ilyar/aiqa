@@ -20,6 +20,22 @@ func TestEmbeddedProfileIsValid(t *testing.T) {
 	}
 }
 
+func TestEmbeddedProfileFilesCanBeListedAndLoaded(t *testing.T) {
+	files, err := AvailableFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || files[0] != DefaultFile {
+		t.Fatalf("unexpected embedded profile files: %#v", files)
+	}
+	if _, err := LoadFile(DefaultFile); err != nil {
+		t.Fatalf("load default profile: %v", err)
+	}
+	if _, err := LoadFile("../" + DefaultFile); err == nil {
+		t.Fatal("expected invalid profile filename to be rejected")
+	}
+}
+
 func TestProfileRejectsDuplicateProbeIDs(t *testing.T) {
 	data := []byte(`{
 		"id":"test","revision":"2026-08-30","source":"https://example.test/spec","source_commit":"0123456789abcdef0123456789abcdef01234567",

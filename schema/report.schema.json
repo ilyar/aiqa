@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://example.invalid/aiqa/schemas/report.schema.json",
+  "$id": "https://example.invalid/aiqa/schema/report.schema.json",
   "title": "AIQA report v1",
   "type": "object",
   "required": [
@@ -342,7 +342,6 @@
       "type": "object",
       "required": [
         "tool",
-        "mode",
         "status",
         "summary"
       ],
@@ -350,7 +349,7 @@
         "tool": {
           "type": "string"
         },
-        "mode": {
+        "suite": {
           "type": "string"
         },
         "model": {
@@ -584,9 +583,6 @@
           }
         },
         "external_mode": {
-          "type": "string"
-        },
-        "external_image": {
           "type": "string"
         },
         "fail_on": {

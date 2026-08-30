@@ -101,7 +101,7 @@ The native profile checks several levels of compatibility
 - incorrect request-field types
 - expected HTTP class and OpenAI-shaped `error` object
 
-The current profile is in [`profiles/openai-chat-2026-08.json`](profiles/openai-chat-2026-08.json), and a copy is embedded in the binary, it is based on the official OpenAI OpenAPI specification and augmented with semantic probes that cannot be expressed in JSON Schema alone
+The current profile is in [`profile/openai-compat-2026-08.json`](profile/openai-compat-2026-08.json) and is embedded in the binary. It is based on the official OpenAI OpenAPI specification and augmented with semantic probes that cannot be expressed in JSON Schema alone.
 
 ## Existing official SDK checker
 
@@ -231,7 +231,7 @@ JSON has a versioned root:
 
 It contains raw model metadata, results for every probe, HTTP observations, token usage, context samples, confidence, and an aggregate summary, the API key is not written to the report, and external-checker output is additionally redacted
 
-Markdown is intended for people and CI artifacts, the JSON Schema is in [`schemas/report.schema.json`](schemas/report.schema.json), an example of a complete combined run against a deterministic mock provider is available in [`examples/mock-report.md`](examples/mock-report.md) and [`examples/mock-report.json`](examples/mock-report.json)
+Markdown is intended for people and CI artifacts, the JSON Schema is in [`schema/report.schema.json`](schema/report.schema.json), an example of a complete combined run against a deterministic mock provider is available in [`examples/mock-report.md`](examples/mock-report.md) and [`examples/mock-report.json`](examples/mock-report.json)
 
 ## Full CLI reference
 
@@ -278,7 +278,7 @@ The profile pins the SHA of the official OpenAI OpenAPI snapshot, check whether 
 make profile-upstream-check
 ```
 
-An upstream change does not automatically update the profile: first review the diff, adjust semantic probes, update `revision`/`source_commit`, run `make profiles-sync`, and rerun the quality gates, automatically rewriting a contract from a moving `main` would be convenient only until the first quiet-breaking change
+An upstream change does not automatically update the profile: first review the diff, adjust semantic probes, update `revision`/`source_commit`, and rerun the quality gates. Automatically rewriting a contract from a moving `main` would be convenient only until the first quiet-breaking change.
 
 ## Contract sources
 

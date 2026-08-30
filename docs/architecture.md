@@ -10,7 +10,7 @@
 cmd/aiqa          CLI and signal handling
 internal/config   environment and flag parsing
 internal/api      dependency-free HTTP, JSON, and SSE client
-internal/profile  embedded versioned compatibility profile
+internal/profile  versioned compatibility-profile loader
 internal/suites   native behavioral probes
 internal/external optional adapters to third-party/official-SDK checkers
 internal/result   stable report data model
@@ -35,7 +35,7 @@ The native binary uses only the Go standard library so it remains easy to audit 
 
 ## Profile policy
 
-The JSON profile records source, exact upstream commit, revision, scope, required probes, optional probes, standard request parameters, and vendor extensions. The copy in `internal/profile` is embedded into the binary. `make profiles-check` rejects drift between the editable and embedded copies.
+The JSON profile records source, exact upstream commit, revision, scope, required probes, optional probes, standard request parameters, and vendor extensions. The asset in `profile/` is embedded into the binary, while `internal/profile` loads and validates it. `make profiles-check` verifies that the profile file exists.
 
 ## Context probing
 

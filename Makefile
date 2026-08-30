@@ -5,7 +5,7 @@ COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || printf unknown)
 DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 
-.PHONY: all build test race vet fmt-check profiles-check profiles-sync schemas-check profile-upstream-check check install clean dist
+.PHONY: all build test race vet fmt-check profiles-check schemas-check profile-upstream-check check install clean dist
 
 all: check build
 
@@ -27,17 +27,14 @@ fmt-check:
 	  { echo 'Go files need gofmt:'; gofmt -l $$(find . -name '*.go' -type f); exit 1; }
 
 profiles-check:
-	cmp profiles/openai-chat-2026-08.json internal/profile/openai-chat-2026-08.json
-
-profiles-sync:
-	cp profiles/openai-chat-2026-08.json internal/profile/openai-chat-2026-08.json
+	@test -f profile/openai-compat-2026-08.json
 
 schemas-check:
-	python3 -m json.tool schemas/report.schema.json >/dev/null
-	python3 -m json.tool profiles/openai-chat-2026-08.json >/dev/null
+	python3 -m json.tool schema/report.schema.json >/dev/null
+	python3 -m json.tool profile/openai-compat-2026-08.json >/dev/null
 
 profile-upstream-check:
-	python3 scripts/check-profile-upstream.py
+	go run ./script/check-profile-upstream.go
 
 check: fmt-check profiles-check schemas-check vet test
 

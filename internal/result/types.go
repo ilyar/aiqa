@@ -116,7 +116,7 @@ type Summary struct {
 
 type ExternalResult struct {
 	Tool       string `json:"tool"`
-	Mode       string `json:"mode"`
+	Suite      string `json:"suite,omitempty"`
 	Model      string `json:"model,omitempty"`
 	Status     Status `json:"status"`
 	ExitCode   int    `json:"exit_code,omitempty"`
@@ -160,7 +160,6 @@ type PublicConfig struct {
 	Timeout          string   `json:"timeout"`
 	Formats          []string `json:"formats"`
 	ExternalMode     string   `json:"external_mode"`
-	ExternalImage    string   `json:"external_image,omitempty"`
 	FailOn           string   `json:"fail_on"`
 	ContextMaxTokens int64    `json:"context_max_tokens,omitempty"`
 	ContextPrecision int64    `json:"context_precision_tokens,omitempty"`

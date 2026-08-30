@@ -1,12 +1,14 @@
 package external
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -17,27 +19,23 @@ import (
 
 const (
 	binaryName = "openai-compatibility-tester"
+	toolName   = "official-SDK"
 	suites     = "models,models_get,chat_completions,chat_completions_stream,chat_completions_stream_usage,chat_completions_json,chat_completions_tools,chat_completions_tools_stream,chat_completions_multi_turn,error_responses"
 )
 
-func Run(parent context.Context, cfg config.Config, model string) result.ExternalResult {
-	res := result.ExternalResult{
-		Tool:  "beranekio/openai-compatibility-tester",
-		Mode:  cfg.ExternalMode,
-		Model: model,
-	}
+var (
+	suiteStart  = regexp.MustCompile(`^==> running suite "([^"]+)"\s*$`)
+	suiteResult = regexp.MustCompile(`^\s*(PASS|FAIL|SKIP|ERROR)\s+\(([^)]+)\):?\s*(.*)$`)
+)
+
+func Run(parent context.Context, cfg config.Config, model string) []result.ExternalResult {
 	mode, path, reason := resolveMode(parent, cfg.ExternalMode, cfg.ExternalImage)
 	if mode == "off" {
-		res.Status = result.StatusSkip
-		res.Summary = reason
-		return res
+		return runnerResult(model, result.StatusSkip, reason, "", "")
 	}
 	if mode == "error" {
-		res.Status = result.StatusError
-		res.Summary = reason
-		return res
+		return runnerResult(model, result.StatusError, reason, "", "")
 	}
-	res.Mode = mode
 
 	// The external checker executes several independent suites. Give the process
 	// enough wall time while preserving the user's timeout for each suite.
@@ -58,9 +56,7 @@ func Run(parent context.Context, cfg config.Config, model string) result.Externa
 			cfg.ExternalImage,
 		)
 	default:
-		res.Status = result.StatusError
-		res.Summary = "unknown resolved external checker mode"
-		return res
+		return runnerResult(model, result.StatusError, "unknown official-SDK checker mode", "", "")
 	}
 	cmd.Env = append(os.Environ(),
 		"OPENAI_BASE_URL="+cfg.BaseURL,
@@ -72,33 +68,85 @@ func Run(parent context.Context, cfg config.Config, model string) result.Externa
 	var output bytes.Buffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output
-	started := time.Now()
 	err := cmd.Run()
-	res.DurationMS = time.Since(started).Milliseconds()
-	res.Output = redactAndTruncate(output.String(), cfg.APIKey, 16*1024)
-	if err == nil {
-		res.Status = result.StatusPass
-		res.Summary = "official Go SDK compatibility smoke suites passed"
-		return res
+	cleanOutput := redactAndTruncate(output.String(), cfg.APIKey, 16*1024)
+	parsed := parseSuiteResults(output.String(), model)
+	if len(parsed) > 0 {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return append(parsed, runnerResult(model, result.StatusError, "official-SDK checker timed out", ctx.Err().Error(), cleanOutput)...)
+		}
+		var exitErr *exec.ExitError
+		if err != nil && !errors.As(err, &exitErr) {
+			return append(parsed, runnerResult(model, result.StatusError, "official-SDK checker terminated unexpectedly", err.Error(), cleanOutput)...)
+		}
+		return parsed
 	}
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		res.Status = result.StatusError
-		res.Summary = "external compatibility checker timed out"
-		res.Error = ctx.Err().Error()
-		return res
+		return runnerResult(model, result.StatusError, "official-SDK checker timed out before reporting a suite", ctx.Err().Error(), cleanOutput)
 	}
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
-		res.ExitCode = exitErr.ExitCode()
-		res.Status = result.StatusFail
-		res.Summary = "external official-SDK compatibility suites reported failures"
-		res.Error = err.Error()
-		return res
+		return runnerResult(model, result.StatusError, "official-SDK checker exited before reporting a suite", err.Error(), cleanOutput)
 	}
-	res.Status = result.StatusError
-	res.Summary = "external compatibility checker could not start"
-	res.Error = err.Error()
-	return res
+	if err == nil {
+		return runnerResult(model, result.StatusError, "official-SDK checker produced no suite results", "", cleanOutput)
+	}
+	return runnerResult(model, result.StatusError, "official-SDK checker could not start", err.Error(), cleanOutput)
+}
+
+func runnerResult(model string, status result.Status, summary, errText, output string) []result.ExternalResult {
+	return []result.ExternalResult{{
+		Tool:    toolName,
+		Model:   model,
+		Status:  status,
+		Summary: summary,
+		Error:   errText,
+		Output:  output,
+	}}
+}
+
+func parseSuiteResults(output, model string) []result.ExternalResult {
+	var out []result.ExternalResult
+	current := ""
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if match := suiteStart.FindStringSubmatch(line); match != nil {
+			current = match[1]
+			continue
+		}
+		match := suiteResult.FindStringSubmatch(line)
+		if current == "" || match == nil {
+			continue
+		}
+		duration, err := time.ParseDuration(match[2])
+		if err != nil {
+			continue
+		}
+		status := result.StatusFail
+		switch match[1] {
+		case "PASS":
+			status = result.StatusPass
+		case "SKIP":
+			status = result.StatusSkip
+		case "ERROR":
+			status = result.StatusError
+		}
+		summary := strings.TrimSpace(match[3])
+		if summary == "" {
+			summary = strings.ToLower(match[1])
+		}
+		out = append(out, result.ExternalResult{
+			Tool:       toolName,
+			Suite:      current,
+			Model:      model,
+			Status:     status,
+			DurationMS: duration.Milliseconds(),
+			Summary:    summary,
+		})
+		current = ""
+	}
+	return out
 }
 
 func resolveMode(parent context.Context, requested, image string) (mode, path, reason string) {

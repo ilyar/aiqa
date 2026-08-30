@@ -1,5 +1,5 @@
 {
-  "id": "openai-chat-compat",
+  "id": "openai-compat",
   "revision": "2026-08-30",
   "source": "https://github.com/openai/openai-openapi",
   "source_commit": "690521b1753dce0c6d6b275f583d22537679cff9",

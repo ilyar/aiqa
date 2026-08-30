@@ -2,8 +2,7 @@
 
 ## Add a compatibility probe
 
-1. Add a unique entry to `profiles/openai-chat-2026-08.json`.
-2. Copy it to `internal/profile/openai-chat-2026-08.json` using `make profiles-sync`.
+1. Add a unique entry to `profile/openai-compat-2026-08.json`.
 3. Implement the probe in `internal/suites/compat.go`.
 4. Return `pass`, `warn`, `unsupported`, `fail`, `error`, or `skip` deliberately.
 5. Add deterministic behavior to the integration mock in `internal/app/app_test.go`.

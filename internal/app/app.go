@@ -64,7 +64,6 @@ func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, er
 			Timeout:          cfg.Timeout.String(),
 			Formats:          append([]string(nil), cfg.Formats...),
 			ExternalMode:     cfg.ExternalMode,
-			ExternalImage:    cfg.ExternalImage,
 			FailOn:           cfg.FailOn,
 			ContextMaxTokens: cfg.ContextMaxTokens,
 			ContextPrecision: cfg.ContextPrecision,
@@ -145,7 +144,7 @@ func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, er
 					mr.Parameters, mr.Context = suites.RunModelParameters(ctx, env, model, metadata[model])
 				}
 				if cfg.HasTest("compat") && cfg.ExternalMode != "off" {
-					mr.External = append(mr.External, external.Run(ctx, cfg, model))
+					mr.External = append(mr.External, external.Run(ctx, cfg, model)...)
 				}
 				fmt.Fprintf(os.Stderr, "aiqa: [%s] done\n", model)
 				results <- item{index: index, report: mr}

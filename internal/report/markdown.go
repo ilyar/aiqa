@@ -25,10 +25,7 @@ func Markdown(r result.Report) string {
 	fmt.Fprintf(&b, "- **Suites:** `%s`\n", strings.Join(r.Config.Tests, ","))
 	fmt.Fprintf(&b, "- **Timeout:** `%s` per request\n", r.Config.Timeout)
 	fmt.Fprintf(&b, "- **Profile:** `%s@%s` (`%s`) – %s\n", r.Profile.ID, r.Profile.Revision, shortSHA(r.Profile.SourceCommit), r.Profile.Scope)
-	fmt.Fprintf(&b, "- **External checker:** `%s`\n", r.Config.ExternalMode)
-	if r.Config.ExternalImage != "" && r.Config.ExternalMode != "off" {
-		fmt.Fprintf(&b, "- **External image:** `%s`\n", escapeInline(r.Config.ExternalImage))
-	}
+	fmt.Fprintf(&b, "- **Official SDK checks:** `%s`\n", r.Config.ExternalMode)
 	fmt.Fprintln(&b)
 
 	fmt.Fprintln(&b, "## Summary")
@@ -103,10 +100,14 @@ func Markdown(r result.Report) string {
 		if len(m.External) > 0 {
 			fmt.Fprintln(&b, "### External SDK checker")
 			fmt.Fprintln(&b)
-			fmt.Fprintln(&b, "| Tool | Mode | Status | Summary | Duration |")
+			fmt.Fprintln(&b, "| Tool | Suite | Status | Summary | Duration |")
 			fmt.Fprintln(&b, "|---|---|---:|---|---:|")
 			for _, e := range m.External {
-				fmt.Fprintf(&b, "| `%s` | `%s` | %s | %s | %d ms |\n", escapeCell(e.Tool), escapeCell(e.Mode), statusLabel(e.Status), escapeCell(e.Summary), e.DurationMS)
+				suite := e.Suite
+				if suite == "" {
+					suite = "runner"
+				}
+				fmt.Fprintf(&b, "| `%s` | `%s` | %s | %s | %d ms |\n", escapeCell(e.Tool), escapeCell(suite), statusLabel(e.Status), escapeCell(e.Summary), e.DurationMS)
 			}
 			fmt.Fprintln(&b)
 			for _, e := range m.External {

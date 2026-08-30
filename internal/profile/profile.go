@@ -1,16 +1,18 @@
 package profile
 
 import (
-	_ "embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/url"
+	"path"
 	"strings"
 	"time"
+
+	profiledata "github.com/ilyar/aiqa/profile"
 )
 
-//go:embed openai-chat-2026-08.json
-var raw []byte
+const DefaultFile = "openai-compat-2026-08.json"
 
 type Probe struct {
 	ID          string `json:"id"`
@@ -34,7 +36,29 @@ type Profile struct {
 }
 
 func Load() (Profile, error) {
-	return parse(raw)
+	return LoadFile(DefaultFile)
+}
+
+// AvailableFiles returns the names of all profiles embedded in the binary.
+func AvailableFiles() ([]string, error) {
+	files, err := fs.Glob(profiledata.Files, "*.json")
+	if err != nil {
+		return nil, fmt.Errorf("list embedded compatibility profiles: %w", err)
+	}
+	return files, nil
+}
+
+// LoadFile loads and validates one embedded profile by filename.
+func LoadFile(name string) (Profile, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || path.Base(name) != name || !strings.HasSuffix(name, ".json") {
+		return Profile{}, fmt.Errorf("invalid compatibility profile filename %q", name)
+	}
+	data, err := profiledata.Files.ReadFile(name)
+	if err != nil {
+		return Profile{}, fmt.Errorf("read embedded compatibility profile %q: %w", name, err)
+	}
+	return parse(data)
 }
 
 func parse(data []byte) (Profile, error) {
