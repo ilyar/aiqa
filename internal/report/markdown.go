@@ -242,17 +242,17 @@ func writeContext(b *strings.Builder, c result.ContextProbeResult) {
 func statusLabel(status result.Status) string {
 	switch status {
 	case result.StatusPass:
-		return "✅ pass"
+		return "PASS"
 	case result.StatusFail:
-		return "❌ fail"
+		return "FAIL"
 	case result.StatusWarn:
-		return "⚠️ warn"
+		return "WARN"
 	case result.StatusUnsupported:
-		return "◻️ unsupported"
+		return "UNSUPPORTED"
 	case result.StatusSkip:
-		return "⏭️ skip"
+		return "SKIP"
 	case result.StatusError:
-		return "💥 error"
+		return "ERROR"
 	default:
 		return escapeCell(string(status))
 	}
@@ -261,13 +261,13 @@ func statusLabel(status result.Status) string {
 func statusLabelString(status string) string {
 	switch status {
 	case "pass":
-		return "✅ pass"
+		return "PASS"
 	case "pass-with-gaps":
-		return "⚠️ pass with gaps"
+		return "PASS-WITH-GAPS"
 	case "partial":
-		return "⚠️ partial"
+		return "PARTIAL"
 	case "fail":
-		return "❌ fail"
+		return "FAIL"
 	default:
 		return escapeCell(status)
 	}
