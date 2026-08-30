@@ -33,7 +33,7 @@ type pacer struct {
 
 func newPacer(initial time.Duration) *pacer {
 	if initial <= 0 {
-		initial = time.Second
+		initial = 2 * time.Second
 	}
 	return &pacer{interval: initial, limit: 1, changed: make(chan struct{})}
 }

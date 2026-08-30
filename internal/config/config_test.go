@@ -18,6 +18,9 @@ func TestParseExpectedCLI(t *testing.T) {
 	if cfg.Timeout != 120*time.Second {
 		t.Fatalf("unexpected timeout: %s", cfg.Timeout)
 	}
+	if cfg.RequestInterval != 2*time.Second {
+		t.Fatalf("unexpected request interval: %s", cfg.RequestInterval)
+	}
 }
 
 func TestParseTimeoutWithSpace(t *testing.T) {
