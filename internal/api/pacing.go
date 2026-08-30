@@ -22,6 +22,7 @@ type pacer struct {
 	interval      time.Duration
 	next          time.Time
 	successStreak int
+	quietWindows  int
 	inflight      int
 	limit         int
 	changed       chan struct{}
@@ -89,8 +90,10 @@ func (p *pacer) success() {
 	if p.successStreak >= 5 && p.interval > 200*time.Millisecond {
 		p.interval -= 100 * time.Millisecond
 		p.successStreak = 0
-		if p.limit < 4 {
+		p.quietWindows++
+		if p.quietWindows >= 2 && p.limit < 4 {
 			p.limit++
+			p.quietWindows = 0
 		}
 	}
 }
@@ -100,6 +103,7 @@ func (p *pacer) limited(retryAfter time.Duration) time.Duration {
 	defer p.mu.Unlock()
 	p.stats.RateLimited++
 	p.successStreak = 0
+	p.quietWindows = 0
 	p.limit = 1
 	if p.interval < 2*time.Second {
 		p.interval *= 2

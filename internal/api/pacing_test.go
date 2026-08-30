@@ -10,8 +10,14 @@ func TestPacerAdditiveIncreaseAndRateLimitDecrease(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		p.success()
 	}
+	if got := p.snapshot().SafeConcurrency; got != 1 {
+		t.Fatalf("concurrency=%d, want 1 until pacing has improved first", got)
+	}
+	for i := 0; i < 5; i++ {
+		p.success()
+	}
 	if got := p.snapshot().SafeConcurrency; got != 2 {
-		t.Fatalf("concurrency=%d, want 2 after quiet success window", got)
+		t.Fatalf("concurrency=%d, want 2 after second quiet success window", got)
 	}
 	p.limited(0)
 	stats := p.snapshot()
