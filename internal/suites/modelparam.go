@@ -475,7 +475,7 @@ func probeN(ctx context.Context, env Environment, model, limitParam string) resu
 }
 
 func probeParallelToolCalls(ctx context.Context, env Environment, model, limitParam string) result.ParameterResult {
-	prompt := "Call get_weather once for Bratislava and once for Prague. Return both calls in the same assistant turn."
+	prompt := "Call get_status once for resource-alpha and once for resource-beta. Return both calls in the same assistant turn."
 	base := map[string]any{
 		"tools":               []any{toolDefinition()},
 		"tool_choice":         "required",

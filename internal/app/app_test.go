@@ -286,7 +286,7 @@ func newMockOpenAI(t *testing.T) *httptest.Server {
 			content = `{"ok":true,"value":"AIQA_OK"}`
 		}
 		if hasToolRole(messages) {
-			content = "It is 21°C in Bratislava."
+			content = "resource-alpha is available."
 		} else if _, ok := body["tools"]; ok {
 			if choice, _ := body["tool_choice"].(string); choice == "none" {
 				content = "NONE_OK"
@@ -294,13 +294,13 @@ func newMockOpenAI(t *testing.T) *httptest.Server {
 				toolCalls = []any{map[string]any{
 					"id":       "call_mock_1",
 					"type":     "function",
-					"function": map[string]any{"name": "get_weather", "arguments": `{"city":"Bratislava"}`},
+					"function": map[string]any{"name": "get_status", "arguments": `{"resource_id":"resource-alpha"}`},
 				}}
-				if parallel, _ := body["parallel_tool_calls"].(bool); parallel && strings.Contains(prompt, "Prague") {
+				if parallel, _ := body["parallel_tool_calls"].(bool); parallel && strings.Contains(prompt, "resource-beta") {
 					toolCalls = append(toolCalls, map[string]any{
 						"id":       "call_mock_2",
 						"type":     "function",
-						"function": map[string]any{"name": "get_weather", "arguments": `{"city":"Prague"}`},
+						"function": map[string]any{"name": "get_status", "arguments": `{"resource_id":"resource-beta"}`},
 					})
 				}
 				content = ""
@@ -372,7 +372,7 @@ func newMockOpenAI(t *testing.T) *httptest.Server {
 				delta["content"] = nil
 				delta["tool_calls"] = []any{map[string]any{
 					"index": 0, "id": "call_mock_1", "type": "function",
-					"function": map[string]any{"name": "get_weather", "arguments": `{"city":"Bratislava"}`},
+					"function": map[string]any{"name": "get_status", "arguments": `{"resource_id":"resource-alpha"}`},
 				}}
 			}
 			chunk1 := map[string]any{

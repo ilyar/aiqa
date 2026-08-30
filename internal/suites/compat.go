@@ -497,14 +497,14 @@ func toolDefinition() map[string]any {
 	return map[string]any{
 		"type": "function",
 		"function": map[string]any{
-			"name":        "get_weather",
-			"description": "Get the current weather for a city.",
+			"name":        "get_status",
+			"description": "Get the status of an opaque test resource.",
 			"parameters": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"city": map[string]any{"type": "string"},
+					"resource_id": map[string]any{"type": "string"},
 				},
-				"required":             []any{"city"},
+				"required":             []any{"resource_id"},
 				"additionalProperties": false,
 			},
 		},
@@ -514,7 +514,7 @@ func toolDefinition() map[string]any {
 func probeToolChoice(parent context.Context, env Environment, model, mode string) result.TestResult {
 	id := "chat.tools." + mode
 	t := testBase(env.Profile, id, "compat")
-	prompt := "Use get_weather for Bratislava."
+	prompt := "Use get_status for resource-alpha."
 	if mode == "none" {
 		prompt = "Do not call any tool. Reply exactly NONE_OK."
 	}
@@ -580,11 +580,11 @@ func probeForcedTool(parent context.Context, env Environment, model string) (res
 	t := testBase(env.Profile, "chat.tools.forced", "compat")
 	resp, err := callChat(parent, env, map[string]any{
 		"model":    model,
-		"messages": []any{map[string]any{"role": "user", "content": "Use get_weather for Bratislava."}},
+		"messages": []any{map[string]any{"role": "user", "content": "Use get_status for resource-alpha."}},
 		"tools":    []any{toolDefinition()},
 		"tool_choice": map[string]any{
 			"type":     "function",
-			"function": map[string]any{"name": "get_weather"},
+			"function": map[string]any{"name": "get_status"},
 		},
 	})
 	t.DurationMS = resp.Duration.Milliseconds()
@@ -613,19 +613,19 @@ func probeForcedTool(parent context.Context, env Environment, model string) (res
 	args, _ := fn["arguments"].(string)
 	var decoded map[string]any
 	argErr := json.Unmarshal([]byte(args), &decoded)
-	city, _ := decoded["city"].(string)
+	resourceID, _ := decoded["resource_id"].(string)
 	var problems []string
 	if callID == "" {
 		problems = append(problems, "tool call id is missing")
 	}
-	if name != "get_weather" {
+	if name != "get_status" {
 		problems = append(problems, fmt.Sprintf("function name=%q", name))
 	}
 	if argErr != nil {
 		problems = append(problems, "function arguments are not valid JSON")
 	}
-	if city == "" {
-		problems = append(problems, "city argument is missing")
+	if resourceID == "" {
+		problems = append(problems, "resource_id argument is missing")
 	}
 	if len(problems) > 0 {
 		t.Status = result.StatusFail
@@ -646,11 +646,11 @@ func probeStreamingTool(parent context.Context, env Environment, model string) r
 	t := testBase(env.Profile, "chat.tools.stream", "compat")
 	body := map[string]any{
 		"model":    model,
-		"messages": []any{map[string]any{"role": "user", "content": "Use get_weather for Bratislava."}},
+		"messages": []any{map[string]any{"role": "user", "content": "Use get_status for resource-alpha."}},
 		"tools":    []any{toolDefinition()},
 		"tool_choice": map[string]any{
 			"type":     "function",
-			"function": map[string]any{"name": "get_weather"},
+			"function": map[string]any{"name": "get_status"},
 		},
 	}
 	ctx, cancel := env.probeContext(parent)
@@ -699,7 +699,7 @@ func probeStreamingTool(parent context.Context, env Environment, model string) r
 	args, _ := function["arguments"].(string)
 	var decoded map[string]any
 	argErr := json.Unmarshal([]byte(args), &decoded)
-	if callID == "" || name != "get_weather" || argErr != nil {
+	if callID == "" || name != "get_status" || argErr != nil {
 		t.Status = result.StatusFail
 		t.Summary = "streamed tool-call deltas did not reconstruct into a valid OpenAI tool call"
 		t.Observation = fmt.Sprintf("id=%q name=%q arguments=%q", callID, name, truncate(args, 240))
@@ -736,9 +736,9 @@ func probeToolContinuation(parent context.Context, env Environment, model string
 	resp, err := callChat(parent, env, map[string]any{
 		"model": model,
 		"messages": []any{
-			map[string]any{"role": "user", "content": "Use get_weather for Bratislava."},
+			map[string]any{"role": "user", "content": "Use get_status for resource-alpha."},
 			assistantForRequest,
-			map[string]any{"role": "tool", "tool_call_id": callID, "content": `{"city":"Bratislava","temperature_c":21}`},
+			map[string]any{"role": "tool", "tool_call_id": callID, "content": `{"resource_id":"resource-alpha","status":"available"}`},
 		},
 		"tools": []any{toolDefinition()},
 	})

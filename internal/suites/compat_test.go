@@ -50,7 +50,7 @@ func TestForcedToolChoiceDoesNotConflateParallelToolCalls(t *testing.T) {
 			t.Fatalf("expected forced function tool_choice, got %#v", body["tool_choice"])
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Bratislava\"}"}}]}}]}`))
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_status","arguments":"{\"resource_id\":\"resource-alpha\"}"}}]}}]}`))
 	}))
 	defer server.Close()
 
