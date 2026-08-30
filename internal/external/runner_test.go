@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ilyar/aiqa/internal/config"
+	"github.com/ilyar/aiqa/internal/profile"
 	"github.com/ilyar/aiqa/internal/result"
 )
 
@@ -87,5 +88,38 @@ func TestParseSuiteResultsUsesSuiteDurations(t *testing.T) {
 	}
 	if got[1].Suite != "chat_completions" || got[1].Status != result.StatusPass || got[1].DurationMS != (time.Second+283*time.Millisecond).Milliseconds() {
 		t.Fatalf("unexpected second suite result: %+v", got[1])
+	}
+}
+
+func TestNormalizeAgainstProfileTreatsOptionalModelsGet404AsUnsupported(t *testing.T) {
+	p, err := profile.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := normalizeAgainstProfile([]result.ExternalResult{{
+		Suite:   "models_get",
+		Status:  result.StatusFail,
+		Summary: `models get request failed: GET "http://example.test/v1/models/model": 404 Not Found`,
+	}}, p)
+	if results[0].Status != result.StatusUnsupported {
+		t.Fatalf("status=%q, want unsupported", results[0].Status)
+	}
+	if !containsHTTPStatus(results[0].Summary, 404) {
+		t.Fatalf("normalized summary lost HTTP status: %q", results[0].Summary)
+	}
+}
+
+func TestNormalizeAgainstProfileRetainsModelsGetFailuresOtherThan404(t *testing.T) {
+	p, err := profile.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := normalizeAgainstProfile([]result.ExternalResult{{
+		Suite:   "models_get",
+		Status:  result.StatusFail,
+		Summary: `models get request failed: 500 Internal Server Error`,
+	}}, p)
+	if results[0].Status != result.StatusFail {
+		t.Fatalf("status=%q, want fail", results[0].Status)
 	}
 }

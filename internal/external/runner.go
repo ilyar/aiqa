@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/ilyar/aiqa/internal/config"
+	"github.com/ilyar/aiqa/internal/profile"
 	"github.com/ilyar/aiqa/internal/result"
 )
 
@@ -31,7 +32,7 @@ var (
 	suiteResult = regexp.MustCompile(`^\s*(PASS|FAIL|SKIP|ERROR)\s+\(([^)]+)\):?\s*(.*)$`)
 )
 
-func Run(parent context.Context, cfg config.Config, model string) []result.ExternalResult {
+func Run(parent context.Context, cfg config.Config, model string, p profile.Profile) []result.ExternalResult {
 	mode, path, reason := resolveMode(parent, cfg.ExternalMode, cfg.ExternalImage)
 	if mode == "off" {
 		return runnerResult(model, result.StatusSkip, reason, "", "")
@@ -71,13 +72,13 @@ func Run(parent context.Context, cfg config.Config, model string) []result.Exter
 	parsed := parseSuiteResults(output.String(), model)
 	if len(parsed) > 0 {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return append(parsed, runnerResult(model, result.StatusError, "official-SDK checker timed out", ctx.Err().Error(), cleanOutput)...)
+			return normalizeAgainstProfile(append(parsed, runnerResult(model, result.StatusError, "official-SDK checker timed out", ctx.Err().Error(), cleanOutput)...), p)
 		}
 		var exitErr *exec.ExitError
 		if err != nil && !errors.As(err, &exitErr) {
-			return append(parsed, runnerResult(model, result.StatusError, "official-SDK checker terminated unexpectedly", err.Error(), cleanOutput)...)
+			return normalizeAgainstProfile(append(parsed, runnerResult(model, result.StatusError, "official-SDK checker terminated unexpectedly", err.Error(), cleanOutput)...), p)
 		}
-		return parsed
+		return normalizeAgainstProfile(parsed, p)
 	}
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return runnerResult(model, result.StatusError, "official-SDK checker timed out before reporting a suite", ctx.Err().Error(), cleanOutput)
@@ -90,6 +91,30 @@ func Run(parent context.Context, cfg config.Config, model string) []result.Exter
 		return runnerResult(model, result.StatusError, "official-SDK checker produced no suite results", "", cleanOutput)
 	}
 	return runnerResult(model, result.StatusError, "official-SDK checker could not start", err.Error(), cleanOutput)
+}
+
+// normalizeAgainstProfile makes an external checker's stricter suite policy
+// consistent with the selected AIQA compatibility profile. The official SDK
+// checker considers Models.Get mandatory, while this profile marks the
+// corresponding endpoint as optional.
+func normalizeAgainstProfile(results []result.ExternalResult, p profile.Profile) []result.ExternalResult {
+	for index := range results {
+		r := &results[index]
+		if r.Suite != "models_get" || r.Status != result.StatusFail || !containsHTTPStatus(r.Summary, 404) {
+			continue
+		}
+		probe := p.Probe("models.retrieve")
+		if probe.Required {
+			continue
+		}
+		r.Status = result.StatusUnsupported
+		r.Summary = "optional GET /models/{model} is not supported: " + r.Summary
+	}
+	return results
+}
+
+func containsHTTPStatus(summary string, status int) bool {
+	return regexp.MustCompile(`\b` + strconv.Itoa(status) + `\b`).MatchString(summary)
 }
 
 func dockerRunArgs(cfg config.Config) ([]string, string) {

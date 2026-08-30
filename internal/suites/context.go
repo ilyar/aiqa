@@ -117,7 +117,9 @@ func ProbeContextWindow(parent context.Context, env Environment, model string, m
 		if upperEstimate-low.tokens <= env.Config.ContextPrecision {
 			break
 		}
-		mid := alignBytes(low.bytes+(high.bytes-low.bytes)/2, 1024)
+		// Keep binary-search steps fine enough for small context windows. A 1 KiB
+		// alignment cannot refine a boundary between 1 and 2 KiB at all.
+		mid := alignBytes(low.bytes+(high.bytes-low.bytes)/2, 256)
 		if mid <= low.bytes || mid >= high.bytes {
 			break
 		}
@@ -237,7 +239,7 @@ func isExplicitContextOverflow(status int, message string) bool {
 	}
 	m := strings.ToLower(message)
 	needles := []string{
-		"context length", "context window", "maximum context", "max context",
+		"context length", "context window", "context size", "maximum context", "max context",
 		"too many tokens", "token limit", "input is too long", "prompt is too long",
 		"maximum sequence length", "max_model_len", "request too large", "payload too large",
 	}

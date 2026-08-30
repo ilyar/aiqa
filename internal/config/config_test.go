@@ -42,6 +42,9 @@ func TestParseUsesPreciseContextBoundaryByDefault(t *testing.T) {
 	if cfg.ContextPrecision != 512 {
 		t.Fatalf("unexpected default context precision: %d", cfg.ContextPrecision)
 	}
+	if cfg.ContextStartBytes != 1024 {
+		t.Fatalf("unexpected default context start bytes: %d", cfg.ContextStartBytes)
+	}
 }
 
 func TestParseHelpWithoutCredentials(t *testing.T) {

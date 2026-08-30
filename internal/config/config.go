@@ -137,7 +137,7 @@ func Parse(args []string) (Config, error) {
 		ContextMaxTokens:  1_100_000,
 		ContextPrecision:  512,
 		ContextBudget:     8_000_000,
-		ContextStartBytes: 8 * 1024,
+		ContextStartBytes: 1024,
 		ContextMaxBytes:   32 * 1024 * 1024,
 	}
 
@@ -282,7 +282,7 @@ func (c Config) Validate() error {
 	if c.Samples < 2 || c.Samples > 30 {
 		return errors.New("--samples must be between 2 and 30")
 	}
-	if c.ContextStartBytes < 1024 || c.ContextMaxBytes < c.ContextStartBytes {
+	if c.ContextStartBytes < 256 || c.ContextMaxBytes < c.ContextStartBytes {
 		return errors.New("invalid context byte limits")
 	}
 	if c.ContextPrecision > c.ContextMaxTokens {

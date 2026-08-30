@@ -77,7 +77,7 @@ model parameters:
   --context-precision 512
                             desired boundary precision in tokens
   --context-budget 8m      prompt-token budget per model
-  --context-start-bytes 8192
+  --context-start-bytes 1024
   --context-max-bytes 33554432
 
 connection and diagnostics:

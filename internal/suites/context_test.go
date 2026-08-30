@@ -18,3 +18,12 @@ func TestHasAcceptedContextSample(t *testing.T) {
 		t.Fatal("rejected samples alone must not establish a context boundary")
 	}
 }
+
+func TestContextBinarySearchAlignmentRefinesSmallWindows(t *testing.T) {
+	if got := alignBytes(1536, 256); got != 1536 {
+		t.Fatalf("small-window midpoint=%d, want 1536", got)
+	}
+	if got := alignBytes(1536, 1024); got != 1024 {
+		t.Fatalf("sanity check: coarse midpoint=%d, want 1024", got)
+	}
+}
