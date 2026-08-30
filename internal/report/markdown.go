@@ -44,7 +44,12 @@ func Markdown(r result.Report) string {
 	writeTestTable(&b, r.Discovery.Tests)
 	fmt.Fprintln(&b)
 	if len(r.Discovery.Models) > 0 {
-		fmt.Fprintf(&b, "Discovered models: **%d**. Full model metadata is available in the JSON report.\n\n", len(r.Discovery.Models))
+		fmt.Fprintf(&b, "Discovered models: **%d**.", len(r.Discovery.Models))
+		if len(r.Models) != len(r.Discovery.Models) {
+			fmt.Fprint(&b, " Full model metadata is available in the JSON report.")
+		}
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b)
 	}
 
 	fmt.Fprintln(&b, "## Models")
