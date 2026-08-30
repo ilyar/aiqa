@@ -44,6 +44,7 @@ func DiscoveryTests(p profile.Profile, resp api.Response, models []api.Model, li
 		schemaTest.Summary = "schema was not checked because model discovery failed"
 	} else {
 		var problems []string
+		missingCreated := 0
 		if object, _ := resp.JSON["object"].(string); object != "list" {
 			problems = append(problems, fmt.Sprintf("object=%q, expected list", object))
 		}
@@ -69,8 +70,13 @@ func DiscoveryTests(p profile.Profile, resp api.Response, models []api.Model, li
 					problems = append(problems, fmt.Sprintf("data[%d].object=%q", i, object))
 				}
 				if _, ok := m["created"]; !ok {
-					problems = append(problems, fmt.Sprintf("data[%d].created is missing", i))
+					missingCreated++
 				}
+			}
+			if missingCreated > 0 {
+				problems = append(problems, fmt.Sprintf("created is missing in %d/%d model entries", missingCreated, len(data)))
+				schemaTest.Metrics["missing_created_entries"] = missingCreated
+				schemaTest.Metrics["model_entries"] = len(data)
 			}
 		}
 		if len(problems) == 0 {

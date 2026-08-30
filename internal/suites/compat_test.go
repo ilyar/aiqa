@@ -29,7 +29,7 @@ func TestDiscoverySchemaRequiresModelCreated(t *testing.T) {
 		},
 	}
 	tests := DiscoveryTests(p, resp, []api.Model{{ID: "test-model"}}, nil)
-	if got := tests[1]; got.Status != result.StatusFail || !strings.Contains(got.Observation, "created is missing") {
+	if got := tests[1]; got.Status != result.StatusFail || !strings.Contains(got.Observation, "created is missing in 1/1") {
 		t.Fatalf("missing model created must fail schema validation: %+v", got)
 	}
 }
