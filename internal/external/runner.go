@@ -70,6 +70,7 @@ func Run(parent context.Context, cfg config.Config, model string, p profile.Prof
 	err := cmd.Run()
 	cleanOutput := redactAndTruncate(output.String(), cfg.APIKey, 16*1024)
 	parsed := parseSuiteResults(output.String(), model)
+	attachDiagnostics(parsed, cleanOutput)
 	if len(parsed) > 0 {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return normalizeAgainstProfile(append(parsed, runnerResult(model, result.StatusError, "official-SDK checker timed out", ctx.Err().Error(), cleanOutput)...), p)
@@ -100,17 +101,54 @@ func Run(parent context.Context, cfg config.Config, model string, p profile.Prof
 func normalizeAgainstProfile(results []result.ExternalResult, p profile.Profile) []result.ExternalResult {
 	for index := range results {
 		r := &results[index]
-		if r.Suite != "models_get" || r.Status != result.StatusFail || !containsHTTPStatus(r.Summary, 404) {
+		if r.Status != result.StatusFail || !isCapabilityStatus(r.Summary) {
 			continue
 		}
-		probe := p.Probe("models.retrieve")
-		if probe.Required {
+		probeIDs, reason := optionalSuiteProbes(*r)
+		if len(probeIDs) == 0 || !allOptional(p, probeIDs) {
 			continue
 		}
 		r.Status = result.StatusUnsupported
-		r.Summary = "optional GET /models/{model} is not supported: " + r.Summary
+		r.Summary = "optional " + reason + " is not supported: " + r.Summary
 	}
 	return results
+}
+
+func optionalSuiteProbes(r result.ExternalResult) ([]string, string) {
+	switch r.Suite {
+	case "models_get":
+		return []string{"models.retrieve"}, "GET /models/{model}"
+	case "chat_completions_tools":
+		return []string{"chat.tools.forced", "chat.tools.required"}, "forced/required tool choice"
+	case "chat_completions_tools_stream":
+		return []string{"chat.tools.stream"}, "streaming tool calls"
+	case "chat_completions_multi_turn":
+		if strings.Contains(strings.ToLower(r.Summary), "developer") {
+			return []string{"chat.role.developer"}, "developer role"
+		}
+	}
+	return nil, ""
+}
+
+func allOptional(p profile.Profile, ids []string) bool {
+	for _, id := range ids {
+		if p.Probe(id).Required {
+			return false
+		}
+	}
+	return true
+}
+
+func isCapabilityStatus(summary string) bool {
+	return containsHTTPStatus(summary, 400) || containsHTTPStatus(summary, 404) || containsHTTPStatus(summary, 422)
+}
+
+func attachDiagnostics(results []result.ExternalResult, output string) {
+	for i := range results {
+		if results[i].Status == result.StatusFail || results[i].Status == result.StatusError {
+			results[i].Output = output
+		}
+	}
 }
 
 func containsHTTPStatus(summary string, status int) bool {
