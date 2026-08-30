@@ -18,15 +18,16 @@ type PacingStats struct {
 }
 
 type pacer struct {
-	mu            sync.Mutex
-	interval      time.Duration
-	next          time.Time
-	successStreak int
-	quietWindows  int
-	inflight      int
-	limit         int
-	changed       chan struct{}
-	stats         PacingStats
+	mu                    sync.Mutex
+	interval              time.Duration
+	next                  time.Time
+	successStreak         int
+	quietWindows          int
+	inflight              int
+	limit                 int
+	maxSuccessfulInFlight int
+	changed               chan struct{}
+	stats                 PacingStats
 }
 
 func newPacer(initial time.Duration) *pacer {
@@ -85,6 +86,9 @@ func (p *pacer) success() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.stats.SuccessfulRequests++
+	if p.inflight > p.maxSuccessfulInFlight {
+		p.maxSuccessfulInFlight = p.inflight
+	}
 	p.successStreak++
 	// Additive increase only after a quiet window; never go faster than 5 req/s.
 	if p.successStreak >= 5 && p.interval > 200*time.Millisecond {
@@ -130,6 +134,6 @@ func (p *pacer) snapshot() PacingStats {
 	if p.interval > 0 {
 		out.SafeRate = 1 / p.interval.Seconds()
 	}
-	out.SafeConcurrency = p.limit
+	out.SafeConcurrency = p.maxSuccessfulInFlight
 	return out
 }
