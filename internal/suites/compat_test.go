@@ -58,7 +58,7 @@ func TestForcedToolChoiceDoesNotConflateParallelToolCalls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client, err := api.NewClient(server.URL, "test-key", "aiqa-test")
+	client, err := api.NewClient(server.URL, "test-key", "aiqa-test", time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}

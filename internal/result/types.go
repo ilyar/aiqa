@@ -175,14 +175,27 @@ type Discovery struct {
 }
 
 type Report struct {
-	SchemaVersion string        `json:"schema_version"`
-	GeneratedAt   time.Time     `json:"generated_at"`
-	Tool          ToolInfo      `json:"tool"`
-	Profile       ProfileInfo   `json:"profile"`
-	Config        PublicConfig  `json:"config"`
-	Discovery     Discovery     `json:"discovery"`
-	Models        []ModelReport `json:"models"`
-	Summary       Summary       `json:"summary"`
+	SchemaVersion string         `json:"schema_version"`
+	GeneratedAt   time.Time      `json:"generated_at"`
+	Tool          ToolInfo       `json:"tool"`
+	Profile       ProfileInfo    `json:"profile"`
+	Config        PublicConfig   `json:"config"`
+	Discovery     Discovery      `json:"discovery"`
+	Models        []ModelReport  `json:"models"`
+	Summary       Summary        `json:"summary"`
+	RateLimit     RateLimitStats `json:"rate_limit"`
+}
+
+type RateLimitStats struct {
+	SuccessfulRequests int     `json:"successful_requests"`
+	RateLimited        int     `json:"rate_limited_responses"`
+	RetriesRecovered   int     `json:"retries_recovered"`
+	BackoffMS          int64   `json:"backoff_ms"`
+	SafeRate           float64 `json:"observed_safe_requests_per_second"`
+	LatencySamples     int     `json:"latency_samples"`
+	MeanLatencyMS      int64   `json:"mean_latency_ms"`
+	P50LatencyMS       int64   `json:"p50_latency_ms"`
+	P95LatencyMS       int64   `json:"p95_latency_ms"`
 }
 
 func Bool(v bool) *bool { return &v }

@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -22,9 +23,10 @@ type Client struct {
 	apiKey    string
 	http      *http.Client
 	userAgent string
+	pacer     *pacer
 }
 
-func NewClient(baseURL, apiKey, userAgent string) (*Client, error) {
+func NewClient(baseURL, apiKey, userAgent string, initialInterval time.Duration) (*Client, error) {
 	u, err := url.Parse(strings.TrimRight(baseURL, "/"))
 	if err != nil {
 		return nil, fmt.Errorf("parse base URL: %w", err)
@@ -39,6 +41,7 @@ func NewClient(baseURL, apiKey, userAgent string) (*Client, error) {
 		apiKey:    apiKey,
 		http:      &http.Client{Transport: transport},
 		userAgent: userAgent,
+		pacer:     newPacer(initialInterval),
 	}, nil
 }
 
@@ -48,7 +51,8 @@ func (c *Client) CloneWithKey(apiKey string) *Client {
 	return &clone
 }
 
-func (c *Client) BaseURL() string { return c.baseURL.String() }
+func (c *Client) BaseURL() string          { return c.baseURL.String() }
+func (c *Client) PacingStats() PacingStats { return c.pacer.snapshot() }
 
 func (c *Client) ListModels(ctx context.Context) ([]Model, Response, error) {
 	resp, err := c.DoJSON(ctx, http.MethodGet, "models", nil)
@@ -109,6 +113,26 @@ func (c *Client) DoRaw(ctx context.Context, method, path string, body []byte, co
 }
 
 func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []byte, contentType string) (Response, error) {
+	for attempt := 0; attempt < 3; attempt++ {
+		if err := c.pacer.wait(ctx); err != nil {
+			return Response{}, err
+		}
+		resp, err := c.doRawURLOnce(ctx, method, endpoint, body, contentType)
+		if resp.StatusCode != http.StatusTooManyRequests {
+			if resp.Is2xx() {
+				c.pacer.success()
+				if attempt > 0 {
+					c.pacer.recovered()
+				}
+			}
+			return resp, err
+		}
+		c.pacer.limited(retryAfter(resp.Header))
+	}
+	return c.doRawURLOnce(ctx, method, endpoint, body, contentType)
+}
+
+func (c *Client) doRawURLOnce(ctx context.Context, method, endpoint string, body []byte, contentType string) (Response, error) {
 	var reader io.Reader
 	if body != nil {
 		reader = bytes.NewReader(body)
@@ -156,6 +180,20 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 		}
 	}
 	return resp, nil
+}
+
+func retryAfter(header http.Header) time.Duration {
+	v := strings.TrimSpace(header.Get("Retry-After"))
+	if v == "" {
+		return 0
+	}
+	if seconds, err := strconv.Atoi(v); err == nil && seconds >= 0 {
+		return time.Duration(seconds) * time.Second
+	}
+	if when, err := http.ParseTime(v); err == nil {
+		return time.Until(when)
+	}
+	return 0
 }
 
 func (c *Client) ChatStream(ctx context.Context, body map[string]any) (StreamResponse, error) {

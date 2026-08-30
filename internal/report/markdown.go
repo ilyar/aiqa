@@ -38,6 +38,7 @@ func Markdown(r result.Report) string {
 	}
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b)
+	writeRateLimit(&b, r.RateLimit)
 
 	fmt.Fprintln(&b, "## Model discovery")
 	fmt.Fprintln(&b)
@@ -131,6 +132,18 @@ func Markdown(r result.Report) string {
 	fmt.Fprintln(&b, "- Context results distinguish a measured accepted lower bound from an estimated first rejected boundary. Token counts are exact only when the provider returns `usage.prompt_tokens`.")
 	fmt.Fprintln(&b, "- Temperature, `top_p`, and seed checks are statistical. A warning does not prove that a parameter is ignored; it says this run did not produce enough evidence to claim effectiveness.")
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func writeRateLimit(b *strings.Builder, s result.RateLimitStats) {
+	fmt.Fprintln(b, "## Rate-limit and latency")
+	fmt.Fprintln(b)
+	fmt.Fprintln(b, "Request pacing: adaptive")
+	fmt.Fprintf(b, "Successful native requests: %d  \n", s.SuccessfulRequests)
+	fmt.Fprintf(b, "429 responses: %d  \n", s.RateLimited)
+	fmt.Fprintf(b, "Retries recovered: %d  \n", s.RetriesRecovered)
+	fmt.Fprintf(b, "Observed safe request rate: %.2f req/s  \n", s.SafeRate)
+	fmt.Fprintf(b, "Successful native latency (n=%d): mean %d ms; P50 %d ms; P95 %d ms  \n", s.LatencySamples, s.MeanLatencyMS, s.P50LatencyMS, s.P95LatencyMS)
+	fmt.Fprintf(b, "Backoff time: %d ms\n\n", s.BackoffMS)
 }
 
 func externalChecks(r result.Report) string {

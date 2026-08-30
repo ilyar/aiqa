@@ -20,6 +20,7 @@ type Config struct {
 	Tests             []string
 	Models            []string
 	Timeout           time.Duration
+	RequestInterval   time.Duration
 	Formats           []string
 	Name              string
 	Concurrency       int
@@ -127,6 +128,7 @@ func Parse(args []string) (Config, error) {
 		APIKey:            os.Getenv("OPENAI_API_KEY"),
 		Tests:             []string{"compat"},
 		Timeout:           120 * time.Second,
+		RequestInterval:   time.Second,
 		Formats:           []string{"markdown", "json"},
 		Name:              "report",
 		Concurrency:       1,
@@ -151,6 +153,7 @@ func Parse(args []string) (Config, error) {
 	fs.StringVar(&tests, "test", tests, "comma-separated suites: compat,model-param")
 	fs.StringVar(&models, "model", "", "one or more comma-separated model IDs; default: discover via /models")
 	fs.Var(durationValue{&cfg.Timeout}, "timeout", "per-request timeout, e.g. 120 or 2m")
+	fs.Var(durationValue{&cfg.RequestInterval}, "request-interval", "initial adaptive request interval, e.g. 1s")
 	fs.StringVar(&formats, "format", formats, "comma-separated report formats: markdown,json")
 	fs.StringVar(&cfg.Name, "name", cfg.Name, "output basename without extension")
 	fs.IntVar(&cfg.Concurrency, "concurrency", cfg.Concurrency, "number of models tested concurrently")

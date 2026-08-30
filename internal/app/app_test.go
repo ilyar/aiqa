@@ -134,6 +134,7 @@ func testConfig(baseURL string, tests []string) config.Config {
 		APIKey:            "test-key",
 		Tests:             tests,
 		Timeout:           5 * time.Second,
+		RequestInterval:   time.Millisecond,
 		Formats:           []string{"markdown", "json"},
 		Name:              "report",
 		Concurrency:       1,

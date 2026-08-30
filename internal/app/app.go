@@ -35,7 +35,7 @@ func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, er
 	if err != nil {
 		return RunResult{}, err
 	}
-	client, err := api.NewClient(cfg.BaseURL, cfg.APIKey, "aiqa/"+build.Version)
+	client, err := api.NewClient(cfg.BaseURL, cfg.APIKey, "aiqa/"+build.Version, cfg.RequestInterval)
 	if err != nil {
 		return RunResult{}, err
 	}
@@ -165,12 +165,43 @@ func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, er
 		ordered[item.index] = item.report
 	}
 	r.Models = ordered
+	stats := client.PacingStats()
+	r.RateLimit = result.RateLimitStats{SuccessfulRequests: stats.SuccessfulRequests, RateLimited: stats.RateLimited, RetriesRecovered: stats.RetriesRecovered, BackoffMS: stats.Backoff.Milliseconds(), SafeRate: stats.SafeRate}
+	addLatencyStats(&r.RateLimit, r)
 	reportpkg.Finalize(&r)
 	paths, err := reportpkg.Write(r, cfg)
 	if err != nil {
 		return RunResult{Report: r, ExitCode: 2}, err
 	}
 	return RunResult{Report: r, Paths: paths, ExitCode: exitCode(cfg, r.Summary)}, nil
+}
+
+func addLatencyStats(out *result.RateLimitStats, r result.Report) {
+	var values []int64
+	add := func(t result.TestResult) {
+		if t.HTTP.StatusCode >= 200 && t.HTTP.StatusCode < 300 && t.DurationMS > 0 {
+			values = append(values, t.DurationMS)
+		}
+	}
+	for _, t := range r.Discovery.Tests {
+		add(t)
+	}
+	for _, m := range r.Models {
+		for _, t := range m.Compatibility {
+			add(t)
+		}
+	}
+	if len(values) == 0 {
+		return
+	}
+	sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
+	var total int64
+	for _, v := range values {
+		total += v
+	}
+	out.LatencySamples, out.MeanLatencyMS = len(values), total/int64(len(values))
+	out.P50LatencyMS = values[(len(values)-1)/2]
+	out.P95LatencyMS = values[(95*len(values)-1)/100]
 }
 
 func selectModels(requested []string, discovered []api.Model) ([]string, map[string]map[string]any) {
