@@ -129,8 +129,11 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 			return resp, err
 		}
 		c.pacer.limited(retryAfter(resp.Header))
+		if attempt == 2 {
+			return resp, err
+		}
 	}
-	return c.doRawURLOnce(ctx, method, endpoint, body, contentType)
+	panic("unreachable")
 }
 
 func (c *Client) doRawURLOnce(ctx context.Context, method, endpoint string, body []byte, contentType string) (Response, error) {
@@ -226,10 +229,11 @@ func (c *Client) ChatStream(ctx context.Context, body map[string]any) (StreamRes
 		if httpResp.StatusCode != http.StatusTooManyRequests {
 			break
 		}
+		delay := retryAfter(httpResp.Header)
 		if attempt == 2 {
+			c.pacer.limited(delay)
 			break
 		}
-		delay := retryAfter(httpResp.Header)
 		_, _ = io.Copy(io.Discard, io.LimitReader(httpResp.Body, 32<<10))
 		httpResp.Body.Close()
 		c.pacer.release()

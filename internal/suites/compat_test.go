@@ -68,3 +68,29 @@ func TestForcedToolChoiceDoesNotConflateParallelToolCalls(t *testing.T) {
 		t.Fatalf("forced tool choice should pass independently of parallel_tool_calls: %+v", got)
 	}
 }
+
+func TestStreamingRateLimitIsInconclusive(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"message":"slow down"}}`))
+	}))
+	defer server.Close()
+
+	p, err := profile.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := api.NewClient(server.URL, "test-key", "aiqa-test", time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := Environment{Client: client, Config: config.Config{Timeout: time.Second}, Profile: p}
+	got := probeStreaming(context.Background(), env, "test-model", false)
+	if got.Status != result.StatusError {
+		t.Fatalf("status=%s, want error/inconclusive: %+v", got.Status, got)
+	}
+	if !strings.Contains(got.Summary, "rate limited") {
+		t.Fatalf("summary=%q, want rate-limit explanation", got.Summary)
+	}
+}

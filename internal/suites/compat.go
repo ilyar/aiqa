@@ -389,7 +389,10 @@ func probeStreaming(parent context.Context, env Environment, model string, inclu
 		return t
 	}
 	if !resp.Is2xx() {
-		if includeUsage && (resp.StatusCode == 400 || resp.StatusCode == 422) {
+		if resp.StatusCode == http.StatusTooManyRequests {
+			t.Status = result.StatusError
+			t.Summary = "stream remained rate limited after adaptive retries; compatibility outcome is inconclusive"
+		} else if includeUsage && (resp.StatusCode == 400 || resp.StatusCode == 422) {
 			t.Status = result.StatusUnsupported
 			t.Summary = "stream_options.include_usage is unsupported"
 		} else {
@@ -666,7 +669,10 @@ func probeStreamingTool(parent context.Context, env Environment, model string) r
 		return t
 	}
 	if !resp.Is2xx() {
-		if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+		if resp.StatusCode == http.StatusTooManyRequests {
+			t.Status = result.StatusError
+			t.Summary = "streaming tool call remained rate limited after adaptive retries; compatibility outcome is inconclusive"
+		} else if resp.StatusCode >= 400 && resp.StatusCode < 500 {
 			t.Status = result.StatusUnsupported
 			t.Summary = "streaming tool calls are unsupported"
 		} else {

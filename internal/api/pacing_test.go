@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -27,5 +28,23 @@ func TestPacerAdditiveIncreaseAndRateLimitDecrease(t *testing.T) {
 	}
 	if stats.RateLimited != 1 {
 		t.Fatalf("rate limited=%d, want 1", stats.RateLimited)
+	}
+}
+
+func TestPacerWaitHonorsBackoffAfterReservation(t *testing.T) {
+	p := newPacer(time.Millisecond)
+	// A caller reaching the scheduler while a 429 backoff is active must not
+	// start until that backoff expires.
+	p.mu.Lock()
+	p.next = time.Now()
+	p.mu.Unlock()
+	p.limited(40 * time.Millisecond)
+	started := time.Now()
+	if err := p.wait(context.Background()); err != nil {
+		t.Fatalf("wait: %v", err)
+	}
+	defer p.release()
+	if elapsed := time.Since(started); elapsed < 30*time.Millisecond {
+		t.Fatalf("wait returned after %s; backoff was bypassed", elapsed)
 	}
 }

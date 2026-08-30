@@ -21,6 +21,7 @@ type pacer struct {
 	mu                    sync.Mutex
 	interval              time.Duration
 	next                  time.Time
+	blockedUntil          time.Time
 	successStreak         int
 	quietWindows          int
 	inflight              int
@@ -47,16 +48,35 @@ func (p *pacer) wait(ctx context.Context) error {
 	p.next = start.Add(p.interval)
 	p.mu.Unlock()
 	if delay := time.Until(start); delay > 0 {
-		t := time.NewTimer(delay)
-		defer t.Stop()
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-t.C:
+		if err := waitDuration(ctx, delay); err != nil {
+			return err
 		}
+	}
+	// Requests that reserved an earlier start must still observe a 429 backoff
+	// imposed while they were waiting. This bounds the small race introduced by
+	// multiple queued callers without discarding their pacing reservation.
+	for {
+		p.mu.Lock()
+		blockedUntil := p.blockedUntil
+		p.mu.Unlock()
+		if delay := time.Until(blockedUntil); delay > 0 {
+			if err := waitDuration(ctx, delay); err != nil {
+				return err
+			}
+			continue
+		}
+		break
 	}
 	for {
 		p.mu.Lock()
+		blockedUntil := p.blockedUntil
+		if delay := time.Until(blockedUntil); delay > 0 {
+			p.mu.Unlock()
+			if err := waitDuration(ctx, delay); err != nil {
+				return err
+			}
+			continue
+		}
 		if p.inflight < p.limit {
 			p.inflight++
 			p.mu.Unlock()
@@ -69,6 +89,17 @@ func (p *pacer) wait(ctx context.Context) error {
 			return ctx.Err()
 		case <-changed:
 		}
+	}
+}
+
+func waitDuration(ctx context.Context, delay time.Duration) error {
+	t := time.NewTimer(delay)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
 	}
 }
 
@@ -109,9 +140,7 @@ func (p *pacer) limited(retryAfter time.Duration) time.Duration {
 	p.successStreak = 0
 	p.quietWindows = 0
 	p.limit = 1
-	if p.interval < 2*time.Second {
-		p.interval *= 2
-	}
+	p.interval *= 2
 	if p.interval > 30*time.Second {
 		p.interval = 30 * time.Second
 	}
@@ -120,7 +149,10 @@ func (p *pacer) limited(retryAfter time.Duration) time.Duration {
 		delay = p.interval + time.Duration(rand.Int63n(int64(250*time.Millisecond)))
 	}
 	p.stats.Backoff += delay
-	if until := time.Now().Add(delay); until.After(p.next) {
+	if until := time.Now().Add(delay); until.After(p.blockedUntil) {
+		p.blockedUntil = until
+	}
+	if until := p.blockedUntil; until.After(p.next) {
 		p.next = until
 	}
 	return delay

@@ -788,11 +788,11 @@ func statusFromParamCall(call paramCall) result.Status {
 	if call.Err != nil && call.Resp.StatusCode == 0 {
 		return result.StatusError
 	}
+	if call.Resp.StatusCode == 429 || call.Resp.StatusCode >= 500 {
+		return result.StatusError
+	}
 	if call.Resp.StatusCode >= 400 && call.Resp.StatusCode < 500 {
 		return result.StatusUnsupported
-	}
-	if call.Resp.StatusCode >= 500 || call.Resp.StatusCode == 429 {
-		return result.StatusError
 	}
 	return result.StatusFail
 }
