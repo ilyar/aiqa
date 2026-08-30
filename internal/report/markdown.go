@@ -223,10 +223,10 @@ func writeContext(b *strings.Builder, c result.ContextProbeResult) {
 	fmt.Fprintln(b, "### Context window")
 	fmt.Fprintln(b)
 	fmt.Fprintf(b, "**%s:** %s\n\n", statusLabel(c.Status), escapeCell(c.Summary))
-	fmt.Fprintln(b, "| Declared | Accepted lower bound | First rejected estimate | Precision | Confidence | Probes | Probe tokens | Output cap |")
-	fmt.Fprintln(b, "|---:|---:|---:|---:|---|---:|---:|---|")
-	fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %d | %s | `%s` |\n",
-		humanOrDash(c.DeclaredTokens), humanOrDash(c.LowerBoundTokens), humanOrDash(c.UpperBoundTokens),
+	fmt.Fprintln(b, "| Metadata limit | Server-reported limit | Accepted lower bound | First rejected estimate | Precision | Confidence | Probes | Probe tokens | Output cap |")
+	fmt.Fprintln(b, "|---:|---:|---:|---:|---:|---|---:|---:|---|")
+	fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s | %d | %s | `%s` |\n",
+		humanOrDash(c.DeclaredTokens), humanOrDash(c.ServerLimitTokens), humanOrDash(c.LowerBoundTokens), humanOrDash(c.UpperBoundTokens),
 		humanOrDash(c.PrecisionTokens), escapeCell(c.Confidence), c.ProbeCount, humanOrDash(c.ConsumedTokens), escapeCell(c.OutputLimitParameter))
 	fmt.Fprintln(b)
 	if len(c.Samples) == 0 {

@@ -859,6 +859,7 @@ func declaredContextTokens(metadata map[string]any) int64 {
 		"max_sequence_length": true,
 		"input_token_limit":   true,
 		"max_input_tokens":    true,
+		"n_ctx":               true,
 	}
 	var values []int64
 	var walk func(any)

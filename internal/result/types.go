@@ -74,6 +74,7 @@ type ContextProbeResult struct {
 	Status                       Status          `json:"status"`
 	Summary                      string          `json:"summary"`
 	DeclaredTokens               int64           `json:"declared_tokens,omitempty"`
+	ServerLimitTokens            int64           `json:"server_limit_tokens,omitempty"`
 	MaxAcceptedObservedTokens    int64           `json:"max_accepted_observed_tokens,omitempty"`
 	FirstRejectedEstimatedTokens int64           `json:"first_rejected_estimated_tokens,omitempty"`
 	LowerBoundTokens             int64           `json:"lower_bound_tokens,omitempty"`

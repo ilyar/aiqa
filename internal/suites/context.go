@@ -4,12 +4,16 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/ilyar/aiqa/internal/api"
 	"github.com/ilyar/aiqa/internal/result"
 )
+
+var serverContextLimit = regexp.MustCompile(`(?i)request \((\d+) tokens\).*available context size \((\d+) tokens\)`)
 
 func ProbeContextWindow(parent context.Context, env Environment, model string, metadata map[string]any, outputLimitParam string) *result.ContextProbeResult {
 	declared := declaredContextTokens(metadata)
@@ -82,6 +86,9 @@ func ProbeContextWindow(parent context.Context, env Environment, model string, m
 		}
 		if sample.Overflow {
 			high = &boundary{bytes: payloadBytes, tokens: sample.EstimatedPromptTokens}
+			if _, limit := serverContextCounts(sample.Error); limit > 0 {
+				out.ServerLimitTokens = limit
+			}
 			if explicitOverflow {
 				out.Confidence = "medium"
 			}
@@ -146,6 +153,9 @@ func ProbeContextWindow(parent context.Context, env Environment, model string, m
 			}
 		} else if sample.Overflow {
 			high = &boundary{bytes: mid, tokens: sample.EstimatedPromptTokens}
+			if _, limit := serverContextCounts(sample.Error); limit > 0 {
+				out.ServerLimitTokens = limit
+			}
 		} else {
 			out.LastError = sample.Error
 			break
@@ -161,7 +171,11 @@ func ProbeContextWindow(parent context.Context, env Environment, model string, m
 	out.FirstRejectedEstimatedTokens = upper
 	out.Status = result.StatusPass
 	out.Confidence = confidenceFromSamples(out.Samples, true)
-	out.Summary = fmt.Sprintf("accepted context boundary is between %d and approximately %d prompt tokens", low.tokens, upper)
+	if out.ServerLimitTokens > 0 {
+		out.Summary = fmt.Sprintf("provider reports a context limit of %d prompt tokens; measured accepted boundary is between %d and approximately %d", out.ServerLimitTokens, low.tokens, upper)
+	} else {
+		out.Summary = fmt.Sprintf("accepted context boundary is between %d and approximately %d prompt tokens", low.tokens, upper)
+	}
 	return out
 }
 
@@ -203,6 +217,9 @@ func runContextSample(parent context.Context, env Environment, model string, pay
 		message = err.Error()
 	}
 	sample.Error = truncate(message, 1000)
+	if requestTokens, _ := serverContextCounts(message); requestTokens > 0 {
+		sample.EstimatedPromptTokens = requestTokens
+	}
 	explicit := isExplicitContextOverflow(resp.StatusCode, message)
 	sample.Overflow = explicit
 	if !explicit && hasAcceptedContextSample(previous) && (resp.StatusCode == 400 || resp.StatusCode == 413 || resp.StatusCode == 422) {
@@ -212,6 +229,16 @@ func runContextSample(parent context.Context, env Environment, model string, pay
 		sample.Overflow = true
 	}
 	return sample, explicit
+}
+
+func serverContextCounts(message string) (requestTokens, limitTokens int64) {
+	match := serverContextLimit.FindStringSubmatch(message)
+	if match == nil {
+		return 0, 0
+	}
+	requestTokens, _ = strconv.ParseInt(match[1], 10, 64)
+	limitTokens, _ = strconv.ParseInt(match[2], 10, 64)
+	return requestTokens, limitTokens
 }
 
 func hasAcceptedContextSample(samples []result.ContextSample) bool {
