@@ -23,8 +23,13 @@ func DiscoveryTests(p profile.Profile, resp api.Response, models []api.Model, li
 		httpTest.Summary = "model discovery failed before an HTTP response"
 		httpTest.Error = errorText(listErr)
 	} else if !resp.Is2xx() {
-		httpTest.Status = result.StatusFail
-		httpTest.Summary = fmt.Sprintf("GET /models returned HTTP %d", resp.StatusCode)
+		if resp.StatusCode == http.StatusTooManyRequests {
+			httpTest.Status = result.StatusError
+			httpTest.Summary = "GET /models remained rate limited after adaptive retries; compatibility outcome is inconclusive"
+		} else {
+			httpTest.Status = result.StatusFail
+			httpTest.Summary = fmt.Sprintf("GET /models returned HTTP %d", resp.StatusCode)
+		}
 	} else if !strings.Contains(strings.ToLower(resp.ContentType), "json") {
 		httpTest.Status = result.StatusFail
 		httpTest.Summary = "GET /models returned a non-JSON content type"
@@ -189,8 +194,13 @@ func evaluateBasic(p profile.Profile, resp api.Response, err error) result.TestR
 		return t
 	}
 	if !resp.Is2xx() {
-		t.Status = result.StatusFail
-		t.Summary = fmt.Sprintf("minimal chat completion returned HTTP %d", resp.StatusCode)
+		if resp.StatusCode == http.StatusTooManyRequests {
+			t.Status = result.StatusError
+			t.Summary = "minimal chat completion remained rate limited after adaptive retries; compatibility outcome is inconclusive"
+		} else {
+			t.Status = result.StatusFail
+			t.Summary = fmt.Sprintf("minimal chat completion returned HTTP %d", resp.StatusCode)
+		}
 		t.Error = errorText(err)
 		return t
 	}
@@ -943,6 +953,7 @@ func probeInvalidJSON(parent context.Context, env Environment) result.TestResult
 	}
 	statuses := make(map[string]any, len(variants))
 	passed := 0
+	inconclusive := false
 	for _, variant := range variants {
 		ctx, cancel := env.probeContext(parent)
 		resp, err := env.Client.ChatRaw(ctx, []byte(variant.body), "application/json")
@@ -956,6 +967,9 @@ func probeInvalidJSON(parent context.Context, env Environment) result.TestResult
 		if attempt.Status == result.StatusPass {
 			passed++
 		}
+		if attempt.Status == result.StatusError {
+			inconclusive = true
+		}
 		if t.HTTP.StatusCode == 0 {
 			t.HTTP = attempt.HTTP
 		}
@@ -966,6 +980,9 @@ func probeInvalidJSON(parent context.Context, env Environment) result.TestResult
 	if passed == len(variants) {
 		t.Status = result.StatusPass
 		t.Summary = "all malformed JSON variants returned client errors with OpenAI-shaped bodies"
+	} else if inconclusive {
+		t.Status = result.StatusError
+		t.Summary = "malformed JSON variants could not all be evaluated because the endpoint remained rate limited"
 	} else {
 		t.Status = result.StatusFail
 		t.Summary = fmt.Sprintf("%d/%d malformed JSON variants returned the expected client error", passed, len(variants))
@@ -1000,6 +1017,12 @@ func evaluateErrorProbe(t result.TestResult, resp api.Response, err error, expec
 	if resp.Is2xx() {
 		t.Status = result.StatusFail
 		t.Summary = label + " was incorrectly accepted"
+		return t
+	}
+	if resp.StatusCode == http.StatusTooManyRequests {
+		t.Status = result.StatusError
+		t.Summary = label + " remained rate limited after adaptive retries; compatibility outcome is inconclusive"
+		t.Error = errorText(err)
 		return t
 	}
 	statusOK := false

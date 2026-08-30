@@ -94,3 +94,16 @@ func TestStreamingRateLimitIsInconclusive(t *testing.T) {
 		t.Fatalf("summary=%q, want rate-limit explanation", got.Summary)
 	}
 }
+
+func TestErrorProbeRateLimitIsInconclusive(t *testing.T) {
+	test := evaluateErrorProbe(
+		result.TestResult{Metrics: map[string]any{}},
+		api.Response{StatusCode: http.StatusTooManyRequests},
+		nil,
+		[]int{400},
+		"malformed JSON",
+	)
+	if test.Status != result.StatusError {
+		t.Fatalf("status=%s, want error/inconclusive: %+v", test.Status, test)
+	}
+}
