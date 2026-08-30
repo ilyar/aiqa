@@ -25,7 +25,7 @@ func Markdown(r result.Report) string {
 	fmt.Fprintf(&b, "- **Suites:** `%s`\n", strings.Join(r.Config.Tests, ","))
 	fmt.Fprintf(&b, "- **Timeout:** `%s` per request\n", r.Config.Timeout)
 	fmt.Fprintf(&b, "- **Profile:** `%s@%s` (`%s`) – %s\n", r.Profile.ID, r.Profile.Revision, shortSHA(r.Profile.SourceCommit), r.Profile.Scope)
-	fmt.Fprintf(&b, "- **Official SDK checks:** `%s`\n", r.Config.ExternalMode)
+	fmt.Fprintf(&b, "- **External checks:** %s\n", externalChecks(r))
 	fmt.Fprintln(&b)
 
 	fmt.Fprintln(&b, "## Summary")
@@ -98,16 +98,16 @@ func Markdown(r result.Report) string {
 			writeContext(&b, *m.Context)
 		}
 		if len(m.External) > 0 {
-			fmt.Fprintln(&b, "### External SDK checker")
+			fmt.Fprintln(&b, "### Official SDK")
 			fmt.Fprintln(&b)
-			fmt.Fprintln(&b, "| Tool | Suite | Status | Summary | Duration |")
-			fmt.Fprintln(&b, "|---|---|---:|---|---:|")
+			fmt.Fprintln(&b, "| Suite | Status | Summary | Duration |")
+			fmt.Fprintln(&b, "|---|---:|---|---:|")
 			for _, e := range m.External {
 				suite := e.Suite
 				if suite == "" {
 					suite = "runner"
 				}
-				fmt.Fprintf(&b, "| `%s` | `%s` | %s | %s | %d ms |\n", escapeCell(e.Tool), escapeCell(suite), statusLabel(e.Status), escapeCell(e.Summary), e.DurationMS)
+				fmt.Fprintf(&b, "| `%s` | %s | %s | %d ms |\n", escapeCell(suite), statusLabel(e.Status), escapeCell(e.Summary), e.DurationMS)
 			}
 			fmt.Fprintln(&b)
 			for _, e := range m.External {
@@ -133,6 +133,31 @@ func Markdown(r result.Report) string {
 	fmt.Fprintln(&b, "- Context results distinguish a measured accepted lower bound from an estimated first rejected boundary. Token counts are exact only when the provider returns `usage.prompt_tokens`.")
 	fmt.Fprintln(&b, "- Temperature, `top_p`, and seed checks are statistical. A warning does not prove that a parameter is ignored; it says this run did not produce enough evidence to claim effectiveness.")
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func externalChecks(r result.Report) string {
+	checks := map[string]bool{}
+	for _, model := range r.Models {
+		for _, check := range model.External {
+			if check.Suite != "" {
+				checks[check.Tool] = true
+			}
+		}
+	}
+	if len(checks) == 0 {
+		return "not setup"
+	}
+	names := make([]string, 0, len(checks))
+	for name := range checks {
+		switch name {
+		case "official-SDK":
+			names = append(names, "Official SDK")
+		default:
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
 }
 
 func writeSummaryTable(b *strings.Builder, s result.Summary) {

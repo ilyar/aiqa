@@ -176,7 +176,7 @@ By default:
 
 ```text
 --context-max       1,100,000 tokens
---context-precision 16,384 tokens
+--context-precision 512 tokens
 --context-budget    8,000,000 prompt tokens per model
 --context-max-bytes 32 MiB per request
 ```

@@ -74,7 +74,7 @@ compatibility:
 model parameters:
   --samples 5              samples for statistical checks
   --context-max 1100k      largest context target to attempt
-  --context-precision 16384
+  --context-precision 512
                             desired boundary precision in tokens
   --context-budget 8m      prompt-token budget per model
   --context-start-bytes 8192

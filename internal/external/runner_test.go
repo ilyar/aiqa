@@ -2,9 +2,11 @@ package external
 
 import (
 	"context"
+	"runtime"
 	"testing"
 	"time"
 
+	"github.com/ilyar/aiqa/internal/config"
 	"github.com/ilyar/aiqa/internal/result"
 )
 
@@ -18,6 +20,48 @@ func TestExplicitExternalModeFailsWhenToolIsMissing(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDockerRunArgsUsesHostNetworkForLoopbackEndpoint(t *testing.T) {
+	args, baseURL := dockerRunArgs(config.Config{
+		BaseURL:       "http://localhost:8080/v1",
+		ExternalImage: "example.invalid/checker:latest",
+	})
+	if baseURL != "http://localhost:8080/v1" {
+		t.Fatalf("base URL changed: %q", baseURL)
+	}
+	if runtime.GOOS == "linux" && !containsArgs(args, "--network", "host") {
+		t.Fatalf("loopback endpoint requires host networking: %#v", args)
+	}
+	if !containsArgs(args, "-e", "OPENAI_BASE_URL") {
+		t.Fatalf("missing base URL environment forwarding: %#v", args)
+	}
+}
+
+func TestDockerRunArgsLeavesRemoteEndpointOnDefaultNetwork(t *testing.T) {
+	args, _ := dockerRunArgs(config.Config{
+		BaseURL:       "https://example.invalid/v1",
+		ExternalImage: "example.invalid/checker:latest",
+	})
+	if containsArgs(args, "--network", "host") {
+		t.Fatalf("remote endpoint must not use host networking: %#v", args)
+	}
+}
+
+func containsArgs(args []string, pair ...string) bool {
+	for i := 0; i+len(pair) <= len(args); i++ {
+		matched := true
+		for j := range pair {
+			if args[i+j] != pair[j] {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return true
+		}
+	}
+	return false
 }
 
 func TestAutoExternalModeSkipsWhenNothingIsInstalled(t *testing.T) {

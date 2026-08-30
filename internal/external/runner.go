@@ -6,9 +6,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -47,14 +50,9 @@ func Run(parent context.Context, cfg config.Config, model string) []result.Exter
 	case "binary":
 		cmd = exec.CommandContext(ctx, path)
 	case "docker":
-		cmd = exec.CommandContext(ctx, path, "run", "--rm",
-			"-e", "OPENAI_BASE_URL",
-			"-e", "OPENAI_API_KEY",
-			"-e", "OPENAI_MODEL",
-			"-e", "TEST_SUITES",
-			"-e", "REQUEST_TIMEOUT",
-			cfg.ExternalImage,
-		)
+		args, baseURL := dockerRunArgs(cfg)
+		cmd = exec.CommandContext(ctx, path, args...)
+		cfg.BaseURL = baseURL
 	default:
 		return runnerResult(model, result.StatusError, "unknown official-SDK checker mode", "", "")
 	}
@@ -92,6 +90,38 @@ func Run(parent context.Context, cfg config.Config, model string) []result.Exter
 		return runnerResult(model, result.StatusError, "official-SDK checker produced no suite results", "", cleanOutput)
 	}
 	return runnerResult(model, result.StatusError, "official-SDK checker could not start", err.Error(), cleanOutput)
+}
+
+func dockerRunArgs(cfg config.Config) ([]string, string) {
+	args := []string{"run", "--rm"}
+	baseURL := cfg.BaseURL
+	if isLoopbackURL(baseURL) && runtime.GOOS == "linux" {
+		// A Docker container has its own loopback network namespace. Host network
+		// mode lets the checker reach an endpoint bound to 127.0.0.1 on Linux.
+		args = append(args, "--network", "host")
+	}
+	args = append(args,
+		"-e", "OPENAI_BASE_URL",
+		"-e", "OPENAI_API_KEY",
+		"-e", "OPENAI_MODEL",
+		"-e", "TEST_SUITES",
+		"-e", "REQUEST_TIMEOUT",
+		cfg.ExternalImage,
+	)
+	return args, baseURL
+}
+
+func isLoopbackURL(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	host := strings.TrimSpace(u.Hostname())
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func runnerResult(model string, status result.Status, summary, errText, output string) []result.ExternalResult {

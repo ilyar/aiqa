@@ -135,7 +135,7 @@ func Parse(args []string) (Config, error) {
 		FailOn:            "core",
 		Samples:           5,
 		ContextMaxTokens:  1_100_000,
-		ContextPrecision:  16_384,
+		ContextPrecision:  512,
 		ContextBudget:     8_000_000,
 		ContextStartBytes: 8 * 1024,
 		ContextMaxBytes:   32 * 1024 * 1024,

@@ -32,6 +32,18 @@ func TestParseTimeoutWithSpace(t *testing.T) {
 	}
 }
 
+func TestParseUsesPreciseContextBoundaryByDefault(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "http://127.0.0.1:8080/v1")
+	t.Setenv("OPENAI_API_KEY", "secret")
+	cfg, err := Parse([]string{"test=model-param"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ContextPrecision != 512 {
+		t.Fatalf("unexpected default context precision: %d", cfg.ContextPrecision)
+	}
+}
+
 func TestParseHelpWithoutCredentials(t *testing.T) {
 	t.Setenv("OPENAI_BASE_URL", "")
 	t.Setenv("OPENAI_API_KEY", "")

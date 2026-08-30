@@ -203,13 +203,22 @@ func runContextSample(parent context.Context, env Environment, model string, pay
 	sample.Error = truncate(message, 1000)
 	explicit := isExplicitContextOverflow(resp.StatusCode, message)
 	sample.Overflow = explicit
-	if !explicit && len(previous) > 0 && previous[len(previous)-1].Accepted && (resp.StatusCode == 400 || resp.StatusCode == 413 || resp.StatusCode == 422) {
+	if !explicit && hasAcceptedContextSample(previous) && (resp.StatusCode == 400 || resp.StatusCode == 413 || resp.StatusCode == 422) {
 		// Once a smaller body using the exact same request shape passed, a size-only
 		// 4xx is strong evidence of a context/body limit even when the gateway hides
 		// the upstream error text.
 		sample.Overflow = true
 	}
 	return sample, explicit
+}
+
+func hasAcceptedContextSample(samples []result.ContextSample) bool {
+	for _, sample := range samples {
+		if sample.Accepted {
+			return true
+		}
+	}
+	return false
 }
 
 func contextPayload(size int) string {
