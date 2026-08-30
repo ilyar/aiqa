@@ -1,0 +1,640 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/aiqa/schemas/report.schema.json",
+  "title": "AIQA report v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_at",
+    "tool",
+    "profile",
+    "config",
+    "discovery",
+    "models",
+    "summary"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "aiqa.report.v1"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "tool": {
+      "$ref": "#/$defs/tool"
+    },
+    "profile": {
+      "$ref": "#/$defs/profile"
+    },
+    "config": {
+      "$ref": "#/$defs/config"
+    },
+    "discovery": {
+      "$ref": "#/$defs/discovery"
+    },
+    "models": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/modelReport"
+      }
+    },
+    "summary": {
+      "$ref": "#/$defs/summary"
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "fail",
+        "warn",
+        "unsupported",
+        "skip",
+        "error"
+      ]
+    },
+    "usage": {
+      "type": "object",
+      "properties": {
+        "prompt_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "completion_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reasoning_tokens": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": true
+    },
+    "http": {
+      "type": "object",
+      "properties": {
+        "status_code": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 999
+        },
+        "content_type": {
+          "type": "string"
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "snippet": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "testResult": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "suite",
+        "category",
+        "required",
+        "status",
+        "summary"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "suite": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "summary": {
+          "type": "string"
+        },
+        "expected": {
+          "type": "string"
+        },
+        "observation": {
+          "type": "string"
+        },
+        "http": {
+          "$ref": "#/$defs/http"
+        },
+        "usage": {
+          "$ref": "#/$defs/usage"
+        },
+        "metrics": {
+          "type": "object"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "parameterResult": {
+      "type": "object",
+      "required": [
+        "name",
+        "status",
+        "summary"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "variant": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "accepted": {
+          "type": "boolean"
+        },
+        "effective": {
+          "type": "boolean"
+        },
+        "confidence": {
+          "type": "string",
+          "enum": [
+            "",
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "summary": {
+          "type": "string"
+        },
+        "observation": {
+          "type": "string"
+        },
+        "http": {
+          "$ref": "#/$defs/http"
+        },
+        "usage": {
+          "$ref": "#/$defs/usage"
+        },
+        "metrics": {
+          "type": "object"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "contextSample": {
+      "type": "object",
+      "required": [
+        "payload_bytes",
+        "accepted",
+        "overflow"
+      ],
+      "properties": {
+        "payload_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "estimated_prompt_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reported_prompt_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "status_code": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "accepted": {
+          "type": "boolean"
+        },
+        "overflow": {
+          "type": "boolean"
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "context": {
+      "type": "object",
+      "required": [
+        "status",
+        "summary",
+        "probe_count"
+      ],
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "declared_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_accepted_observed_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "first_rejected_estimated_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "lower_bound_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "upper_bound_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "precision_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "confidence": {
+          "type": "string",
+          "enum": [
+            "",
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "probe_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "budget_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "consumed_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "output_limit_parameter": {
+          "type": "string"
+        },
+        "last_error": {
+          "type": "string"
+        },
+        "samples": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contextSample"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "external": {
+      "type": "object",
+      "required": [
+        "tool",
+        "mode",
+        "status",
+        "summary"
+      ],
+      "properties": {
+        "tool": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "summary": {
+          "type": "string"
+        },
+        "output": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "pass",
+        "fail",
+        "warn",
+        "unsupported",
+        "skip",
+        "error",
+        "required_pass",
+        "required_fail",
+        "score",
+        "status"
+      ],
+      "properties": {
+        "pass": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fail": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "warn": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unsupported": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skip": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "error": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "required_pass": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "required_fail": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pass",
+            "pass-with-gaps",
+            "partial",
+            "fail"
+          ]
+        },
+        "usage": {
+          "$ref": "#/$defs/usage"
+        },
+        "context_probe_tokens": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": true
+    },
+    "modelReport": {
+      "type": "object",
+      "required": [
+        "id",
+        "summary"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "metadata": {
+          "type": "object"
+        },
+        "compatibility": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/testResult"
+          }
+        },
+        "parameters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/parameterResult"
+          }
+        },
+        "context": {
+          "$ref": "#/$defs/context"
+        },
+        "external": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/external"
+          }
+        },
+        "summary": {
+          "$ref": "#/$defs/summary"
+        }
+      },
+      "additionalProperties": true
+    },
+    "tool": {
+      "type": "object",
+      "required": [
+        "name",
+        "version",
+        "go_version"
+      ],
+      "properties": {
+        "name": {
+          "const": "aiqa"
+        },
+        "version": {
+          "type": "string"
+        },
+        "commit": {
+          "type": "string"
+        },
+        "build_date": {
+          "type": "string"
+        },
+        "go_version": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "profile": {
+      "type": "object",
+      "required": [
+        "id",
+        "revision",
+        "source",
+        "source_commit",
+        "scope"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "source_commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "source_ref_revision": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "config": {
+      "type": "object",
+      "required": [
+        "base_url",
+        "tests",
+        "timeout",
+        "formats",
+        "external_mode",
+        "fail_on"
+      ],
+      "properties": {
+        "base_url": {
+          "type": "string"
+        },
+        "tests": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "requested_models": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "timeout": {
+          "type": "string"
+        },
+        "formats": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "external_mode": {
+          "type": "string"
+        },
+        "external_image": {
+          "type": "string"
+        },
+        "fail_on": {
+          "type": "string"
+        },
+        "context_max_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "context_precision_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "context_budget_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "samples": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": true
+    },
+    "discovery": {
+      "type": "object",
+      "required": [
+        "model_count"
+      ],
+      "properties": {
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "tests": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/testResult"
+          }
+        },
+        "model_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

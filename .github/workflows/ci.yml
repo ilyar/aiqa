@@ -1,0 +1,23 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27'
+          cache: true
+      - run: make check
+      - run: make build VERSION=ci COMMIT=${GITHUB_SHA::12} DATE=ci
+      - run: ./bin/aiqa --version
+      - if: matrix.go-version == 'stable'
+        run: make race

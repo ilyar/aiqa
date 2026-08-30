@@ -1,0 +1,7 @@
+/bin/
+/dist/
+*report.md
+*report.json
+*.test
+*.out
+.DS_Store

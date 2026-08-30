@@ -1,0 +1,1349 @@
+{
+  "schema_version": "aiqa.report.v1",
+  "generated_at": "2026-08-30T01:22:01.20626094Z",
+  "tool": {
+    "name": "aiqa",
+    "version": "0.1.0-example",
+    "commit": "example",
+    "build_date": "2026-08-30T00:00:00Z",
+    "go_version": "go1.23.2"
+  },
+  "profile": {
+    "id": "openai-chat-compat",
+    "revision": "2026-08-30",
+    "source": "https://github.com/openai/openai-openapi",
+    "source_commit": "690521b1753dce0c6d6b275f583d22537679cff9",
+    "source_ref_revision": "1030392",
+    "scope": "GET /v1/models, GET /v1/models/{model}, POST /v1/chat/completions"
+  },
+  "config": {
+    "base_url": "http://127.0.0.1:46561/v1",
+    "tests": [
+      "compat",
+      "model-param"
+    ],
+    "timeout": "5s",
+    "formats": [
+      "markdown",
+      "json"
+    ],
+    "external_mode": "off",
+    "fail_on": "core",
+    "context_max_tokens": 10000,
+    "context_precision_tokens": 512,
+    "context_budget_tokens": 50000,
+    "samples": 2
+  },
+  "discovery": {
+    "models": [
+      {
+        "context_length": 4096,
+        "created": 1,
+        "id": "vendor/model-a",
+        "object": "model",
+        "owned_by": "mock"
+      }
+    ],
+    "tests": [
+      {
+        "id": "error.invalid_auth",
+        "name": "Invalid authentication error",
+        "suite": "compat",
+        "category": "errors",
+        "required": false,
+        "status": "pass",
+        "summary": "invalid authentication returned HTTP 401 with an OpenAI-shaped error",
+        "expected": "An invalid API key returns 401/403 and an OpenAI-shaped error",
+        "observation": "invalid API key",
+        "http": {
+          "status_code": 401,
+          "content_type": "application/json",
+          "snippet": "{\"error\":{\"code\":\"invalid_api_key\",\"message\":\"invalid API key\",\"param\":null,\"type\":\"invalid_request_error\"}}"
+        },
+        "usage": {},
+        "metrics": {
+          "error_code": "invalid_api_key",
+          "error_type": "invalid_request_error"
+        }
+      },
+      {
+        "id": "error.invalid_json",
+        "name": "Malformed JSON error",
+        "suite": "compat",
+        "category": "errors",
+        "required": true,
+        "status": "pass",
+        "summary": "malformed JSON returned HTTP 400 with an OpenAI-shaped error",
+        "expected": "Malformed JSON returns a client error rather than 5xx",
+        "observation": "malformed JSON",
+        "http": {
+          "status_code": 400,
+          "content_type": "application/json",
+          "snippet": "{\"error\":{\"code\":\"invalid_request_error\",\"message\":\"malformed JSON\",\"param\":null,\"type\":\"invalid_request_error\"}}"
+        },
+        "usage": {},
+        "metrics": {
+          "error_code": "invalid_request_error",
+          "error_type": "invalid_request_error"
+        }
+      },
+      {
+        "id": "error.invalid_model",
+        "name": "Invalid model error",
+        "suite": "compat",
+        "category": "errors",
+        "required": true,
+        "status": "pass",
+        "duration_ms": 3,
+        "summary": "invalid model returned HTTP 404 with an OpenAI-shaped error",
+        "expected": "An invalid model returns a non-2xx OpenAI-shaped error",
+        "observation": "unknown model",
+        "http": {
+          "status_code": 404,
+          "content_type": "application/json",
+          "snippet": "{\"error\":{\"code\":\"model_not_found\",\"message\":\"unknown model\",\"param\":null,\"type\":\"invalid_request_error\"}}"
+        },
+        "usage": {},
+        "metrics": {
+          "error_code": "model_not_found",
+          "error_type": "invalid_request_error"
+        }
+      },
+      {
+        "id": "error.invalid_types",
+        "name": "Invalid request types",
+        "suite": "compat",
+        "category": "errors",
+        "required": false,
+        "status": "pass",
+        "summary": "invalid request field types returned HTTP 400 with an OpenAI-shaped error",
+        "expected": "Invalid field types are rejected with a client error",
+        "observation": "messages must be an array",
+        "http": {
+          "status_code": 400,
+          "content_type": "application/json",
+          "snippet": "{\"error\":{\"code\":\"invalid_request_error\",\"message\":\"messages must be an array\",\"param\":null,\"type\":\"invalid_request_error\"}}"
+        },
+        "usage": {},
+        "metrics": {
+          "error_code": "invalid_request_error",
+          "error_type": "invalid_request_error"
+        }
+      },
+      {
+        "id": "models.list.http",
+        "name": "List models: HTTP",
+        "suite": "compat",
+        "category": "discovery",
+        "required": true,
+        "status": "pass",
+        "duration_ms": 2,
+        "summary": "GET /models returned HTTP 200 JSON",
+        "expected": "GET /models returns a successful JSON response",
+        "http": {
+          "status_code": 200,
+          "content_type": "application/json",
+          "snippet": "{\"data\":[{\"context_length\":4096,\"created\":1,\"id\":\"vendor/model-a\",\"object\":\"model\",\"owned_by\":\"mock\"}],\"object\":\"list\"}"
+        },
+        "usage": {}
+      },
+      {
+        "id": "models.list.schema",
+        "name": "List models: schema",
+        "suite": "compat",
+        "category": "schema",
+        "required": true,
+        "status": "pass",
+        "duration_ms": 2,
+        "summary": "model list follows the OpenAI list shape",
+        "expected": "Response follows the OpenAI list object shape",
+        "http": {
+          "status_code": 200,
+          "content_type": "application/json",
+          "snippet": "{\"data\":[{\"context_length\":4096,\"created\":1,\"id\":\"vendor/model-a\",\"object\":\"model\",\"owned_by\":\"mock\"}],\"object\":\"list\"}"
+        },
+        "usage": {}
+      }
+    ],
+    "model_count": 1
+  },
+  "models": [
+    {
+      "id": "vendor/model-a",
+      "metadata": {
+        "context_length": 4096,
+        "created": 1,
+        "id": "vendor/model-a",
+        "object": "model",
+        "owned_by": "mock"
+      },
+      "compatibility": [
+        {
+          "id": "chat.basic",
+          "name": "Basic chat completion",
+          "suite": "compat",
+          "category": "core",
+          "required": true,
+          "status": "pass",
+          "summary": "minimal chat completion succeeded",
+          "expected": "A minimal chat completion succeeds",
+          "observation": "assistant content: AIQA_OK",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":47,\"total_tokens\":51}}"
+          },
+          "usage": {
+            "prompt_tokens": 47,
+            "completion_tokens": 4,
+            "total_tokens": 51
+          }
+        },
+        {
+          "id": "chat.content_parts.text",
+          "name": "Text content parts",
+          "suite": "compat",
+          "category": "messages",
+          "required": false,
+          "status": "pass",
+          "summary": "array-form text content parts are accepted and interpreted",
+          "expected": "Array-form text content parts are accepted",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"PARTS_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":50,\"total_tokens\":54}}"
+          },
+          "usage": {
+            "prompt_tokens": 50,
+            "completion_tokens": 4,
+            "total_tokens": 54
+          }
+        },
+        {
+          "id": "chat.logprobs",
+          "name": "Log probabilities",
+          "suite": "compat",
+          "category": "sampling",
+          "required": false,
+          "status": "pass",
+          "summary": "logprobs and top_logprobs are returned",
+          "expected": "logprobs/top_logprobs are accepted and returned",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"logprobs\":{\"content\":[{\"logprob\":-0.01,\"token\":\"A\"}]},\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":49,\"total_tokens\":53}}"
+          },
+          "usage": {
+            "prompt_tokens": 49,
+            "completion_tokens": 4,
+            "total_tokens": 53
+          }
+        },
+        {
+          "id": "chat.multi_turn",
+          "name": "Multi-turn messages",
+          "suite": "compat",
+          "category": "messages",
+          "required": false,
+          "status": "pass",
+          "summary": "assistant history is accepted and used",
+          "expected": "User and assistant history is accepted",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"ALPHA-731\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":80,\"total_tokens\":84}}"
+          },
+          "usage": {
+            "prompt_tokens": 80,
+            "completion_tokens": 4,
+            "total_tokens": 84
+          }
+        },
+        {
+          "id": "chat.role.developer",
+          "name": "Developer role",
+          "suite": "compat",
+          "category": "messages",
+          "required": false,
+          "status": "pass",
+          "summary": "developer role is accepted and affects the response",
+          "expected": "Developer messages are accepted",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"DEVELOPER_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":62,\"total_tokens\":66}}"
+          },
+          "usage": {
+            "prompt_tokens": 62,
+            "completion_tokens": 4,
+            "total_tokens": 66
+          }
+        },
+        {
+          "id": "chat.role.system",
+          "name": "System role",
+          "suite": "compat",
+          "category": "messages",
+          "required": false,
+          "status": "pass",
+          "summary": "system role is accepted and affects the response",
+          "expected": "System messages are accepted",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"SYSTEM_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":60,\"total_tokens\":64}}"
+          },
+          "usage": {
+            "prompt_tokens": 60,
+            "completion_tokens": 4,
+            "total_tokens": 64
+          }
+        },
+        {
+          "id": "chat.schema",
+          "name": "Chat response schema",
+          "suite": "compat",
+          "category": "schema",
+          "required": true,
+          "status": "pass",
+          "summary": "chat completion response has the expected OpenAI shape",
+          "expected": "The response contains OpenAI-compatible completion fields",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":47,\"total_tokens\":51}}"
+          },
+          "usage": {}
+        },
+        {
+          "id": "chat.stream.sse",
+          "name": "Streaming SSE",
+          "suite": "compat",
+          "category": "streaming",
+          "required": true,
+          "status": "pass",
+          "duration_ms": 1,
+          "summary": "valid SSE stream with 3 event(s) and [DONE]",
+          "expected": "SSE chunks are valid and terminate with [DONE]",
+          "http": {
+            "status_code": 200,
+            "content_type": "text/event-stream",
+            "snippet": "data: {\"choices\":[{\"delta\":{\"content\":\"STREAM_OK\",\"role\":\"assistant\"},\"finish_reason\":null,\"index\":0}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\",\"index\":0}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: [DONE]"
+          },
+          "usage": {},
+          "metrics": {
+            "events": 3,
+            "finish_reasons": [
+              "stop"
+            ]
+          }
+        },
+        {
+          "id": "chat.stream.usage",
+          "name": "Streaming usage",
+          "suite": "compat",
+          "category": "usage",
+          "required": false,
+          "status": "pass",
+          "duration_ms": 1,
+          "summary": "stream reported 64 total tokens",
+          "expected": "stream_options.include_usage returns token usage",
+          "http": {
+            "status_code": 200,
+            "content_type": "text/event-stream",
+            "snippet": "data: {\"choices\":[{\"delta\":{\"content\":\"STREAM_OK\",\"role\":\"assistant\"},\"finish_reason\":null,\"index\":0}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\",\"index\":0}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: {\"choices\":[],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":60,\"total_tokens\":64}}\ndata: [DONE]"
+          },
+          "usage": {
+            "prompt_tokens": 60,
+            "completion_tokens": 4,
+            "total_tokens": 64
+          }
+        },
+        {
+          "id": "chat.structured.json_object",
+          "name": "JSON object mode",
+          "suite": "compat",
+          "category": "structured-output",
+          "required": false,
+          "status": "pass",
+          "summary": "JSON object mode returned valid JSON",
+          "expected": "response_format=json_object returns valid JSON",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"{\\\"ok\\\":true,\\\"value\\\":\\\"AIQA_OK\\\"}\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":69,\"total_tokens\":73}}"
+          },
+          "usage": {
+            "prompt_tokens": 69,
+            "completion_tokens": 4,
+            "total_tokens": 73
+          },
+          "metrics": {
+            "keys": [
+              "ok",
+              "value"
+            ]
+          }
+        },
+        {
+          "id": "chat.structured.json_schema",
+          "name": "Strict JSON schema",
+          "suite": "compat",
+          "category": "structured-output",
+          "required": false,
+          "status": "pass",
+          "summary": "strict JSON schema output conforms to the requested schema",
+          "expected": "response_format=json_schema returns schema-conforming JSON",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"{\\\"ok\\\":true,\\\"value\\\":\\\"AIQA_OK\\\"}\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":135,\"total_tokens\":139}}"
+          },
+          "usage": {
+            "prompt_tokens": 135,
+            "completion_tokens": 4,
+            "total_tokens": 139
+          }
+        },
+        {
+          "id": "chat.tools.auto",
+          "name": "tool_choice=auto",
+          "suite": "compat",
+          "category": "tools",
+          "required": false,
+          "status": "pass",
+          "summary": "tool_choice=auto emitted a tool call when requested",
+          "expected": "Automatic tool choice can emit a valid function call",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"index\":0,\"message\":{\"content\":null,\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"city\\\":\\\"Bratislava\\\"}\",\"name\":\"get_weather\"},\"id\":\"call_mock_1\",\"type\":\"function\"}]}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":128,\"total_tokens\":132}}"
+          },
+          "usage": {
+            "prompt_tokens": 128,
+            "completion_tokens": 4,
+            "total_tokens": 132
+          },
+          "metrics": {
+            "tool_calls": 1
+          }
+        },
+        {
+          "id": "chat.tools.continuation",
+          "name": "Tool continuation",
+          "suite": "compat",
+          "category": "tools",
+          "required": false,
+          "status": "pass",
+          "summary": "assistant tool_call and tool result can be continued",
+          "expected": "A tool result can be continued into a final assistant message",
+          "observation": "assistant content: It is 21°C in Bratislava.",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"It is 21°C in Bratislava.\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":211,\"total_tokens\":215}}"
+          },
+          "usage": {
+            "prompt_tokens": 211,
+            "completion_tokens": 4,
+            "total_tokens": 215
+          }
+        },
+        {
+          "id": "chat.tools.forced",
+          "name": "Forced tool call",
+          "suite": "compat",
+          "category": "tools",
+          "required": false,
+          "status": "pass",
+          "summary": "forced function call returned valid JSON arguments",
+          "expected": "A forced function tool call has valid OpenAI shape",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"index\":0,\"message\":{\"content\":null,\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"city\\\":\\\"Bratislava\\\"}\",\"name\":\"get_weather\"},\"id\":\"call_mock_1\",\"type\":\"function\"}]}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":153,\"total_tokens\":157}}"
+          },
+          "usage": {
+            "prompt_tokens": 153,
+            "completion_tokens": 4,
+            "total_tokens": 157
+          },
+          "metrics": {
+            "arguments": {
+              "city": "Bratislava"
+            },
+            "function": "get_weather",
+            "tool_call_id": "call_mock_1"
+          }
+        },
+        {
+          "id": "chat.tools.none",
+          "name": "tool_choice=none",
+          "suite": "compat",
+          "category": "tools",
+          "required": false,
+          "status": "pass",
+          "summary": "tool_choice=none suppressed tool calls",
+          "expected": "Tool calls can be explicitly disabled",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"NONE_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":133,\"total_tokens\":137}}"
+          },
+          "usage": {
+            "prompt_tokens": 133,
+            "completion_tokens": 4,
+            "total_tokens": 137
+          }
+        },
+        {
+          "id": "chat.tools.required",
+          "name": "tool_choice=required",
+          "suite": "compat",
+          "category": "tools",
+          "required": false,
+          "status": "pass",
+          "duration_ms": 1,
+          "summary": "tool_choice=required emitted a tool call",
+          "expected": "At least one tool call is emitted when required",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"index\":0,\"message\":{\"content\":null,\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"city\\\":\\\"Bratislava\\\"}\",\"name\":\"get_weather\"},\"id\":\"call_mock_1\",\"type\":\"function\"}]}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":130,\"total_tokens\":134}}"
+          },
+          "usage": {
+            "prompt_tokens": 130,
+            "completion_tokens": 4,
+            "total_tokens": 134
+          },
+          "metrics": {
+            "tool_calls": 1
+          }
+        },
+        {
+          "id": "chat.tools.stream",
+          "name": "Streaming tool call",
+          "suite": "compat",
+          "category": "tools",
+          "required": false,
+          "status": "pass",
+          "summary": "streamed tool-call deltas reconstructed into valid JSON arguments",
+          "expected": "Streamed tool-call deltas reconstruct into a valid function call",
+          "http": {
+            "status_code": 200,
+            "content_type": "text/event-stream",
+            "snippet": "data: {\"choices\":[{\"delta\":{\"content\":null,\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"city\\\":\\\"Bratislava\\\"}\",\"name\":\"get_weather\"},\"id\":\"call_mock_1\",\"index\":0,\"type\":\"function\"}]},\"finish_reason\":null,\"index\":0}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\",\"index\":0}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: [DONE]"
+          },
+          "usage": {},
+          "metrics": {
+            "arguments": {
+              "city": "Bratislava"
+            },
+            "function": "get_weather",
+            "tool_call_id": "call_mock_1"
+          }
+        },
+        {
+          "id": "chat.usage",
+          "name": "Non-stream usage",
+          "suite": "compat",
+          "category": "usage",
+          "required": true,
+          "status": "pass",
+          "summary": "usage reported 47 prompt + 4 completion tokens",
+          "expected": "Token usage is present and internally consistent",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":47,\"total_tokens\":51}}"
+          },
+          "usage": {
+            "prompt_tokens": 47,
+            "completion_tokens": 4,
+            "total_tokens": 51
+          }
+        },
+        {
+          "id": "models.retrieve",
+          "name": "Retrieve model",
+          "suite": "compat",
+          "category": "discovery",
+          "required": false,
+          "status": "pass",
+          "summary": "model metadata can be retrieved by ID",
+          "expected": "GET /models/{model} returns the requested model",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"context_length\":4096,\"created\":1,\"id\":\"vendor/model-a\",\"object\":\"model\",\"owned_by\":\"mock\"}"
+          },
+          "usage": {}
+        }
+      ],
+      "parameters": [
+        {
+          "name": "frequency_penalty",
+          "variant": "0.5",
+          "status": "pass",
+          "accepted": true,
+          "confidence": "medium",
+          "summary": "frequency_penalty is accepted and an out-of-range value is rejected",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":57,\"total_tokens\":61}}"
+          },
+          "usage": {
+            "prompt_tokens": 57,
+            "completion_tokens": 4,
+            "total_tokens": 61
+          },
+          "metrics": {
+            "invalid_status": 400,
+            "invalid_value": 3,
+            "invalid_value_rejected": true
+          }
+        },
+        {
+          "name": "logprobs/top_logprobs",
+          "variant": "true/2",
+          "status": "pass",
+          "accepted": true,
+          "effective": true,
+          "confidence": "high",
+          "summary": "logprobs are returned and invalid top_logprobs is rejected",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"logprobs\":{\"content\":[{\"logprob\":-0.01,\"token\":\"A\"}]},\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":58,\"total_tokens\":62}}"
+          },
+          "usage": {
+            "prompt_tokens": 58,
+            "completion_tokens": 4,
+            "total_tokens": 62
+          },
+          "metrics": {
+            "invalid_value_rejected": true,
+            "logprobs_returned": true
+          }
+        },
+        {
+          "name": "max_completion_tokens",
+          "variant": "limit=8",
+          "status": "pass",
+          "accepted": true,
+          "effective": true,
+          "confidence": "high",
+          "summary": "max_completion_tokens is accepted, enforced, and validates invalid values",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"length\",\"index\":0,\"message\":{\"content\":\"one two three four five six seven eight\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":8,\"prompt_tokens\":75,\"total_tokens\":83}}"
+          },
+          "usage": {
+            "prompt_tokens": 141,
+            "completion_tokens": 48,
+            "total_tokens": 189
+          },
+          "metrics": {
+            "baseline_completion_tokens": 40,
+            "baseline_status": 200,
+            "finish_reason": "length",
+            "invalid_status": 400,
+            "invalid_value_rejected": true,
+            "limited_completion_tokens": 8
+          }
+        },
+        {
+          "name": "max_tokens",
+          "variant": "limit=8",
+          "status": "pass",
+          "accepted": true,
+          "effective": true,
+          "confidence": "high",
+          "summary": "max_tokens is accepted, enforced, and validates invalid values",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"length\",\"index\":0,\"message\":{\"content\":\"one two three four five six seven eight\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":8,\"prompt_tokens\":71,\"total_tokens\":79}}"
+          },
+          "usage": {
+            "prompt_tokens": 71,
+            "completion_tokens": 8,
+            "total_tokens": 79
+          },
+          "metrics": {
+            "baseline_completion_tokens": 40,
+            "finish_reason": "length",
+            "invalid_status": 400,
+            "invalid_value_rejected": true,
+            "limited_completion_tokens": 8
+          }
+        },
+        {
+          "name": "n",
+          "variant": "2",
+          "status": "pass",
+          "accepted": true,
+          "effective": true,
+          "confidence": "high",
+          "summary": "n=2 returned two choices and n=0 was rejected",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}},{\"finish_reason\":\"stop\",\"index\":1,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":53,\"total_tokens\":57}}"
+          },
+          "usage": {
+            "prompt_tokens": 53,
+            "completion_tokens": 4,
+            "total_tokens": 57
+          },
+          "metrics": {
+            "choices": 2,
+            "invalid_value_rejected": true
+          }
+        },
+        {
+          "name": "parallel_tool_calls",
+          "variant": "true",
+          "status": "pass",
+          "accepted": true,
+          "effective": true,
+          "confidence": "high",
+          "summary": "parallel_tool_calls emitted multiple independently identified calls and validates its type",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"index\":0,\"message\":{\"content\":null,\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"city\\\":\\\"Bratislava\\\"}\",\"name\":\"get_weather\"},\"id\":\"call_mock_1\",\"type\":\"function\"},{\"function\":{\"arguments\":\"{\\\"city\\\":\\\"Prague\\\"}\",\"name\":\"get_weather\"},\"id\":\"call_mock_2\",\"type\":\"function\"}]}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":172,\"total_tokens\":176}}"
+          },
+          "usage": {
+            "prompt_tokens": 172,
+            "completion_tokens": 4,
+            "total_tokens": 176
+          },
+          "metrics": {
+            "invalid_status": 400,
+            "invalid_value_rejected": true,
+            "tool_calls": 2,
+            "unique_tool_call_ids": 2
+          }
+        },
+        {
+          "name": "presence_penalty",
+          "variant": "0.5",
+          "status": "pass",
+          "accepted": true,
+          "confidence": "medium",
+          "summary": "presence_penalty is accepted and an out-of-range value is rejected",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":56,\"total_tokens\":60}}"
+          },
+          "usage": {
+            "prompt_tokens": 56,
+            "completion_tokens": 4,
+            "total_tokens": 60
+          },
+          "metrics": {
+            "invalid_status": 400,
+            "invalid_value": 3,
+            "invalid_value_rejected": true
+          }
+        },
+        {
+          "name": "reasoning_effort",
+          "variant": "high",
+          "status": "pass",
+          "accepted": true,
+          "effective": true,
+          "confidence": "high",
+          "summary": "reasoning_effort=high is accepted and exposes reasoning evidence",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock reasoning for high\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":7},\"prompt_tokens\":77,\"total_tokens\":81}}"
+          },
+          "usage": {
+            "prompt_tokens": 77,
+            "completion_tokens": 4,
+            "total_tokens": 81,
+            "reasoning_tokens": 7
+          },
+          "metrics": {
+            "family_signal_varies": true,
+            "finish_reason": "stop",
+            "invalid_status": 400,
+            "invalid_value_rejected": true,
+            "reasoning_chars": 23,
+            "reasoning_fields": [
+              "choices[0].message.reasoning_content",
+              "usage.*_tokens_details.reasoning_tokens"
+            ],
+            "reasoning_tokens": 7
+          }
+        },
+        {
+          "name": "reasoning_effort",
+          "variant": "low",
+          "status": "pass",
+          "accepted": true,
+          "effective": true,
+          "confidence": "high",
+          "summary": "reasoning_effort=low is accepted and exposes reasoning evidence",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock reasoning for low\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":6},\"prompt_tokens\":76,\"total_tokens\":80}}"
+          },
+          "usage": {
+            "prompt_tokens": 76,
+            "completion_tokens": 4,
+            "total_tokens": 80,
+            "reasoning_tokens": 6
+          },
+          "metrics": {
+            "family_signal_varies": true,
+            "finish_reason": "stop",
+            "invalid_status": 400,
+            "invalid_value_rejected": true,
+            "reasoning_chars": 22,
+            "reasoning_fields": [
+              "choices[0].message.reasoning_content",
+              "usage.*_tokens_details.reasoning_tokens"
+            ],
+            "reasoning_tokens": 6
+          }
+        },
+        {
+          "name": "reasoning_effort",
+          "variant": "max",
+          "status": "pass",
+          "accepted": true,
+          "effective": true,
+          "confidence": "high",
+          "summary": "reasoning_effort=max is accepted and exposes reasoning evidence",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock reasoning for max\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":6},\"prompt_tokens\":76,\"total_tokens\":80}}"
+          },
+          "usage": {
+            "prompt_tokens": 76,
+            "completion_tokens": 4,
+            "total_tokens": 80,
+            "reasoning_tokens": 6
+          },
+          "metrics": {
+            "family_signal_varies": true,
+            "finish_reason": "stop",
+            "invalid_status": 400,
+            "invalid_value_rejected": true,
+            "reasoning_chars": 22,
+            "reasoning_fields": [
+              "choices[0].message.reasoning_content",
+              "usage.*_tokens_details.reasoning_tokens"
+            ],
+            "reasoning_tokens": 6
+          }
+        },
+        {
+          "name": "reasoning_effort",
+          "variant": "medium",
+          "status": "pass",
+          "accepted": true,
+          "effective": true,
+          "confidence": "high",
+          "summary": "reasoning_effort=medium is accepted and exposes reasoning evidence",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock reasoning for medium\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":9},\"prompt_tokens\":77,\"total_tokens\":81}}"
+          },
+          "usage": {
+            "prompt_tokens": 77,
+            "completion_tokens": 4,
+            "total_tokens": 81,
+            "reasoning_tokens": 9
+          },
+          "metrics": {
+            "family_signal_varies": true,
+            "finish_reason": "stop",
+            "invalid_status": 400,
+            "invalid_value_rejected": true,
+            "reasoning_chars": 25,
+            "reasoning_fields": [
+              "choices[0].message.reasoning_content",
+              "usage.*_tokens_details.reasoning_tokens"
+            ],
+            "reasoning_tokens": 9
+          }
+        },
+        {
+          "name": "reasoning_effort",
+          "variant": "minimal",
+          "status": "pass",
+          "accepted": true,
+          "effective": true,
+          "confidence": "medium",
+          "summary": "reasoning_effort=minimal participates in a validated family whose observable reasoning signal changes across modes",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":78,\"total_tokens\":82}}"
+          },
+          "usage": {
+            "prompt_tokens": 78,
+            "completion_tokens": 4,
+            "total_tokens": 82
+          },
+          "metrics": {
+            "family_signal_varies": true,
+            "finish_reason": "stop",
+            "invalid_status": 400,
+            "invalid_value_rejected": true,
+            "reasoning_chars": 0,
+            "reasoning_fields": null,
+            "reasoning_tokens": 0
+          }
+        },
+        {
+          "name": "reasoning_effort",
+          "variant": "none",
+          "status": "pass",
+          "accepted": true,
+          "effective": true,
+          "confidence": "medium",
+          "summary": "reasoning_effort=none participates in a validated family whose observable reasoning signal changes across modes",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":77,\"total_tokens\":81}}"
+          },
+          "usage": {
+            "prompt_tokens": 77,
+            "completion_tokens": 4,
+            "total_tokens": 81
+          },
+          "metrics": {
+            "family_signal_varies": true,
+            "finish_reason": "stop",
+            "invalid_status": 400,
+            "invalid_value_rejected": true,
+            "reasoning_chars": 0,
+            "reasoning_fields": null,
+            "reasoning_tokens": 0
+          }
+        },
+        {
+          "name": "reasoning_effort",
+          "variant": "xhigh",
+          "status": "pass",
+          "accepted": true,
+          "effective": true,
+          "confidence": "high",
+          "summary": "reasoning_effort=xhigh is accepted and exposes reasoning evidence",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock reasoning for xhigh\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":8},\"prompt_tokens\":77,\"total_tokens\":81}}"
+          },
+          "usage": {
+            "prompt_tokens": 77,
+            "completion_tokens": 4,
+            "total_tokens": 81,
+            "reasoning_tokens": 8
+          },
+          "metrics": {
+            "family_signal_varies": true,
+            "finish_reason": "stop",
+            "invalid_status": 400,
+            "invalid_value_rejected": true,
+            "reasoning_chars": 24,
+            "reasoning_fields": [
+              "choices[0].message.reasoning_content",
+              "usage.*_tokens_details.reasoning_tokens"
+            ],
+            "reasoning_tokens": 8
+          }
+        },
+        {
+          "name": "reasoning_split",
+          "variant": "false",
+          "status": "pass",
+          "accepted": true,
+          "effective": true,
+          "confidence": "high",
+          "summary": "reasoning_split=false produced a validated, observably different reasoning format",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"\\u003cthink\\u003emock hidden thought\\u003c/think\\u003e AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":76,\"total_tokens\":80}}"
+          },
+          "usage": {
+            "prompt_tokens": 76,
+            "completion_tokens": 4,
+            "total_tokens": 80
+          },
+          "metrics": {
+            "family_signal_varies": true,
+            "finish_reason": "stop",
+            "format_difference_observed": true,
+            "invalid_status": 400,
+            "invalid_value_rejected": true,
+            "reasoning_chars": 0,
+            "reasoning_fields": null,
+            "reasoning_tokens": 0
+          }
+        },
+        {
+          "name": "reasoning_split",
+          "variant": "true",
+          "status": "pass",
+          "accepted": true,
+          "effective": true,
+          "confidence": "high",
+          "summary": "reasoning_split=true produced a validated, observably different reasoning format",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock split reasoning\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":10},\"prompt_tokens\":76,\"total_tokens\":80}}"
+          },
+          "usage": {
+            "prompt_tokens": 76,
+            "completion_tokens": 4,
+            "total_tokens": 80,
+            "reasoning_tokens": 10
+          },
+          "metrics": {
+            "family_signal_varies": true,
+            "finish_reason": "stop",
+            "format_difference_observed": true,
+            "invalid_status": 400,
+            "invalid_value_rejected": true,
+            "reasoning_chars": 20,
+            "reasoning_fields": [
+              "choices[0].message.reasoning_content",
+              "usage.*_tokens_details.reasoning_tokens"
+            ],
+            "reasoning_tokens": 10
+          }
+        },
+        {
+          "name": "seed",
+          "variant": "same vs different seeds",
+          "status": "pass",
+          "accepted": true,
+          "effective": true,
+          "confidence": "medium",
+          "summary": "seed produced stable same-seed output and varied different-seed output",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"aqfbff\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":85,\"total_tokens\":89}}"
+          },
+          "usage": {
+            "prompt_tokens": 340,
+            "completion_tokens": 16,
+            "total_tokens": 356
+          },
+          "metrics": {
+            "different_seed_outputs": [
+              "aqfbff",
+              "bqfbff"
+            ],
+            "different_seed_unique": 2,
+            "invalid_value_rejected": true,
+            "same_seed_outputs": [
+              "aqfbff",
+              "aqfbff"
+            ],
+            "same_seed_unique": 1
+          }
+        },
+        {
+          "name": "stop",
+          "variant": "[STOP]",
+          "status": "pass",
+          "accepted": true,
+          "effective": true,
+          "confidence": "high",
+          "summary": "stop is accepted, effective, and validates invalid values",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"ALPHA \",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":65,\"total_tokens\":69}}"
+          },
+          "usage": {
+            "prompt_tokens": 65,
+            "completion_tokens": 4,
+            "total_tokens": 69
+          },
+          "metrics": {
+            "invalid_value_rejected": true,
+            "output": "ALPHA"
+          }
+        },
+        {
+          "name": "temperature",
+          "variant": "0.0 vs 1.8",
+          "status": "pass",
+          "accepted": true,
+          "effective": true,
+          "confidence": "medium",
+          "duration_ms": 1,
+          "summary": "temperature is accepted, validated, and changed sample diversity",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"mimimi\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":80,\"total_tokens\":84}}"
+          },
+          "usage": {
+            "prompt_tokens": 322,
+            "completion_tokens": 16,
+            "total_tokens": 338
+          },
+          "metrics": {
+            "high_outputs": [
+              "bbcdef",
+              "cbcdef"
+            ],
+            "high_unique": 2,
+            "invalid_status": 400,
+            "invalid_value_rejected": true,
+            "low_outputs": [
+              "mimimi",
+              "mimimi"
+            ],
+            "low_unique": 1
+          }
+        },
+        {
+          "name": "thinking",
+          "variant": "disabled",
+          "status": "pass",
+          "accepted": true,
+          "effective": true,
+          "confidence": "medium",
+          "summary": "thinking=disabled participates in a validated family whose observable reasoning signal changes across modes",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":78,\"total_tokens\":82}}"
+          },
+          "usage": {
+            "prompt_tokens": 78,
+            "completion_tokens": 4,
+            "total_tokens": 82
+          },
+          "metrics": {
+            "family_signal_varies": true,
+            "finish_reason": "stop",
+            "invalid_status": 400,
+            "invalid_value_rejected": true,
+            "reasoning_chars": 0,
+            "reasoning_fields": null,
+            "reasoning_tokens": 0
+          }
+        },
+        {
+          "name": "thinking",
+          "variant": "enabled",
+          "status": "pass",
+          "accepted": true,
+          "effective": true,
+          "confidence": "high",
+          "summary": "thinking=enabled is accepted and exposes reasoning evidence",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock enabled reasoning\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":12},\"prompt_tokens\":78,\"total_tokens\":82}}"
+          },
+          "usage": {
+            "prompt_tokens": 78,
+            "completion_tokens": 4,
+            "total_tokens": 82,
+            "reasoning_tokens": 12
+          },
+          "metrics": {
+            "family_signal_varies": true,
+            "finish_reason": "stop",
+            "invalid_status": 400,
+            "invalid_value_rejected": true,
+            "reasoning_chars": 22,
+            "reasoning_fields": [
+              "choices[0].message.reasoning_content",
+              "usage.*_tokens_details.reasoning_tokens"
+            ],
+            "reasoning_tokens": 12
+          }
+        },
+        {
+          "name": "top_p",
+          "variant": "0.01 vs 1.0",
+          "status": "pass",
+          "accepted": true,
+          "effective": true,
+          "confidence": "medium",
+          "summary": "top_p is accepted, validated, and changed sample diversity",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"mimimi\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":79,\"total_tokens\":83}}"
+          },
+          "usage": {
+            "prompt_tokens": 314,
+            "completion_tokens": 16,
+            "total_tokens": 330
+          },
+          "metrics": {
+            "high_outputs": [
+              "dbcdef",
+              "ebcdef"
+            ],
+            "high_unique": 2,
+            "invalid_status": 400,
+            "invalid_value_rejected": true,
+            "low_outputs": [
+              "mimimi",
+              "mimimi"
+            ],
+            "low_unique": 1
+          }
+        },
+        {
+          "name": "verbosity",
+          "variant": "low vs high",
+          "status": "pass",
+          "accepted": true,
+          "effective": true,
+          "confidence": "medium",
+          "duration_ms": 12,
+          "summary": "verbosity is validated and high produced a materially longer answer than low",
+          "http": {
+            "status_code": 200,
+            "content_type": "application/json",
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"Checksums summarize data and change when the data changes.\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":10,\"prompt_tokens\":85,\"total_tokens\":95}}"
+          },
+          "usage": {
+            "prompt_tokens": 171,
+            "completion_tokens": 50,
+            "total_tokens": 221
+          },
+          "metrics": {
+            "high": 40,
+            "invalid_status": 400,
+            "invalid_value_rejected": true,
+            "low": 10,
+            "measure": "completion_tokens"
+          }
+        }
+      ],
+      "context": {
+        "status": "pass",
+        "summary": "accepted context boundary is between 2143 and approximately 2720 prompt tokens",
+        "declared_tokens": 4096,
+        "max_accepted_observed_tokens": 2143,
+        "first_rejected_estimated_tokens": 2720,
+        "lower_bound_tokens": 2143,
+        "upper_bound_tokens": 2720,
+        "precision_tokens": 512,
+        "confidence": "high",
+        "probe_count": 6,
+        "budget_tokens": 50000,
+        "consumed_tokens": 10644,
+        "output_limit_parameter": "max_completion_tokens",
+        "samples": [
+          {
+            "payload_bytes": 1024,
+            "estimated_prompt_tokens": 470,
+            "reported_prompt_tokens": 436,
+            "status_code": 200,
+            "accepted": true,
+            "overflow": false
+          },
+          {
+            "payload_bytes": 2048,
+            "estimated_prompt_tokens": 872,
+            "reported_prompt_tokens": 777,
+            "status_code": 200,
+            "accepted": true,
+            "overflow": false
+          },
+          {
+            "payload_bytes": 4096,
+            "estimated_prompt_tokens": 1744,
+            "reported_prompt_tokens": 1460,
+            "status_code": 200,
+            "accepted": true,
+            "overflow": false,
+            "duration_ms": 1
+          },
+          {
+            "payload_bytes": 8192,
+            "estimated_prompt_tokens": 3108,
+            "status_code": 400,
+            "accepted": false,
+            "overflow": true,
+            "error": "maximum context length exceeded"
+          },
+          {
+            "payload_bytes": 6144,
+            "estimated_prompt_tokens": 2331,
+            "reported_prompt_tokens": 2143,
+            "status_code": 200,
+            "accepted": true,
+            "overflow": false
+          },
+          {
+            "payload_bytes": 7168,
+            "estimated_prompt_tokens": 2720,
+            "status_code": 400,
+            "accepted": false,
+            "overflow": true,
+            "duration_ms": 1,
+            "error": "maximum context length exceeded"
+          }
+        ]
+      },
+      "summary": {
+        "pass": 43,
+        "fail": 0,
+        "warn": 0,
+        "unsupported": 0,
+        "skip": 0,
+        "error": 0,
+        "required_pass": 4,
+        "required_fail": 0,
+        "score": 100,
+        "status": "pass",
+        "usage": {
+          "prompt_tokens": 4080,
+          "completion_tokens": 282,
+          "total_tokens": 4362,
+          "reasoning_tokens": 58
+        },
+        "context_probe_tokens": 10644
+      }
+    }
+  ],
+  "summary": {
+    "pass": 49,
+    "fail": 0,
+    "warn": 0,
+    "unsupported": 0,
+    "skip": 0,
+    "error": 0,
+    "required_pass": 8,
+    "required_fail": 0,
+    "score": 100,
+    "status": "pass",
+    "usage": {
+      "prompt_tokens": 4080,
+      "completion_tokens": 282,
+      "total_tokens": 4362,
+      "reasoning_tokens": 58
+    },
+    "context_probe_tokens": 10644
+  }
+}
