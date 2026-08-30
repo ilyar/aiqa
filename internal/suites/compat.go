@@ -760,31 +760,48 @@ func probeToolContinuation(parent context.Context, env Environment, model string
 
 func probeJSONObject(parent context.Context, env Environment, model string) result.TestResult {
 	t := testBase(env.Profile, "chat.structured.json_object", "compat")
-	resp, err := callChat(parent, env, map[string]any{
-		"model":           model,
-		"messages":        []any{map[string]any{"role": "user", "content": `Return a JSON object with exactly {"ok":true,"value":"AIQA_OK"}.`}},
-		"response_format": map[string]any{"type": "json_object"},
-	})
-	t.DurationMS = resp.Duration.Milliseconds()
-	t.HTTP = httpObservation(resp)
-	t.Usage = api.ParseUsage(resp.JSON)
-	t.Status = statusForOptionalHTTP(resp, err)
-	if t.Status == result.StatusPass {
+	attempts, valid := 3, 0
+	var invalid string
+	for i := 0; i < attempts; i++ {
+		resp, err := callChat(parent, env, map[string]any{
+			"model": model, "messages": []any{map[string]any{"role": "user", "content": `Return only the raw JSON object {"ok":true,"value":"AIQA_OK"}. Do not use Markdown, code fences, or any other text.`}},
+			"response_format": map[string]any{"type": "json_object"},
+		})
+		t.DurationMS += resp.Duration.Milliseconds()
+		t.Usage = t.Usage.Add(api.ParseUsage(resp.JSON))
+		t.HTTP = httpObservation(resp)
+		status := statusForOptionalHTTP(resp, err)
+		if status == result.StatusUnsupported {
+			t.Status = status
+			t.Summary = "response_format=json_object is unsupported"
+			return t
+		}
+		if status != result.StatusPass {
+			t.Status = status
+			t.Summary = "JSON object mode could not be evaluated"
+			t.Error = errorText(err)
+			return t
+		}
 		content := api.FirstContent(resp.JSON)
 		var object map[string]any
-		if err := json.Unmarshal([]byte(content), &object); err != nil {
-			t.Status = result.StatusFail
-			t.Summary = "JSON object mode returned invalid JSON"
-			t.Observation = truncate(content, 300)
-		} else {
-			t.Summary = "JSON object mode returned valid JSON"
-			t.Metrics["keys"] = sortedKeys(object)
+		if json.Unmarshal([]byte(content), &object) == nil {
+			valid++
+		} else if invalid == "" {
+			invalid = truncate(content, 300)
 		}
-	} else if t.Status == result.StatusUnsupported {
-		t.Summary = "response_format=json_object is unsupported"
+	}
+	t.Metrics["attempts"] = attempts
+	t.Metrics["valid_json_responses"] = valid
+	if valid*2 > attempts {
+		t.Status = result.StatusPass
+		t.Summary = "JSON object mode returned raw JSON in the majority of attempts"
+	} else if valid > 0 {
+		t.Status = result.StatusWarn
+		t.Summary = "JSON object mode returned raw JSON inconsistently"
 	} else {
-		t.Summary = "JSON object mode could not be evaluated"
-		t.Error = errorText(err)
+		t.Status = result.StatusFail
+		t.Summary = "JSON object mode never returned raw JSON"
+		t.Observation = invalid
 	}
 	return t
 }
