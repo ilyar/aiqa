@@ -205,15 +205,32 @@ func (c *Client) ChatStream(ctx context.Context, body map[string]any) (StreamRes
 	}
 	u := *c.baseURL
 	u.Path = joinURLPath(c.baseURL.Path, "chat/completions")
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bytes.NewReader(raw))
-	if err != nil {
-		return StreamResponse{}, err
-	}
-	c.applyHeaders(req, "application/json")
-	started := time.Now()
-	httpResp, err := c.http.Do(req)
-	if err != nil {
-		return StreamResponse{Duration: time.Since(started)}, err
+	var httpResp *http.Response
+	var started time.Time
+	for attempt := 0; attempt < 3; attempt++ {
+		if err := c.pacer.wait(ctx); err != nil {
+			return StreamResponse{}, err
+		}
+		started = time.Now()
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bytes.NewReader(raw))
+		if err != nil {
+			return StreamResponse{}, err
+		}
+		c.applyHeaders(req, "application/json")
+		httpResp, err = c.http.Do(req)
+		if err != nil {
+			return StreamResponse{Duration: time.Since(started)}, err
+		}
+		if httpResp.StatusCode != http.StatusTooManyRequests {
+			break
+		}
+		if attempt == 2 {
+			break
+		}
+		delay := retryAfter(httpResp.Header)
+		_, _ = io.Copy(io.Discard, io.LimitReader(httpResp.Body, 32<<10))
+		httpResp.Body.Close()
+		c.pacer.limited(delay)
 	}
 	defer httpResp.Body.Close()
 	result := StreamResponse{
@@ -228,6 +245,7 @@ func (c *Client) ChatStream(ctx context.Context, body map[string]any) (StreamRes
 		result.RawSnippet = strings.TrimSpace(string(b))
 		return result, fmt.Errorf("stream request returned HTTP %d", httpResp.StatusCode)
 	}
+	c.pacer.success()
 
 	reader := bufio.NewReaderSize(httpResp.Body, 64*1024)
 	var event SSEEvent

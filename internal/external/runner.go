@@ -101,6 +101,11 @@ func Run(parent context.Context, cfg config.Config, model string, p profile.Prof
 func normalizeAgainstProfile(results []result.ExternalResult, p profile.Profile) []result.ExternalResult {
 	for index := range results {
 		r := &results[index]
+		if r.Status == result.StatusFail && containsHTTPStatus(r.Summary, 429) {
+			r.Status = result.StatusError
+			r.Summary = "rate limited; compatibility outcome is inconclusive: " + r.Summary
+			continue
+		}
 		if r.Status != result.StatusFail || !isCapabilityStatus(r.Summary) {
 			continue
 		}

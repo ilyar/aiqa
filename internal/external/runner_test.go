@@ -123,3 +123,14 @@ func TestNormalizeAgainstProfileRetainsModelsGetFailuresOtherThan404(t *testing.
 		t.Fatalf("status=%q, want fail", results[0].Status)
 	}
 }
+
+func TestNormalizeAgainstProfileMarksRateLimitInconclusive(t *testing.T) {
+	p, err := profile.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := normalizeAgainstProfile([]result.ExternalResult{{Suite: "chat_completions", Status: result.StatusFail, Summary: "request failed: 429 Too Many Requests"}}, p)
+	if results[0].Status != result.StatusError {
+		t.Fatalf("status=%q, want error", results[0].Status)
+	}
+}
