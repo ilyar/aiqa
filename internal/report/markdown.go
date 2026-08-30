@@ -142,6 +142,7 @@ func writeRateLimit(b *strings.Builder, s result.RateLimitStats) {
 	fmt.Fprintf(b, "429 responses: %d  \n", s.RateLimited)
 	fmt.Fprintf(b, "Retries recovered: %d  \n", s.RetriesRecovered)
 	fmt.Fprintf(b, "Observed safe request rate: %.2f req/s  \n", s.SafeRate)
+	fmt.Fprintf(b, "Observed safe concurrency: %d  \n", s.SafeConcurrency)
 	fmt.Fprintf(b, "Successful native latency (n=%d): mean %d ms; P50 %d ms; P95 %d ms  \n", s.LatencySamples, s.MeanLatencyMS, s.P50LatencyMS, s.P95LatencyMS)
 	fmt.Fprintf(b, "Backoff time: %d ms\n\n", s.BackoffMS)
 }

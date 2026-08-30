@@ -118,6 +118,7 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 			return Response{}, err
 		}
 		resp, err := c.doRawURLOnce(ctx, method, endpoint, body, contentType)
+		c.pacer.release()
 		if resp.StatusCode != http.StatusTooManyRequests {
 			if resp.Is2xx() {
 				c.pacer.success()
@@ -219,6 +220,7 @@ func (c *Client) ChatStream(ctx context.Context, body map[string]any) (StreamRes
 		c.applyHeaders(req, "application/json")
 		httpResp, err = c.http.Do(req)
 		if err != nil {
+			c.pacer.release()
 			return StreamResponse{Duration: time.Since(started)}, err
 		}
 		if httpResp.StatusCode != http.StatusTooManyRequests {
@@ -230,8 +232,10 @@ func (c *Client) ChatStream(ctx context.Context, body map[string]any) (StreamRes
 		delay := retryAfter(httpResp.Header)
 		_, _ = io.Copy(io.Discard, io.LimitReader(httpResp.Body, 32<<10))
 		httpResp.Body.Close()
+		c.pacer.release()
 		c.pacer.limited(delay)
 	}
+	defer c.pacer.release()
 	defer httpResp.Body.Close()
 	result := StreamResponse{
 		StatusCode:  httpResp.StatusCode,

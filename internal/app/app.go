@@ -166,7 +166,7 @@ func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, er
 	}
 	r.Models = ordered
 	stats := client.PacingStats()
-	r.RateLimit = result.RateLimitStats{SuccessfulRequests: stats.SuccessfulRequests, RateLimited: stats.RateLimited, RetriesRecovered: stats.RetriesRecovered, BackoffMS: stats.Backoff.Milliseconds(), SafeRate: stats.SafeRate}
+	r.RateLimit = result.RateLimitStats{SuccessfulRequests: stats.SuccessfulRequests, RateLimited: stats.RateLimited, RetriesRecovered: stats.RetriesRecovered, BackoffMS: stats.Backoff.Milliseconds(), SafeRate: stats.SafeRate, SafeConcurrency: stats.SafeConcurrency}
 	addLatencyStats(&r.RateLimit, r)
 	reportpkg.Finalize(&r)
 	paths, err := reportpkg.Write(r, cfg)

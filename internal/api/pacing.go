@@ -14,6 +14,7 @@ type PacingStats struct {
 	RetriesRecovered   int           `json:"retries_recovered"`
 	Backoff            time.Duration `json:"backoff_duration"`
 	SafeRate           float64       `json:"observed_safe_requests_per_second"`
+	SafeConcurrency    int           `json:"observed_safe_concurrency"`
 }
 
 type pacer struct {
@@ -21,6 +22,9 @@ type pacer struct {
 	interval      time.Duration
 	next          time.Time
 	successStreak int
+	inflight      int
+	limit         int
+	changed       chan struct{}
 	stats         PacingStats
 }
 
@@ -28,7 +32,7 @@ func newPacer(initial time.Duration) *pacer {
 	if initial <= 0 {
 		initial = time.Second
 	}
-	return &pacer{interval: initial}
+	return &pacer{interval: initial, limit: 1, changed: make(chan struct{})}
 }
 
 func (p *pacer) wait(ctx context.Context) error {
@@ -49,7 +53,31 @@ func (p *pacer) wait(ctx context.Context) error {
 		case <-t.C:
 		}
 	}
-	return nil
+	for {
+		p.mu.Lock()
+		if p.inflight < p.limit {
+			p.inflight++
+			p.mu.Unlock()
+			return nil
+		}
+		changed := p.changed
+		p.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-changed:
+		}
+	}
+}
+
+func (p *pacer) release() {
+	p.mu.Lock()
+	if p.inflight > 0 {
+		p.inflight--
+	}
+	close(p.changed)
+	p.changed = make(chan struct{})
+	p.mu.Unlock()
 }
 
 func (p *pacer) success() {
@@ -61,6 +89,9 @@ func (p *pacer) success() {
 	if p.successStreak >= 5 && p.interval > 200*time.Millisecond {
 		p.interval -= 100 * time.Millisecond
 		p.successStreak = 0
+		if p.limit < 4 {
+			p.limit++
+		}
 	}
 }
 
@@ -69,6 +100,7 @@ func (p *pacer) limited(retryAfter time.Duration) time.Duration {
 	defer p.mu.Unlock()
 	p.stats.RateLimited++
 	p.successStreak = 0
+	p.limit = 1
 	if p.interval < 2*time.Second {
 		p.interval *= 2
 	}
@@ -94,5 +126,6 @@ func (p *pacer) snapshot() PacingStats {
 	if p.interval > 0 {
 		out.SafeRate = 1 / p.interval.Seconds()
 	}
+	out.SafeConcurrency = p.limit
 	return out
 }

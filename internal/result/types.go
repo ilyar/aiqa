@@ -192,6 +192,7 @@ type RateLimitStats struct {
 	RetriesRecovered   int     `json:"retries_recovered"`
 	BackoffMS          int64   `json:"backoff_ms"`
 	SafeRate           float64 `json:"observed_safe_requests_per_second"`
+	SafeConcurrency    int     `json:"observed_safe_concurrency"`
 	LatencySamples     int     `json:"latency_samples"`
 	MeanLatencyMS      int64   `json:"mean_latency_ms"`
 	P50LatencyMS       int64   `json:"p50_latency_ms"`
