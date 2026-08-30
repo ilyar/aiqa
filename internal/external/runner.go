@@ -33,6 +33,32 @@ var (
 )
 
 func Run(parent context.Context, cfg config.Config, model string, p profile.Profile) []result.ExternalResult {
+	if cfg.ExternalMode == "off" {
+		return runSuite(parent, cfg, model, p, suites)
+	}
+	var out []result.ExternalResult
+	for _, suite := range strings.Split(suites, ",") {
+		for attempt := 0; attempt < 3; attempt++ {
+			got := runSuite(parent, cfg, model, p, suite)
+			if len(got) == 1 && got[0].Suite == "" {
+				return append(out, got...)
+			}
+			if !hasRateLimit(got) || attempt == 2 {
+				out = append(out, got...)
+				break
+			}
+			delay := time.Duration(1<<attempt)*time.Second + time.Duration(attempt)*100*time.Millisecond
+			select {
+			case <-parent.Done():
+				return append(out, got...)
+			case <-time.After(delay):
+			}
+		}
+	}
+	return out
+}
+
+func runSuite(parent context.Context, cfg config.Config, model string, p profile.Profile, suite string) []result.ExternalResult {
 	mode, path, reason := resolveMode(parent, cfg.ExternalMode, cfg.ExternalImage)
 	if mode == "off" {
 		return runnerResult(model, result.StatusSkip, reason, "", "")
@@ -61,7 +87,7 @@ func Run(parent context.Context, cfg config.Config, model string, p profile.Prof
 		"OPENAI_BASE_URL="+cfg.BaseURL,
 		"OPENAI_API_KEY="+cfg.APIKey,
 		"OPENAI_MODEL="+model,
-		"TEST_SUITES="+suites,
+		"TEST_SUITES="+suite,
 		"REQUEST_TIMEOUT="+cfg.Timeout.String(),
 	)
 	var output bytes.Buffer
@@ -92,6 +118,15 @@ func Run(parent context.Context, cfg config.Config, model string, p profile.Prof
 		return runnerResult(model, result.StatusError, "official-SDK checker produced no suite results", "", cleanOutput)
 	}
 	return runnerResult(model, result.StatusError, "official-SDK checker could not start", err.Error(), cleanOutput)
+}
+
+func hasRateLimit(results []result.ExternalResult) bool {
+	for _, r := range results {
+		if r.Status == result.StatusError && strings.Contains(strings.ToLower(r.Summary), "rate limited") {
+			return true
+		}
+	}
+	return false
 }
 
 // normalizeAgainstProfile makes an external checker's stricter suite policy
