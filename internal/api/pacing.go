@@ -29,13 +29,14 @@ type pacer struct {
 	maxSuccessfulInFlight int
 	changed               chan struct{}
 	stats                 PacingStats
+	byModel               map[string]PacingStats
 }
 
 func newPacer(initial time.Duration) *pacer {
 	if initial <= 0 {
 		initial = 2 * time.Second
 	}
-	return &pacer{interval: initial, limit: 1, changed: make(chan struct{})}
+	return &pacer{interval: initial, limit: 1, changed: make(chan struct{}), byModel: map[string]PacingStats{}}
 }
 
 func (p *pacer) wait(ctx context.Context) error {
@@ -113,10 +114,15 @@ func (p *pacer) release() {
 	p.mu.Unlock()
 }
 
-func (p *pacer) success() {
+func (p *pacer) success(model string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.stats.SuccessfulRequests++
+	if model != "" {
+		s := p.byModel[model]
+		s.SuccessfulRequests++
+		p.byModel[model] = s
+	}
 	if p.inflight > p.maxSuccessfulInFlight {
 		p.maxSuccessfulInFlight = p.inflight
 	}
@@ -133,10 +139,15 @@ func (p *pacer) success() {
 	}
 }
 
-func (p *pacer) limited(retryAfter time.Duration) time.Duration {
+func (p *pacer) limited(model string, retryAfter time.Duration) time.Duration {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.stats.RateLimited++
+	if model != "" {
+		s := p.byModel[model]
+		s.RateLimited++
+		p.byModel[model] = s
+	}
 	p.successStreak = 0
 	p.quietWindows = 0
 	p.limit = 1
@@ -149,6 +160,11 @@ func (p *pacer) limited(retryAfter time.Duration) time.Duration {
 		delay = p.interval + time.Duration(rand.Int63n(int64(250*time.Millisecond)))
 	}
 	p.stats.Backoff += delay
+	if model != "" {
+		s := p.byModel[model]
+		s.Backoff += delay
+		p.byModel[model] = s
+	}
 	if until := time.Now().Add(delay); until.After(p.blockedUntil) {
 		p.blockedUntil = until
 	}
@@ -158,11 +174,31 @@ func (p *pacer) limited(retryAfter time.Duration) time.Duration {
 	return delay
 }
 
-func (p *pacer) recovered() { p.mu.Lock(); p.stats.RetriesRecovered++; p.mu.Unlock() }
+func (p *pacer) recovered(model string) {
+	p.mu.Lock()
+	p.stats.RetriesRecovered++
+	if model != "" {
+		s := p.byModel[model]
+		s.RetriesRecovered++
+		p.byModel[model] = s
+	}
+	p.mu.Unlock()
+}
 func (p *pacer) snapshot() PacingStats {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	out := p.stats
+	if p.interval > 0 {
+		out.SafeRate = 1 / p.interval.Seconds()
+	}
+	out.SafeConcurrency = p.maxSuccessfulInFlight
+	return out
+}
+
+func (p *pacer) snapshotForModel(model string) PacingStats {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := p.byModel[model]
 	if p.interval > 0 {
 		out.SafeRate = 1 / p.interval.Seconds()
 	}

@@ -53,6 +53,9 @@ func (c *Client) CloneWithKey(apiKey string) *Client {
 
 func (c *Client) BaseURL() string          { return c.baseURL.String() }
 func (c *Client) PacingStats() PacingStats { return c.pacer.snapshot() }
+func (c *Client) PacingStatsForModel(model string) PacingStats {
+	return c.pacer.snapshotForModel(model)
+}
 
 func (c *Client) ListModels(ctx context.Context) ([]Model, Response, error) {
 	resp, err := c.DoJSON(ctx, http.MethodGet, "models", nil)
@@ -83,11 +86,11 @@ func (c *Client) ListModels(ctx context.Context) ([]Model, Response, error) {
 
 func (c *Client) RetrieveModel(ctx context.Context, model string) (Response, error) {
 	endpoint := strings.TrimRight(c.baseURL.String(), "/") + "/models/" + url.PathEscape(model)
-	return c.doRawURL(ctx, http.MethodGet, endpoint, nil, "application/json")
+	return c.doRawURL(ctx, http.MethodGet, endpoint, nil, "application/json", model)
 }
 
 func (c *Client) Chat(ctx context.Context, body map[string]any) (Response, error) {
-	return c.DoJSON(ctx, http.MethodPost, "chat/completions", body)
+	return c.doJSON(ctx, http.MethodPost, "chat/completions", body, modelFromBody(body))
 }
 
 func (c *Client) ChatRaw(ctx context.Context, raw []byte, contentType string) (Response, error) {
@@ -103,16 +106,28 @@ func (c *Client) DoJSON(ctx context.Context, method, path string, body any) (Res
 			return Response{}, fmt.Errorf("marshal request: %w", err)
 		}
 	}
-	return c.DoRaw(ctx, method, path, raw, "application/json")
+	return c.doRaw(ctx, method, path, raw, "application/json", modelFromBody(body))
+}
+
+func (c *Client) doJSON(ctx context.Context, method, path string, body any, model string) (Response, error) {
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return Response{}, fmt.Errorf("marshal request: %w", err)
+	}
+	return c.doRaw(ctx, method, path, raw, "application/json", model)
 }
 
 func (c *Client) DoRaw(ctx context.Context, method, path string, body []byte, contentType string) (Response, error) {
-	u := *c.baseURL
-	u.Path = joinURLPath(c.baseURL.Path, path)
-	return c.doRawURL(ctx, method, u.String(), body, contentType)
+	return c.doRaw(ctx, method, path, body, contentType, "")
 }
 
-func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []byte, contentType string) (Response, error) {
+func (c *Client) doRaw(ctx context.Context, method, path string, body []byte, contentType, model string) (Response, error) {
+	u := *c.baseURL
+	u.Path = joinURLPath(c.baseURL.Path, path)
+	return c.doRawURL(ctx, method, u.String(), body, contentType, model)
+}
+
+func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []byte, contentType, model string) (Response, error) {
 	for attempt := 0; attempt < 3; attempt++ {
 		if err := c.pacer.wait(ctx); err != nil {
 			return Response{}, err
@@ -121,14 +136,14 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 		c.pacer.release()
 		if resp.StatusCode != http.StatusTooManyRequests {
 			if resp.Is2xx() {
-				c.pacer.success()
+				c.pacer.success(model)
 				if attempt > 0 {
-					c.pacer.recovered()
+					c.pacer.recovered(model)
 				}
 			}
 			return resp, err
 		}
-		c.pacer.limited(retryAfter(resp.Header))
+		c.pacer.limited(model, retryAfter(resp.Header))
 		if attempt == 2 {
 			return resp, err
 		}
@@ -201,6 +216,7 @@ func retryAfter(header http.Header) time.Duration {
 }
 
 func (c *Client) ChatStream(ctx context.Context, body map[string]any) (StreamResponse, error) {
+	model := modelFromBody(body)
 	body = cloneMap(body)
 	body["stream"] = true
 	raw, err := json.Marshal(body)
@@ -231,13 +247,13 @@ func (c *Client) ChatStream(ctx context.Context, body map[string]any) (StreamRes
 		}
 		delay := retryAfter(httpResp.Header)
 		if attempt == 2 {
-			c.pacer.limited(delay)
+			c.pacer.limited(model, delay)
 			break
 		}
 		_, _ = io.Copy(io.Discard, io.LimitReader(httpResp.Body, 32<<10))
 		httpResp.Body.Close()
 		c.pacer.release()
-		c.pacer.limited(delay)
+		c.pacer.limited(model, delay)
 	}
 	defer c.pacer.release()
 	defer httpResp.Body.Close()
@@ -253,7 +269,7 @@ func (c *Client) ChatStream(ctx context.Context, body map[string]any) (StreamRes
 		result.RawSnippet = strings.TrimSpace(string(b))
 		return result, fmt.Errorf("stream request returned HTTP %d", httpResp.StatusCode)
 	}
-	c.pacer.success()
+	c.pacer.success(model)
 
 	reader := bufio.NewReaderSize(httpResp.Body, 64*1024)
 	var event SSEEvent
@@ -320,6 +336,14 @@ func (c *Client) ChatStream(ctx context.Context, body map[string]any) (StreamRes
 	result.Duration = time.Since(started)
 	result.RawSnippet = snippet.String()
 	return result, nil
+}
+
+func modelFromBody(body any) string {
+	if m, ok := body.(map[string]any); ok {
+		model, _ := m["model"].(string)
+		return model
+	}
+	return ""
 }
 
 func (c *Client) applyHeaders(req *http.Request, contentType string) {

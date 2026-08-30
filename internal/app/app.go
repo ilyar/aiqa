@@ -146,6 +146,11 @@ func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, er
 				if cfg.HasTest("compat") && cfg.ExternalMode != "off" {
 					mr.External = append(mr.External, external.Run(ctx, cfg, model, p)...)
 				}
+				if len(selected) > 1 {
+					stats := client.PacingStatsForModel(model)
+					mr.RateLimit = &result.RateLimitStats{SuccessfulRequests: stats.SuccessfulRequests, RateLimited: stats.RateLimited, RetriesRecovered: stats.RetriesRecovered, BackoffMS: stats.Backoff.Milliseconds()}
+					addModelLatencyStats(mr.RateLimit, mr)
+				}
 				fmt.Fprintf(os.Stderr, "aiqa: [%s] done\n", model)
 				results <- item{index: index, report: mr}
 			}
@@ -174,6 +179,26 @@ func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, er
 		return RunResult{Report: r, ExitCode: 2}, err
 	}
 	return RunResult{Report: r, Paths: paths, ExitCode: exitCode(cfg, r.Summary)}, nil
+}
+
+func addModelLatencyStats(out *result.RateLimitStats, m result.ModelReport) {
+	var values []int64
+	for _, t := range m.Compatibility {
+		if t.HTTP.StatusCode >= 200 && t.HTTP.StatusCode < 300 && t.DurationMS > 0 {
+			values = append(values, t.DurationMS)
+		}
+	}
+	if len(values) == 0 {
+		return
+	}
+	sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
+	var total int64
+	for _, v := range values {
+		total += v
+	}
+	out.LatencySamples, out.MeanLatencyMS = len(values), total/int64(len(values))
+	out.P50LatencyMS = values[(len(values)-1)/2]
+	out.P95LatencyMS = values[(95*len(values)-1)/100]
 }
 
 func addLatencyStats(out *result.RateLimitStats, r result.Report) {

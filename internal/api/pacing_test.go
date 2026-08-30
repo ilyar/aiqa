@@ -10,18 +10,18 @@ func TestPacerAdditiveIncreaseAndRateLimitDecrease(t *testing.T) {
 	p := newPacer(time.Second)
 	p.inflight = 1
 	for i := 0; i < 5; i++ {
-		p.success()
+		p.success("")
 	}
 	if got := p.snapshot().SafeConcurrency; got != 1 {
 		t.Fatalf("concurrency=%d, want 1 until pacing has improved first", got)
 	}
 	for i := 0; i < 5; i++ {
-		p.success()
+		p.success("")
 	}
 	if got := p.limit; got != 2 {
 		t.Fatalf("configured concurrency=%d, want 2 after second quiet success window", got)
 	}
-	p.limited(0)
+	p.limited("", 0)
 	stats := p.snapshot()
 	if stats.SafeConcurrency != 1 {
 		t.Fatalf("concurrency=%d, want 1 after 429", stats.SafeConcurrency)
@@ -38,7 +38,7 @@ func TestPacerWaitHonorsBackoffAfterReservation(t *testing.T) {
 	p.mu.Lock()
 	p.next = time.Now()
 	p.mu.Unlock()
-	p.limited(40 * time.Millisecond)
+	p.limited("", 40*time.Millisecond)
 	started := time.Now()
 	if err := p.wait(context.Background()); err != nil {
 		t.Fatalf("wait: %v", err)

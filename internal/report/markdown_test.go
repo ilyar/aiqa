@@ -41,3 +41,15 @@ func TestMarkdownMarksUnavailableExternalChecksAsNotSetup(t *testing.T) {
 		t.Fatalf("unexpected external check summary:\n%s", markdown)
 	}
 }
+
+func TestMarkdownRendersPerModelPacingOnlyForMultipleModels(t *testing.T) {
+	stats := &result.RateLimitStats{SuccessfulRequests: 3, LatencySamples: 3, MeanLatencyMS: 10}
+	multi := Markdown(result.Report{Models: []result.ModelReport{{ID: "a", RateLimit: stats}, {ID: "b", RateLimit: stats}}})
+	if strings.Count(multi, "### Rate-limit and latency") != 2 {
+		t.Fatalf("per-model pacing blocks missing:\n%s", multi)
+	}
+	single := Markdown(result.Report{Models: []result.ModelReport{{ID: "a", RateLimit: stats}}})
+	if strings.Contains(single, "### Rate-limit and latency") {
+		t.Fatalf("single-model report must not duplicate global pacing block:\n%s", single)
+	}
+}

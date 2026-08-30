@@ -134,6 +134,7 @@ type ModelReport struct {
 	Parameters    []ParameterResult   `json:"parameters,omitempty"`
 	Context       *ContextProbeResult `json:"context,omitempty"`
 	External      []ExternalResult    `json:"external,omitempty"`
+	RateLimit     *RateLimitStats     `json:"rate_limit,omitempty"`
 	Summary       Summary             `json:"summary"`
 }
 
