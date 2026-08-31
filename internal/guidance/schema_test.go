@@ -62,11 +62,17 @@ func TestActionableFixtureMatchesDraft202012Schema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	program := `import json,sys
+	program := `import copy,json,sys
 from jsonschema import Draft202012Validator, FormatChecker
 schema=json.load(open(sys.argv[1]))
 Draft202012Validator.check_schema(schema)
-Draft202012Validator(schema, format_checker=FormatChecker()).validate(json.load(open(sys.argv[2])))`
+report=json.load(open(sys.argv[2]))
+validator=Draft202012Validator(schema, format_checker=FormatChecker())
+validator.validate(report)
+legacy=copy.deepcopy(report)
+legacy["summary"]["score"]=100
+if not list(validator.iter_errors(legacy)):
+    raise AssertionError("legacy summary.score must be rejected")`
 	command := exec.Command("python3", "-c", program, schemaPath, reportPath)
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("Draft 2020-12 validation failed: %v\n%s", err, output)
