@@ -164,9 +164,6 @@ type Summary struct {
 	Error              int                    `json:"error"`
 	RequiredPass       int                    `json:"required_pass"`
 	RequiredFail       int                    `json:"required_fail"`
-	Score              float64                `json:"score"`
-	ScoreMethod        string                 `json:"score_method,omitempty"`
-	ScoreDeprecated    bool                   `json:"score_deprecated,omitempty"`
 	Status             string                 `json:"status"`
 	Assessment         *ConformanceAssessment `json:"assessment,omitempty"`
 	Usage              Usage                  `json:"usage,omitempty"`

@@ -274,7 +274,7 @@ JSON has a versioned root:
 
 It contains raw model metadata, probe evidence, canonical requirements, the authoritative assessment, findings, recommendations, HTTP observations, token usage, context samples, and confidence. The API key is not written to the report. External-checker output is redacted, deduplicated, and stored once as a referenced artifact.
 
-Markdown leads with core conformance, optional coverage, evidence completeness, and prioritized actions. Passed checks and raw evidence are collapsed by default. The former numeric pass ratio remains in JSON as a deprecated compatibility field and must not be used to rank reports.
+Markdown leads with core conformance, optional coverage, evidence completeness, and prioritized actions. Passed checks and raw evidence are collapsed by default. AIQA emits no overall numeric compatibility score; compare reports by canonical verdict, then by the separate core, optional, and evidence measures.
 
 Recommendations name exact verification targets but do not emit shell commands. A full compatibility rerun would not verify one finding in isolation; targeted execution and opt-in command rendering remain [backlog work](tasks/backlog.md).
 
@@ -286,7 +286,7 @@ Guidance is deterministic and uses no additional API calls:
 --guidance-locale=en
 ```
 
-The JSON Schema is in [`schema/report.schema.json`](schema/report.schema.json). A complete combined run against a deterministic mock provider is available in [`examples/mock-report.md`](examples/mock-report.md) and [`examples/mock-report.json`](examples/mock-report.json). See [`docs/reports.md`](docs/reports.md) for exact verdict, status, priority, confidence, and migration semantics.
+The JSON Schema is in [`schema/report.schema.json`](schema/report.schema.json). A complete combined run against a deterministic mock provider is available in [`examples/mock-report.md`](examples/mock-report.md) and [`examples/mock-report.json`](examples/mock-report.json). See [`docs/reports.md`](docs/reports.md) for exact verdict, status, priority, confidence, and report semantics.
 
 ## Full CLI reference
 

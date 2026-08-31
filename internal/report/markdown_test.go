@@ -59,7 +59,7 @@ func TestMarkdownPutsActionsBeforeDiagnosticsAndCollapsesRawEvidence(t *testing.
 	report := result.Report{
 		Config: result.PublicConfig{Guidance: "full"},
 		Summary: result.Summary{
-			Pass: 1, Score: 50, ScoreDeprecated: true,
+			Pass: 1, Usage: result.Usage{PromptTokens: 12, CompletionTokens: 3, TotalTokens: 15},
 			Assessment: &result.ConformanceAssessment{
 				Verdict:  "fail",
 				Core:     result.RequirementMeasure{Total: 1, Fail: 1, Percent: floatPointer(0)},
@@ -94,6 +94,16 @@ func TestMarkdownPutsActionsBeforeDiagnosticsAndCollapsesRawEvidence(t *testing.
 	if strings.Index(markdown, "## Fix first") > strings.Index(markdown, "## Model and module details") {
 		t.Fatalf("actions must precede raw diagnostics:\n%s", markdown)
 	}
+	rateIndex := strings.Index(markdown, "## Rate-limit and latency")
+	actionIndex := strings.Index(markdown, "## Fix first")
+	methodIndex := strings.Index(markdown, "## Methodology and limitations")
+	usageIndex := strings.Index(markdown, "## Observed API usage")
+	if rateIndex < 0 || actionIndex < 0 || methodIndex < 0 || usageIndex < 0 || rateIndex > actionIndex || usageIndex < methodIndex {
+		t.Fatalf("global telemetry must be near the top and API usage must be last:\n%s", markdown)
+	}
+	if strings.Count(markdown, "## Rate-limit and latency") != 1 || !strings.HasSuffix(markdown, "**12 prompt + 3 completion = 15 total tokens**") {
+		t.Fatalf("global telemetry was duplicated or API usage is not the final field:\n%s", markdown)
+	}
 	if !strings.Contains(markdown, "| PRI | Recommendation | Scope | Expected impact | Confidence |") || !strings.Contains(markdown, "|:---:|---|---|---|---:|") {
 		t.Fatalf("recommendation priority column must use PRI and centered alignment:\n%s", markdown)
 	}
@@ -103,8 +113,11 @@ func TestMarkdownPutsActionsBeforeDiagnosticsAndCollapsesRawEvidence(t *testing.
 	if strings.Count(markdown, "unique raw log") != 1 {
 		t.Fatalf("raw artifact must render exactly once:\n%s", markdown)
 	}
-	if !strings.Contains(markdown, "<details><summary>Show 1 passed checks</summary>") || !strings.Contains(markdown, "<details><summary>Legacy scoring</summary>") {
-		t.Fatalf("passed checks and legacy score must be collapsed:\n%s", markdown)
+	if !strings.Contains(markdown, "<details><summary>Show 1 passed checks</summary>") {
+		t.Fatalf("passed checks must be collapsed:\n%s", markdown)
+	}
+	if strings.Contains(markdown, "Legacy scoring") || strings.Contains(markdown, "Legacy pass rate") {
+		t.Fatalf("legacy scoring must not be rendered:\n%s", markdown)
 	}
 	if !strings.Contains(markdown, "#### Verification targets") || !strings.Contains(markdown, "Requirements: `models.list.schema`") {
 		t.Fatalf("structured verification target is missing:\n%s", markdown)

@@ -1,6 +1,6 @@
 {
   "schema_version": "aiqa.report.v1",
-  "generated_at": "2026-08-31T20:31:45.270311892Z",
+  "generated_at": "2026-08-31T23:41:48.564778235Z",
   "tool": {
     "name": "aiqa",
     "version": "1.0.0-alpha.0-example",
@@ -17,7 +17,7 @@
     "scope": "GET /v1/models, GET /v1/models/{model}, POST /v1/chat/completions, POST /v1/images/generations"
   },
   "config": {
-    "base_url": "http://127.0.0.1:39013/v1",
+    "base_url": "http://127.0.0.1:35873/v1",
     "tests": [
       "compat",
       "model-param"
@@ -231,7 +231,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":47,\"total_tokens\":51}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":47,\"total_tokens\":51}}"
           },
           "usage": {
             "prompt_tokens": 47,
@@ -253,7 +253,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"PARTS_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":50,\"total_tokens\":54}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"PARTS_OK\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":50,\"total_tokens\":54}}"
           },
           "usage": {
             "prompt_tokens": 50,
@@ -275,7 +275,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"logprobs\":{\"content\":[{\"logprob\":-0.01,\"token\":\"A\"}]},\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":49,\"total_tokens\":53}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"logprobs\":{\"content\":[{\"logprob\":-0.01,\"token\":\"A\"}]},\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":49,\"total_tokens\":53}}"
           },
           "usage": {
             "prompt_tokens": 49,
@@ -297,7 +297,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"ALPHA-731\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":80,\"total_tokens\":84}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"ALPHA-731\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":80,\"total_tokens\":84}}"
           },
           "usage": {
             "prompt_tokens": 80,
@@ -319,7 +319,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"DEVELOPER_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":62,\"total_tokens\":66}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"DEVELOPER_OK\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":62,\"total_tokens\":66}}"
           },
           "usage": {
             "prompt_tokens": 62,
@@ -341,7 +341,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"SYSTEM_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":60,\"total_tokens\":64}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"SYSTEM_OK\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":60,\"total_tokens\":64}}"
           },
           "usage": {
             "prompt_tokens": 60,
@@ -363,7 +363,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":47,\"total_tokens\":51}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":47,\"total_tokens\":51}}"
           },
           "usage": {}
         },
@@ -381,7 +381,7 @@
           "http": {
             "status_code": 200,
             "content_type": "text/event-stream",
-            "snippet": "data: {\"choices\":[{\"delta\":{\"content\":\"STREAM_OK\",\"role\":\"assistant\"},\"finish_reason\":null,\"index\":0}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\",\"index\":0}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: [DONE]"
+            "snippet": "data: {\"choices\":[{\"delta\":{\"content\":\"STREAM_OK\",\"role\":\"assistant\"},\"finish_reason\":null,\"index\":0}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\",\"index\":0}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: [DONE]"
           },
           "usage": {},
           "metrics": {
@@ -405,7 +405,7 @@
           "http": {
             "status_code": 200,
             "content_type": "text/event-stream",
-            "snippet": "data: {\"choices\":[{\"delta\":{\"content\":\"STREAM_OK\",\"role\":\"assistant\"},\"finish_reason\":null,\"index\":0}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\",\"index\":0}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: {\"choices\":[],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":60,\"total_tokens\":64}}\ndata: [DONE]"
+            "snippet": "data: {\"choices\":[{\"delta\":{\"content\":\"STREAM_OK\",\"role\":\"assistant\"},\"finish_reason\":null,\"index\":0}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\",\"index\":0}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: {\"choices\":[],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":60,\"total_tokens\":64}}\ndata: [DONE]"
           },
           "usage": {
             "prompt_tokens": 60,
@@ -427,7 +427,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"{\\\"ok\\\":true,\\\"value\\\":\\\"AIQA_OK\\\"}\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":86,\"total_tokens\":90}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"{\\\"ok\\\":true,\\\"value\\\":\\\"AIQA_OK\\\"}\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":86,\"total_tokens\":90}}"
           },
           "usage": {
             "prompt_tokens": 258,
@@ -453,7 +453,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"{\\\"ok\\\":true,\\\"value\\\":\\\"AIQA_OK\\\"}\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":135,\"total_tokens\":139}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"{\\\"ok\\\":true,\\\"value\\\":\\\"AIQA_OK\\\"}\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":135,\"total_tokens\":139}}"
           },
           "usage": {
             "prompt_tokens": 135,
@@ -475,7 +475,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"index\":0,\"message\":{\"content\":null,\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"resource_id\\\":\\\"resource-alpha\\\"}\",\"name\":\"get_status\"},\"id\":\"call_mock_1\",\"type\":\"function\"}]}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":136,\"total_tokens\":140}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"index\":0,\"message\":{\"content\":null,\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"resource_id\\\":\\\"resource-alpha\\\"}\",\"name\":\"get_status\"},\"id\":\"call_mock_1\",\"type\":\"function\"}]}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":136,\"total_tokens\":140}}"
           },
           "usage": {
             "prompt_tokens": 136,
@@ -501,7 +501,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"resource-alpha is available.\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":227,\"total_tokens\":231}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"resource-alpha is available.\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":227,\"total_tokens\":231}}"
           },
           "usage": {
             "prompt_tokens": 227,
@@ -523,7 +523,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"index\":0,\"message\":{\"content\":null,\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"resource_id\\\":\\\"resource-alpha\\\"}\",\"name\":\"get_status\"},\"id\":\"call_mock_1\",\"type\":\"function\"}]}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":151,\"total_tokens\":155}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"index\":0,\"message\":{\"content\":null,\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"resource_id\\\":\\\"resource-alpha\\\"}\",\"name\":\"get_status\"},\"id\":\"call_mock_1\",\"type\":\"function\"}]}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":151,\"total_tokens\":155}}"
           },
           "usage": {
             "prompt_tokens": 151,
@@ -552,7 +552,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"NONE_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":139,\"total_tokens\":143}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"NONE_OK\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":139,\"total_tokens\":143}}"
           },
           "usage": {
             "prompt_tokens": 139,
@@ -574,7 +574,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"index\":0,\"message\":{\"content\":null,\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"resource_id\\\":\\\"resource-alpha\\\"}\",\"name\":\"get_status\"},\"id\":\"call_mock_1\",\"type\":\"function\"}]}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":137,\"total_tokens\":141}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"index\":0,\"message\":{\"content\":null,\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"resource_id\\\":\\\"resource-alpha\\\"}\",\"name\":\"get_status\"},\"id\":\"call_mock_1\",\"type\":\"function\"}]}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":137,\"total_tokens\":141}}"
           },
           "usage": {
             "prompt_tokens": 137,
@@ -599,7 +599,7 @@
           "http": {
             "status_code": 200,
             "content_type": "text/event-stream",
-            "snippet": "data: {\"choices\":[{\"delta\":{\"content\":null,\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"resource_id\\\":\\\"resource-alpha\\\"}\",\"name\":\"get_status\"},\"id\":\"call_mock_1\",\"index\":0,\"type\":\"function\"}]},\"finish_reason\":null,\"index\":0}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\",\"index\":0}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: [DONE]"
+            "snippet": "data: {\"choices\":[{\"delta\":{\"content\":null,\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"resource_id\\\":\\\"resource-alpha\\\"}\",\"name\":\"get_status\"},\"id\":\"call_mock_1\",\"index\":0,\"type\":\"function\"}]},\"finish_reason\":null,\"index\":0}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\",\"index\":0}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: [DONE]"
           },
           "usage": {},
           "metrics": {
@@ -624,7 +624,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":47,\"total_tokens\":51}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":47,\"total_tokens\":51}}"
           },
           "usage": {
             "prompt_tokens": 47,
@@ -662,7 +662,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":57,\"total_tokens\":61}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":57,\"total_tokens\":61}}"
           },
           "usage": {
             "prompt_tokens": 57,
@@ -686,7 +686,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"logprobs\":{\"content\":[{\"logprob\":-0.01,\"token\":\"A\"}]},\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":58,\"total_tokens\":62}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"logprobs\":{\"content\":[{\"logprob\":-0.01,\"token\":\"A\"}]},\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":58,\"total_tokens\":62}}"
           },
           "usage": {
             "prompt_tokens": 58,
@@ -709,7 +709,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"length\",\"index\":0,\"message\":{\"content\":\"one two three four five six seven eight\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":8,\"prompt_tokens\":75,\"total_tokens\":83}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"length\",\"index\":0,\"message\":{\"content\":\"one two three four five six seven eight\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":8,\"prompt_tokens\":75,\"total_tokens\":83}}"
           },
           "usage": {
             "prompt_tokens": 141,
@@ -736,7 +736,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"length\",\"index\":0,\"message\":{\"content\":\"one two three four five six seven eight\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":8,\"prompt_tokens\":71,\"total_tokens\":79}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"length\",\"index\":0,\"message\":{\"content\":\"one two three four five six seven eight\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":8,\"prompt_tokens\":71,\"total_tokens\":79}}"
           },
           "usage": {
             "prompt_tokens": 71,
@@ -762,7 +762,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}},{\"finish_reason\":\"stop\",\"index\":1,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":53,\"total_tokens\":57}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}},{\"finish_reason\":\"stop\",\"index\":1,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":53,\"total_tokens\":57}}"
           },
           "usage": {
             "prompt_tokens": 53,
@@ -785,7 +785,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"index\":0,\"message\":{\"content\":null,\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"resource_id\\\":\\\"resource-alpha\\\"}\",\"name\":\"get_status\"},\"id\":\"call_mock_1\",\"type\":\"function\"},{\"function\":{\"arguments\":\"{\\\"resource_id\\\":\\\"resource-beta\\\"}\",\"name\":\"get_status\"},\"id\":\"call_mock_2\",\"type\":\"function\"}]}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":182,\"total_tokens\":186}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"index\":0,\"message\":{\"content\":null,\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"resource_id\\\":\\\"resource-alpha\\\"}\",\"name\":\"get_status\"},\"id\":\"call_mock_1\",\"type\":\"function\"},{\"function\":{\"arguments\":\"{\\\"resource_id\\\":\\\"resource-beta\\\"}\",\"name\":\"get_status\"},\"id\":\"call_mock_2\",\"type\":\"function\"}]}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":182,\"total_tokens\":186}}"
           },
           "usage": {
             "prompt_tokens": 182,
@@ -809,7 +809,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":56,\"total_tokens\":60}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":56,\"total_tokens\":60}}"
           },
           "usage": {
             "prompt_tokens": 56,
@@ -833,7 +833,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock reasoning for high\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":7},\"prompt_tokens\":77,\"total_tokens\":81}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock reasoning for high\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":7},\"prompt_tokens\":77,\"total_tokens\":81}}"
           },
           "usage": {
             "prompt_tokens": 77,
@@ -865,7 +865,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock reasoning for low\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":6},\"prompt_tokens\":76,\"total_tokens\":80}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock reasoning for low\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":6},\"prompt_tokens\":76,\"total_tokens\":80}}"
           },
           "usage": {
             "prompt_tokens": 76,
@@ -897,7 +897,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock reasoning for max\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":6},\"prompt_tokens\":76,\"total_tokens\":80}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock reasoning for max\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":6},\"prompt_tokens\":76,\"total_tokens\":80}}"
           },
           "usage": {
             "prompt_tokens": 76,
@@ -929,7 +929,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock reasoning for medium\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":9},\"prompt_tokens\":77,\"total_tokens\":81}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock reasoning for medium\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":9},\"prompt_tokens\":77,\"total_tokens\":81}}"
           },
           "usage": {
             "prompt_tokens": 77,
@@ -961,7 +961,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":78,\"total_tokens\":82}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":78,\"total_tokens\":82}}"
           },
           "usage": {
             "prompt_tokens": 78,
@@ -989,7 +989,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":77,\"total_tokens\":81}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":77,\"total_tokens\":81}}"
           },
           "usage": {
             "prompt_tokens": 77,
@@ -1017,7 +1017,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock reasoning for xhigh\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":8},\"prompt_tokens\":77,\"total_tokens\":81}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock reasoning for xhigh\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":8},\"prompt_tokens\":77,\"total_tokens\":81}}"
           },
           "usage": {
             "prompt_tokens": 77,
@@ -1049,7 +1049,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"\\u003cthink\\u003emock hidden thought\\u003c/think\\u003e AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":76,\"total_tokens\":80}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"\\u003cthink\\u003emock hidden thought\\u003c/think\\u003e AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":76,\"total_tokens\":80}}"
           },
           "usage": {
             "prompt_tokens": 76,
@@ -1078,7 +1078,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock split reasoning\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":10},\"prompt_tokens\":76,\"total_tokens\":80}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock split reasoning\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":10},\"prompt_tokens\":76,\"total_tokens\":80}}"
           },
           "usage": {
             "prompt_tokens": 76,
@@ -1111,7 +1111,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"aqfbff\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":85,\"total_tokens\":89}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"aqfbff\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":85,\"total_tokens\":89}}"
           },
           "usage": {
             "prompt_tokens": 340,
@@ -1143,7 +1143,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"ALPHA \",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":65,\"total_tokens\":69}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"ALPHA \",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":65,\"total_tokens\":69}}"
           },
           "usage": {
             "prompt_tokens": 65,
@@ -1166,7 +1166,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"mimimi\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":80,\"total_tokens\":84}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"mimimi\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":80,\"total_tokens\":84}}"
           },
           "usage": {
             "prompt_tokens": 322,
@@ -1199,7 +1199,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":78,\"total_tokens\":82}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":78,\"total_tokens\":82}}"
           },
           "usage": {
             "prompt_tokens": 78,
@@ -1227,7 +1227,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock enabled reasoning\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":12},\"prompt_tokens\":78,\"total_tokens\":82}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock enabled reasoning\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":12},\"prompt_tokens\":78,\"total_tokens\":82}}"
           },
           "usage": {
             "prompt_tokens": 78,
@@ -1259,7 +1259,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"mimimi\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":79,\"total_tokens\":83}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"mimimi\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":79,\"total_tokens\":83}}"
           },
           "usage": {
             "prompt_tokens": 314,
@@ -1292,7 +1292,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"Checksums summarize data and change when the data changes.\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":10,\"prompt_tokens\":85,\"total_tokens\":95}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"Checksums summarize data and change when the data changes.\",\"role\":\"assistant\"}}],\"created\":1788219708,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":10,\"prompt_tokens\":85,\"total_tokens\":95}}"
           },
           "usage": {
             "prompt_tokens": 171,
@@ -1362,7 +1362,7 @@
             "status_code": 200,
             "accepted": true,
             "overflow": false,
-            "duration_ms": 2
+            "duration_ms": 1
           },
           {
             "payload_bytes": 7168,
@@ -1430,7 +1430,6 @@
             "error": 0,
             "required_pass": 4,
             "required_fail": 0,
-            "score": 100,
             "status": "pass",
             "usage": {
               "prompt_tokens": 1638,
@@ -1458,7 +1457,6 @@
         "error": 0,
         "required_pass": 4,
         "required_fail": 0,
-        "score": 100,
         "status": "pass",
         "usage": {
           "prompt_tokens": 4314,
@@ -1479,9 +1477,6 @@
     "error": 0,
     "required_pass": 8,
     "required_fail": 0,
-    "score": 100,
-    "score_method": "legacy-pass-rate-v1",
-    "score_deprecated": true,
     "status": "pass",
     "assessment": {
       "verdict": "pass",
@@ -2616,14 +2611,14 @@
       "level": "optional",
       "subject": {
         "kind": "provider",
-        "id": "http://127.0.0.1:39013/v1"
+        "id": "http://127.0.0.1:35873/v1"
       },
       "module": "chat-completions",
       "applicability": "applicable",
       "status": "pass",
       "evidence": [
         {
-          "id": "native:provider:http.127.0.0.1.39013.v1:aiqa.native.chat.error.invalid.auth",
+          "id": "native:provider:http.127.0.0.1.35873.v1:aiqa.native.chat.error.invalid.auth",
           "kind": "native",
           "probe_id": "aiqa.native.chat.error.invalid_auth",
           "status": "pass",
@@ -2639,14 +2634,14 @@
       "level": "core",
       "subject": {
         "kind": "provider",
-        "id": "http://127.0.0.1:39013/v1"
+        "id": "http://127.0.0.1:35873/v1"
       },
       "module": "chat-completions",
       "applicability": "applicable",
       "status": "pass",
       "evidence": [
         {
-          "id": "native:provider:http.127.0.0.1.39013.v1:aiqa.native.chat.error.invalid.json",
+          "id": "native:provider:http.127.0.0.1.35873.v1:aiqa.native.chat.error.invalid.json",
           "kind": "native",
           "probe_id": "aiqa.native.chat.error.invalid_json",
           "status": "pass",
@@ -2662,14 +2657,14 @@
       "level": "core",
       "subject": {
         "kind": "provider",
-        "id": "http://127.0.0.1:39013/v1"
+        "id": "http://127.0.0.1:35873/v1"
       },
       "module": "chat-completions",
       "applicability": "applicable",
       "status": "pass",
       "evidence": [
         {
-          "id": "native:provider:http.127.0.0.1.39013.v1:aiqa.native.chat.error.invalid.model",
+          "id": "native:provider:http.127.0.0.1.35873.v1:aiqa.native.chat.error.invalid.model",
           "kind": "native",
           "probe_id": "aiqa.native.chat.error.invalid_model",
           "status": "pass",
@@ -2685,14 +2680,14 @@
       "level": "optional",
       "subject": {
         "kind": "provider",
-        "id": "http://127.0.0.1:39013/v1"
+        "id": "http://127.0.0.1:35873/v1"
       },
       "module": "chat-completions",
       "applicability": "applicable",
       "status": "pass",
       "evidence": [
         {
-          "id": "native:provider:http.127.0.0.1.39013.v1:aiqa.native.chat.error.invalid.types",
+          "id": "native:provider:http.127.0.0.1.35873.v1:aiqa.native.chat.error.invalid.types",
           "kind": "native",
           "probe_id": "aiqa.native.chat.error.invalid_types",
           "status": "pass",
@@ -2708,14 +2703,14 @@
       "level": "core",
       "subject": {
         "kind": "provider",
-        "id": "http://127.0.0.1:39013/v1"
+        "id": "http://127.0.0.1:35873/v1"
       },
       "module": "discovery",
       "applicability": "applicable",
       "status": "pass",
       "evidence": [
         {
-          "id": "native:provider:http.127.0.0.1.39013.v1:aiqa.native.models.list.http",
+          "id": "native:provider:http.127.0.0.1.35873.v1:aiqa.native.models.list.http",
           "kind": "native",
           "probe_id": "aiqa.native.models.list.http",
           "status": "pass",
@@ -2731,14 +2726,14 @@
       "level": "core",
       "subject": {
         "kind": "provider",
-        "id": "http://127.0.0.1:39013/v1"
+        "id": "http://127.0.0.1:35873/v1"
       },
       "module": "discovery",
       "applicability": "applicable",
       "status": "pass",
       "evidence": [
         {
-          "id": "native:provider:http.127.0.0.1.39013.v1:aiqa.native.models.list.schema",
+          "id": "native:provider:http.127.0.0.1.35873.v1:aiqa.native.models.list.schema",
           "kind": "native",
           "probe_id": "aiqa.native.models.list.schema",
           "status": "pass",
@@ -2752,7 +2747,7 @@
     "schema_version": "aiqa.guidance.v1",
     "status": "complete",
     "engine": {
-      "version": "1.0.0",
+      "version": "1.0.1",
       "catalog_revision": "2026-09-01.1",
       "packs": [
         {

@@ -122,7 +122,7 @@ External execution remains a process boundary. Suite duration comes from the che
 
 ## Canonical requirements and evidence
 
-Raw probes are evidence sources, not independent scoring units. Each native result carries a stable requirement ID and probe ID. Each Official SDK suite declares its interoperability requirement and any related native requirements. `internal/assessment` joins observations that test the same contract, so adding another probe does not increase that requirement's weight. When SDK parsing is a distinct promise, it remains an explicit optional `official-sdk.*` requirement. A native/SDK disagreement then becomes a linked evidence diagnostic without rewriting the native requirement.
+Raw probes are evidence sources, not independently weighted result units. Each native result carries a stable requirement ID and probe ID. Each Official SDK suite declares its interoperability requirement and any related native requirements. `internal/assessment` joins observations that test the same contract, so adding another probe does not increase that requirement's weight. When SDK parsing is a distinct promise, it remains an explicit optional `official-sdk.*` requirement. A native/SDK disagreement then becomes a linked evidence diagnostic without rewriting the native requirement.
 
 The assessment preserves every evidence reference and resolves the canonical requirement status deterministically. Conflicting positive and negative observations become `warn` with `evidence_conflict`; a required capability reported as unsupported becomes a core failure; provider or runner errors remain inconclusive evidence. Model parameters and context-boundary observations are optional requirements unless a future profile declares otherwise.
 
@@ -178,15 +178,9 @@ The report separates declared metadata, a provider-reported server limit, the la
 
 ## Reports, assessment, and exit policy
 
-`internal/result` is the shared contract between native probes, external suites, assessment, guidance, and both writers. JSON preserves complete model metadata, raw outcomes, canonical requirements, findings, recommendations, and referenced artifacts. Markdown leads with the conformance verdict, core and optional coverage, evidence completeness, and the highest-priority action. It then groups recommendations by purpose, shows only non-passing detail by default, and places passing checks and raw artifacts in collapsed sections. Writers create a temporary file, sync it, and atomically replace the destination. [`docs/reports.md`](reports.md) defines the user-facing status, verdict, guidance, and migration semantics.
+`internal/result` is the shared contract between native probes, external suites, assessment, guidance, and both writers. JSON preserves complete model metadata, raw outcomes, canonical requirements, findings, recommendations, and referenced artifacts. Markdown leads with the conformance verdict and the global rate-limit and latency telemetry, then groups recommendations by purpose. It shows only non-passing detail by default, places passing checks and raw artifacts in collapsed sections, and moves secondary token-usage totals to the end. Writers create a temporary file, sync it, and atomically replace the destination. [`docs/reports.md`](reports.md) defines the user-facing status, verdict, and guidance semantics.
 
-The legacy raw-result status and score remain in JSON for compatibility. The authoritative result is `summary.assessment.verdict`; the old score formula is:
-
-```text
-100 * pass / (pass + fail + warn + unsupported)
-```
-
-`skip` and `error` do not enter that denominator. The field is marked with `score_method: legacy-pass-rate-v1` and `score_deprecated: true`. Markdown hides it under a legacy-scoring disclosure because it is neither a severity ordering nor the authoritative result. Comparisons must use the canonical verdict and its core, optional, and evidence measures. The design rationale is retained in [`research/scoring.md`](../research/scoring.md).
+The raw summary keeps status counts and a raw-result status for diagnostics. The authoritative result is `summary.assessment.verdict`. AIQA emits no overall numeric compatibility score because one percentage cannot preserve core gates, optional coverage, and inconclusive evidence at the same time. Comparisons use the canonical verdict first, followed by the separate core, optional, and evidence measures. The design rationale is retained in [`research/scoring.md`](../research/scoring.md).
 
 Exit codes are applied after the report is written:
 

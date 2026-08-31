@@ -1,7 +1,6 @@
 package report
 
 import (
-	"math"
 	"strings"
 
 	"github.com/ilyar/aiqa/internal/result"
@@ -156,10 +155,6 @@ func addStatus(s *result.Summary, status result.Status) {
 }
 
 func finishSummary(s *result.Summary) {
-	denominator := s.Pass + s.Fail + s.Warn + s.Unsupported
-	if denominator > 0 {
-		s.Score = math.Round((float64(s.Pass)/float64(denominator))*1000) / 10
-	}
 	switch {
 	case s.RequiredFail > 0:
 		s.Status = "fail"

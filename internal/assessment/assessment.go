@@ -72,8 +72,6 @@ func Apply(r *result.Report, p profile.Profile) {
 	})
 	r.Requirements = requirements
 	assessment := summarize(requirements)
-	r.Summary.ScoreMethod = "legacy-pass-rate-v1"
-	r.Summary.ScoreDeprecated = true
 	r.Summary.Assessment = &assessment
 }
 

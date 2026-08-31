@@ -8,7 +8,7 @@
 2. **Optional capability coverage** — какая доля дополнительных возможностей подтверждена.
 3. **Evidence coverage** — для какой доли требований вообще получен однозначный результат.
 
-Текущий `Score` нужно оставить временно только как `legacy_score`, убрать из главной Markdown-таблицы и запретить использовать как самостоятельный ключ сортировки.
+Итоговое решение от 2026-09-01: удалить `Score` из Markdown, JSON и schema без переходного legacy-поля. Проект находится в alpha, и поддержка потребителей старого процентного поля не требуется.
 
 Причина уже материализовалась в приложенных отчётах:
 
@@ -17,7 +17,7 @@
 
 Число `77.1%` визуально обещает превосходство над `76.5%`, хотя категорический вывод говорит обратное. Процент здесь попросту измеряет другую ось, но притворяется общим качеством — маленькая метафизическая диверсия в одной колонке.
 
-Кроме того, текущая реализация:
+До реализации canonical assessment прежняя реализация:
 
 * считает `score = pass / (pass + fail + warn + unsupported)`;
 * исключает из знаменателя `skip` **и `error`**;
@@ -229,7 +229,7 @@ execution_percent =
 
 # 4. Предлагаемые JSON-поля
 
-В `aiqa.report.v1` можно сделать additive migration:
+Текущий `aiqa.report.v1` хранит raw counts и независимые assessment measures без общего score:
 
 ```json
 {
@@ -242,11 +242,6 @@ execution_percent =
     "error": 0,
     "required_pass": 8,
     "required_fail": 0,
-
-    "score": 76.5,
-    "score_method": "legacy-pass-rate-v1",
-    "score_deprecated": true,
-
     "status": "partial",
 
     "assessment": {
@@ -318,7 +313,7 @@ PASS            rank 3
 
 Сначала сравнивается verdict, и лишь внутри одной категории — числовые измерения.
 
-Текущая JSON Schema требует старые `score` и `status`, но разрешает дополнительные свойства, поэтому вложенный `assessment` можно добавить без нарушения существующих consumers.
+Текущая JSON Schema не содержит `score`, `score_method` или `score_deprecated`. Вложенный `assessment` является авторитетным результатом, а raw `status` и counts остаются диагностикой.
 
 ---
 
@@ -385,13 +380,13 @@ Core полностью пройден
 = PARTIAL
 ```
 
-Legacy score:
+Удалённый показатель из старого отчёта:
 
 ```text
 26 / (26 + 1 + 7) = 76.5%
 ```
 
-Именно такую картину показывает приложенный Qwen report.
+Именно такую противоречивую картину показывал старый Qwen report; текущий формат этот процент не выводит.
 
 ---
 
@@ -445,13 +440,13 @@ Verdict:
 = FAIL
 ```
 
-Legacy score:
+Удалённый показатель из старого отчёта:
 
 ```text
 27 / (27 + 6 + 2) = 77.1%
 ```
 
-Это соответствует приложенному Vibecode report.
+Это соответствует старому Vibecode report; текущий формат этот процент не выводит.
 
 ### Что теперь видно без обмана
 
@@ -478,20 +473,7 @@ Comparison policy: Overall → Core conformance → Optional coverage → Eviden
 Percentages describe separate dimensions and are not an overall compatibility score.
 ```
 
-Legacy-значение можно оставить ниже:
-
-```markdown
-<details>
-<summary>Legacy scoring</summary>
-
-Legacy pass rate: 76.5%
-
-Formula:
-pass / (pass + fail + warn + unsupported)
-
-Deprecated: this value must not be used to rank reports with different verdicts.
-</details>
-```
+Удалённый pass-rate не следует сохранять даже в collapsed block: его присутствие продолжает приглашать к сравнению несовместимых verdicts по одному числу.
 
 Колонку `Score` из первой таблицы следует убрать. Именно её близость к `Overall` заставляет читателя воспринимать два противоречащих друг другу сигнала как одну оценку.
 
@@ -567,48 +549,16 @@ FAIL index =
 
 ---
 
-# 8. План миграции
+# 8. Итоговый план реализации
 
-## Этап 1 — совместимое расширение `aiqa.report.v1`
+Переходный legacy cycle не нужен. Текущий alpha contract:
 
-Без изменения существующих полей:
-
-1. Оставить:
-
-   ```json
-   "status": "partial",
-   "score": 76.5
-   ```
-
-2. Добавить:
-
-   ```json
-   "score_method": "legacy-pass-rate-v1",
-   "score_deprecated": true,
-   "assessment": { ... }
-   ```
-
-3. Убрать `Score` из главной Markdown-таблицы.
-
-4. Показывать его только как:
-
-   ```text
-   Legacy pass rate
-   ```
-
-5. Поменять только Markdown label:
-
-   ```text
-   N/S → UNSUP
-   ```
-
-   JSON остаётся:
-
-   ```json
-   "status": "unsupported"
-   ```
-
-6. Добавить к результатам:
+1. Не содержит `score`, `score_method` или `score_deprecated`.
+2. Использует `summary.assessment.verdict` как авторитетный результат.
+3. Хранит core, optional и evidence measures отдельно.
+4. Сохраняет raw status counts как диагностические данные.
+5. Показывает `UNSUP`, `SKIP`, `ERROR` и `N/A` как разные состояния.
+6. Добавляет к результатам:
 
    ```json
    {
@@ -622,33 +572,7 @@ FAIL index =
    }
    ```
 
-7. В документации явно запретить сортировку только по `summary.score`.
-
-## Этап 2 — один deprecation cycle
-
-* CLI продолжает генерировать v1 по умолчанию.
-* Добавляется:
-
-  ```bash
-  aiqa ... --report-schema=v1
-  aiqa ... --report-schema=v2
-  ```
-* Consumers получают предупреждение о deprecated `summary.score`.
-* Fixtures публикуются для обеих схем.
-
-## Этап 3 — `aiqa.report.v2`
-
-В breaking schema:
-
-* `summary.status` заменить на authoritative `verdict`;
-* добавить `inconclusive`;
-* удалить `score` либо переименовать в `legacy_score`;
-* хранить `core`, `optional`, `evidence` как самостоятельные объекты;
-* добавить `not_applicable`;
-* отделить `warnings[]` от outcome;
-* агрегировать canonical requirements, а не raw probes;
-* явно хранить `subject.kind = gateway | model | runner`;
-* external checker result хранить как evidence, а не автоматически как дополнительный балл.
+Будущий `aiqa.report.v2` может переместить authoritative verdict на верхний уровень или изменить представление requirements, но не должен возвращать единый numeric score.
 
 ## Обязательные regression properties
 
@@ -677,16 +601,10 @@ Evidence coverage
 Raw status counts
 ```
 
-Убрать:
+Отчёт не содержит:
 
 ```text
 Score: 76.5%
-```
-
-и временно заменить его в совместимом JSON на:
-
-```text
-Legacy pass rate: 76.5%
 ```
 
 Ключ сравнения:
@@ -695,7 +613,7 @@ Legacy pass rate: 76.5%
 verdict → core → optional → evidence
 ```
 
-Это соответствует наиболее устойчивой практике conformance suites: **обязательный профиль является gate, optional progress показывается отдельно, а ошибки выполнения не маскируются под несовместимость**. Weighted score допустим только как вторичный verdict-banded index с явно версионированной политикой.
+Это соответствует наиболее устойчивой практике conformance suites: **обязательный профиль является gate, optional progress показывается отдельно, а ошибки выполнения не маскируются под несовместимость**. AIQA не поддерживает weighted или legacy overall score.
 
 [1]: https://testanything.org/tap-version-14-specification.html "https://testanything.org/tap-version-14-specification.html"
 [2]: https://docs.junit.org/6.1.1/api/org.junit.platform.engine/org/junit/platform/engine/TestExecutionResult.html "https://docs.junit.org/6.1.1/api/org.junit.platform.engine/org/junit/platform/engine/TestExecutionResult.html"

@@ -32,14 +32,8 @@ func Markdown(r result.Report) string {
 	fmt.Fprintln(&b)
 	writeExecutiveSummary(&b, r)
 	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "Observed API usage: **%d prompt + %d completion = %d total tokens**", r.Summary.Usage.PromptTokens, r.Summary.Usage.CompletionTokens, r.Summary.Usage.TotalTokens)
-	if r.Summary.ContextProbeTokens > 0 {
-		fmt.Fprintf(&b, ". Context probing additionally sent approximately **%d prompt tokens**.", r.Summary.ContextProbeTokens)
-	}
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b)
-	writeGuidance(&b, r)
 	writeRateLimit(&b, r.RateLimit)
+	writeGuidance(&b, r)
 
 	fmt.Fprintln(&b, "## Model and module details")
 	fmt.Fprintln(&b)
@@ -155,16 +149,19 @@ func Markdown(r result.Report) string {
 	fmt.Fprintln(&b, "- Findings and recommendations are deterministic guidance derived from canonical requirements and typed evidence. They do not change conformance status or exit policy.")
 	fmt.Fprintln(&b, "- Context results distinguish a measured accepted lower bound from an estimated first rejected boundary. Token counts are exact only when the provider returns `usage.prompt_tokens`.")
 	fmt.Fprintln(&b, "- Temperature, `top_p`, and seed checks are statistical. A warning does not prove that a parameter is ignored; it says this run did not produce enough evidence to claim effectiveness.")
-	if r.Summary.ScoreDeprecated {
-		fmt.Fprintln(&b)
-		fmt.Fprintln(&b, "<details><summary>Legacy scoring</summary>")
-		fmt.Fprintln(&b)
-		fmt.Fprintf(&b, "Legacy pass rate: %.1f%%\n\n", r.Summary.Score)
-		fmt.Fprintln(&b, "Formula: `pass / (pass + fail + warn + unsupported)`. This deprecated value must not be used to rank reports with different verdicts.")
-		fmt.Fprintln(&b)
-		fmt.Fprintln(&b, "</details>")
-	}
+	fmt.Fprintln(&b)
+	writeUsage(&b, r.Summary)
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func writeUsage(b *strings.Builder, summary result.Summary) {
+	fmt.Fprintln(b, "## Observed API usage")
+	fmt.Fprintln(b)
+	fmt.Fprintf(b, "**%d prompt + %d completion = %d total tokens**", summary.Usage.PromptTokens, summary.Usage.CompletionTokens, summary.Usage.TotalTokens)
+	if summary.ContextProbeTokens > 0 {
+		fmt.Fprintf(b, ". Context probing additionally sent approximately **%d prompt tokens**.", summary.ContextProbeTokens)
+	}
+	fmt.Fprintln(b)
 }
 
 func writeModelRateLimit(b *strings.Builder, s result.RateLimitStats) {

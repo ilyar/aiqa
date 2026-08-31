@@ -44,6 +44,25 @@ func TestRunCompatibilityWritesReports(t *testing.T) {
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
 	}
+	var raw struct {
+		Summary map[string]json.RawMessage `json:"summary"`
+		Models  []struct {
+			Summary map[string]json.RawMessage `json:"summary"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"score", "score_method", "score_deprecated"} {
+		if _, exists := raw.Summary[field]; exists {
+			t.Fatalf("legacy scoring field %q remains in report summary", field)
+		}
+		for _, model := range raw.Models {
+			if _, exists := model.Summary[field]; exists {
+				t.Fatalf("legacy scoring field %q remains in model summary", field)
+			}
+		}
+	}
 	if len(decoded.Models) != 1 || decoded.Models[0].ID != "vendor/model-a" {
 		t.Fatalf("unexpected models: %#v", decoded.Models)
 	}
@@ -55,9 +74,6 @@ func TestRunCompatibilityWritesReports(t *testing.T) {
 	}
 	if decoded.Summary.Assessment == nil || decoded.Summary.Assessment.Verdict != "pass" || len(decoded.Requirements) == 0 {
 		t.Fatalf("canonical assessment is missing or incorrect: summary=%+v requirements=%d", decoded.Summary, len(decoded.Requirements))
-	}
-	if !decoded.Summary.ScoreDeprecated || decoded.Summary.ScoreMethod != "legacy-pass-rate-v1" {
-		t.Fatalf("legacy score migration metadata is missing: %+v", decoded.Summary)
 	}
 	if decoded.Guidance.Status != "complete" || decoded.Guidance.SchemaVersion != "aiqa.guidance.v1" {
 		t.Fatalf("guidance contract is missing: %+v", decoded.Guidance)

@@ -7,7 +7,7 @@
 - Initial `model-param` suite with context-boundary search, reasoning controls, sampling controls, output limits, penalties, verbosity, and parallel tools.
 - Markdown and versioned JSON reports with atomic writes.
 - Optional integration with `beranekio/openai-compatibility-tester` and the official OpenAI Go SDK.
-- Canonical requirement assessment with authoritative `PASS`, `PASS-WITH-GAPS`, `PARTIAL`, `FAIL`, and `INCONCLUSIVE` verdicts; Official SDK results are evidence rather than duplicate score votes.
+- Canonical requirement assessment with authoritative `PASS`, `PASS-WITH-GAPS`, `PARTIAL`, `FAIL`, and `INCONCLUSIVE` verdicts; Official SDK results are evidence rather than duplicate requirement weight.
 - Deterministic actionable guidance with typed findings, P0–P3 recommendations, conditional impact, structured verification targets, versioned catalogs and packs, and deduplicated redacted artifacts.
-- Action-first Markdown reports, additive `aiqa.guidance.v1` JSON, deprecated legacy-score metadata, and Draft 2020-12 schema fixtures.
+- Action-first Markdown reports, `aiqa.guidance.v1` JSON without an overall numeric score, and Draft 2020-12 schema fixtures.
 - Deterministic mock-provider integration tests, race checks, CI across the minimum and current stable Go versions, and static cross-platform builds.

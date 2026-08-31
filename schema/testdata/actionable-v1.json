@@ -37,9 +37,6 @@
     "error": 0,
     "required_pass": 0,
     "required_fail": 0,
-    "score": 0,
-    "score_method": "legacy-pass-rate-v1",
-    "score_deprecated": true,
     "status": "pass",
     "assessment": {
       "verdict": "pass",

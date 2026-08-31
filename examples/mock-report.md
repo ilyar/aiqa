@@ -2,9 +2,9 @@
 
 _measures observed API behavior, a passing report is not a security audit or an official certification_
 
-- **Generated:** 2026-08-31 20:31:45Z
+- **Generated:** 2026-08-31 23:41:48Z
 - **Tool:** `aiqa 1.0.0-alpha.0-example` (`example`, built `2026-08-30T00:00:00Z`)
-- **Endpoint:** `http://127.0.0.1:39013/v1`
+- **Endpoint:** `http://127.0.0.1:35873/v1`
 - **Suites:** `compat,model-param`
 - **Timeout:** `5s` per request
 - **Profile:** `openai-compat@2026-09-01` (`690521b1753d`) – GET /v1/models, GET /v1/models/{model}, POST /v1/chat/completions, POST /v1/images/generations
@@ -18,12 +18,6 @@ _measures observed API behavior, a passing report is not a security audit or an 
 
 Raw outcomes: **49 PASS · 0 FAIL · 0 WARN · 0 UNSUP · 0 SKIP · 0 ERROR**.
 
-Observed API usage: **4314 prompt + 290 completion = 4604 total tokens**. Context probing additionally sent approximately **12957 prompt tokens**.
-
-## Actions
-
-No open actions were derived from applicable canonical requirements.
-
 ## Rate-limit and latency
 
 - Request pacing: adaptive
@@ -34,6 +28,10 @@ No open actions were derived from applicable canonical requirements.
 - Observed safe concurrency: 1
 - Successful native latency (n=0): mean 0 ms; P50 0 ms; P95 0 ms
 - Backoff time: 0 ms
+
+## Actions
+
+No open actions were derived from applicable canonical requirements.
 
 ## Model and module details
 
@@ -80,7 +78,7 @@ Discovered models: **1**.
 | 2,048 | 777 | 872 | yes | no | 200 | 0 ms |  |
 | 4,096 | 1,460 | 1,744 | yes | no | 200 | 0 ms |  |
 | 8,192 | – | 3,108 | no | yes | 400 | 0 ms | maximum context length exceeded |
-| 6,144 | 2,143 | 2,331 | yes | no | 200 | 2 ms |  |
+| 6,144 | 2,143 | 2,331 | yes | no | 200 | 1 ms |  |
 | 7,168 | – | 2,720 | no | yes | 400 | 0 ms | maximum context length exceeded |
 | 6,656 | 2,313 | 2,526 | yes | no | 200 | 0 ms |  |
 
@@ -174,10 +172,6 @@ Context window: **PASS** — accepted context boundary is between 2313 and appro
 - Context results distinguish a measured accepted lower bound from an estimated first rejected boundary. Token counts are exact only when the provider returns `usage.prompt_tokens`.
 - Temperature, `top_p`, and seed checks are statistical. A warning does not prove that a parameter is ignored; it says this run did not produce enough evidence to claim effectiveness.
 
-<details><summary>Legacy scoring</summary>
+## Observed API usage
 
-Legacy pass rate: 100.0%
-
-Formula: `pass / (pass + fail + warn + unsupported)`. This deprecated value must not be used to rank reports with different verdicts.
-
-</details>
+**4314 prompt + 290 completion = 4604 total tokens**. Context probing additionally sent approximately **12957 prompt tokens**.

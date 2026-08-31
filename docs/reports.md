@@ -10,7 +10,7 @@ AIQA keeps three layers separate:
 2. **Findings** group non-passing evidence into stable, deduplicated observations.
 3. **Guidance** turns findings into prioritized actions with owners, confidence, verification, and references.
 
-Guidance never changes a requirement status, verdict, legacy score, or exit code. If guidance generation fails, JSON records `guidance.status=error`, Markdown asks the operator to investigate AIQA, and the conformance result remains intact.
+Guidance never changes a requirement status, conformance assessment, or exit code. If guidance generation fails, JSON records `guidance.status=error`, Markdown asks the operator to investigate AIQA, and the conformance result remains intact.
 
 ## Canonical requirements
 
@@ -59,18 +59,7 @@ Reports show three independent measures:
 - **Optional coverage**: passed optional requirements divided by applicable optional requirements.
 - **Evidence completeness**: conclusive requirements divided by all applicable requirements; execution coverage is also preserved in JSON.
 
-`INCONCLUSIVE` is not rankable. Other reports compare by verdict first, then core conformance, optional coverage, and evidence completeness. Never rank reports by the legacy `summary.score` field.
-
-The v1 JSON contract retains the legacy `summary.status` and `summary.score` fields for existing consumers. The authoritative result is `summary.assessment.verdict`; consumers must not infer it from the legacy fields. The score is marked with:
-
-```json
-{
-  "score_method": "legacy-pass-rate-v1",
-  "score_deprecated": true
-}
-```
-
-Markdown hides that value under **Legacy scoring**.
+`INCONCLUSIVE` is not rankable. Other reports compare by verdict first, then core conformance, optional coverage, and evidence completeness. AIQA emits no overall numeric compatibility score. Raw status counts remain diagnostic, and percentages describe only their named core, optional, or evidence dimension.
 
 ## Findings and recommendations
 
@@ -104,11 +93,13 @@ Verification entries currently identify only the affected requirement IDs and Of
 Markdown is rendered from the same report object serialized as JSON. Its order is:
 
 1. run metadata and executive summary;
-2. **Fix first**, compatibility improvements, investigations, and capability gaps;
-3. model and module details;
-4. collapsed passing checks;
-5. deduplicated raw evidence;
-6. methodology and limitations.
+2. global rate-limit and successful-request latency telemetry;
+3. **Fix first**, compatibility improvements, investigations, and capability gaps;
+4. model and module details;
+5. collapsed passing checks;
+6. deduplicated raw evidence;
+7. methodology and limitations;
+8. observed API token usage.
 
 External checker logs are redacted, truncated, stored once in `guidance.artifacts`, and linked by content-addressed `artifact_ref` values. API keys, bearer tokens, cookies, signed query strings, tool arguments, and long base64 payloads are removed before rendering.
 
@@ -140,6 +131,6 @@ Exit `2` remains reserved for configuration, orchestration, or report-writing fa
 
 ## Current scope and future work
 
-The additive `aiqa.report.v1` migration preserves existing fields while adding canonical requirements, assessment, and `aiqa.guidance.v1`. Profiles still store flat probe definitions; AIQA derives the requirement layer from stable requirement IDs. A future v2 profile may represent nested requirements and probes directly.
+The `aiqa.report.v1` contract contains canonical requirements, the authoritative assessment, and `aiqa.guidance.v1`; it does not contain a deprecated overall score. Profiles still store flat probe definitions, and AIQA derives the requirement layer from stable requirement IDs. A future v2 profile may represent nested requirements and probes directly.
 
 Baseline comparison, offline `aiqa explain`, targeted `aiqa verify`, opt-in verification commands, Russian guidance, HTML, SARIF, and generated explanations are not implemented. They remain separate future work and must not be inferred from the v1 guidance contract.

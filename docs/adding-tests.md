@@ -54,4 +54,4 @@ An Official SDK suite must declare its canonical interoperability requirement an
 
 Suites that execute code, browse the web, persist objects, or create billable assets must be opt-in and clearly marked.
 
-`make schemas-check` validates the old v1 example and the additive actionable v1 fixture with JSON Schema Draft 2020-12. The development environment therefore needs Python 3 and a Draft 2020-12-capable `jsonschema` package in addition to Go; CI pins version 4.25.1 before `make check`. The shipped `aiqa` binary still has no external Go dependencies.
+`make schemas-check` validates the generated example and the actionable v1 fixture with JSON Schema Draft 2020-12. The development environment therefore needs Python 3 and a Draft 2020-12-capable `jsonschema` package in addition to Go; CI pins version 4.25.1 before `make check`. The shipped `aiqa` binary still has no external Go dependencies.

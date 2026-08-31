@@ -1188,7 +1188,6 @@
         "error",
         "required_pass",
         "required_fail",
-        "score",
         "status"
       ],
       "properties": {
@@ -1224,17 +1223,6 @@
           "type": "integer",
           "minimum": 0
         },
-        "score": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 100
-        },
-        "score_method": {
-          "type": "string"
-        },
-        "score_deprecated": {
-          "type": "boolean"
-        },
         "status": {
           "type": "string",
           "enum": [
@@ -1255,6 +1243,13 @@
           "type": "integer",
           "minimum": 0
         }
+      },
+      "not": {
+        "anyOf": [
+          { "required": ["score"] },
+          { "required": ["score_method"] },
+          { "required": ["score_deprecated"] }
+        ]
       },
       "additionalProperties": true
     },
