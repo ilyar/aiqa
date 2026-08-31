@@ -21,6 +21,9 @@ func TestParseExpectedCLI(t *testing.T) {
 	if cfg.RequestInterval != 2*time.Second {
 		t.Fatalf("unexpected request interval: %s", cfg.RequestInterval)
 	}
+	if cfg.UnknownModel != "chat" {
+		t.Fatalf("unexpected unknown-model policy: %s", cfg.UnknownModel)
+	}
 }
 
 func TestParseCapabilityRoutingFlags(t *testing.T) {

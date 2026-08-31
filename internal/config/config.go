@@ -141,7 +141,7 @@ func Parse(args []string) (Config, error) {
 		ExternalMode:         "auto",
 		ExternalImage:        externalImageFromEnv(),
 		Modules:              []string{"auto"},
-		UnknownModel:         "inventory",
+		UnknownModel:         "chat",
 		MaxArtifactsPerModel: 1,
 		FailOn:               "core",
 		Samples:              5,

@@ -73,7 +73,7 @@ compatibility:
                             explicit per-model capability override
   --capability-file FILE   JSON file containing model capability overrides
   --unknown-model inventory|chat
-                            policy for unclassified models (default inventory)
+                            policy for unclassified models (default chat)
   --allow-billable-artifacts
                             permit modules that generate billable media
   --max-artifacts-per-model N

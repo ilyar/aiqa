@@ -64,8 +64,8 @@ func Classify(model string, metadata map[string]any, opts Options) Classificatio
 	if len(evidence) > 0 {
 		return Classification{Model: model, Capabilities: evidence}
 	}
-	if opts.UnknownPolicy == "chat" {
-		return fromValues(model, []string{ChatText}, "policy", "unknown-model.chat", "low", "unknown model treated as chat by explicit policy")
+	if opts.UnknownPolicy != "inventory" {
+		return fromValues(model, []string{ChatText}, "default_policy", "unclassified-default.chat", "low", "no evidence of a non-text capability; treated as text by default")
 	}
 	return Classification{Model: model, Unknown: true, Reason: "insufficient capability evidence"}
 }
@@ -89,14 +89,44 @@ func fromValues(model string, values []string, source, rule, confidence, reason 
 
 func structuredMetadata(metadata map[string]any) []Evidence {
 	var out []Evidence
-	for _, key := range []string{"capabilities", "input_modalities", "output_modalities", "modalities", "type", "model_type", "task", "pipeline_tag"} {
-		for _, value := range stringValues(metadata[key]) {
-			if capability := normalizeMetadataCapability(value); capability != "" {
-				out = append(out, Evidence{Capability: capability, Source: "vendor_metadata", Rule: "metadata." + key, Confidence: "medium", Reason: fmt.Sprintf("metadata %s=%q", key, value)})
-			}
+	for _, key := range []string{"capabilities", "output_modalities", "modalities", "type", "model_type", "task", "pipeline_tag"} {
+		out = append(out, metadataEvidence(key, metadata[key])...)
+	}
+	if architecture, ok := metadata["architecture"].(map[string]any); ok {
+		for _, key := range []string{"output_modalities", "modalities"} {
+			out = append(out, metadataEvidence("architecture."+key, architecture[key])...)
 		}
 	}
 	return out
+}
+
+func metadataEvidence(key string, raw any) []Evidence {
+	var out []Evidence
+	for _, value := range stringValues(raw) {
+		if capability := normalizeMetadataCapabilityForKey(key, value); capability != "" {
+			out = append(out, Evidence{Capability: capability, Source: "vendor_metadata", Rule: "metadata." + key, Confidence: "medium", Reason: fmt.Sprintf("metadata %s=%q", key, value)})
+		}
+	}
+	return out
+}
+
+func normalizeMetadataCapabilityForKey(key, value string) string {
+	if capability := normalizeMetadataCapability(value); capability != "" {
+		return capability
+	}
+	if !strings.HasSuffix(key, "output_modalities") {
+		return ""
+	}
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "image":
+		return ImagesGenerations
+	case "audio":
+		return AudioSpeech
+	case "video":
+		return VideosGenerations
+	default:
+		return ""
+	}
 }
 
 func providerRules(baseURL string, metadata map[string]any) []Evidence {

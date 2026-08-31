@@ -172,10 +172,10 @@ internal/capability
 | Приоритет | Источник                          | Пример                                         |
 | --------: | --------------------------------- | ---------------------------------------------- |
 |         1 | Явный CLI/config override         | `gpt-image-2=images.generations`               |
-|         2 | Структурированное vendor metadata | `is_image`, `capabilities`, `input_modalities` |
+|         2 | Структурированное vendor metadata | `is_image`, `capabilities`, `output_modalities` |
 |         3 | Provider adapter                  | интерпретация `is_image` именно у Vibecode     |
 |         4 | Консервативные name rules         | `embedding`, `tts`, `asr`, `image-edit`        |
-|         5 | `unknown`                         | недостаточно доказательств                     |
+|         5 | Default policy                    | text fallback или `unknown` при конфликте      |
 
 Результат классификации должен содержать evidence:
 
@@ -205,7 +205,7 @@ task
 pipeline_tag
 ```
 
-Но это всё vendor extensions, а не часть стандартного OpenAI `Model`.
+Но это всё vendor extensions, а не часть стандартного OpenAI `Model`. Одно лишь `input_modalities=["text"]` не доказывает chat capability: такой input используют и embedding-модели. Поэтому generic classifier использует endpoint/task/capability и output metadata, а input metadata сохраняет только как дополнительный контекст.
 
 ## Name rules
 
@@ -757,16 +757,16 @@ aiqa test=compat \
 Default policy:
 
 ```text
---unknown-model=inventory
-```
-
-Legacy override:
-
-```text
 --unknown-model=chat
 ```
 
-Но legacy-режим должен быть явно отмечен в отчёте как assumption.
+Strict inventory override:
+
+```text
+--unknown-model=inventory
+```
+
+Модель без capability evidence по умолчанию считается текстовой с низкой уверенностью. Явные признаки non-text capability блокируют этот fallback, а конфликтующие признаки оставляют классификацию `unknown`. Low-confidence fallback должен быть явно отмечен в отчёте как assumption.
 
 ---
 
@@ -910,7 +910,7 @@ model-param для non-chat модели → N/A
 * `applicable/not_applicable/unknown`;
 * Vibecode adapter для `is_image`;
 * name rules;
-* inventory-only для unknown;
+* text-by-default для моделей без evidence, с явным inventory-only override;
 * chat и `model-param` запускаются только для chat candidates;
 * external checker запускает только chat suites для chat models;
 * routing matrix в отчёте.

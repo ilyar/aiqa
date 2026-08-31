@@ -34,9 +34,9 @@ As an API evaluator, I want each model to receive only relevant requests so that
 Acceptance criteria:
 
 - Chat and chat parameters run only for `chat.completions.text`.
-- Image-only and unknown models receive no Chat Completions requests by default.
+- Models with positive non-chat evidence and models with conflicting evidence receive no Chat Completions requests.
 - Provider-level chat error probes use a representative applicable chat model.
-- Unknown models remain inventory-only unless policy or an override enables chat.
+- Models without capability evidence default to low-confidence text chat; `--unknown-model=inventory` keeps them inventory-only.
 
 ### US-003: Report applicability
 
@@ -89,7 +89,7 @@ Acceptance criteria:
 
 ## Success criteria
 
-- A mixed catalog test proves that image-only and unknown models never receive chat requests.
+- A mixed catalog test proves that image-only, conflicting, and explicitly inventory-only models never receive chat requests.
 - A disabled image module reports `SKIP`; its chat module reports `N/A`.
 - Explicit overrides route custom models deterministically.
 - All Go tests, profile validation, JSON schema validation, and documentation checks pass.

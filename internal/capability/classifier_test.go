@@ -17,14 +17,53 @@ func TestVibecodeAdapterDistinguishesImageAndTokenModels(t *testing.T) {
 	}
 }
 
-func TestUnknownDoesNotBecomeChatWithoutPolicy(t *testing.T) {
+func TestUnclassifiedModelDefaultsToLowConfidenceChat(t *testing.T) {
 	got := Classify("custom-model", map[string]any{"id": "custom-model"}, Options{})
-	if !got.Unknown || got.Has(ChatText) {
+	if got.Unknown || !got.Has(ChatText) || len(got.Capabilities) != 1 {
 		t.Fatalf("unexpected classification: %+v", got)
 	}
-	legacy := Classify("custom-model", nil, Options{UnknownPolicy: "chat"})
-	if !legacy.Has(ChatText) {
-		t.Fatalf("explicit legacy policy was ignored: %+v", legacy)
+	evidence := got.Capabilities[0]
+	if evidence.Source != "default_policy" || evidence.Confidence != "low" {
+		t.Fatalf("default assumption is not explicit: %+v", got)
+	}
+
+	strict := Classify("custom-model", nil, Options{UnknownPolicy: "inventory"})
+	if !strict.Unknown || strict.Has(ChatText) {
+		t.Fatalf("explicit inventory policy was ignored: %+v", strict)
+	}
+}
+
+func TestBonsaiNestedTextModalitiesAreRecognized(t *testing.T) {
+	got := Classify("Ternary-Bonsai-1.7B", map[string]any{
+		"architecture": map[string]any{
+			"input_modalities":  []any{"text"},
+			"output_modalities": []any{"text"},
+		},
+	}, Options{})
+	if got.Unknown || !got.Has(ChatText) {
+		t.Fatalf("nested text modalities were not recognized: %+v", got)
+	}
+	if len(got.Capabilities) != 1 || got.Capabilities[0].Source != "vendor_metadata" || got.Capabilities[0].Confidence != "medium" {
+		t.Fatalf("Bonsai classification did not preserve metadata evidence: %+v", got)
+	}
+}
+
+func TestPositiveNonTextEvidencePreventsChatFallback(t *testing.T) {
+	got := Classify("opaque-model", map[string]any{
+		"architecture": map[string]any{"output_modalities": []any{"image"}},
+	}, Options{})
+	if got.Unknown || !got.Has(ImagesGenerations) || got.Has(ChatText) {
+		t.Fatalf("non-text evidence was replaced by the chat fallback: %+v", got)
+	}
+}
+
+func TestTextInputDoesNotOverrideEmbeddingEvidence(t *testing.T) {
+	got := Classify("opaque-model", map[string]any{
+		"input_modalities": []any{"text"},
+		"pipeline_tag":     "feature-extraction",
+	}, Options{})
+	if got.Unknown || !got.Has(Embeddings) || got.Has(ChatText) {
+		t.Fatalf("text input was mistaken for a chat capability: %+v", got)
 	}
 }
 
@@ -46,7 +85,7 @@ func TestModelCanHaveMultipleCapabilities(t *testing.T) {
 
 func TestConflictingPositiveRulesRemainUnknown(t *testing.T) {
 	got := Classify("text-embedding-image", nil, Options{})
-	if !got.Unknown || got.Reason != "classification conflict" {
+	if !got.Unknown || got.Has(ChatText) || got.Reason != "classification conflict" {
 		t.Fatalf("conflict not preserved: %+v", got)
 	}
 }

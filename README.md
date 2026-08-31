@@ -43,7 +43,7 @@ When `--model` is not specified, `aiqa` preserves every `/models` entry in the i
 
 ## Capability routing
 
-OpenAI's standard model object does not declare endpoint capabilities. AIQA therefore uses explicit overrides first, then recognized vendor metadata and conservative model-name rules. A model with insufficient evidence remains inventory-only and is reported as `NOT-EVALUATED`; it is not assumed to be a chat model and does not receive Chat Completions requests.
+OpenAI's standard model object does not declare endpoint capabilities. AIQA therefore uses explicit overrides first, then recognized vendor metadata and conservative model-name rules. When no capability evidence exists and nothing identifies the model as non-text, AIQA treats it as a text chat model with low confidence. Explicit image, embedding, audio, or video evidence still prevents chat routing, and conflicting evidence remains unknown.
 
 Declare a known model explicitly:
 
@@ -64,7 +64,7 @@ Multiple capabilities use `+`, and larger catalogs can use `--capability-file`:
 }
 ```
 
-`--unknown-model=chat` preserves the old chat-for-everything behavior as an explicit low-confidence assumption. The safer default is `--unknown-model=inventory`.
+The default is `--unknown-model=chat`. Use `--unknown-model=inventory` when unclassified models must remain inventory-only and receive no capability tests.
 
 Image generation is a billable module and remains skipped by default. Enable it deliberately for a selected model:
 
