@@ -63,9 +63,12 @@ STORAGE="$(cd "$STORAGE" && pwd)"
 STATE="$STORAGE/.model-provider"
 SECRETS="$STATE/secrets.env"
 BIFROST_CONFIG="$STATE/bifrost.json"
+BIFROST_DATA="$STATE/bifrost-data"
 CADDYFILE="$STATE/Caddyfile"
 mkdir -p "$STATE"
 chmod 700 "$STATE"
+mkdir -p "$BIFROST_DATA"
+chmod 700 "$BIFROST_DATA"
 
 # -----------------------------------------------------------------------------
 # Model
@@ -128,7 +131,7 @@ EOF_MODELS
 # -----------------------------------------------------------------------------
 # Bifrost: one declarative custom OpenAI-compatible upstream.
 # A single virtual key works as both OpenAI Bearer and Anthropic x-api-key.
-# config_store=false makes config.json the source of truth.
+# Governance and virtual-key authentication require a persistent config store.
 # -----------------------------------------------------------------------------
 cat > "$BIFROST_CONFIG" <<EOF_BIFROST
 {
@@ -144,7 +147,7 @@ cat > "$BIFROST_CONFIG" <<EOF_BIFROST
       "is_enabled": true,
       "admin_username": "env.BIFROST_ADMIN_USERNAME",
       "admin_password": "env.BIFROST_ADMIN_PASSWORD",
-      "disable_auth_on_inference": true
+      "disable_auth_on_inference": false
     },
     "virtual_keys": [
       {
@@ -156,6 +159,7 @@ cat > "$BIFROST_CONFIG" <<EOF_BIFROST
           {
             "provider": "$PROVIDER_ID",
             "allowed_models": ["$MODEL_ID", "$PUBLIC_MODEL_ID"],
+            "key_ids": ["llama-upstream"],
             "weight": 1.0
           }
         ]
@@ -194,7 +198,11 @@ cat > "$BIFROST_CONFIG" <<EOF_BIFROST
       }
     }
   },
-  "config_store": { "enabled": false }
+  "config_store": {
+    "enabled": true,
+    "type": "sqlite",
+    "config": { "path": "/app/data/config.db" }
+  }
 }
 EOF_BIFROST
 jq -e . "$BIFROST_CONFIG" >/dev/null
@@ -222,9 +230,6 @@ docker rm -f \
   >/dev/null 2>&1 || true
 
 docker network inspect "$NETWORK" >/dev/null 2>&1 || docker network create "$NETWORK" >/dev/null
-docker volume inspect model-provider-bifrost-data >/dev/null 2>&1 || \
-  docker volume create model-provider-bifrost-data >/dev/null
-
 log "Starting llama.cpp"
 docker run -d \
   --name "$LLAMA_CONTAINER" \
@@ -257,7 +262,7 @@ docker run -d \
   --env-file "$SECRETS" \
   -e APP_HOST=0.0.0.0 \
   -e APP_PORT=8080 \
-  -v model-provider-bifrost-data:/app/data \
+  -v "$BIFROST_DATA:/app/data" \
   -v "$BIFROST_CONFIG:/app/data/config.json:ro" \
   "$BIFROST_IMAGE" \
   >/dev/null
