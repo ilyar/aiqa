@@ -50,7 +50,7 @@ Milestone 1 delivered actionable Markdown and JSON:
 | AR-011–AR-013 | Pass | Target, attribution, confidence, and profile-based impact are explicit; recommendation ranking never reads the legacy score. |
 | AR-014–AR-016 | Pass | External artifacts are deduplicated; catalog and pack revisions are recorded; strict JSON rejects forbidden pack fields. |
 | AR-017–AR-021 | Pass | Tuple ordering, collapsed passing checks, distinct labels, methodology, deterministic IDs, and golden snapshots are covered. |
-| AR-022–AR-025 | Pass | Guidance failure is contained; diagnostics and commands are redacted; observed scope is distinct from attribution; model findings default to unknown ownership. |
+| AR-022–AR-025 | Pass | Guidance failure is contained; diagnostics are redacted; shell commands are excluded from current reports; observed scope is distinct from attribution; model findings default to unknown ownership. |
 | AR-026–AR-030 | Pass | Blocked requirements link to the parent; coverage uses canonical requirements; guidance is offline; versions and complete reference objects are serialized. |
 
 ## Acceptance fixture audit
@@ -89,7 +89,7 @@ Unit tests prove:
 
 ## Quality evidence
 
-The delivery gate ran successfully on 2026-08-31:
+The delivery gate ran successfully on 2026-08-31 and was repeated during the completion audit on 2026-09-01:
 
 ```text
 GOCACHE=/tmp/aiqa-go-cache make check
@@ -107,7 +107,7 @@ The checks include:
 - redaction and artifact deduplication;
 - canonical assessment and exit-policy regression tests.
 
-The `BenchmarkGuidance1000Requirements` result on the final delivery run was approximately 22.4 ms per 1,000 requirements, below the 100 ms target. Guidance performs no API calls and adds no token usage.
+The `BenchmarkGuidance1000Requirements` result during the completion audit was approximately 19.5 ms per 1,000 requirements, below the 100 ms target. Guidance performs no API calls and adds no token usage.
 
 Human usability targets from the original product study—time to first action, evidence discovery time, and interpretation by five maintainers—were not measured by automated delivery tests. They remain a validation activity, not an implemented software capability.
 
