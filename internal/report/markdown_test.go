@@ -94,6 +94,12 @@ func TestMarkdownPutsActionsBeforeDiagnosticsAndCollapsesRawEvidence(t *testing.
 	if strings.Index(markdown, "## Fix first") > strings.Index(markdown, "## Model and module details") {
 		t.Fatalf("actions must precede raw diagnostics:\n%s", markdown)
 	}
+	if !strings.Contains(markdown, "| PRI | Recommendation | Scope | Expected impact | Confidence |") || !strings.Contains(markdown, "|:---:|---|---|---|---:|") {
+		t.Fatalf("recommendation priority column must use PRI and centered alignment:\n%s", markdown)
+	}
+	if strings.Contains(markdown, "| Priority | Recommendation |") {
+		t.Fatalf("legacy recommendation priority heading remains:\n%s", markdown)
+	}
 	if strings.Count(markdown, "unique raw log") != 1 {
 		t.Fatalf("raw artifact must render exactly once:\n%s", markdown)
 	}

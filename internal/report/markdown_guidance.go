@@ -110,8 +110,8 @@ func writeGuidance(b *strings.Builder, r result.Report) {
 }
 
 func writeRecommendationTable(b *strings.Builder, recommendations []result.Recommendation, findings map[string]*result.Finding) {
-	fmt.Fprintln(b, "| Priority | Recommendation | Scope | Expected impact | Confidence |")
-	fmt.Fprintln(b, "|---:|---|---|---|---:|")
+	fmt.Fprintln(b, "| PRI | Recommendation | Scope | Expected impact | Confidence |")
+	fmt.Fprintln(b, "|:---:|---|---|---|---:|")
 	for _, recommendation := range recommendations {
 		var finding *result.Finding
 		if len(recommendation.FindingIDs) > 0 {
