@@ -119,7 +119,7 @@ The following items were explicitly future milestones in the original PRD and ar
 
 - baseline comparison and `new`, `resolved`, `regressed`, and related states;
 - offline `aiqa explain` rendering;
-- targeted `aiqa verify` execution;
+- targeted `aiqa verify` execution and opt-in command rendering, specified in [`backlog.md`](backlog.md);
 - provider-specific pack detection and non-generic packs;
 - Russian guidance locale;
 - nested requirement/probe profile representation for a future v2 contract.
@@ -134,4 +134,4 @@ The following items were explicitly future milestones in the original PRD and ar
 
 - opt-in generated explanation from sanitized findings.
 
-Any future generated layer must remain non-normative, visibly marked, and unable to change IDs, evidence, status, priority, impact, verification commands, verdict, or exit policy.
+Any future generated layer must remain non-normative, visibly marked, and unable to change IDs, evidence, status, priority, impact, verification targets, verdict, or exit policy.

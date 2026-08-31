@@ -130,9 +130,8 @@ type RecommendationStep struct {
 }
 
 type Verification struct {
-	Kind  string   `json:"kind"`
-	IDs   []string `json:"ids,omitempty"`
-	Shell string   `json:"shell,omitempty"`
+	Kind string   `json:"kind"`
+	IDs  []string `json:"ids"`
 }
 
 type Reference struct {

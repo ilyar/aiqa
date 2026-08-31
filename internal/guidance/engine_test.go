@@ -181,6 +181,30 @@ func TestGuidanceIsDeterministic(t *testing.T) {
 	}
 }
 
+func TestGuidanceEmitsTargetsWithoutBroadCommands(t *testing.T) {
+	r := result.Report{
+		Summary: result.Summary{Assessment: &result.ConformanceAssessment{Verdict: "partial"}},
+		Requirements: []result.RequirementAssessment{{
+			ID: "chat.logprobs", Name: "logprobs", Level: result.RequirementOptional,
+			Subject: result.SubjectRef{Kind: "model", ID: "exact-model-id"}, Applicability: result.ApplicabilityApplicable, Status: result.RequirementFail,
+			Evidence: []result.EvidenceRef{{ID: "native", Kind: "native", Status: result.StatusFail, Signals: []result.EvidenceSignal{{Code: "behavior.chat.logprobs.accepted_but_missing"}}}},
+		}},
+	}
+	Apply(&r, testProfile(), Options{Pack: "generic"})
+	if len(r.Guidance.Recommendations) != 1 {
+		t.Fatalf("recommendations=%d, want one", len(r.Guidance.Recommendations))
+	}
+	verification := r.Guidance.Recommendations[0].Verification
+	if len(verification) == 0 {
+		t.Fatal("recommendation must retain structured verification targets")
+	}
+	for _, target := range verification {
+		if target.Kind == "command" {
+			t.Fatalf("broad command leaked into guidance: %+v", target)
+		}
+	}
+}
+
 func TestGuidanceFailureDoesNotChangeConformance(t *testing.T) {
 	r := result.Report{
 		Summary: result.Summary{Status: "fail", Assessment: &result.ConformanceAssessment{Verdict: "fail", VerdictReason: "core_failure"}},

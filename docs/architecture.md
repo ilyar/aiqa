@@ -138,7 +138,7 @@ The conformance verdict is derived only from applicable canonical requirements:
 
 ## Findings and actionable guidance
 
-`internal/guidance` consumes canonical requirements and typed evidence signals. It does not parse prose summaries to decide what happened. The engine groups repeated observations by finding code and subject, assigns stable fingerprints, records evidence and artifact references, and emits deterministic recommendations with priority, target component, confidence, verification steps, references, and conditional impact.
+`internal/guidance` consumes canonical requirements and typed evidence signals. It does not parse prose summaries to decide what happened. The engine groups repeated observations by finding code and subject, assigns stable fingerprints, records evidence and artifact references, and emits deterministic recommendations with priority, target component, confidence, verification targets, references, and conditional impact. Verification targets are requirement or Official SDK suite IDs; the current engine does not emit broad shell commands.
 
 Normative facts remain in the compatibility profile and requirement assessment. The generic catalog provides reviewed cross-provider guidance for known signal codes. Advice packs may add operational steps, workarounds, caveats, and references, but they cannot redefine requirement level, status, verdict, or priority policy. Unknown signals receive conservative generic guidance instead of a fabricated provider-specific fix.
 

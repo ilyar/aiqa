@@ -981,11 +981,10 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["kind"],
+            "required": ["kind", "ids"],
             "properties": {
-              "kind": { "enum": ["command", "requirement", "requirements", "external_suite", "external_suites"] },
-              "ids": { "type": "array", "items": { "type": "string" } },
-              "shell": { "type": "string" }
+              "kind": { "enum": ["requirement", "requirements", "external_suite", "external_suites"] },
+              "ids": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
             },
             "additionalProperties": false
           }

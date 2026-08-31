@@ -13,7 +13,7 @@ import (
 	"github.com/ilyar/aiqa/internal/result"
 )
 
-const EngineVersion = "1.0.0"
+const EngineVersion = "1.0.1"
 
 type Catalog struct {
 	Revision string         `json:"revision"`
@@ -157,11 +157,33 @@ func (c *Catalog) validate() error {
 		if entry.GuidanceLevel == 3 && len(entry.Verification) == 0 {
 			return fmt.Errorf("level 3 entry %q requires verification", entry.ID)
 		}
+		if err := validateVerificationTargets(entry.Verification); err != nil {
+			return fmt.Errorf("entry %q: %w", entry.ID, err)
+		}
 		if err := validateReferences(entry.References); err != nil {
 			return fmt.Errorf("entry %q: %w", entry.ID, err)
 		}
 	}
 	sort.Slice(c.Entries, func(i, j int) bool { return c.Entries[i].ID < c.Entries[j].ID })
+	return nil
+}
+
+func validateVerificationTargets(verification []result.Verification) error {
+	for _, target := range verification {
+		switch target.Kind {
+		case "requirement", "requirements", "external_suite", "external_suites":
+		default:
+			return fmt.Errorf("unsupported verification kind %q", target.Kind)
+		}
+		if len(target.IDs) == 0 {
+			return fmt.Errorf("verification target %q requires IDs", target.Kind)
+		}
+		for _, id := range target.IDs {
+			if strings.TrimSpace(id) == "" {
+				return fmt.Errorf("verification target %q contains an empty ID", target.Kind)
+			}
+		}
+	}
 	return nil
 }
 

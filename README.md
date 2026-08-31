@@ -276,6 +276,8 @@ It contains raw model metadata, probe evidence, canonical requirements, the auth
 
 Markdown leads with core conformance, optional coverage, evidence completeness, and prioritized actions. Passed checks and raw evidence are collapsed by default. The former numeric pass ratio remains in JSON as a deprecated compatibility field and must not be used to rank reports.
 
+Recommendations name exact verification targets but do not emit shell commands. A full compatibility rerun would not verify one finding in isolation; targeted execution and opt-in command rendering remain [backlog work](tasks/backlog.md).
+
 Guidance is deterministic and uses no additional API calls:
 
 ```text

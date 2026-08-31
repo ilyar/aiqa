@@ -301,7 +301,6 @@ func buildRecommendations(r result.Report, p profile.Profile, catalog Catalog, p
 		if finding.EvidenceState == "conflicting" || finding.EvidenceState == "inconclusive" {
 			caveats = append(caveats, "Do not attribute or implement a provider fix until the linked evidence becomes conclusive.")
 		}
-		verification = ensureRerunVerification(verification, finding.Subject)
 		impact := potentialImpact(r, finding, actionKind, requirements)
 		fingerprint := recommendationFingerprint(finding.Fingerprint, source)
 		recommendations = append(recommendations, result.Recommendation{
@@ -572,20 +571,6 @@ func genericSteps(finding result.Finding, action string) []result.Recommendation
 	default:
 		return []result.RecommendationStep{{ID: "inspect-evidence", Text: "Inspect the linked structured evidence for the first incompatible boundary."}, {ID: "correct-behavior", Text: "Make the implementation satisfy the canonical requirement without weakening validation."}}
 	}
-}
-
-func ensureRerunVerification(in []result.Verification, subject result.SubjectRef) []result.Verification {
-	out := cloneVerification(in)
-	command := "aiqa test=compat --format=markdown,json --name=verify"
-	if subject.Kind == "model" {
-		command = "aiqa test=compat --model \"$MODEL\" --format=markdown,json --name=verify"
-	}
-	for _, verification := range out {
-		if verification.Kind == "command" {
-			return out
-		}
-	}
-	return append(out, result.Verification{Kind: "command", Shell: command})
 }
 
 func potentialImpact(r result.Report, finding result.Finding, action string, requirements map[string]result.RequirementAssessment) result.PotentialImpact {

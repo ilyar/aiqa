@@ -100,6 +100,12 @@ func TestMarkdownPutsActionsBeforeDiagnosticsAndCollapsesRawEvidence(t *testing.
 	if !strings.Contains(markdown, "<details><summary>Show 1 passed checks</summary>") || !strings.Contains(markdown, "<details><summary>Legacy scoring</summary>") {
 		t.Fatalf("passed checks and legacy score must be collapsed:\n%s", markdown)
 	}
+	if !strings.Contains(markdown, "#### Verification targets") || !strings.Contains(markdown, "Requirements: `models.list.schema`") {
+		t.Fatalf("structured verification target is missing:\n%s", markdown)
+	}
+	if strings.Contains(markdown, "```bash") || strings.Contains(markdown, "aiqa test=compat") {
+		t.Fatalf("report must not emit broad verification commands:\n%s", markdown)
+	}
 }
 
 func floatPointer(value float64) *float64 { return &value }

@@ -56,3 +56,28 @@ func TestCatalogRejectsNonHTTPSReferences(t *testing.T) {
 		t.Fatal("HTTP reference must be rejected")
 	}
 }
+
+func TestCatalogRejectsVerificationCommands(t *testing.T) {
+	catalog := Catalog{
+		Revision: "1",
+		Entries: []CatalogEntry{{
+			ID:                  "broad-rerun",
+			Revision:            "1",
+			FindingCode:         "example.broad_rerun",
+			FindingTitle:        "Broad rerun",
+			RecommendationTitle: "Verify the requirement",
+			DefaultPriority:     "p2",
+			ActionKind:          "rerun",
+			GuidanceLevel:       1,
+			Audiences:           []string{"qa_operator"},
+			Why:                 "Verification must name an executable target.",
+			Attribution:         result.Attribution{Component: "aiqa_runner", Confidence: "high", Basis: "catalog"},
+			Steps:               []result.RecommendationStep{{ID: "verify", Text: "Verify the affected requirement."}},
+			Verification:        []result.Verification{{Kind: "command", IDs: []string{"aiqa test=compat"}}},
+		}},
+	}
+	err := catalog.validate()
+	if err == nil || !strings.Contains(err.Error(), "unsupported verification kind") {
+		t.Fatalf("command verification must be rejected, got %v", err)
+	}
+}

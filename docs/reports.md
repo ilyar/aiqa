@@ -97,6 +97,8 @@ Guidance levels describe specificity:
 
 Finding, attribution, and recommendation confidence are recorded separately as `high`, `medium`, or `low`. A projected verdict is conditional: it assumes only the affected requirements change to `pass` and nothing else regresses. Conflicting or inconclusive findings always use `projected_verdict: null`.
 
+Verification entries currently identify only the affected requirement IDs and Official SDK suite IDs. AIQA does not emit shell commands: a full `test=compat` rerun does not verify one finding in isolation and would misrepresent its cost and scope. Targeted execution and opt-in command rendering are tracked in the [backlog](../tasks/backlog.md).
+
 ## Markdown layout
 
 Markdown is rendered from the same report object serialized as JSON. Its order is:
@@ -140,4 +142,4 @@ Exit `2` remains reserved for configuration, orchestration, or report-writing fa
 
 The additive `aiqa.report.v1` migration preserves existing fields while adding canonical requirements, assessment, and `aiqa.guidance.v1`. Profiles still store flat probe definitions; AIQA derives the requirement layer from stable requirement IDs. A future v2 profile may represent nested requirements and probes directly.
 
-Baseline comparison, offline `aiqa explain`, targeted `aiqa verify`, Russian guidance, HTML, SARIF, and generated explanations are not implemented. They remain separate future work and must not be inferred from the v1 guidance contract.
+Baseline comparison, offline `aiqa explain`, targeted `aiqa verify`, opt-in verification commands, Russian guidance, HTML, SARIF, and generated explanations are not implemented. They remain separate future work and must not be inferred from the v1 guidance contract.

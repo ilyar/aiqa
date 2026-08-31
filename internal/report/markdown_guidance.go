@@ -153,14 +153,10 @@ func writeRecommendationDetail(b *strings.Builder, recommendation result.Recomme
 		fmt.Fprintln(b)
 	}
 	if len(recommendation.Verification) > 0 {
-		fmt.Fprintln(b, "#### Verify")
+		fmt.Fprintln(b, "#### Verification targets")
 		fmt.Fprintln(b)
 		for _, verification := range recommendation.Verification {
 			switch verification.Kind {
-			case "command":
-				fmt.Fprintln(b, "```bash")
-				fmt.Fprintln(b, verification.Shell)
-				fmt.Fprintln(b, "```")
 			case "requirement", "requirements":
 				fmt.Fprintf(b, "Requirements: %s\n\n", codeList(verification.IDs))
 			case "external_suite", "external_suites":
