@@ -12,7 +12,7 @@ import (
 	profiledata "github.com/ilyar/aiqa/profile"
 )
 
-const DefaultFile = "openai-compat-2026-08.json"
+const DefaultFile = "openai-compat-2026-09.json"
 
 type Probe struct {
 	ID          string `json:"id"`
@@ -20,6 +20,16 @@ type Probe struct {
 	Category    string `json:"category"`
 	Required    bool   `json:"required"`
 	Description string `json:"description"`
+}
+
+type Module struct {
+	ID               string   `json:"id"`
+	Subject          string   `json:"subject"`
+	AlwaysApplicable bool     `json:"always_applicable,omitempty"`
+	DefaultEnabled   bool     `json:"default_enabled"`
+	CostClass        string   `json:"cost_class"`
+	Capabilities     []string `json:"capabilities,omitempty"`
+	ProbeIDs         []string `json:"probe_ids"`
 }
 
 type Profile struct {
@@ -32,6 +42,7 @@ type Profile struct {
 	Probes             []Probe  `json:"probes"`
 	StandardParameters []string `json:"standard_parameters"`
 	VendorExtensions   []string `json:"vendor_extensions"`
+	Modules            []Module `json:"modules,omitempty"`
 	byID               map[string]Probe
 }
 
@@ -119,6 +130,44 @@ func (p *Profile) validate() error {
 	if _, err := validateNames("vendor extension", p.VendorExtensions, standard); err != nil {
 		return err
 	}
+	moduleIDs := map[string]struct{}{}
+	assignedProbes := map[string]string{}
+	for index := range p.Modules {
+		module := &p.Modules[index]
+		module.ID, module.Subject, module.CostClass = strings.TrimSpace(module.ID), strings.TrimSpace(module.Subject), strings.TrimSpace(module.CostClass)
+		if module.ID == "" || (module.Subject != "provider" && module.Subject != "model") || module.CostClass == "" {
+			return fmt.Errorf("module %d must define id, provider/model subject, and cost_class", index)
+		}
+		if _, exists := moduleIDs[module.ID]; exists {
+			return fmt.Errorf("duplicate module id %q", module.ID)
+		}
+		moduleIDs[module.ID] = struct{}{}
+		if len(module.ProbeIDs) == 0 {
+			return fmt.Errorf("module %q must reference at least one probe", module.ID)
+		}
+		for _, probeID := range module.ProbeIDs {
+			if _, exists := p.byID[probeID]; !exists {
+				return fmt.Errorf("module %q references unknown probe %q", module.ID, probeID)
+			}
+			if previous, exists := assignedProbes[probeID]; exists {
+				return fmt.Errorf("probe %q belongs to both %q and %q", probeID, previous, module.ID)
+			}
+			assignedProbes[probeID] = module.ID
+		}
+		if module.Subject == "model" && len(module.Capabilities) == 0 {
+			return fmt.Errorf("model module %q must define capabilities", module.ID)
+		}
+		if _, err := validateNames("module "+module.ID+" capability", module.Capabilities, nil); err != nil {
+			return err
+		}
+	}
+	if len(p.Modules) > 0 && len(assignedProbes) != len(p.Probes) {
+		for _, probe := range p.Probes {
+			if _, exists := assignedProbes[probe.ID]; !exists {
+				return fmt.Errorf("probe %q is not assigned to a module", probe.ID)
+			}
+		}
+	}
 	return nil
 }
 
@@ -153,6 +202,15 @@ func isLowerHex(value string) bool {
 func (p Profile) Probe(id string) Probe {
 	if probe, ok := p.byID[id]; ok {
 		return probe
+	}
+	// The modular profile prefixes endpoint-specific error probes. Keep the
+	// immutable 2026-08 profile usable by mapping the new chat IDs to its
+	// historical unprefixed IDs at lookup time.
+	if strings.HasPrefix(id, "chat.error.") {
+		if probe, ok := p.byID[strings.TrimPrefix(id, "chat.")]; ok {
+			probe.ID = id
+			return probe
+		}
 	}
 	return Probe{ID: id, Name: id, Category: "unknown"}
 }

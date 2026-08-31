@@ -6,10 +6,12 @@ import (
 	"os"
 	"runtime"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/ilyar/aiqa/internal/api"
+	"github.com/ilyar/aiqa/internal/capability"
 	"github.com/ilyar/aiqa/internal/config"
 	"github.com/ilyar/aiqa/internal/external"
 	"github.com/ilyar/aiqa/internal/profile"
@@ -31,6 +33,28 @@ type RunResult struct {
 }
 
 func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, error) {
+	overrides, err := capability.LoadOverrideFile(cfg.CapabilityFile)
+	if err != nil {
+		return RunResult{}, err
+	}
+	if overrides == nil {
+		overrides = map[string][]string{}
+	}
+	for _, raw := range cfg.ModelCapabilities {
+		parts := strings.SplitN(raw, "=", 2)
+		if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
+			return RunResult{}, fmt.Errorf("invalid --model-capability %q", raw)
+		}
+		values := strings.Split(parts[1], "+")
+		for index := range values {
+			values[index] = strings.TrimSpace(values[index])
+			value := values[index]
+			if !capability.Known[value] {
+				return RunResult{}, fmt.Errorf("unknown capability %q in --model-capability", value)
+			}
+		}
+		overrides[strings.TrimSpace(parts[0])] = values
+	}
 	p, err := profile.Load()
 	if err != nil {
 		return RunResult{}, err
@@ -58,17 +82,21 @@ func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, er
 			Scope:             p.Scope,
 		},
 		Config: result.PublicConfig{
-			BaseURL:          cfg.BaseURL,
-			Tests:            append([]string(nil), cfg.Tests...),
-			RequestedModels:  append([]string(nil), cfg.Models...),
-			Timeout:          cfg.Timeout.String(),
-			Formats:          append([]string(nil), cfg.Formats...),
-			ExternalMode:     cfg.ExternalMode,
-			FailOn:           cfg.FailOn,
-			ContextMaxTokens: cfg.ContextMaxTokens,
-			ContextPrecision: cfg.ContextPrecision,
-			ContextBudget:    cfg.ContextBudget,
-			Samples:          cfg.Samples,
+			BaseURL:                cfg.BaseURL,
+			Tests:                  append([]string(nil), cfg.Tests...),
+			RequestedModels:        append([]string(nil), cfg.Models...),
+			Timeout:                cfg.Timeout.String(),
+			Formats:                append([]string(nil), cfg.Formats...),
+			ExternalMode:           cfg.ExternalMode,
+			FailOn:                 cfg.FailOn,
+			ContextMaxTokens:       cfg.ContextMaxTokens,
+			ContextPrecision:       cfg.ContextPrecision,
+			ContextBudget:          cfg.ContextBudget,
+			Samples:                cfg.Samples,
+			Modules:                append([]string(nil), cfg.Modules...),
+			UnknownModel:           cfg.UnknownModel,
+			AllowBillableArtifacts: cfg.AllowBillableArtifacts,
+			MaxArtifactsPerModel:   cfg.MaxArtifactsPerModel,
 		},
 	}
 
@@ -112,9 +140,20 @@ func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, er
 		fmt.Fprintf(os.Stderr, "aiqa: context probing is enabled; the per-model prompt budget is %d tokens\n", cfg.ContextBudget)
 	}
 
-	if cfg.HasTest("compat") {
-		r.Discovery.Tests = append(r.Discovery.Tests, suites.RunEndpointCompat(ctx, env, selected[0])...)
-		suites.SortTests(r.Discovery.Tests)
+	classifications := make([]capability.Classification, len(selected))
+	modulePlans := make([][]result.ModuleAssessment, len(selected))
+	for index, model := range selected {
+		classifications[index] = capability.Classify(model, metadata[model], capability.Options{BaseURL: cfg.BaseURL, Overrides: overrides, UnknownPolicy: cfg.UnknownModel})
+		modulePlans[index] = capability.AssessModules(classifications[index], p.Modules, capability.RoutingOptions{Modules: cfg.Modules, AllowBillableArtifacts: cfg.AllowBillableArtifacts})
+	}
+	chatRepresentative := representativeModel(selected, modulePlans, capability.ModuleChat)
+
+	if cfg.HasTest("compat") && chatRepresentative != "" {
+		r.Discovery.Compatibility = append(r.Discovery.Compatibility, suites.RunEndpointCompat(ctx, env, chatRepresentative)...)
+		suites.SortTests(r.Discovery.Compatibility)
+	}
+	if cfg.HasTest("compat") && cfg.ExternalMode != "off" {
+		r.Discovery.External = external.RunModule(ctx, cfg, "", p, "discovery")
 	}
 
 	type item struct {
@@ -135,16 +174,30 @@ func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, er
 			for index := range jobs {
 				model := selected[index]
 				fmt.Fprintf(os.Stderr, "aiqa: [%s] start\n", model)
-				mr := result.ModelReport{ID: model, Metadata: cloneMap(metadata[model])}
-				if cfg.HasTest("compat") {
-					mr.Compatibility = suites.RunModelCompat(ctx, env, model)
-					suites.SortTests(mr.Compatibility)
+				mr := result.ModelReport{ID: model, Metadata: cloneMap(metadata[model]), Modules: modulePlans[index]}
+				for _, evidence := range classifications[index].Capabilities {
+					mr.Capabilities = append(mr.Capabilities, result.CapabilityAssessment{ID: evidence.Capability, Source: evidence.Source, Rule: evidence.Rule, Confidence: evidence.Confidence, Reason: evidence.Reason})
 				}
-				if cfg.HasTest("model-param") {
+				chatModule := capability.Module(mr.Modules, capability.ModuleChat)
+				imageModule := capability.Module(mr.Modules, capability.ModuleImages)
+				if cfg.HasTest("compat") && chatModule != nil && chatModule.Execution == result.ExecutionExecuted {
+					mr.Compatibility = suites.RunModelCompat(ctx, env, model)
+				}
+				if cfg.HasTest("compat") && imageModule != nil && imageModule.Execution == result.ExecutionExecuted {
+					mr.Compatibility = append(mr.Compatibility, suites.RunImageCompat(ctx, env, model)...)
+				}
+				suites.SortTests(mr.Compatibility)
+				if cfg.HasTest("model-param") && chatModule != nil && chatModule.Execution == result.ExecutionExecuted {
 					mr.Parameters, mr.Context = suites.RunModelParameters(ctx, env, model, metadata[model])
 				}
-				if cfg.HasTest("compat") && cfg.ExternalMode != "off" {
-					mr.External = append(mr.External, external.Run(ctx, cfg, model, p)...)
+				if cfg.HasTest("compat") && cfg.ExternalMode != "off" && chatModule != nil && chatModule.Execution == result.ExecutionExecuted {
+					mr.External = append(mr.External, external.RunModule(ctx, cfg, model, p, capability.ModuleChat)...)
+				}
+				// The native image probe consumes the first artifact slot. The
+				// Official SDK image suite is also billable, so run it only when
+				// the user explicitly budgets a second artifact.
+				if cfg.HasTest("compat") && cfg.ExternalMode != "off" && cfg.MaxArtifactsPerModel >= 2 && imageModule != nil && imageModule.Execution == result.ExecutionExecuted {
+					mr.External = append(mr.External, external.RunModule(ctx, cfg, model, p, capability.ModuleImages)...)
 				}
 				if len(selected) > 1 {
 					stats := client.PacingStatsForModel(model)
@@ -181,6 +234,18 @@ func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, er
 	return RunResult{Report: r, Paths: paths, ExitCode: exitCode(cfg, r.Summary)}, nil
 }
 
+func representativeModel(models []string, plans [][]result.ModuleAssessment, moduleID string) string {
+	for index, model := range models {
+		if index >= len(plans) {
+			break
+		}
+		if module := capability.Module(plans[index], moduleID); module != nil && module.Execution == result.ExecutionExecuted {
+			return model
+		}
+	}
+	return ""
+}
+
 func addModelLatencyStats(out *result.RateLimitStats, m result.ModelReport) {
 	var values []int64
 	for _, t := range m.Compatibility {
@@ -209,6 +274,9 @@ func addLatencyStats(out *result.RateLimitStats, r result.Report) {
 		}
 	}
 	for _, t := range r.Discovery.Tests {
+		add(t)
+	}
+	for _, t := range r.Discovery.Compatibility {
 		add(t)
 	}
 	for _, m := range r.Models {

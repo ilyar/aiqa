@@ -15,28 +15,34 @@ import (
 const DefaultExternalImage = "ghcr.io/beranekio/openai-compatibility-tester:latest"
 
 type Config struct {
-	BaseURL           string
-	APIKey            string
-	Tests             []string
-	Models            []string
-	Timeout           time.Duration
-	RequestInterval   time.Duration
-	Formats           []string
-	Name              string
-	Concurrency       int
-	ExternalMode      string
-	ExternalImage     string
-	FailOn            string
-	AllowHTTP         bool
-	Verbose           bool
-	Samples           int
-	ContextMaxTokens  int64
-	ContextPrecision  int64
-	ContextBudget     int64
-	ContextStartBytes int
-	ContextMaxBytes   int
-	VersionOnly       bool
-	HelpOnly          bool
+	BaseURL                string
+	APIKey                 string
+	Tests                  []string
+	Models                 []string
+	Timeout                time.Duration
+	RequestInterval        time.Duration
+	Formats                []string
+	Name                   string
+	Concurrency            int
+	ExternalMode           string
+	ExternalImage          string
+	Modules                []string
+	ModelCapabilities      []string
+	CapabilityFile         string
+	UnknownModel           string
+	AllowBillableArtifacts bool
+	MaxArtifactsPerModel   int
+	FailOn                 string
+	AllowHTTP              bool
+	Verbose                bool
+	Samples                int
+	ContextMaxTokens       int64
+	ContextPrecision       int64
+	ContextBudget          int64
+	ContextStartBytes      int
+	ContextMaxBytes        int
+	VersionOnly            bool
+	HelpOnly               bool
 }
 
 type durationValue struct{ d *time.Duration }
@@ -124,32 +130,36 @@ func externalImageFromEnv() string {
 
 func Parse(args []string) (Config, error) {
 	cfg := Config{
-		BaseURL:           strings.TrimSpace(os.Getenv("OPENAI_BASE_URL")),
-		APIKey:            os.Getenv("OPENAI_API_KEY"),
-		Tests:             []string{"compat"},
-		Timeout:           120 * time.Second,
-		RequestInterval:   2 * time.Second,
-		Formats:           []string{"markdown", "json"},
-		Name:              "report",
-		Concurrency:       1,
-		ExternalMode:      "auto",
-		ExternalImage:     externalImageFromEnv(),
-		FailOn:            "core",
-		Samples:           5,
-		ContextMaxTokens:  1_100_000,
-		ContextPrecision:  512,
-		ContextBudget:     8_000_000,
-		ContextStartBytes: 1024,
-		ContextMaxBytes:   32 * 1024 * 1024,
+		BaseURL:              strings.TrimSpace(os.Getenv("OPENAI_BASE_URL")),
+		APIKey:               os.Getenv("OPENAI_API_KEY"),
+		Tests:                []string{"compat"},
+		Timeout:              120 * time.Second,
+		RequestInterval:      2 * time.Second,
+		Formats:              []string{"markdown", "json"},
+		Name:                 "report",
+		Concurrency:          1,
+		ExternalMode:         "auto",
+		ExternalImage:        externalImageFromEnv(),
+		Modules:              []string{"auto"},
+		UnknownModel:         "inventory",
+		MaxArtifactsPerModel: 1,
+		FailOn:               "core",
+		Samples:              5,
+		ContextMaxTokens:     1_100_000,
+		ContextPrecision:     512,
+		ContextBudget:        8_000_000,
+		ContextStartBytes:    1024,
+		ContextMaxBytes:      32 * 1024 * 1024,
 	}
 
 	args = normalizeTestArgument(args)
 	fs := flag.NewFlagSet("aiqa", flag.ContinueOnError)
 	fs.SetOutput(new(strings.Builder))
 
-	var tests, models, formats string
+	var tests, models, formats, modules, modelCapabilities string
 	tests = strings.Join(cfg.Tests, ",")
 	formats = strings.Join(cfg.Formats, ",")
+	modules = strings.Join(cfg.Modules, ",")
 	fs.StringVar(&tests, "test", tests, "comma-separated suites: compat,model-param")
 	fs.StringVar(&models, "model", "", "one or more comma-separated model IDs; default: discover via /models")
 	fs.Var(durationValue{&cfg.Timeout}, "timeout", "per-request timeout, e.g. 120 or 2m")
@@ -159,6 +169,12 @@ func Parse(args []string) (Config, error) {
 	fs.IntVar(&cfg.Concurrency, "concurrency", cfg.Concurrency, "number of models tested concurrently")
 	fs.StringVar(&cfg.ExternalMode, "external", cfg.ExternalMode, "external checker: auto,off,binary,docker")
 	fs.StringVar(&cfg.ExternalImage, "external-image", cfg.ExternalImage, "container image for --external=docker")
+	fs.StringVar(&modules, "module", modules, "capability modules: auto,chat-completions,images-generations")
+	fs.StringVar(&modelCapabilities, "model-capability", "", "model capability overrides: model=capability[+capability]")
+	fs.StringVar(&cfg.CapabilityFile, "capability-file", "", "JSON file with model capability overrides")
+	fs.StringVar(&cfg.UnknownModel, "unknown-model", cfg.UnknownModel, "unknown model policy: inventory or chat")
+	fs.BoolVar(&cfg.AllowBillableArtifacts, "allow-billable-artifacts", false, "allow modules that create billable media")
+	fs.IntVar(&cfg.MaxArtifactsPerModel, "max-artifacts-per-model", cfg.MaxArtifactsPerModel, "maximum billable artifacts generated per model")
 	fs.StringVar(&cfg.FailOn, "fail-on", cfg.FailOn, "exit policy: core,any,never")
 	fs.BoolVar(&cfg.AllowHTTP, "allow-http", false, "allow non-TLS endpoints outside loopback")
 	fs.BoolVar(&cfg.Verbose, "verbose", false, "show probe progress on stderr")
@@ -184,9 +200,13 @@ func Parse(args []string) (Config, error) {
 	cfg.Tests = splitUnique(tests)
 	cfg.Models = splitUnique(models)
 	cfg.Formats = normalizeFormats(splitUnique(formats))
+	cfg.Modules = splitUnique(modules)
+	cfg.ModelCapabilities = splitUnique(modelCapabilities)
 	cfg.ExternalMode = strings.ToLower(strings.TrimSpace(cfg.ExternalMode))
 	cfg.ExternalImage = strings.TrimSpace(cfg.ExternalImage)
 	cfg.FailOn = strings.ToLower(strings.TrimSpace(cfg.FailOn))
+	cfg.UnknownModel = strings.ToLower(strings.TrimSpace(cfg.UnknownModel))
+	cfg.CapabilityFile = strings.TrimSpace(cfg.CapabilityFile)
 	cfg.Name = strings.TrimSpace(cfg.Name)
 
 	if cfg.VersionOnly || cfg.HelpOnly {
@@ -298,6 +318,28 @@ func (c Config) Validate() error {
 	}
 	if c.ExternalImage == "" {
 		return errors.New("--external-image must not be empty")
+	}
+	if len(c.Modules) == 0 {
+		return errors.New("at least one --module is required")
+	}
+	for _, module := range c.Modules {
+		switch module {
+		case "auto", "chat-completions", "images-generations":
+		default:
+			return fmt.Errorf("unknown module %q", module)
+		}
+	}
+	if c.UnknownModel != "inventory" && c.UnknownModel != "chat" {
+		return errors.New("--unknown-model must be inventory or chat")
+	}
+	if c.MaxArtifactsPerModel < 1 || c.MaxArtifactsPerModel > 10 {
+		return errors.New("--max-artifacts-per-model must be between 1 and 10")
+	}
+	for _, override := range c.ModelCapabilities {
+		parts := strings.SplitN(override, "=", 2)
+		if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
+			return fmt.Errorf("invalid --model-capability %q", override)
+		}
 	}
 	switch c.FailOn {
 	case "core", "any", "never":

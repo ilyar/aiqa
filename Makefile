@@ -28,10 +28,12 @@ fmt-check:
 
 profiles-check:
 	@test -f profile/openai-compat-2026-08.json
+	@test -f profile/openai-compat-2026-09.json
 
 schemas-check:
 	python3 -m json.tool schema/report.schema.json >/dev/null
 	python3 -m json.tool profile/openai-compat-2026-08.json >/dev/null
+	python3 -m json.tool profile/openai-compat-2026-09.json >/dev/null
 
 profile-upstream-check:
 	go run ./script/check-profile-upstream.go

@@ -43,6 +43,18 @@ func Markdown(r result.Report) string {
 	fmt.Fprintln(&b, "## Model discovery")
 	fmt.Fprintln(&b)
 	writeTestTable(&b, r.Discovery.Tests)
+	if len(r.Discovery.Compatibility) > 0 {
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "### Provider endpoint compatibility")
+		fmt.Fprintln(&b)
+		writeTestTable(&b, r.Discovery.Compatibility)
+	}
+	if len(r.Discovery.External) > 0 {
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "### Official SDK")
+		fmt.Fprintln(&b)
+		writeExternalTable(&b, r.Discovery.External)
+	}
 	fmt.Fprintln(&b)
 	if len(r.Discovery.Models) > 0 {
 		fmt.Fprintf(&b, "Discovered models: **%d**.", len(r.Discovery.Models))
@@ -52,6 +64,16 @@ func Markdown(r result.Report) string {
 		fmt.Fprintln(&b)
 		fmt.Fprintln(&b)
 	}
+
+	fmt.Fprintln(&b, "## Model inventory and routing")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "| Model | Detected capabilities | Source | Confidence | Chat | Images | Embeddings | Evaluation |")
+	fmt.Fprintln(&b, "|---|---|---|---:|---:|---:|---:|---|")
+	for _, m := range r.Models {
+		capabilities, sources, confidence := capabilityCells(m)
+		fmt.Fprintf(&b, "| `%s` | %s | %s | %s | %s | %s | %s | %s |\n", escapeCell(m.ID), escapeCell(capabilities), escapeCell(sources), confidence, moduleCell(m.Modules, "chat-completions"), moduleCell(m.Modules, "images-generations"), moduleCell(m.Modules, "embeddings"), statusLabelString(m.Assessment.Verdict))
+	}
+	fmt.Fprintln(&b)
 
 	fmt.Fprintln(&b, "## Models")
 	fmt.Fprintln(&b)
@@ -80,6 +102,16 @@ func Markdown(r result.Report) string {
 		fmt.Fprintf(&b, "## `%s`\n\n", escapeInline(m.ID))
 		writeSummaryTable(&b, m.Summary)
 		fmt.Fprintln(&b)
+		if len(m.Modules) > 0 {
+			fmt.Fprintln(&b, "### Module applicability")
+			fmt.Fprintln(&b)
+			fmt.Fprintln(&b, "| Module | Capability | Applicability | Execution | Reason |")
+			fmt.Fprintln(&b, "|---|---|---:|---:|---|")
+			for _, module := range m.Modules {
+				fmt.Fprintf(&b, "| `%s` | `%s` | %s | %s | %s |\n", escapeCell(module.ID), escapeCell(module.Capability), applicabilityCell(module.Applicability), executionCell(module.Execution), escapeCell(module.Reason))
+			}
+			fmt.Fprintln(&b)
+		}
 		if len(r.Models) > 1 && m.RateLimit != nil {
 			writeModelRateLimit(&b, *m.RateLimit)
 		}
@@ -102,16 +134,7 @@ func Markdown(r result.Report) string {
 		if len(m.External) > 0 {
 			fmt.Fprintln(&b, "### Official SDK")
 			fmt.Fprintln(&b)
-			fmt.Fprintln(&b, "| Suite | Status | Summary | Duration |")
-			fmt.Fprintln(&b, "|---|---:|---|---:|")
-			for _, e := range m.External {
-				suite := e.Suite
-				if suite == "" {
-					suite = "runner"
-				}
-				fmt.Fprintf(&b, "| `%s` | %s | %s | %d ms |\n", escapeCell(suite), statusLabel(e.Status), escapeCell(e.Summary), e.DurationMS)
-			}
-			fmt.Fprintln(&b)
+			writeExternalTable(&b, m.External)
 			for _, e := range m.External {
 				if e.Output != "" && e.Status != result.StatusPass {
 					fmt.Fprintln(&b, "<details><summary>External checker output</summary>")
@@ -163,6 +186,11 @@ func writeRateLimit(b *strings.Builder, s result.RateLimitStats) {
 
 func externalChecks(r result.Report) string {
 	checks := map[string]bool{}
+	for _, check := range r.Discovery.External {
+		if check.Suite != "" {
+			checks[check.Tool] = true
+		}
+	}
 	for _, model := range r.Models {
 		for _, check := range model.External {
 			if check.Suite != "" {
@@ -184,6 +212,83 @@ func externalChecks(r result.Report) string {
 	}
 	sort.Strings(names)
 	return strings.Join(names, ", ")
+}
+
+func writeExternalTable(b *strings.Builder, external []result.ExternalResult) {
+	fmt.Fprintln(b, "| Suite | Status | Summary | Duration |")
+	fmt.Fprintln(b, "|---|---:|---|---:|")
+	for _, e := range external {
+		suite := e.Suite
+		if suite == "" {
+			suite = "runner"
+		}
+		fmt.Fprintf(b, "| `%s` | %s | %s | %d ms |\n", escapeCell(suite), statusLabel(e.Status), escapeCell(e.Summary), e.DurationMS)
+	}
+	fmt.Fprintln(b)
+}
+
+func capabilityCells(m result.ModelReport) (string, string, string) {
+	if len(m.Capabilities) == 0 {
+		return "unknown", "insufficient metadata", "low"
+	}
+	var capabilities, sources []string
+	confidence := "high"
+	for _, item := range m.Capabilities {
+		capabilities = append(capabilities, item.ID)
+		sources = append(sources, item.Source)
+		if item.Confidence == "low" {
+			confidence = "low"
+		} else if item.Confidence == "medium" && confidence == "high" {
+			confidence = "medium"
+		}
+	}
+	return strings.Join(capabilities, ", "), strings.Join(uniqueStrings(sources), ", "), confidence
+}
+
+func uniqueStrings(values []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, value := range values {
+		if !seen[value] {
+			seen[value] = true
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func moduleCell(modules []result.ModuleAssessment, id string) string {
+	for _, module := range modules {
+		if module.ID == id {
+			if module.Applicability == result.ApplicabilityNotApplicable {
+				return "N/A"
+			}
+			if module.Applicability == result.ApplicabilityUnknown {
+				return "UNKNOWN"
+			}
+			if module.Execution == result.ExecutionExecuted {
+				return "EXECUTED"
+			}
+			return "SKIP"
+		}
+	}
+	return "–"
+}
+func applicabilityCell(value result.Applicability) string {
+	switch value {
+	case result.ApplicabilityApplicable:
+		return "APPLICABLE"
+	case result.ApplicabilityNotApplicable:
+		return "N/A"
+	default:
+		return "UNKNOWN"
+	}
+}
+func executionCell(value result.ExecutionState) string {
+	if value == "" {
+		return "–"
+	}
+	return strings.ToUpper(string(value))
 }
 
 func writeSummaryTable(b *strings.Builder, s result.Summary) {
@@ -301,6 +406,8 @@ func statusLabelString(status string) string {
 		return "PARTIAL"
 	case "fail":
 		return "FAIL"
+	case "not-evaluated":
+		return "NOT-EVALUATED"
 	default:
 		return escapeCell(status)
 	}

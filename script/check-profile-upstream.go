@@ -98,9 +98,9 @@ func pinnedCommit() (string, error) {
 func profilePath() string {
 	_, source, _, ok := runtime.Caller(0)
 	if !ok {
-		return filepath.Join("profile", "openai-compat-2026-08.json")
+		return filepath.Join("profile", "openai-compat-2026-09.json")
 	}
-	return filepath.Join(filepath.Dir(filepath.Dir(source)), "profile", "openai-compat-2026-08.json")
+	return filepath.Join(filepath.Dir(filepath.Dir(source)), "profile", "openai-compat-2026-09.json")
 }
 
 func commitsURL() string {

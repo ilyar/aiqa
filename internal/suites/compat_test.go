@@ -95,15 +95,35 @@ func TestStreamingRateLimitIsInconclusive(t *testing.T) {
 	}
 }
 
-func TestErrorProbeRateLimitIsInconclusive(t *testing.T) {
-	test := evaluateErrorProbe(
-		result.TestResult{Metrics: map[string]any{}},
-		api.Response{StatusCode: http.StatusTooManyRequests},
-		nil,
-		[]int{400},
-		"malformed JSON",
-	)
-	if test.Status != result.StatusError {
-		t.Fatalf("status=%s, want error/inconclusive: %+v", test.Status, test)
+func TestErrorProbeProviderFailuresAreInconclusive(t *testing.T) {
+	for _, status := range []int{http.StatusTooManyRequests, http.StatusInternalServerError} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			test := evaluateErrorProbe(
+				result.TestResult{Metrics: map[string]any{}},
+				api.Response{StatusCode: status},
+				nil,
+				[]int{400},
+				"malformed JSON",
+			)
+			if test.Status != result.StatusError {
+				t.Fatalf("status=%s, want error/inconclusive: %+v", test.Status, test)
+			}
+		})
+	}
+}
+
+func TestProvider5xxIsInconclusiveAcrossDiscoveryAndChat(t *testing.T) {
+	p, err := profile.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := api.Response{StatusCode: http.StatusBadGateway}
+	discovery := DiscoveryTests(p, resp, nil, nil)
+	if discovery[0].Status != result.StatusError {
+		t.Fatalf("discovery status=%s, want error", discovery[0].Status)
+	}
+	chat := evaluateBasic(p, resp, nil)
+	if chat.Status != result.StatusError {
+		t.Fatalf("chat status=%s, want error", chat.Status)
 	}
 }

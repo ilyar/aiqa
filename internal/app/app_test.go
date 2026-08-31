@@ -128,24 +128,153 @@ func TestRunModelParametersFindsContextBoundary(t *testing.T) {
 	}
 }
 
+func TestMixedNonChatCatalogDoesNotReceiveChatRequests(t *testing.T) {
+	var chatRequests atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]any{"object": "list", "data": []any{
+			map[string]any{"id": "gpt-image-2", "object": "model", "created": 1, "is_image": true},
+			map[string]any{"id": "opaque-model", "object": "model", "created": 1},
+		}})
+	})
+	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
+		chatRequests.Add(1)
+		writeError(w, 500, "unexpected", "chat must not be called")
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	withTempWorkingDirectory(t)
+	cfg := testConfig(server.URL+"/v1", []string{"compat", "model-param"})
+	out, err := Run(context.Background(), cfg, BuildInfo{Version: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := chatRequests.Load(); got != 0 {
+		t.Fatalf("non-chat catalog received %d chat requests", got)
+	}
+	if len(out.Report.Models) != 2 {
+		t.Fatalf("inventory lost models: %+v", out.Report.Models)
+	}
+	for _, model := range out.Report.Models {
+		if model.Assessment.Verdict != "not-evaluated" {
+			t.Fatalf("model %s verdict=%q", model.ID, model.Assessment.Verdict)
+		}
+		chat := moduleByID(model.Modules, "chat-completions")
+		if model.ID == "gpt-image-2" && (chat == nil || chat.Applicability != result.ApplicabilityNotApplicable) {
+			t.Fatalf("image model chat applicability: %+v", chat)
+		}
+		if model.ID == "opaque-model" && (chat == nil || chat.Applicability != result.ApplicabilityUnknown) {
+			t.Fatalf("unknown model chat applicability: %+v", chat)
+		}
+	}
+	markdown, err := os.ReadFile("report.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(markdown)
+	if !strings.Contains(text, "| `gpt-image-2` | images.generations") || !strings.Contains(text, "| N/A | – | classified capabilities do not include chat.completions.text") {
+		t.Fatalf("mixed-catalog routing is not visible in Markdown:\n%s", text)
+	}
+	if !strings.Contains(text, "NOT-EVALUATED") || !strings.Contains(text, "UNKNOWN") {
+		t.Fatalf("inventory-only verdicts are not visible in Markdown:\n%s", text)
+	}
+}
+
+func TestImageModelUsesImageEndpointWithoutChatRequests(t *testing.T) {
+	const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+	var chatRequests, imageRequests atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]any{"object": "list", "data": []any{
+			map[string]any{"id": "gpt-image-2", "object": "model", "created": 1},
+		}})
+	})
+	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
+		chatRequests.Add(1)
+		writeError(w, 500, "unexpected", "chat must not be called")
+	})
+	mux.HandleFunc("/v1/images/generations", func(w http.ResponseWriter, r *http.Request) {
+		imageRequests.Add(1)
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, 400, "invalid_request_error", "malformed JSON")
+			return
+		}
+		if body["model"] != "gpt-image-2" {
+			writeError(w, 404, "model_not_found", "unknown image model")
+			return
+		}
+		writeJSON(w, 200, map[string]any{"created": 1, "data": []any{map[string]any{"b64_json": png}}})
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	withTempWorkingDirectory(t)
+	cfg := testConfig(server.URL+"/v1", []string{"compat"})
+	cfg.Modules = []string{"images-generations"}
+	cfg.AllowBillableArtifacts = true
+	out, err := Run(context.Background(), cfg, BuildInfo{Version: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chatRequests.Load() != 0 || imageRequests.Load() != 3 {
+		t.Fatalf("unexpected endpoint routing: chat=%d images=%d", chatRequests.Load(), imageRequests.Load())
+	}
+	model := out.Report.Models[0]
+	imageModule := moduleByID(model.Modules, "images-generations")
+	if imageModule == nil || imageModule.Execution != result.ExecutionExecuted || imageModule.Summary == nil || imageModule.Summary.RequiredFail != 0 {
+		t.Fatalf("image module was not evaluated successfully: %+v", imageModule)
+	}
+	data, err := os.ReadFile("report.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), png) || strings.Contains(string(data), "iVBOR") {
+		t.Fatal("image payload leaked into JSON report")
+	}
+}
+
+func TestRepresentativeModelSkipsEarlierInapplicableModels(t *testing.T) {
+	models := []string{"aaa-image", "bbb-unknown", "ccc-chat"}
+	plans := [][]result.ModuleAssessment{
+		{{ID: "chat-completions", Applicability: result.ApplicabilityNotApplicable}},
+		{{ID: "chat-completions", Applicability: result.ApplicabilityUnknown}},
+		{{ID: "chat-completions", Applicability: result.ApplicabilityApplicable, Execution: result.ExecutionExecuted}},
+	}
+	if got := representativeModel(models, plans, "chat-completions"); got != "ccc-chat" {
+		t.Fatalf("representative model=%q, want ccc-chat", got)
+	}
+}
+
+func moduleByID(modules []result.ModuleAssessment, id string) *result.ModuleAssessment {
+	for index := range modules {
+		if modules[index].ID == id {
+			return &modules[index]
+		}
+	}
+	return nil
+}
+
 func testConfig(baseURL string, tests []string) config.Config {
 	return config.Config{
-		BaseURL:           baseURL,
-		APIKey:            "test-key",
-		Tests:             tests,
-		Timeout:           5 * time.Second,
-		RequestInterval:   time.Millisecond,
-		Formats:           []string{"markdown", "json"},
-		Name:              "report",
-		Concurrency:       1,
-		ExternalMode:      "off",
-		FailOn:            "core",
-		Samples:           2,
-		ContextMaxTokens:  10_000,
-		ContextPrecision:  512,
-		ContextBudget:     50_000,
-		ContextStartBytes: 1024,
-		ContextMaxBytes:   16 * 1024,
+		BaseURL:              baseURL,
+		APIKey:               "test-key",
+		Tests:                tests,
+		Timeout:              5 * time.Second,
+		RequestInterval:      time.Millisecond,
+		Formats:              []string{"markdown", "json"},
+		Name:                 "report",
+		Concurrency:          1,
+		ExternalMode:         "off",
+		Modules:              []string{"auto"},
+		UnknownModel:         "inventory",
+		MaxArtifactsPerModel: 1,
+		FailOn:               "core",
+		Samples:              2,
+		ContextMaxTokens:     10_000,
+		ContextPrecision:     512,
+		ContextBudget:        50_000,
+		ContextStartBytes:    1024,
+		ContextMaxBytes:      16 * 1024,
 	}
 }
 
@@ -173,7 +302,7 @@ func newMockOpenAI(t *testing.T) *httptest.Server {
 		writeJSON(w, 200, map[string]any{
 			"object": "list",
 			"data": []any{
-				map[string]any{"id": "vendor/model-a", "object": "model", "created": 1, "owned_by": "mock", "context_length": 4096},
+				map[string]any{"id": "vendor/model-a", "object": "model", "created": 1, "owned_by": "mock", "context_length": 4096, "capabilities": []any{"chat.completions.text"}},
 			},
 		})
 	})
@@ -186,7 +315,7 @@ func newMockOpenAI(t *testing.T) *httptest.Server {
 			writeError(w, 404, "model_not_found", "model not found")
 			return
 		}
-		writeJSON(w, 200, map[string]any{"id": id, "object": "model", "created": 1, "owned_by": "mock", "context_length": 4096})
+		writeJSON(w, 200, map[string]any{"id": id, "object": "model", "created": 1, "owned_by": "mock", "context_length": 4096, "capabilities": []any{"chat.completions.text"}})
 	})
 	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
 		if !authorize(w, r) {

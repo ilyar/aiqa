@@ -41,6 +41,9 @@
     },
     "summary": {
       "$ref": "#/$defs/summary"
+    },
+    "rate_limit": {
+      "$ref": "#/$defs/rateLimit"
     }
   },
   "additionalProperties": true,
@@ -162,6 +165,12 @@
         },
         "error": {
           "type": "string"
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/artifact"
+          }
         }
       },
       "additionalProperties": true
@@ -377,6 +386,187 @@
       },
       "additionalProperties": true
     },
+    "artifact": {
+      "type": "object",
+      "required": [
+        "kind",
+        "source",
+        "media_type",
+        "format",
+        "bytes",
+        "sha256",
+        "width",
+        "height"
+      ],
+      "properties": {
+        "kind": {
+          "const": "image"
+        },
+        "source": {
+          "enum": [
+            "b64_json",
+            "url"
+          ]
+        },
+        "media_type": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "capabilityAssessment": {
+      "type": "object",
+      "required": [
+        "id",
+        "source",
+        "confidence",
+        "reason"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rule": {
+          "type": "string"
+        },
+        "confidence": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "moduleAssessment": {
+      "type": "object",
+      "required": [
+        "id",
+        "capability",
+        "applicability",
+        "reason"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "capability": {
+          "type": "string",
+          "minLength": 1
+        },
+        "applicability": {
+          "enum": [
+            "applicable",
+            "not_applicable",
+            "unknown"
+          ]
+        },
+        "execution": {
+          "enum": [
+            "executed",
+            "skipped"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "confidence": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "test_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "summary": {
+          "$ref": "#/$defs/summary"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rateLimit": {
+      "type": "object",
+      "properties": {
+        "successful_requests": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rate_limited_responses": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "retries_recovered": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "backoff_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "observed_safe_requests_per_second": {
+          "type": "number",
+          "minimum": 0
+        },
+        "observed_safe_concurrency": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "latency_samples": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mean_latency_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "p50_latency_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "p95_latency_ms": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
     "summary": {
       "type": "object",
       "required": [
@@ -435,7 +625,8 @@
             "pass",
             "pass-with-gaps",
             "partial",
-            "fail"
+            "fail",
+            "not-evaluated"
           ]
         },
         "usage": {
@@ -482,6 +673,39 @@
           "items": {
             "$ref": "#/$defs/external"
           }
+        },
+        "rate_limit": {
+          "$ref": "#/$defs/rateLimit"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/capabilityAssessment"
+          }
+        },
+        "modules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/moduleAssessment"
+          }
+        },
+        "assessment": {
+          "type": "object",
+          "required": [
+            "verdict"
+          ],
+          "properties": {
+            "verdict": {
+              "enum": [
+                "pass",
+                "pass-with-gaps",
+                "partial",
+                "fail",
+                "not-evaluated"
+              ]
+            }
+          },
+          "additionalProperties": false
         },
         "summary": {
           "$ref": "#/$defs/summary"
@@ -603,6 +827,25 @@
         "samples": {
           "type": "integer",
           "minimum": 0
+        },
+        "modules": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unknown_model": {
+          "enum": [
+            "inventory",
+            "chat"
+          ]
+        },
+        "allow_billable_artifacts": {
+          "type": "boolean"
+        },
+        "max_artifacts_per_model": {
+          "type": "integer",
+          "minimum": 1
         }
       },
       "additionalProperties": true
@@ -625,9 +868,21 @@
             "$ref": "#/$defs/testResult"
           }
         },
+        "compatibility": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/testResult"
+          }
+        },
         "model_count": {
           "type": "integer",
           "minimum": 0
+        },
+        "external": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/external"
+          }
         }
       },
       "additionalProperties": true

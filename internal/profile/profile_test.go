@@ -25,7 +25,7 @@ func TestEmbeddedProfileFilesCanBeListedAndLoaded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(files) != 1 || files[0] != DefaultFile {
+	if len(files) != 2 || files[0] != "openai-compat-2026-08.json" || files[1] != DefaultFile {
 		t.Fatalf("unexpected embedded profile files: %#v", files)
 	}
 	if _, err := LoadFile(DefaultFile); err != nil {

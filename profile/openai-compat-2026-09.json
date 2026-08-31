@@ -1,0 +1,315 @@
+{
+  "id": "openai-compat",
+  "revision": "2026-09-01",
+  "source": "https://github.com/openai/openai-openapi",
+  "source_commit": "690521b1753dce0c6d6b275f583d22537679cff9",
+  "source_ref_revision": "1030392",
+  "scope": "GET /v1/models, GET /v1/models/{model}, POST /v1/chat/completions, POST /v1/images/generations",
+  "modules": [
+    {
+      "id": "discovery",
+      "subject": "provider",
+      "always_applicable": true,
+      "default_enabled": true,
+      "cost_class": "none",
+      "probe_ids": [
+        "models.list.http",
+        "models.list.schema"
+      ]
+    },
+    {
+      "id": "chat-completions",
+      "subject": "model",
+      "default_enabled": true,
+      "cost_class": "token",
+      "capabilities": [
+        "chat.completions.text"
+      ],
+      "probe_ids": [
+        "models.retrieve",
+        "chat.basic",
+        "chat.schema",
+        "chat.usage",
+        "chat.role.system",
+        "chat.role.developer",
+        "chat.content_parts.text",
+        "chat.multi_turn",
+        "chat.stream.sse",
+        "chat.stream.usage",
+        "chat.tools.none",
+        "chat.tools.auto",
+        "chat.tools.required",
+        "chat.tools.forced",
+        "chat.tools.stream",
+        "chat.tools.continuation",
+        "chat.structured.json_object",
+        "chat.structured.json_schema",
+        "chat.logprobs",
+        "chat.error.invalid_model",
+        "chat.error.invalid_auth",
+        "chat.error.invalid_json",
+        "chat.error.invalid_types"
+      ]
+    },
+    {
+      "id": "images-generations",
+      "subject": "model",
+      "default_enabled": false,
+      "cost_class": "billable-artifact",
+      "capabilities": [
+        "images.generations"
+      ],
+      "probe_ids": [
+        "images.generate.basic",
+        "images.generate.schema",
+        "images.generate.artifact",
+        "images.generate.usage",
+        "images.generate.invalid_model",
+        "images.generate.invalid_json"
+      ]
+    }
+  ],
+  "probes": [
+    {
+      "id": "models.list.http",
+      "name": "List models: HTTP",
+      "category": "discovery",
+      "required": true,
+      "description": "GET /models returns a successful JSON response"
+    },
+    {
+      "id": "models.list.schema",
+      "name": "List models: schema",
+      "category": "schema",
+      "required": true,
+      "description": "Response follows the OpenAI list object shape"
+    },
+    {
+      "id": "models.retrieve",
+      "name": "Retrieve model",
+      "category": "discovery",
+      "required": false,
+      "description": "GET /models/{model} returns the requested model"
+    },
+    {
+      "id": "chat.basic",
+      "name": "Basic chat completion",
+      "category": "core",
+      "required": true,
+      "description": "A minimal chat completion succeeds"
+    },
+    {
+      "id": "chat.schema",
+      "name": "Chat response schema",
+      "category": "schema",
+      "required": true,
+      "description": "The response contains OpenAI-compatible completion fields"
+    },
+    {
+      "id": "chat.usage",
+      "name": "Non-stream usage",
+      "category": "usage",
+      "required": true,
+      "description": "Token usage is present and internally consistent"
+    },
+    {
+      "id": "chat.role.system",
+      "name": "System role",
+      "category": "messages",
+      "required": false,
+      "description": "System messages are accepted"
+    },
+    {
+      "id": "chat.role.developer",
+      "name": "Developer role",
+      "category": "messages",
+      "required": false,
+      "description": "Developer messages are accepted"
+    },
+    {
+      "id": "chat.content_parts.text",
+      "name": "Text content parts",
+      "category": "messages",
+      "required": false,
+      "description": "Array-form text content parts are accepted"
+    },
+    {
+      "id": "chat.multi_turn",
+      "name": "Multi-turn messages",
+      "category": "messages",
+      "required": false,
+      "description": "User and assistant history is accepted"
+    },
+    {
+      "id": "chat.stream.sse",
+      "name": "Streaming SSE",
+      "category": "streaming",
+      "required": true,
+      "description": "SSE chunks are valid and terminate with [DONE]"
+    },
+    {
+      "id": "chat.stream.usage",
+      "name": "Streaming usage",
+      "category": "usage",
+      "required": false,
+      "description": "stream_options.include_usage returns token usage"
+    },
+    {
+      "id": "chat.tools.none",
+      "name": "tool_choice=none",
+      "category": "tools",
+      "required": false,
+      "description": "Tool calls can be explicitly disabled"
+    },
+    {
+      "id": "chat.tools.auto",
+      "name": "tool_choice=auto",
+      "category": "tools",
+      "required": false,
+      "description": "Automatic tool choice can emit a valid function call"
+    },
+    {
+      "id": "chat.tools.required",
+      "name": "tool_choice=required",
+      "category": "tools",
+      "required": false,
+      "description": "At least one tool call is emitted when required"
+    },
+    {
+      "id": "chat.tools.forced",
+      "name": "Forced tool call",
+      "category": "tools",
+      "required": false,
+      "description": "A forced function tool call has valid OpenAI shape"
+    },
+    {
+      "id": "chat.tools.stream",
+      "name": "Streaming tool call",
+      "category": "tools",
+      "required": false,
+      "description": "Streamed tool-call deltas reconstruct into a valid function call"
+    },
+    {
+      "id": "chat.tools.continuation",
+      "name": "Tool continuation",
+      "category": "tools",
+      "required": false,
+      "description": "A tool result can be continued into a final assistant message"
+    },
+    {
+      "id": "chat.structured.json_object",
+      "name": "JSON object mode",
+      "category": "structured-output",
+      "required": false,
+      "description": "response_format=json_object returns valid JSON"
+    },
+    {
+      "id": "chat.structured.json_schema",
+      "name": "Strict JSON schema",
+      "category": "structured-output",
+      "required": false,
+      "description": "response_format=json_schema returns schema-conforming JSON"
+    },
+    {
+      "id": "chat.logprobs",
+      "name": "Log probabilities",
+      "category": "sampling",
+      "required": false,
+      "description": "logprobs/top_logprobs are accepted and returned"
+    },
+    {
+      "id": "chat.error.invalid_model",
+      "name": "Invalid chat model error",
+      "category": "errors",
+      "required": true,
+      "description": "An invalid model on Chat Completions returns a non-2xx OpenAI-shaped error"
+    },
+    {
+      "id": "chat.error.invalid_auth",
+      "name": "Invalid chat authentication error",
+      "category": "errors",
+      "required": false,
+      "description": "An invalid API key on Chat Completions returns 401/403 and an OpenAI-shaped error"
+    },
+    {
+      "id": "chat.error.invalid_json",
+      "name": "Malformed Chat Completions JSON error",
+      "category": "errors",
+      "required": true,
+      "description": "Malformed Chat Completions JSON returns a client error rather than 5xx"
+    },
+    {
+      "id": "chat.error.invalid_types",
+      "name": "Invalid Chat Completions request types",
+      "category": "errors",
+      "required": false,
+      "description": "Invalid Chat Completions field types are rejected with a client error"
+    },
+    {
+      "id": "images.generate.basic",
+      "name": "Basic image generation",
+      "category": "core",
+      "required": true,
+      "description": "A minimal image generation request succeeds"
+    },
+    {
+      "id": "images.generate.schema",
+      "name": "Image response schema",
+      "category": "schema",
+      "required": true,
+      "description": "The response contains a non-empty data array"
+    },
+    {
+      "id": "images.generate.artifact",
+      "name": "Image artifact",
+      "category": "artifact",
+      "required": true,
+      "description": "The response contains a decodable image artifact"
+    },
+    {
+      "id": "images.generate.usage",
+      "name": "Image generation usage",
+      "category": "usage",
+      "required": false,
+      "description": "Usage is validated when the endpoint returns it"
+    },
+    {
+      "id": "images.generate.invalid_model",
+      "name": "Invalid image model error",
+      "category": "errors",
+      "required": true,
+      "description": "An unknown image model returns an OpenAI-shaped client error"
+    },
+    {
+      "id": "images.generate.invalid_json",
+      "name": "Malformed image JSON error",
+      "category": "errors",
+      "required": true,
+      "description": "Malformed image JSON returns a client error rather than 5xx"
+    }
+  ],
+  "standard_parameters": [
+    "max_completion_tokens",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "n",
+    "stop",
+    "presence_penalty",
+    "frequency_penalty",
+    "seed",
+    "logprobs",
+    "top_logprobs",
+    "response_format",
+    "tools",
+    "tool_choice",
+    "parallel_tool_calls",
+    "stream_options",
+    "reasoning_effort",
+    "verbosity"
+  ],
+  "vendor_extensions": [
+    "thinking",
+    "reasoning_split"
+  ]
+}

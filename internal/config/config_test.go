@@ -23,6 +23,25 @@ func TestParseExpectedCLI(t *testing.T) {
 	}
 }
 
+func TestParseCapabilityRoutingFlags(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "https://example.test/v1")
+	t.Setenv("OPENAI_API_KEY", "secret")
+	cfg, err := Parse([]string{
+		"test=compat",
+		"--module=auto,images-generations",
+		"--model-capability=image-model=images.generations+images.edits",
+		"--unknown-model=inventory",
+		"--allow-billable-artifacts",
+		"--max-artifacts-per-model=2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Modules) != 2 || len(cfg.ModelCapabilities) != 1 || !cfg.AllowBillableArtifacts || cfg.MaxArtifactsPerModel != 2 {
+		t.Fatalf("capability flags were not preserved: %+v", cfg)
+	}
+}
+
 func TestParseTimeoutWithSpace(t *testing.T) {
 	t.Setenv("OPENAI_BASE_URL", "http://127.0.0.1:8080/v1")
 	t.Setenv("OPENAI_API_KEY", "secret")

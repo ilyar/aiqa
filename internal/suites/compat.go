@@ -19,13 +19,13 @@ func DiscoveryTests(p profile.Profile, resp api.Response, models []api.Model, li
 	httpTest.DurationMS = resp.Duration.Milliseconds()
 	httpTest.HTTP = httpObservation(resp)
 	if resp.StatusCode == 0 && listErr != nil {
-		httpTest.Status = result.StatusFail
+		httpTest.Status = result.StatusError
 		httpTest.Summary = "model discovery failed before an HTTP response"
 		httpTest.Error = errorText(listErr)
 	} else if !resp.Is2xx() {
-		if resp.StatusCode == http.StatusTooManyRequests {
+		if providerFailureStatusCode(resp.StatusCode) {
 			httpTest.Status = result.StatusError
-			httpTest.Summary = "GET /models remained rate limited after adaptive retries; compatibility outcome is inconclusive"
+			httpTest.Summary = providerFailureSummary("GET /models", resp.StatusCode)
 		} else {
 			httpTest.Status = result.StatusFail
 			httpTest.Summary = fmt.Sprintf("GET /models returned HTTP %d", resp.StatusCode)
@@ -194,9 +194,9 @@ func evaluateBasic(p profile.Profile, resp api.Response, err error) result.TestR
 		return t
 	}
 	if !resp.Is2xx() {
-		if resp.StatusCode == http.StatusTooManyRequests {
+		if providerFailureStatusCode(resp.StatusCode) {
 			t.Status = result.StatusError
-			t.Summary = "minimal chat completion remained rate limited after adaptive retries; compatibility outcome is inconclusive"
+			t.Summary = providerFailureSummary("minimal chat completion", resp.StatusCode)
 		} else {
 			t.Status = result.StatusFail
 			t.Summary = fmt.Sprintf("minimal chat completion returned HTTP %d", resp.StatusCode)
@@ -399,9 +399,9 @@ func probeStreaming(parent context.Context, env Environment, model string, inclu
 		return t
 	}
 	if !resp.Is2xx() {
-		if resp.StatusCode == http.StatusTooManyRequests {
+		if providerFailureStatusCode(resp.StatusCode) {
 			t.Status = result.StatusError
-			t.Summary = "stream remained rate limited after adaptive retries; compatibility outcome is inconclusive"
+			t.Summary = providerFailureSummary("stream", resp.StatusCode)
 		} else if includeUsage && (resp.StatusCode == 400 || resp.StatusCode == 422) {
 			t.Status = result.StatusUnsupported
 			t.Summary = "stream_options.include_usage is unsupported"
@@ -679,9 +679,9 @@ func probeStreamingTool(parent context.Context, env Environment, model string) r
 		return t
 	}
 	if !resp.Is2xx() {
-		if resp.StatusCode == http.StatusTooManyRequests {
+		if providerFailureStatusCode(resp.StatusCode) {
 			t.Status = result.StatusError
-			t.Summary = "streaming tool call remained rate limited after adaptive retries; compatibility outcome is inconclusive"
+			t.Summary = providerFailureSummary("streaming tool call", resp.StatusCode)
 		} else if resp.StatusCode >= 400 && resp.StatusCode < 500 {
 			t.Status = result.StatusUnsupported
 			t.Summary = "streaming tool calls are unsupported"
@@ -914,7 +914,7 @@ func probeLogprobs(parent context.Context, env Environment, model string) result
 }
 
 func probeInvalidModel(parent context.Context, env Environment) result.TestResult {
-	t := testBase(env.Profile, "error.invalid_model", "compat")
+	t := testBase(env.Profile, "chat.error.invalid_model", "compat")
 	fake := fmt.Sprintf("__aiqa_missing_model_%d__", time.Now().UnixNano())
 	resp, err := callChat(parent, env, map[string]any{
 		"model":    fake,
@@ -926,7 +926,7 @@ func probeInvalidModel(parent context.Context, env Environment) result.TestResul
 }
 
 func probeInvalidAuth(parent context.Context, env Environment, model string) result.TestResult {
-	t := testBase(env.Profile, "error.invalid_auth", "compat")
+	t := testBase(env.Profile, "chat.error.invalid_auth", "compat")
 	if model == "" {
 		t.Status = result.StatusSkip
 		t.Summary = "skipped because no model ID is available"
@@ -945,7 +945,7 @@ func probeInvalidAuth(parent context.Context, env Environment, model string) res
 }
 
 func probeInvalidJSON(parent context.Context, env Environment) result.TestResult {
-	t := testBase(env.Profile, "error.invalid_json", "compat")
+	t := testBase(env.Profile, "chat.error.invalid_json", "compat")
 	variants := []struct{ name, body string }{
 		{"truncated_value", `{"model":`},
 		{"trailing_comma", `{"model":"test",}`},
@@ -958,7 +958,7 @@ func probeInvalidJSON(parent context.Context, env Environment) result.TestResult
 		ctx, cancel := env.probeContext(parent)
 		resp, err := env.Client.ChatRaw(ctx, []byte(variant.body), "application/json")
 		cancel()
-		base := testBase(env.Profile, "error.invalid_json", "compat")
+		base := testBase(env.Profile, "chat.error.invalid_json", "compat")
 		base.DurationMS = resp.Duration.Milliseconds()
 		base.HTTP = httpObservation(resp)
 		attempt := evaluateErrorProbe(base, resp, err, []int{400, 422}, "malformed JSON")
@@ -991,7 +991,7 @@ func probeInvalidJSON(parent context.Context, env Environment) result.TestResult
 }
 
 func probeInvalidTypes(parent context.Context, env Environment, model string) result.TestResult {
-	t := testBase(env.Profile, "error.invalid_types", "compat")
+	t := testBase(env.Profile, "chat.error.invalid_types", "compat")
 	if model == "" {
 		t.Status = result.StatusSkip
 		t.Summary = "skipped because no model ID is available"
@@ -1019,9 +1019,13 @@ func evaluateErrorProbe(t result.TestResult, resp api.Response, err error, expec
 		t.Summary = label + " was incorrectly accepted"
 		return t
 	}
-	if resp.StatusCode == http.StatusTooManyRequests {
+	if providerFailureStatusCode(resp.StatusCode) {
 		t.Status = result.StatusError
-		t.Summary = label + " remained rate limited after adaptive retries; compatibility outcome is inconclusive"
+		if resp.StatusCode == http.StatusTooManyRequests {
+			t.Summary = label + " remained rate limited after adaptive retries; compatibility outcome is inconclusive"
+		} else {
+			t.Summary = fmt.Sprintf("%s returned provider HTTP %d; compatibility outcome is inconclusive", label, resp.StatusCode)
+		}
 		t.Error = errorText(err)
 		return t
 	}

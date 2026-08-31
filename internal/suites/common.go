@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"time"
@@ -116,6 +117,21 @@ func statusForOptionalHTTP(resp api.Response, err error) result.Status {
 		return result.StatusError
 	default:
 		return result.StatusFail
+	}
+}
+
+func providerFailureStatusCode(status int) bool {
+	return status == http.StatusRequestTimeout || status == http.StatusTooManyRequests || status >= 500
+}
+
+func providerFailureSummary(subject string, status int) string {
+	switch status {
+	case http.StatusRequestTimeout:
+		return subject + " timed out at the provider; compatibility outcome is inconclusive"
+	case http.StatusTooManyRequests:
+		return subject + " remained rate limited after adaptive retries; compatibility outcome is inconclusive"
+	default:
+		return fmt.Sprintf("%s returned provider HTTP %d; compatibility outcome is inconclusive", subject, status)
 	}
 }
 

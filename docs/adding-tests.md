@@ -2,7 +2,7 @@
 
 ## Add a compatibility probe
 
-1. Add a unique entry to `profile/openai-compat-2026-08.json`.
+1. Add a unique entry to `profile/openai-compat-2026-09.json` and reference it from the applicable module's `probe_ids`.
 3. Implement the probe in `internal/suites/compat.go`.
 4. Return `pass`, `warn`, `unsupported`, `fail`, `error`, or `skip` deliberately.
 5. Add deterministic behavior to the integration mock in `internal/app/app_test.go`.

@@ -788,7 +788,7 @@ func statusFromParamCall(call paramCall) result.Status {
 	if call.Err != nil && call.Resp.StatusCode == 0 {
 		return result.StatusError
 	}
-	if call.Resp.StatusCode == 429 || call.Resp.StatusCode >= 500 {
+	if providerFailureStatusCode(call.Resp.StatusCode) {
 		return result.StatusError
 	}
 	if call.Resp.StatusCode >= 400 && call.Resp.StatusCode < 500 {

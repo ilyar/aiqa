@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -24,8 +25,20 @@ import (
 const (
 	binaryName = "openai-compatibility-tester"
 	toolName   = "official-SDK"
-	suites     = "models,models_get,chat_completions,chat_completions_stream,chat_completions_stream_usage,chat_completions_json,chat_completions_tools,chat_completions_tools_stream,chat_completions_multi_turn,error_responses"
 )
+
+var moduleSuites = map[string]struct {
+	ModelEnv string
+	Suites   []string
+}{
+	"discovery":            {Suites: []string{"models"}},
+	"chat-completions":     {ModelEnv: "OPENAI_MODEL", Suites: []string{"models_get", "chat_completions", "chat_completions_stream", "chat_completions_stream_usage", "chat_completions_json", "chat_completions_tools", "chat_completions_tools_stream", "chat_completions_multi_turn", "error_responses"}},
+	"images-generations":   {ModelEnv: "OPENAI_IMAGE_MODEL", Suites: []string{"images_generations"}},
+	"embeddings":           {ModelEnv: "OPENAI_EMBEDDING_MODEL", Suites: []string{"embeddings", "embeddings_batch"}},
+	"responses":            {ModelEnv: "OPENAI_RESPONSES_MODEL", Suites: []string{"responses", "responses_stream", "responses_json", "responses_tools"}},
+	"audio-speech":         {ModelEnv: "OPENAI_TTS_MODEL", Suites: []string{"audio_speech"}},
+	"audio-transcriptions": {ModelEnv: "OPENAI_WHISPER_MODEL", Suites: []string{"audio_transcriptions"}},
+}
 
 var (
 	suiteStart  = regexp.MustCompile(`^==> running suite "([^"]+)"\s*$`)
@@ -33,13 +46,22 @@ var (
 )
 
 func Run(parent context.Context, cfg config.Config, model string, p profile.Profile) []result.ExternalResult {
+	return RunModule(parent, cfg, model, p, "chat-completions")
+}
+
+func RunModule(parent context.Context, cfg config.Config, model string, p profile.Profile, module string) []result.ExternalResult {
+	definition, ok := moduleSuites[module]
+	if !ok {
+		return runnerResult(model, result.StatusError, "unknown official-SDK module "+module, "", "")
+	}
+	suites := strings.Join(definition.Suites, ",")
 	if cfg.ExternalMode == "off" {
-		return runSuite(parent, cfg, model, p, suites)
+		return runSuite(parent, cfg, model, p, suites, definition.ModelEnv)
 	}
 	var out []result.ExternalResult
-	for _, suite := range strings.Split(suites, ",") {
+	for _, suite := range definition.Suites {
 		for attempt := 0; attempt < 3; attempt++ {
-			got := runSuite(parent, cfg, model, p, suite)
+			got := runSuite(parent, cfg, model, p, suite, definition.ModelEnv)
 			if len(got) == 1 && got[0].Suite == "" {
 				return append(out, got...)
 			}
@@ -58,7 +80,7 @@ func Run(parent context.Context, cfg config.Config, model string, p profile.Prof
 	return out
 }
 
-func runSuite(parent context.Context, cfg config.Config, model string, p profile.Profile, suite string) []result.ExternalResult {
+func runSuite(parent context.Context, cfg config.Config, model string, p profile.Profile, suite, modelEnv string) []result.ExternalResult {
 	mode, path, reason := resolveMode(parent, cfg.ExternalMode, cfg.ExternalImage)
 	if mode == "off" {
 		return runnerResult(model, result.StatusSkip, reason, "", "")
@@ -83,13 +105,16 @@ func runSuite(parent context.Context, cfg config.Config, model string, p profile
 	default:
 		return runnerResult(model, result.StatusError, "unknown official-SDK checker mode", "", "")
 	}
-	cmd.Env = append(os.Environ(),
-		"OPENAI_BASE_URL="+cfg.BaseURL,
-		"OPENAI_API_KEY="+cfg.APIKey,
-		"OPENAI_MODEL="+model,
-		"TEST_SUITES="+suite,
-		"REQUEST_TIMEOUT="+cfg.Timeout.String(),
-	)
+	environment := []string{
+		"OPENAI_BASE_URL=" + cfg.BaseURL,
+		"OPENAI_API_KEY=" + cfg.APIKey,
+		"TEST_SUITES=" + suite,
+		"REQUEST_TIMEOUT=" + cfg.Timeout.String(),
+	}
+	if modelEnv != "" {
+		environment = append(environment, modelEnv+"="+model)
+	}
+	cmd.Env = append(os.Environ(), environment...)
 	var output bytes.Buffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output
@@ -136,9 +161,13 @@ func hasRateLimit(results []result.ExternalResult) bool {
 func normalizeAgainstProfile(results []result.ExternalResult, p profile.Profile) []result.ExternalResult {
 	for index := range results {
 		r := &results[index]
-		if r.Status == result.StatusFail && containsHTTPStatus(r.Summary, 429) {
+		if r.Status == result.StatusFail && providerFailureStatus(r.Summary) {
 			r.Status = result.StatusError
-			r.Summary = "rate limited; compatibility outcome is inconclusive: " + r.Summary
+			if containsHTTPStatus(r.Summary, http.StatusTooManyRequests) {
+				r.Summary = "rate limited; compatibility outcome is inconclusive: " + r.Summary
+			} else {
+				r.Summary = "provider or transport failure; compatibility outcome is inconclusive: " + r.Summary
+			}
 			continue
 		}
 		if r.Status != result.StatusFail || !isCapabilityStatus(r.Summary) {
@@ -152,6 +181,12 @@ func normalizeAgainstProfile(results []result.ExternalResult, p profile.Profile)
 		r.Summary = "optional " + reason + " is not supported: " + r.Summary
 	}
 	return results
+}
+
+var providerFailure = regexp.MustCompile(`\b(?:408|429|5\d\d)\b`)
+
+func providerFailureStatus(summary string) bool {
+	return providerFailure.MatchString(summary)
 }
 
 func optionalSuiteProbes(r result.ExternalResult) ([]string, string) {
@@ -207,6 +242,11 @@ func dockerRunArgs(cfg config.Config) ([]string, string) {
 		"-e", "OPENAI_BASE_URL",
 		"-e", "OPENAI_API_KEY",
 		"-e", "OPENAI_MODEL",
+		"-e", "OPENAI_IMAGE_MODEL",
+		"-e", "OPENAI_EMBEDDING_MODEL",
+		"-e", "OPENAI_RESPONSES_MODEL",
+		"-e", "OPENAI_TTS_MODEL",
+		"-e", "OPENAI_WHISPER_MODEL",
 		"-e", "TEST_SUITES",
 		"-e", "REQUEST_TIMEOUT",
 		cfg.ExternalImage,

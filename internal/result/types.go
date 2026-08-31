@@ -38,20 +38,21 @@ type HTTPObservation struct {
 }
 
 type TestResult struct {
-	ID          string          `json:"id"`
-	Name        string          `json:"name"`
-	Suite       string          `json:"suite"`
-	Category    string          `json:"category"`
-	Required    bool            `json:"required"`
-	Status      Status          `json:"status"`
-	DurationMS  int64           `json:"duration_ms,omitempty"`
-	Summary     string          `json:"summary"`
-	Expected    string          `json:"expected,omitempty"`
-	Observation string          `json:"observation,omitempty"`
-	HTTP        HTTPObservation `json:"http,omitempty"`
-	Usage       Usage           `json:"usage,omitempty"`
-	Metrics     map[string]any  `json:"metrics,omitempty"`
-	Error       string          `json:"error,omitempty"`
+	ID          string                `json:"id"`
+	Name        string                `json:"name"`
+	Suite       string                `json:"suite"`
+	Category    string                `json:"category"`
+	Required    bool                  `json:"required"`
+	Status      Status                `json:"status"`
+	DurationMS  int64                 `json:"duration_ms,omitempty"`
+	Summary     string                `json:"summary"`
+	Expected    string                `json:"expected,omitempty"`
+	Observation string                `json:"observation,omitempty"`
+	HTTP        HTTPObservation       `json:"http,omitempty"`
+	Usage       Usage                 `json:"usage,omitempty"`
+	Metrics     map[string]any        `json:"metrics,omitempty"`
+	Error       string                `json:"error,omitempty"`
+	Artifacts   []ArtifactObservation `json:"artifacts,omitempty"`
 }
 
 type ParameterResult struct {
@@ -100,6 +101,56 @@ type ContextSample struct {
 	Error                 string `json:"error,omitempty"`
 }
 
+type Applicability string
+
+const (
+	ApplicabilityApplicable    Applicability = "applicable"
+	ApplicabilityNotApplicable Applicability = "not_applicable"
+	ApplicabilityUnknown       Applicability = "unknown"
+)
+
+type ExecutionState string
+
+const (
+	ExecutionExecuted ExecutionState = "executed"
+	ExecutionSkipped  ExecutionState = "skipped"
+)
+
+type CapabilityAssessment struct {
+	ID         string `json:"id"`
+	Source     string `json:"source"`
+	Rule       string `json:"rule,omitempty"`
+	Confidence string `json:"confidence"`
+	Reason     string `json:"reason"`
+}
+
+type ModuleAssessment struct {
+	ID            string         `json:"id"`
+	Capability    string         `json:"capability"`
+	Applicability Applicability  `json:"applicability"`
+	Execution     ExecutionState `json:"execution,omitempty"`
+	Reason        string         `json:"reason"`
+	Source        string         `json:"source,omitempty"`
+	Confidence    string         `json:"confidence,omitempty"`
+	TestIDs       []string       `json:"test_ids,omitempty"`
+	Summary       *Summary       `json:"summary,omitempty"`
+}
+
+type ModelAssessment struct {
+	Verdict string `json:"verdict"`
+}
+
+type ArtifactObservation struct {
+	Kind      string `json:"kind"`
+	Source    string `json:"source"`
+	MediaType string `json:"media_type"`
+	Format    string `json:"format"`
+	Bytes     int64  `json:"bytes"`
+	SHA256    string `json:"sha256"`
+	Width     int    `json:"width"`
+	Height    int    `json:"height"`
+}
+
 type Summary struct {
 	Pass               int     `json:"pass"`
 	Fail               int     `json:"fail"`
@@ -128,14 +179,17 @@ type ExternalResult struct {
 }
 
 type ModelReport struct {
-	ID            string              `json:"id"`
-	Metadata      map[string]any      `json:"metadata,omitempty"`
-	Compatibility []TestResult        `json:"compatibility,omitempty"`
-	Parameters    []ParameterResult   `json:"parameters,omitempty"`
-	Context       *ContextProbeResult `json:"context,omitempty"`
-	External      []ExternalResult    `json:"external,omitempty"`
-	RateLimit     *RateLimitStats     `json:"rate_limit,omitempty"`
-	Summary       Summary             `json:"summary"`
+	ID            string                 `json:"id"`
+	Metadata      map[string]any         `json:"metadata,omitempty"`
+	Compatibility []TestResult           `json:"compatibility,omitempty"`
+	Parameters    []ParameterResult      `json:"parameters,omitempty"`
+	Context       *ContextProbeResult    `json:"context,omitempty"`
+	External      []ExternalResult       `json:"external,omitempty"`
+	RateLimit     *RateLimitStats        `json:"rate_limit,omitempty"`
+	Capabilities  []CapabilityAssessment `json:"capabilities,omitempty"`
+	Modules       []ModuleAssessment     `json:"modules,omitempty"`
+	Assessment    ModelAssessment        `json:"assessment"`
+	Summary       Summary                `json:"summary"`
 }
 
 type ProfileInfo struct {
@@ -156,23 +210,29 @@ type ToolInfo struct {
 }
 
 type PublicConfig struct {
-	BaseURL          string   `json:"base_url"`
-	Tests            []string `json:"tests"`
-	RequestedModels  []string `json:"requested_models,omitempty"`
-	Timeout          string   `json:"timeout"`
-	Formats          []string `json:"formats"`
-	ExternalMode     string   `json:"external_mode"`
-	FailOn           string   `json:"fail_on"`
-	ContextMaxTokens int64    `json:"context_max_tokens,omitempty"`
-	ContextPrecision int64    `json:"context_precision_tokens,omitempty"`
-	ContextBudget    int64    `json:"context_budget_tokens,omitempty"`
-	Samples          int      `json:"samples,omitempty"`
+	BaseURL                string   `json:"base_url"`
+	Tests                  []string `json:"tests"`
+	RequestedModels        []string `json:"requested_models,omitempty"`
+	Timeout                string   `json:"timeout"`
+	Formats                []string `json:"formats"`
+	ExternalMode           string   `json:"external_mode"`
+	FailOn                 string   `json:"fail_on"`
+	ContextMaxTokens       int64    `json:"context_max_tokens,omitempty"`
+	ContextPrecision       int64    `json:"context_precision_tokens,omitempty"`
+	ContextBudget          int64    `json:"context_budget_tokens,omitempty"`
+	Samples                int      `json:"samples,omitempty"`
+	Modules                []string `json:"modules,omitempty"`
+	UnknownModel           string   `json:"unknown_model,omitempty"`
+	AllowBillableArtifacts bool     `json:"allow_billable_artifacts,omitempty"`
+	MaxArtifactsPerModel   int      `json:"max_artifacts_per_model,omitempty"`
 }
 
 type Discovery struct {
-	Models     []map[string]any `json:"models,omitempty"`
-	Tests      []TestResult     `json:"tests,omitempty"`
-	ModelCount int              `json:"model_count"`
+	Models        []map[string]any `json:"models,omitempty"`
+	Tests         []TestResult     `json:"tests,omitempty"`
+	Compatibility []TestResult     `json:"compatibility,omitempty"`
+	ModelCount    int              `json:"model_count"`
+	External      []ExternalResult `json:"external,omitempty"`
 }
 
 type Report struct {

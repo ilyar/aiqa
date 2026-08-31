@@ -14,7 +14,7 @@ aiqa test=compat \
   --name=compat-report
 ```
 
-Test the parameters of every model returned by `/models`:
+Test the parameters of every discovered model classified as Chat Completions capable:
 
 ```bash
 aiqa test=model-param \
@@ -39,7 +39,47 @@ aiqa test=compat,model-param \
   --model moonshotai/Kimi-K2.6,deepseek-ai/DeepSeek-V4-Flash-0731
 ```
 
-When `--model` is not specified, `aiqa` retrieves the list through `/models` and tests every discovered model, models are processed sequentially by default so parallel context probing does not unexpectedly test the provider's rate limiter's ability to reincarnate
+When `--model` is not specified, `aiqa` preserves every `/models` entry in the inventory and runs only modules supported by the model's evidence-backed capabilities. Models are processed sequentially by default so parallel context probing does not unexpectedly test the provider's rate limiter instead of compatibility.
+
+## Capability routing
+
+OpenAI's standard model object does not declare endpoint capabilities. AIQA therefore uses explicit overrides first, then recognized vendor metadata and conservative model-name rules. A model with insufficient evidence remains inventory-only and is reported as `NOT-EVALUATED`; it is not assumed to be a chat model and does not receive Chat Completions requests.
+
+Declare a known model explicitly:
+
+```bash
+aiqa test=compat \
+  --model=custom-llm \
+  --model-capability='custom-llm=chat.completions.text'
+```
+
+Multiple capabilities use `+`, and larger catalogs can use `--capability-file`:
+
+```json
+{
+  "models": {
+    "custom-llm": ["chat.completions.text"],
+    "image-model": ["images.generations"]
+  }
+}
+```
+
+`--unknown-model=chat` preserves the old chat-for-everything behavior as an explicit low-confidence assumption. The safer default is `--unknown-model=inventory`.
+
+Image generation is a billable module and remains skipped by default. Enable it deliberately for a selected model:
+
+```bash
+aiqa test=compat \
+  --model=image-model \
+  --model-capability='image-model=images.generations' \
+  --module=images-generations \
+  --allow-billable-artifacts \
+  --max-artifacts-per-model=1
+```
+
+Reports retain only the observed image format, media type, byte size, dimensions, and SHA-256 digest. Base64 payloads, binary data, and signed URL query strings are not stored.
+
+The native image probe consumes one artifact slot. Set `--max-artifacts-per-model=2` when the Official SDK image suite should run as well; the default limit of one prevents the external checker from creating a second billable image.
 
 ## Installation
 
@@ -101,7 +141,7 @@ The native profile checks several levels of compatibility
 - incorrect request-field types
 - expected HTTP class and OpenAI-shaped `error` object
 
-The current profile is in [`profile/openai-compat-2026-08.json`](profile/openai-compat-2026-08.json) and is embedded in the binary. It is based on the official OpenAI OpenAPI specification and augmented with semantic probes that cannot be expressed in JSON Schema alone.
+The current modular profile is in [`profile/openai-compat-2026-09.json`](profile/openai-compat-2026-09.json) and is embedded in the binary. The immutable [`profile/openai-compat-2026-08.json`](profile/openai-compat-2026-08.json) remains available for historical reproducibility. The profiles are based on the official OpenAI OpenAPI specification and augmented with semantic probes that cannot be expressed in JSON Schema alone.
 
 ## Existing official SDK checker
 

@@ -97,6 +97,14 @@ func (c *Client) ChatRaw(ctx context.Context, raw []byte, contentType string) (R
 	return c.DoRaw(ctx, http.MethodPost, "chat/completions", raw, contentType)
 }
 
+func (c *Client) ImagesGenerate(ctx context.Context, body map[string]any) (Response, error) {
+	return c.doJSON(ctx, http.MethodPost, "images/generations", body, modelFromBody(body))
+}
+
+func (c *Client) ImagesRaw(ctx context.Context, raw []byte, contentType string) (Response, error) {
+	return c.DoRaw(ctx, http.MethodPost, "images/generations", raw, contentType)
+}
+
 func (c *Client) DoJSON(ctx context.Context, method, path string, body any) (Response, error) {
 	var raw []byte
 	var err error

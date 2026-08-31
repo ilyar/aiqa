@@ -109,7 +109,7 @@ func TestNormalizeAgainstProfileTreatsOptionalModelsGet404AsUnsupported(t *testi
 	}
 }
 
-func TestNormalizeAgainstProfileRetainsModelsGetFailuresOtherThan404(t *testing.T) {
+func TestNormalizeAgainstProfileMarksModelsGet5xxInconclusive(t *testing.T) {
 	p, err := profile.Load()
 	if err != nil {
 		t.Fatal(err)
@@ -119,8 +119,8 @@ func TestNormalizeAgainstProfileRetainsModelsGetFailuresOtherThan404(t *testing.
 		Status:  result.StatusFail,
 		Summary: `models get request failed: 500 Internal Server Error`,
 	}}, p)
-	if results[0].Status != result.StatusFail {
-		t.Fatalf("status=%q, want fail", results[0].Status)
+	if results[0].Status != result.StatusError {
+		t.Fatalf("status=%q, want error", results[0].Status)
 	}
 }
 
@@ -132,5 +132,22 @@ func TestNormalizeAgainstProfileMarksRateLimitInconclusive(t *testing.T) {
 	results := normalizeAgainstProfile([]result.ExternalResult{{Suite: "chat_completions", Status: result.StatusFail, Summary: "request failed: 429 Too Many Requests"}}, p)
 	if results[0].Status != result.StatusError {
 		t.Fatalf("status=%q, want error", results[0].Status)
+	}
+}
+
+func TestModuleSuitesAreEndpointSpecific(t *testing.T) {
+	discovery := moduleSuites["discovery"]
+	if len(discovery.Suites) != 1 || discovery.Suites[0] != "models" || discovery.ModelEnv != "" {
+		t.Fatalf("unexpected discovery mapping: %+v", discovery)
+	}
+	images := moduleSuites["images-generations"]
+	if images.ModelEnv != "OPENAI_IMAGE_MODEL" || len(images.Suites) != 1 || images.Suites[0] != "images_generations" {
+		t.Fatalf("unexpected image mapping: %+v", images)
+	}
+	chat := moduleSuites["chat-completions"]
+	for _, suite := range chat.Suites {
+		if suite == "models" || suite == "images_generations" || suite == "embeddings" {
+			t.Fatalf("chat module contains an inapplicable suite %q", suite)
+		}
 	}
 }

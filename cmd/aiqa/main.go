@@ -67,6 +67,17 @@ selection and output:
   --concurrency 1          models tested concurrently (default 1)
 
 compatibility:
+  --module MODULE[,MODULE]
+                            auto or explicit capability modules
+  --model-capability MODEL=CAPABILITY[+CAPABILITY]
+                            explicit per-model capability override
+  --capability-file FILE   JSON file containing model capability overrides
+  --unknown-model inventory|chat
+                            policy for unclassified models (default inventory)
+  --allow-billable-artifacts
+                            permit modules that generate billable media
+  --max-artifacts-per-model N
+                            artifact safety limit per model (default 1)
   --external auto|off|binary|docker
                             optional official-SDK checker integration
   --external-image IMAGE    Docker image or digest for the checker
