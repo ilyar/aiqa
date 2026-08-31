@@ -416,6 +416,7 @@ class Handler(BaseHTTPRequestHandler):
         self.copy_response_headers(response)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "close")
         self.end_headers()
         for raw_line in response:
             line = raw_line.decode("utf-8", "replace").rstrip("\r\n")
@@ -427,7 +428,8 @@ class Handler(BaseHTTPRequestHandler):
             if value == "[DONE]":
                 self.wfile.write(b"data: [DONE]\n\n")
                 self.wfile.flush()
-                continue
+                self.close_connection = True
+                break
             try:
                 event = json.loads(value)
             except json.JSONDecodeError:
@@ -461,10 +463,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         if query:
             upstream_path += "?" + query
+        request_payload = None
         include_usage = False
         if body:
             try:
-                include_usage = bool(json.loads(body).get("stream_options", {}).get("include_usage"))
+                request_payload = json.loads(body)
+                include_usage = bool(request_payload.get("stream_options", {}).get("include_usage"))
             except (ValueError, AttributeError):
                 pass
         try:
@@ -483,6 +487,15 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(raw)
         except json.JSONDecodeError:
             payload = openai_error(raw.decode("utf-8", "replace"), "server_error")
+        requested_model = request_payload.get("model") if isinstance(request_payload, dict) else None
+        error = payload.get("error") if isinstance(payload, dict) else None
+        if response.status >= 400 and isinstance(requested_model, str) and isinstance(error, dict):
+            message = str(error.get("message", ""))
+            if "resolve a provider" in message or "no keys found" in message:
+                error["message"] = "The model '%s' does not exist or you do not have access to it." % requested_model
+                error["type"] = "invalid_request_error"
+                error["param"] = "model"
+                error["code"] = "model_not_found"
         self.send_json(response.status, self.normal_json(response.status, payload))
 
     def do_GET(self):
