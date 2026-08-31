@@ -82,6 +82,11 @@ compatibility:
                             optional official-SDK checker integration
   --external-image IMAGE    Docker image or digest for the checker
   --fail-on core|any|never exit-code policy (default core)
+  --guidance full|summary|off
+                            actionable guidance output (default full)
+  --guidance-pack auto|generic|ID
+                            versioned advice pack (default auto)
+  --guidance-locale en      guidance language (default en)
 
 model parameters:
   --samples 5              samples for statistical checks

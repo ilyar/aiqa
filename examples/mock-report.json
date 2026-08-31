@@ -1,23 +1,23 @@
 {
   "schema_version": "aiqa.report.v1",
-  "generated_at": "2026-08-30T01:22:01.20626094Z",
+  "generated_at": "2026-08-31T20:31:45.270311892Z",
   "tool": {
     "name": "aiqa",
-    "version": "0.1.0-example",
+    "version": "1.0.0-alpha.0-example",
     "commit": "example",
     "build_date": "2026-08-30T00:00:00Z",
-    "go_version": "go1.23.2"
+    "go_version": "go1.27.0"
   },
   "profile": {
-    "id": "openai-chat-compat",
-    "revision": "2026-08-30",
+    "id": "openai-compat",
+    "revision": "2026-09-01",
     "source": "https://github.com/openai/openai-openapi",
     "source_commit": "690521b1753dce0c6d6b275f583d22537679cff9",
     "source_ref_revision": "1030392",
-    "scope": "GET /v1/models, GET /v1/models/{model}, POST /v1/chat/completions"
+    "scope": "GET /v1/models, GET /v1/models/{model}, POST /v1/chat/completions, POST /v1/images/generations"
   },
   "config": {
-    "base_url": "http://127.0.0.1:46561/v1",
+    "base_url": "http://127.0.0.1:39013/v1",
     "tests": [
       "compat",
       "model-param"
@@ -32,11 +32,19 @@
     "context_max_tokens": 10000,
     "context_precision_tokens": 512,
     "context_budget_tokens": 50000,
-    "samples": 2
+    "samples": 2,
+    "modules": [
+      "auto"
+    ],
+    "unknown_model": "inventory",
+    "max_artifacts_per_model": 1
   },
   "discovery": {
     "models": [
       {
+        "capabilities": [
+          "chat.completions.text"
+        ],
         "context_length": 4096,
         "created": 1,
         "id": "vendor/model-a",
@@ -46,14 +54,54 @@
     ],
     "tests": [
       {
-        "id": "error.invalid_auth",
-        "name": "Invalid authentication error",
+        "id": "models.list.http",
+        "requirement_id": "models.list.http",
+        "probe_id": "aiqa.native.models.list.http",
+        "name": "List models: HTTP",
+        "suite": "compat",
+        "category": "discovery",
+        "required": true,
+        "status": "pass",
+        "summary": "GET /models returned HTTP 200 JSON",
+        "expected": "GET /models returns a successful JSON response",
+        "http": {
+          "status_code": 200,
+          "content_type": "application/json",
+          "snippet": "{\"data\":[{\"capabilities\":[\"chat.completions.text\"],\"context_length\":4096,\"created\":1,\"id\":\"vendor/model-a\",\"object\":\"model\",\"owned_by\":\"mock\"}],\"object\":\"list\"}"
+        },
+        "usage": {}
+      },
+      {
+        "id": "models.list.schema",
+        "requirement_id": "models.list.schema",
+        "probe_id": "aiqa.native.models.list.schema",
+        "name": "List models: schema",
+        "suite": "compat",
+        "category": "schema",
+        "required": true,
+        "status": "pass",
+        "summary": "model list follows the OpenAI list shape",
+        "expected": "Response follows the OpenAI list object shape",
+        "http": {
+          "status_code": 200,
+          "content_type": "application/json",
+          "snippet": "{\"data\":[{\"capabilities\":[\"chat.completions.text\"],\"context_length\":4096,\"created\":1,\"id\":\"vendor/model-a\",\"object\":\"model\",\"owned_by\":\"mock\"}],\"object\":\"list\"}"
+        },
+        "usage": {}
+      }
+    ],
+    "compatibility": [
+      {
+        "id": "chat.error.invalid_auth",
+        "requirement_id": "chat.error.invalid_auth",
+        "probe_id": "aiqa.native.chat.error.invalid_auth",
+        "name": "Invalid chat authentication error",
         "suite": "compat",
         "category": "errors",
         "required": false,
         "status": "pass",
         "summary": "invalid authentication returned HTTP 401 with an OpenAI-shaped error",
-        "expected": "An invalid API key returns 401/403 and an OpenAI-shaped error",
+        "expected": "An invalid API key on Chat Completions returns 401/403 and an OpenAI-shaped error",
         "observation": "invalid API key",
         "http": {
           "status_code": 401,
@@ -67,15 +115,16 @@
         }
       },
       {
-        "id": "error.invalid_json",
-        "name": "Malformed JSON error",
+        "id": "chat.error.invalid_json",
+        "requirement_id": "chat.error.invalid_json",
+        "probe_id": "aiqa.native.chat.error.invalid_json",
+        "name": "Malformed Chat Completions JSON error",
         "suite": "compat",
         "category": "errors",
         "required": true,
         "status": "pass",
-        "summary": "malformed JSON returned HTTP 400 with an OpenAI-shaped error",
-        "expected": "Malformed JSON returns a client error rather than 5xx",
-        "observation": "malformed JSON",
+        "summary": "all malformed JSON variants returned client errors with OpenAI-shaped bodies",
+        "expected": "Malformed Chat Completions JSON returns a client error rather than 5xx",
         "http": {
           "status_code": 400,
           "content_type": "application/json",
@@ -83,20 +132,38 @@
         },
         "usage": {},
         "metrics": {
-          "error_code": "invalid_request_error",
-          "error_type": "invalid_request_error"
+          "passed_variants": 3,
+          "total_variants": 3,
+          "variants": {
+            "trailing_comma": {
+              "http": 400,
+              "status": "pass",
+              "summary": "malformed JSON returned HTTP 400 with an OpenAI-shaped error"
+            },
+            "truncated_value": {
+              "http": 400,
+              "status": "pass",
+              "summary": "malformed JSON returned HTTP 400 with an OpenAI-shaped error"
+            },
+            "unterminated_string": {
+              "http": 400,
+              "status": "pass",
+              "summary": "malformed JSON returned HTTP 400 with an OpenAI-shaped error"
+            }
+          }
         }
       },
       {
-        "id": "error.invalid_model",
-        "name": "Invalid model error",
+        "id": "chat.error.invalid_model",
+        "requirement_id": "chat.error.invalid_model",
+        "probe_id": "aiqa.native.chat.error.invalid_model",
+        "name": "Invalid chat model error",
         "suite": "compat",
         "category": "errors",
         "required": true,
         "status": "pass",
-        "duration_ms": 3,
         "summary": "invalid model returned HTTP 404 with an OpenAI-shaped error",
-        "expected": "An invalid model returns a non-2xx OpenAI-shaped error",
+        "expected": "An invalid model on Chat Completions returns a non-2xx OpenAI-shaped error",
         "observation": "unknown model",
         "http": {
           "status_code": 404,
@@ -110,14 +177,16 @@
         }
       },
       {
-        "id": "error.invalid_types",
-        "name": "Invalid request types",
+        "id": "chat.error.invalid_types",
+        "requirement_id": "chat.error.invalid_types",
+        "probe_id": "aiqa.native.chat.error.invalid_types",
+        "name": "Invalid Chat Completions request types",
         "suite": "compat",
         "category": "errors",
         "required": false,
         "status": "pass",
         "summary": "invalid request field types returned HTTP 400 with an OpenAI-shaped error",
-        "expected": "Invalid field types are rejected with a client error",
+        "expected": "Invalid Chat Completions field types are rejected with a client error",
         "observation": "messages must be an array",
         "http": {
           "status_code": 400,
@@ -129,40 +198,6 @@
           "error_code": "invalid_request_error",
           "error_type": "invalid_request_error"
         }
-      },
-      {
-        "id": "models.list.http",
-        "name": "List models: HTTP",
-        "suite": "compat",
-        "category": "discovery",
-        "required": true,
-        "status": "pass",
-        "duration_ms": 2,
-        "summary": "GET /models returned HTTP 200 JSON",
-        "expected": "GET /models returns a successful JSON response",
-        "http": {
-          "status_code": 200,
-          "content_type": "application/json",
-          "snippet": "{\"data\":[{\"context_length\":4096,\"created\":1,\"id\":\"vendor/model-a\",\"object\":\"model\",\"owned_by\":\"mock\"}],\"object\":\"list\"}"
-        },
-        "usage": {}
-      },
-      {
-        "id": "models.list.schema",
-        "name": "List models: schema",
-        "suite": "compat",
-        "category": "schema",
-        "required": true,
-        "status": "pass",
-        "duration_ms": 2,
-        "summary": "model list follows the OpenAI list shape",
-        "expected": "Response follows the OpenAI list object shape",
-        "http": {
-          "status_code": 200,
-          "content_type": "application/json",
-          "snippet": "{\"data\":[{\"context_length\":4096,\"created\":1,\"id\":\"vendor/model-a\",\"object\":\"model\",\"owned_by\":\"mock\"}],\"object\":\"list\"}"
-        },
-        "usage": {}
       }
     ],
     "model_count": 1
@@ -171,6 +206,9 @@
     {
       "id": "vendor/model-a",
       "metadata": {
+        "capabilities": [
+          "chat.completions.text"
+        ],
         "context_length": 4096,
         "created": 1,
         "id": "vendor/model-a",
@@ -180,6 +218,8 @@
       "compatibility": [
         {
           "id": "chat.basic",
+          "requirement_id": "chat.basic",
+          "probe_id": "aiqa.native.chat.basic",
           "name": "Basic chat completion",
           "suite": "compat",
           "category": "core",
@@ -191,7 +231,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":47,\"total_tokens\":51}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":47,\"total_tokens\":51}}"
           },
           "usage": {
             "prompt_tokens": 47,
@@ -201,6 +241,8 @@
         },
         {
           "id": "chat.content_parts.text",
+          "requirement_id": "chat.content_parts.text",
+          "probe_id": "aiqa.native.chat.content_parts.text",
           "name": "Text content parts",
           "suite": "compat",
           "category": "messages",
@@ -211,7 +253,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"PARTS_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":50,\"total_tokens\":54}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"PARTS_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":50,\"total_tokens\":54}}"
           },
           "usage": {
             "prompt_tokens": 50,
@@ -221,6 +263,8 @@
         },
         {
           "id": "chat.logprobs",
+          "requirement_id": "chat.logprobs",
+          "probe_id": "aiqa.native.chat.logprobs",
           "name": "Log probabilities",
           "suite": "compat",
           "category": "sampling",
@@ -231,7 +275,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"logprobs\":{\"content\":[{\"logprob\":-0.01,\"token\":\"A\"}]},\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":49,\"total_tokens\":53}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"logprobs\":{\"content\":[{\"logprob\":-0.01,\"token\":\"A\"}]},\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":49,\"total_tokens\":53}}"
           },
           "usage": {
             "prompt_tokens": 49,
@@ -241,6 +285,8 @@
         },
         {
           "id": "chat.multi_turn",
+          "requirement_id": "chat.multi_turn",
+          "probe_id": "aiqa.native.chat.multi_turn",
           "name": "Multi-turn messages",
           "suite": "compat",
           "category": "messages",
@@ -251,7 +297,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"ALPHA-731\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":80,\"total_tokens\":84}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"ALPHA-731\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":80,\"total_tokens\":84}}"
           },
           "usage": {
             "prompt_tokens": 80,
@@ -261,6 +307,8 @@
         },
         {
           "id": "chat.role.developer",
+          "requirement_id": "chat.role.developer",
+          "probe_id": "aiqa.native.chat.role.developer",
           "name": "Developer role",
           "suite": "compat",
           "category": "messages",
@@ -271,7 +319,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"DEVELOPER_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":62,\"total_tokens\":66}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"DEVELOPER_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":62,\"total_tokens\":66}}"
           },
           "usage": {
             "prompt_tokens": 62,
@@ -281,6 +329,8 @@
         },
         {
           "id": "chat.role.system",
+          "requirement_id": "chat.role.system",
+          "probe_id": "aiqa.native.chat.role.system",
           "name": "System role",
           "suite": "compat",
           "category": "messages",
@@ -291,7 +341,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"SYSTEM_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":60,\"total_tokens\":64}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"SYSTEM_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":60,\"total_tokens\":64}}"
           },
           "usage": {
             "prompt_tokens": 60,
@@ -301,6 +351,8 @@
         },
         {
           "id": "chat.schema",
+          "requirement_id": "chat.schema",
+          "probe_id": "aiqa.native.chat.schema",
           "name": "Chat response schema",
           "suite": "compat",
           "category": "schema",
@@ -311,24 +363,25 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":47,\"total_tokens\":51}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":47,\"total_tokens\":51}}"
           },
           "usage": {}
         },
         {
           "id": "chat.stream.sse",
+          "requirement_id": "chat.stream.sse",
+          "probe_id": "aiqa.native.chat.stream.sse",
           "name": "Streaming SSE",
           "suite": "compat",
           "category": "streaming",
           "required": true,
           "status": "pass",
-          "duration_ms": 1,
           "summary": "valid SSE stream with 3 event(s) and [DONE]",
           "expected": "SSE chunks are valid and terminate with [DONE]",
           "http": {
             "status_code": 200,
             "content_type": "text/event-stream",
-            "snippet": "data: {\"choices\":[{\"delta\":{\"content\":\"STREAM_OK\",\"role\":\"assistant\"},\"finish_reason\":null,\"index\":0}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\",\"index\":0}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: [DONE]"
+            "snippet": "data: {\"choices\":[{\"delta\":{\"content\":\"STREAM_OK\",\"role\":\"assistant\"},\"finish_reason\":null,\"index\":0}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\",\"index\":0}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: [DONE]"
           },
           "usage": {},
           "metrics": {
@@ -340,18 +393,19 @@
         },
         {
           "id": "chat.stream.usage",
+          "requirement_id": "chat.stream.usage",
+          "probe_id": "aiqa.native.chat.stream.usage",
           "name": "Streaming usage",
           "suite": "compat",
           "category": "usage",
           "required": false,
           "status": "pass",
-          "duration_ms": 1,
           "summary": "stream reported 64 total tokens",
           "expected": "stream_options.include_usage returns token usage",
           "http": {
             "status_code": 200,
             "content_type": "text/event-stream",
-            "snippet": "data: {\"choices\":[{\"delta\":{\"content\":\"STREAM_OK\",\"role\":\"assistant\"},\"finish_reason\":null,\"index\":0}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\",\"index\":0}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: {\"choices\":[],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":60,\"total_tokens\":64}}\ndata: [DONE]"
+            "snippet": "data: {\"choices\":[{\"delta\":{\"content\":\"STREAM_OK\",\"role\":\"assistant\"},\"finish_reason\":null,\"index\":0}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\",\"index\":0}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: {\"choices\":[],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":60,\"total_tokens\":64}}\ndata: [DONE]"
           },
           "usage": {
             "prompt_tokens": 60,
@@ -361,32 +415,34 @@
         },
         {
           "id": "chat.structured.json_object",
+          "requirement_id": "chat.structured.json_object",
+          "probe_id": "aiqa.native.chat.structured.json_object",
           "name": "JSON object mode",
           "suite": "compat",
           "category": "structured-output",
           "required": false,
           "status": "pass",
-          "summary": "JSON object mode returned valid JSON",
+          "summary": "JSON object mode returned raw JSON in the majority of attempts",
           "expected": "response_format=json_object returns valid JSON",
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"{\\\"ok\\\":true,\\\"value\\\":\\\"AIQA_OK\\\"}\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":69,\"total_tokens\":73}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"{\\\"ok\\\":true,\\\"value\\\":\\\"AIQA_OK\\\"}\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":86,\"total_tokens\":90}}"
           },
           "usage": {
-            "prompt_tokens": 69,
-            "completion_tokens": 4,
-            "total_tokens": 73
+            "prompt_tokens": 258,
+            "completion_tokens": 12,
+            "total_tokens": 270
           },
           "metrics": {
-            "keys": [
-              "ok",
-              "value"
-            ]
+            "attempts": 3,
+            "valid_json_responses": 3
           }
         },
         {
           "id": "chat.structured.json_schema",
+          "requirement_id": "chat.structured.json_schema",
+          "probe_id": "aiqa.native.chat.structured.json_schema",
           "name": "Strict JSON schema",
           "suite": "compat",
           "category": "structured-output",
@@ -397,7 +453,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"{\\\"ok\\\":true,\\\"value\\\":\\\"AIQA_OK\\\"}\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":135,\"total_tokens\":139}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"{\\\"ok\\\":true,\\\"value\\\":\\\"AIQA_OK\\\"}\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":135,\"total_tokens\":139}}"
           },
           "usage": {
             "prompt_tokens": 135,
@@ -407,6 +463,8 @@
         },
         {
           "id": "chat.tools.auto",
+          "requirement_id": "chat.tools.auto",
+          "probe_id": "aiqa.native.chat.tools.auto",
           "name": "tool_choice=auto",
           "suite": "compat",
           "category": "tools",
@@ -417,12 +475,12 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"index\":0,\"message\":{\"content\":null,\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"city\\\":\\\"Bratislava\\\"}\",\"name\":\"get_weather\"},\"id\":\"call_mock_1\",\"type\":\"function\"}]}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":128,\"total_tokens\":132}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"index\":0,\"message\":{\"content\":null,\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"resource_id\\\":\\\"resource-alpha\\\"}\",\"name\":\"get_status\"},\"id\":\"call_mock_1\",\"type\":\"function\"}]}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":136,\"total_tokens\":140}}"
           },
           "usage": {
-            "prompt_tokens": 128,
+            "prompt_tokens": 136,
             "completion_tokens": 4,
-            "total_tokens": 132
+            "total_tokens": 140
           },
           "metrics": {
             "tool_calls": 1
@@ -430,6 +488,8 @@
         },
         {
           "id": "chat.tools.continuation",
+          "requirement_id": "chat.tools.continuation",
+          "probe_id": "aiqa.native.chat.tools.continuation",
           "name": "Tool continuation",
           "suite": "compat",
           "category": "tools",
@@ -437,20 +497,22 @@
           "status": "pass",
           "summary": "assistant tool_call and tool result can be continued",
           "expected": "A tool result can be continued into a final assistant message",
-          "observation": "assistant content: It is 21°C in Bratislava.",
+          "observation": "assistant content: resource-alpha is available.",
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"It is 21°C in Bratislava.\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":211,\"total_tokens\":215}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"resource-alpha is available.\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":227,\"total_tokens\":231}}"
           },
           "usage": {
-            "prompt_tokens": 211,
+            "prompt_tokens": 227,
             "completion_tokens": 4,
-            "total_tokens": 215
+            "total_tokens": 231
           }
         },
         {
           "id": "chat.tools.forced",
+          "requirement_id": "chat.tools.forced",
+          "probe_id": "aiqa.native.chat.tools.forced",
           "name": "Forced tool call",
           "suite": "compat",
           "category": "tools",
@@ -461,23 +523,25 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"index\":0,\"message\":{\"content\":null,\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"city\\\":\\\"Bratislava\\\"}\",\"name\":\"get_weather\"},\"id\":\"call_mock_1\",\"type\":\"function\"}]}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":153,\"total_tokens\":157}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"index\":0,\"message\":{\"content\":null,\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"resource_id\\\":\\\"resource-alpha\\\"}\",\"name\":\"get_status\"},\"id\":\"call_mock_1\",\"type\":\"function\"}]}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":151,\"total_tokens\":155}}"
           },
           "usage": {
-            "prompt_tokens": 153,
+            "prompt_tokens": 151,
             "completion_tokens": 4,
-            "total_tokens": 157
+            "total_tokens": 155
           },
           "metrics": {
             "arguments": {
-              "city": "Bratislava"
+              "resource_id": "resource-alpha"
             },
-            "function": "get_weather",
+            "function": "get_status",
             "tool_call_id": "call_mock_1"
           }
         },
         {
           "id": "chat.tools.none",
+          "requirement_id": "chat.tools.none",
+          "probe_id": "aiqa.native.chat.tools.none",
           "name": "tool_choice=none",
           "suite": "compat",
           "category": "tools",
@@ -488,33 +552,34 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"NONE_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":133,\"total_tokens\":137}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"NONE_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":139,\"total_tokens\":143}}"
           },
           "usage": {
-            "prompt_tokens": 133,
+            "prompt_tokens": 139,
             "completion_tokens": 4,
-            "total_tokens": 137
+            "total_tokens": 143
           }
         },
         {
           "id": "chat.tools.required",
+          "requirement_id": "chat.tools.required",
+          "probe_id": "aiqa.native.chat.tools.required",
           "name": "tool_choice=required",
           "suite": "compat",
           "category": "tools",
           "required": false,
           "status": "pass",
-          "duration_ms": 1,
           "summary": "tool_choice=required emitted a tool call",
           "expected": "At least one tool call is emitted when required",
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"index\":0,\"message\":{\"content\":null,\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"city\\\":\\\"Bratislava\\\"}\",\"name\":\"get_weather\"},\"id\":\"call_mock_1\",\"type\":\"function\"}]}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":130,\"total_tokens\":134}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"index\":0,\"message\":{\"content\":null,\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"resource_id\\\":\\\"resource-alpha\\\"}\",\"name\":\"get_status\"},\"id\":\"call_mock_1\",\"type\":\"function\"}]}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":137,\"total_tokens\":141}}"
           },
           "usage": {
-            "prompt_tokens": 130,
+            "prompt_tokens": 137,
             "completion_tokens": 4,
-            "total_tokens": 134
+            "total_tokens": 141
           },
           "metrics": {
             "tool_calls": 1
@@ -522,6 +587,8 @@
         },
         {
           "id": "chat.tools.stream",
+          "requirement_id": "chat.tools.stream",
+          "probe_id": "aiqa.native.chat.tools.stream",
           "name": "Streaming tool call",
           "suite": "compat",
           "category": "tools",
@@ -532,19 +599,21 @@
           "http": {
             "status_code": 200,
             "content_type": "text/event-stream",
-            "snippet": "data: {\"choices\":[{\"delta\":{\"content\":null,\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"city\\\":\\\"Bratislava\\\"}\",\"name\":\"get_weather\"},\"id\":\"call_mock_1\",\"index\":0,\"type\":\"function\"}]},\"finish_reason\":null,\"index\":0}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\",\"index\":0}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: [DONE]"
+            "snippet": "data: {\"choices\":[{\"delta\":{\"content\":null,\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"resource_id\\\":\\\"resource-alpha\\\"}\",\"name\":\"get_status\"},\"id\":\"call_mock_1\",\"index\":0,\"type\":\"function\"}]},\"finish_reason\":null,\"index\":0}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\",\"index\":0}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion.chunk\"}\ndata: [DONE]"
           },
           "usage": {},
           "metrics": {
             "arguments": {
-              "city": "Bratislava"
+              "resource_id": "resource-alpha"
             },
-            "function": "get_weather",
+            "function": "get_status",
             "tool_call_id": "call_mock_1"
           }
         },
         {
           "id": "chat.usage",
+          "requirement_id": "chat.usage",
+          "probe_id": "aiqa.native.chat.usage",
           "name": "Non-stream usage",
           "suite": "compat",
           "category": "usage",
@@ -555,7 +624,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":47,\"total_tokens\":51}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":47,\"total_tokens\":51}}"
           },
           "usage": {
             "prompt_tokens": 47,
@@ -565,6 +634,8 @@
         },
         {
           "id": "models.retrieve",
+          "requirement_id": "models.retrieve",
+          "probe_id": "aiqa.native.models.retrieve",
           "name": "Retrieve model",
           "suite": "compat",
           "category": "discovery",
@@ -575,7 +646,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"context_length\":4096,\"created\":1,\"id\":\"vendor/model-a\",\"object\":\"model\",\"owned_by\":\"mock\"}"
+            "snippet": "{\"capabilities\":[\"chat.completions.text\"],\"context_length\":4096,\"created\":1,\"id\":\"vendor/model-a\",\"object\":\"model\",\"owned_by\":\"mock\"}"
           },
           "usage": {}
         }
@@ -591,7 +662,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":57,\"total_tokens\":61}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":57,\"total_tokens\":61}}"
           },
           "usage": {
             "prompt_tokens": 57,
@@ -615,7 +686,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"logprobs\":{\"content\":[{\"logprob\":-0.01,\"token\":\"A\"}]},\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":58,\"total_tokens\":62}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"logprobs\":{\"content\":[{\"logprob\":-0.01,\"token\":\"A\"}]},\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":58,\"total_tokens\":62}}"
           },
           "usage": {
             "prompt_tokens": 58,
@@ -638,7 +709,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"length\",\"index\":0,\"message\":{\"content\":\"one two three four five six seven eight\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":8,\"prompt_tokens\":75,\"total_tokens\":83}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"length\",\"index\":0,\"message\":{\"content\":\"one two three four five six seven eight\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":8,\"prompt_tokens\":75,\"total_tokens\":83}}"
           },
           "usage": {
             "prompt_tokens": 141,
@@ -665,7 +736,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"length\",\"index\":0,\"message\":{\"content\":\"one two three four five six seven eight\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":8,\"prompt_tokens\":71,\"total_tokens\":79}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"length\",\"index\":0,\"message\":{\"content\":\"one two three four five six seven eight\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":8,\"prompt_tokens\":71,\"total_tokens\":79}}"
           },
           "usage": {
             "prompt_tokens": 71,
@@ -691,7 +762,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}},{\"finish_reason\":\"stop\",\"index\":1,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":53,\"total_tokens\":57}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}},{\"finish_reason\":\"stop\",\"index\":1,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":53,\"total_tokens\":57}}"
           },
           "usage": {
             "prompt_tokens": 53,
@@ -714,12 +785,12 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"index\":0,\"message\":{\"content\":null,\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"city\\\":\\\"Bratislava\\\"}\",\"name\":\"get_weather\"},\"id\":\"call_mock_1\",\"type\":\"function\"},{\"function\":{\"arguments\":\"{\\\"city\\\":\\\"Prague\\\"}\",\"name\":\"get_weather\"},\"id\":\"call_mock_2\",\"type\":\"function\"}]}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":172,\"total_tokens\":176}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"index\":0,\"message\":{\"content\":null,\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"resource_id\\\":\\\"resource-alpha\\\"}\",\"name\":\"get_status\"},\"id\":\"call_mock_1\",\"type\":\"function\"},{\"function\":{\"arguments\":\"{\\\"resource_id\\\":\\\"resource-beta\\\"}\",\"name\":\"get_status\"},\"id\":\"call_mock_2\",\"type\":\"function\"}]}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":182,\"total_tokens\":186}}"
           },
           "usage": {
-            "prompt_tokens": 172,
+            "prompt_tokens": 182,
             "completion_tokens": 4,
-            "total_tokens": 176
+            "total_tokens": 186
           },
           "metrics": {
             "invalid_status": 400,
@@ -738,7 +809,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":56,\"total_tokens\":60}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":56,\"total_tokens\":60}}"
           },
           "usage": {
             "prompt_tokens": 56,
@@ -762,7 +833,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock reasoning for high\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":7},\"prompt_tokens\":77,\"total_tokens\":81}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock reasoning for high\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":7},\"prompt_tokens\":77,\"total_tokens\":81}}"
           },
           "usage": {
             "prompt_tokens": 77,
@@ -794,7 +865,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock reasoning for low\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":6},\"prompt_tokens\":76,\"total_tokens\":80}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock reasoning for low\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":6},\"prompt_tokens\":76,\"total_tokens\":80}}"
           },
           "usage": {
             "prompt_tokens": 76,
@@ -826,7 +897,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock reasoning for max\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":6},\"prompt_tokens\":76,\"total_tokens\":80}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock reasoning for max\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":6},\"prompt_tokens\":76,\"total_tokens\":80}}"
           },
           "usage": {
             "prompt_tokens": 76,
@@ -858,7 +929,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock reasoning for medium\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":9},\"prompt_tokens\":77,\"total_tokens\":81}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock reasoning for medium\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":9},\"prompt_tokens\":77,\"total_tokens\":81}}"
           },
           "usage": {
             "prompt_tokens": 77,
@@ -890,7 +961,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":78,\"total_tokens\":82}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":78,\"total_tokens\":82}}"
           },
           "usage": {
             "prompt_tokens": 78,
@@ -918,7 +989,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":77,\"total_tokens\":81}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":77,\"total_tokens\":81}}"
           },
           "usage": {
             "prompt_tokens": 77,
@@ -946,7 +1017,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock reasoning for xhigh\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":8},\"prompt_tokens\":77,\"total_tokens\":81}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock reasoning for xhigh\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":8},\"prompt_tokens\":77,\"total_tokens\":81}}"
           },
           "usage": {
             "prompt_tokens": 77,
@@ -978,7 +1049,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"\\u003cthink\\u003emock hidden thought\\u003c/think\\u003e AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":76,\"total_tokens\":80}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"\\u003cthink\\u003emock hidden thought\\u003c/think\\u003e AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":76,\"total_tokens\":80}}"
           },
           "usage": {
             "prompt_tokens": 76,
@@ -1007,7 +1078,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock split reasoning\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":10},\"prompt_tokens\":76,\"total_tokens\":80}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock split reasoning\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":10},\"prompt_tokens\":76,\"total_tokens\":80}}"
           },
           "usage": {
             "prompt_tokens": 76,
@@ -1040,7 +1111,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"aqfbff\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":85,\"total_tokens\":89}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"aqfbff\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":85,\"total_tokens\":89}}"
           },
           "usage": {
             "prompt_tokens": 340,
@@ -1072,7 +1143,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"ALPHA \",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":65,\"total_tokens\":69}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"ALPHA \",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":65,\"total_tokens\":69}}"
           },
           "usage": {
             "prompt_tokens": 65,
@@ -1091,12 +1162,11 @@
           "accepted": true,
           "effective": true,
           "confidence": "medium",
-          "duration_ms": 1,
           "summary": "temperature is accepted, validated, and changed sample diversity",
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"mimimi\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":80,\"total_tokens\":84}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"mimimi\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":80,\"total_tokens\":84}}"
           },
           "usage": {
             "prompt_tokens": 322,
@@ -1129,7 +1199,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":78,\"total_tokens\":82}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":78,\"total_tokens\":82}}"
           },
           "usage": {
             "prompt_tokens": 78,
@@ -1157,7 +1227,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock enabled reasoning\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":12},\"prompt_tokens\":78,\"total_tokens\":82}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"reasoning_content\":\"mock enabled reasoning\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"completion_tokens_details\":{\"reasoning_tokens\":12},\"prompt_tokens\":78,\"total_tokens\":82}}"
           },
           "usage": {
             "prompt_tokens": 78,
@@ -1189,7 +1259,7 @@
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"mimimi\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":79,\"total_tokens\":83}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"mimimi\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":79,\"total_tokens\":83}}"
           },
           "usage": {
             "prompt_tokens": 314,
@@ -1218,12 +1288,11 @@
           "accepted": true,
           "effective": true,
           "confidence": "medium",
-          "duration_ms": 12,
           "summary": "verbosity is validated and high produced a materially longer answer than low",
           "http": {
             "status_code": 200,
             "content_type": "application/json",
-            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"Checksums summarize data and change when the data changes.\",\"role\":\"assistant\"}}],\"created\":1788052921,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":10,\"prompt_tokens\":85,\"total_tokens\":95}}"
+            "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"Checksums summarize data and change when the data changes.\",\"role\":\"assistant\"}}],\"created\":1788208305,\"id\":\"chatcmpl_mock\",\"model\":\"vendor/model-a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":10,\"prompt_tokens\":85,\"total_tokens\":95}}"
           },
           "usage": {
             "prompt_tokens": 171,
@@ -1241,17 +1310,17 @@
       ],
       "context": {
         "status": "pass",
-        "summary": "accepted context boundary is between 2143 and approximately 2720 prompt tokens",
+        "summary": "accepted context boundary is between 2313 and approximately 2555 prompt tokens",
         "declared_tokens": 4096,
-        "max_accepted_observed_tokens": 2143,
-        "first_rejected_estimated_tokens": 2720,
-        "lower_bound_tokens": 2143,
-        "upper_bound_tokens": 2720,
+        "max_accepted_observed_tokens": 2313,
+        "first_rejected_estimated_tokens": 2555,
+        "lower_bound_tokens": 2313,
+        "upper_bound_tokens": 2555,
         "precision_tokens": 512,
         "confidence": "high",
-        "probe_count": 6,
+        "probe_count": 7,
         "budget_tokens": 50000,
-        "consumed_tokens": 10644,
+        "consumed_tokens": 12957,
         "output_limit_parameter": "max_completion_tokens",
         "samples": [
           {
@@ -1276,8 +1345,7 @@
             "reported_prompt_tokens": 1460,
             "status_code": 200,
             "accepted": true,
-            "overflow": false,
-            "duration_ms": 1
+            "overflow": false
           },
           {
             "payload_bytes": 8192,
@@ -1293,7 +1361,8 @@
             "reported_prompt_tokens": 2143,
             "status_code": 200,
             "accepted": true,
-            "overflow": false
+            "overflow": false,
+            "duration_ms": 2
           },
           {
             "payload_bytes": 7168,
@@ -1301,10 +1370,84 @@
             "status_code": 400,
             "accepted": false,
             "overflow": true,
-            "duration_ms": 1,
             "error": "maximum context length exceeded"
+          },
+          {
+            "payload_bytes": 6656,
+            "estimated_prompt_tokens": 2526,
+            "reported_prompt_tokens": 2313,
+            "status_code": 200,
+            "accepted": true,
+            "overflow": false
           }
         ]
+      },
+      "capabilities": [
+        {
+          "id": "chat.completions.text",
+          "source": "vendor_metadata",
+          "rule": "metadata.capabilities",
+          "confidence": "medium",
+          "reason": "metadata capabilities=\"chat.completions.text\""
+        }
+      ],
+      "modules": [
+        {
+          "id": "chat-completions",
+          "capability": "chat.completions.text",
+          "applicability": "applicable",
+          "execution": "executed",
+          "reason": "metadata capabilities=\"chat.completions.text\"",
+          "source": "vendor_metadata",
+          "confidence": "medium",
+          "test_ids": [
+            "chat.basic",
+            "chat.content_parts.text",
+            "chat.logprobs",
+            "chat.multi_turn",
+            "chat.role.developer",
+            "chat.role.system",
+            "chat.schema",
+            "chat.stream.sse",
+            "chat.stream.usage",
+            "chat.structured.json_object",
+            "chat.structured.json_schema",
+            "chat.tools.auto",
+            "chat.tools.continuation",
+            "chat.tools.forced",
+            "chat.tools.none",
+            "chat.tools.required",
+            "chat.tools.stream",
+            "chat.usage",
+            "models.retrieve"
+          ],
+          "summary": {
+            "pass": 19,
+            "fail": 0,
+            "warn": 0,
+            "unsupported": 0,
+            "skip": 0,
+            "error": 0,
+            "required_pass": 4,
+            "required_fail": 0,
+            "score": 100,
+            "status": "pass",
+            "usage": {
+              "prompt_tokens": 1638,
+              "completion_tokens": 68,
+              "total_tokens": 1706
+            }
+          }
+        },
+        {
+          "id": "images-generations",
+          "capability": "images.generations",
+          "applicability": "not_applicable",
+          "reason": "classified capabilities do not include images.generations: chat.completions.text"
+        }
+      ],
+      "assessment": {
+        "verdict": "pass"
       },
       "summary": {
         "pass": 43,
@@ -1318,12 +1461,12 @@
         "score": 100,
         "status": "pass",
         "usage": {
-          "prompt_tokens": 4080,
-          "completion_tokens": 282,
-          "total_tokens": 4362,
+          "prompt_tokens": 4314,
+          "completion_tokens": 290,
+          "total_tokens": 4604,
           "reasoning_tokens": 58
         },
-        "context_probe_tokens": 10644
+        "context_probe_tokens": 12957
       }
     }
   ],
@@ -1337,13 +1480,1306 @@
     "required_pass": 8,
     "required_fail": 0,
     "score": 100,
+    "score_method": "legacy-pass-rate-v1",
+    "score_deprecated": true,
     "status": "pass",
+    "assessment": {
+      "verdict": "pass",
+      "verdict_reason": "all_applicable_requirements_passed",
+      "core": {
+        "total": 8,
+        "pass": 8,
+        "fail": 0,
+        "warn": 0,
+        "skip": 0,
+        "error": 0,
+        "percent": 100
+      },
+      "optional": {
+        "total": 41,
+        "pass": 41,
+        "fail": 0,
+        "warn": 0,
+        "skip": 0,
+        "error": 0,
+        "percent": 100
+      },
+      "evidence": {
+        "total": 49,
+        "executed": 49,
+        "conclusive": 49,
+        "execution_percent": 100,
+        "conclusive_percent": 100
+      },
+      "comparison": {
+        "policy": "verdict-core-optional-evidence/v1",
+        "rankable": true,
+        "verdict_rank": 3
+      }
+    },
     "usage": {
-      "prompt_tokens": 4080,
-      "completion_tokens": 282,
-      "total_tokens": 4362,
+      "prompt_tokens": 4314,
+      "completion_tokens": 290,
+      "total_tokens": 4604,
       "reasoning_tokens": 58
     },
-    "context_probe_tokens": 10644
+    "context_probe_tokens": 12957
+  },
+  "rate_limit": {
+    "successful_requests": 59,
+    "rate_limited_responses": 0,
+    "retries_recovered": 0,
+    "backoff_ms": 0,
+    "observed_safe_requests_per_second": 1000,
+    "observed_safe_concurrency": 1,
+    "latency_samples": 0,
+    "mean_latency_ms": 0,
+    "p50_latency_ms": 0,
+    "p95_latency_ms": 0
+  },
+  "requirements": [
+    {
+      "id": "chat.basic",
+      "name": "Basic chat completion",
+      "description": "A minimal chat completion succeeds",
+      "level": "core",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "chat-completions",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:aiqa.native.chat.basic",
+          "kind": "native",
+          "probe_id": "aiqa.native.chat.basic",
+          "status": "pass",
+          "summary": "minimal chat completion succeeded",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "chat.content_parts.text",
+      "name": "Text content parts",
+      "description": "Array-form text content parts are accepted",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "chat-completions",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:aiqa.native.chat.content.parts.text",
+          "kind": "native",
+          "probe_id": "aiqa.native.chat.content_parts.text",
+          "status": "pass",
+          "summary": "array-form text content parts are accepted and interpreted",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "chat.logprobs",
+      "name": "Log probabilities",
+      "description": "logprobs/top_logprobs are accepted and returned",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "chat-completions",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:aiqa.native.chat.logprobs",
+          "kind": "native",
+          "probe_id": "aiqa.native.chat.logprobs",
+          "status": "pass",
+          "summary": "logprobs and top_logprobs are returned",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "chat.multi_turn",
+      "name": "Multi-turn messages",
+      "description": "User and assistant history is accepted",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "chat-completions",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:aiqa.native.chat.multi.turn",
+          "kind": "native",
+          "probe_id": "aiqa.native.chat.multi_turn",
+          "status": "pass",
+          "summary": "assistant history is accepted and used",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "chat.role.developer",
+      "name": "Developer role",
+      "description": "Developer messages are accepted",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "chat-completions",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:aiqa.native.chat.role.developer",
+          "kind": "native",
+          "probe_id": "aiqa.native.chat.role.developer",
+          "status": "pass",
+          "summary": "developer role is accepted and affects the response",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "chat.role.system",
+      "name": "System role",
+      "description": "System messages are accepted",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "chat-completions",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:aiqa.native.chat.role.system",
+          "kind": "native",
+          "probe_id": "aiqa.native.chat.role.system",
+          "status": "pass",
+          "summary": "system role is accepted and affects the response",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "chat.schema",
+      "name": "Chat response schema",
+      "description": "The response contains OpenAI-compatible completion fields",
+      "level": "core",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "chat-completions",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:aiqa.native.chat.schema",
+          "kind": "native",
+          "probe_id": "aiqa.native.chat.schema",
+          "status": "pass",
+          "summary": "chat completion response has the expected OpenAI shape",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "chat.stream.sse",
+      "name": "Streaming SSE",
+      "description": "SSE chunks are valid and terminate with [DONE]",
+      "level": "core",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "chat-completions",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:aiqa.native.chat.stream.sse",
+          "kind": "native",
+          "probe_id": "aiqa.native.chat.stream.sse",
+          "status": "pass",
+          "summary": "valid SSE stream with 3 event(s) and [DONE]",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "chat.stream.usage",
+      "name": "Streaming usage",
+      "description": "stream_options.include_usage returns token usage",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "chat-completions",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:aiqa.native.chat.stream.usage",
+          "kind": "native",
+          "probe_id": "aiqa.native.chat.stream.usage",
+          "status": "pass",
+          "summary": "stream reported 64 total tokens",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "chat.structured.json_object",
+      "name": "JSON object mode",
+      "description": "response_format=json_object returns valid JSON",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "chat-completions",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:aiqa.native.chat.structured.json.object",
+          "kind": "native",
+          "probe_id": "aiqa.native.chat.structured.json_object",
+          "status": "pass",
+          "summary": "JSON object mode returned raw JSON in the majority of attempts",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "chat.structured.json_schema",
+      "name": "Strict JSON schema",
+      "description": "response_format=json_schema returns schema-conforming JSON",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "chat-completions",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:aiqa.native.chat.structured.json.schema",
+          "kind": "native",
+          "probe_id": "aiqa.native.chat.structured.json_schema",
+          "status": "pass",
+          "summary": "strict JSON schema output conforms to the requested schema",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "chat.tools.auto",
+      "name": "tool_choice=auto",
+      "description": "Automatic tool choice can emit a valid function call",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "chat-completions",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:aiqa.native.chat.tools.auto",
+          "kind": "native",
+          "probe_id": "aiqa.native.chat.tools.auto",
+          "status": "pass",
+          "summary": "tool_choice=auto emitted a tool call when requested",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "chat.tools.continuation",
+      "name": "Tool continuation",
+      "description": "A tool result can be continued into a final assistant message",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "chat-completions",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:aiqa.native.chat.tools.continuation",
+          "kind": "native",
+          "probe_id": "aiqa.native.chat.tools.continuation",
+          "status": "pass",
+          "summary": "assistant tool_call and tool result can be continued",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "chat.tools.forced",
+      "name": "Forced tool call",
+      "description": "A forced function tool call has valid OpenAI shape",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "chat-completions",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:aiqa.native.chat.tools.forced",
+          "kind": "native",
+          "probe_id": "aiqa.native.chat.tools.forced",
+          "status": "pass",
+          "summary": "forced function call returned valid JSON arguments",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "chat.tools.none",
+      "name": "tool_choice=none",
+      "description": "Tool calls can be explicitly disabled",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "chat-completions",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:aiqa.native.chat.tools.none",
+          "kind": "native",
+          "probe_id": "aiqa.native.chat.tools.none",
+          "status": "pass",
+          "summary": "tool_choice=none suppressed tool calls",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "chat.tools.required",
+      "name": "tool_choice=required",
+      "description": "At least one tool call is emitted when required",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "chat-completions",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:aiqa.native.chat.tools.required",
+          "kind": "native",
+          "probe_id": "aiqa.native.chat.tools.required",
+          "status": "pass",
+          "summary": "tool_choice=required emitted a tool call",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "chat.tools.stream",
+      "name": "Streaming tool call",
+      "description": "Streamed tool-call deltas reconstruct into a valid function call",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "chat-completions",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:aiqa.native.chat.tools.stream",
+          "kind": "native",
+          "probe_id": "aiqa.native.chat.tools.stream",
+          "status": "pass",
+          "summary": "streamed tool-call deltas reconstructed into valid JSON arguments",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "chat.usage",
+      "name": "Non-stream usage",
+      "description": "Token usage is present and internally consistent",
+      "level": "core",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "chat-completions",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:aiqa.native.chat.usage",
+          "kind": "native",
+          "probe_id": "aiqa.native.chat.usage",
+          "status": "pass",
+          "summary": "usage reported 47 prompt + 4 completion tokens",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "images.generate.artifact",
+      "name": "Image artifact",
+      "description": "The response contains a decodable image artifact",
+      "level": "core",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "images-generations",
+      "applicability": "not_applicable",
+      "status": "not_applicable"
+    },
+    {
+      "id": "images.generate.basic",
+      "name": "Basic image generation",
+      "description": "A minimal image generation request succeeds",
+      "level": "core",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "images-generations",
+      "applicability": "not_applicable",
+      "status": "not_applicable"
+    },
+    {
+      "id": "images.generate.invalid_json",
+      "name": "Malformed image JSON error",
+      "description": "Malformed image JSON returns a client error rather than 5xx",
+      "level": "core",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "images-generations",
+      "applicability": "not_applicable",
+      "status": "not_applicable"
+    },
+    {
+      "id": "images.generate.invalid_model",
+      "name": "Invalid image model error",
+      "description": "An unknown image model returns an OpenAI-shaped client error",
+      "level": "core",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "images-generations",
+      "applicability": "not_applicable",
+      "status": "not_applicable"
+    },
+    {
+      "id": "images.generate.schema",
+      "name": "Image response schema",
+      "description": "The response contains a non-empty data array",
+      "level": "core",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "images-generations",
+      "applicability": "not_applicable",
+      "status": "not_applicable"
+    },
+    {
+      "id": "images.generate.usage",
+      "name": "Image generation usage",
+      "description": "Usage is validated when the endpoint returns it",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "images-generations",
+      "applicability": "not_applicable",
+      "status": "not_applicable"
+    },
+    {
+      "id": "models.retrieve",
+      "name": "Retrieve model",
+      "description": "GET /models/{model} returns the requested model",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "chat-completions",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:aiqa.native.models.retrieve",
+          "kind": "native",
+          "probe_id": "aiqa.native.models.retrieve",
+          "status": "pass",
+          "summary": "model metadata can be retrieved by ID",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "parameter.context_window",
+      "name": "Context window",
+      "description": "The accepted context boundary is measured within configured limits",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "model-param",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:parameter.context.window",
+          "kind": "native",
+          "probe_id": "aiqa.native.parameter.context_window",
+          "status": "pass",
+          "summary": "accepted context boundary is between 2313 and approximately 2555 prompt tokens",
+          "signals": [
+            {
+              "code": "requirement.parameter.context.window.pass"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "parameter.frequency.penalty.0.5",
+      "name": "Model parameter: frequency_penalty",
+      "description": "The parameter is accepted, validated, and effective where observable",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "model-param",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:parameter.frequency.penalty.0.5",
+          "kind": "native",
+          "probe_id": "aiqa.native.parameter.frequency.penalty.0.5",
+          "status": "pass",
+          "summary": "frequency_penalty is accepted and an out-of-range value is rejected",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "parameter.logprobs.top.logprobs.true.2",
+      "name": "Model parameter: logprobs/top_logprobs",
+      "description": "The parameter is accepted, validated, and effective where observable",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "model-param",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:parameter.logprobs.top.logprobs.true.2",
+          "kind": "native",
+          "probe_id": "aiqa.native.parameter.logprobs.top.logprobs.true.2",
+          "status": "pass",
+          "summary": "logprobs are returned and invalid top_logprobs is rejected",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "parameter.max.completion.tokens.limit.8",
+      "name": "Model parameter: max_completion_tokens",
+      "description": "The parameter is accepted, validated, and effective where observable",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "model-param",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:parameter.max.completion.tokens.limit.8",
+          "kind": "native",
+          "probe_id": "aiqa.native.parameter.max.completion.tokens.limit.8",
+          "status": "pass",
+          "summary": "max_completion_tokens is accepted, enforced, and validates invalid values",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "parameter.max.tokens.limit.8",
+      "name": "Model parameter: max_tokens",
+      "description": "The parameter is accepted, validated, and effective where observable",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "model-param",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:parameter.max.tokens.limit.8",
+          "kind": "native",
+          "probe_id": "aiqa.native.parameter.max.tokens.limit.8",
+          "status": "pass",
+          "summary": "max_tokens is accepted, enforced, and validates invalid values",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "parameter.n.2",
+      "name": "Model parameter: n",
+      "description": "The parameter is accepted, validated, and effective where observable",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "model-param",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:parameter.n.2",
+          "kind": "native",
+          "probe_id": "aiqa.native.parameter.n.2",
+          "status": "pass",
+          "summary": "n=2 returned two choices and n=0 was rejected",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "parameter.parallel.tool.calls.true",
+      "name": "Model parameter: parallel_tool_calls",
+      "description": "The parameter is accepted, validated, and effective where observable",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "model-param",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:parameter.parallel.tool.calls.true",
+          "kind": "native",
+          "probe_id": "aiqa.native.parameter.parallel.tool.calls.true",
+          "status": "pass",
+          "summary": "parallel_tool_calls emitted multiple independently identified calls and validates its type",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "parameter.presence.penalty.0.5",
+      "name": "Model parameter: presence_penalty",
+      "description": "The parameter is accepted, validated, and effective where observable",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "model-param",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:parameter.presence.penalty.0.5",
+          "kind": "native",
+          "probe_id": "aiqa.native.parameter.presence.penalty.0.5",
+          "status": "pass",
+          "summary": "presence_penalty is accepted and an out-of-range value is rejected",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "parameter.reasoning.effort.high",
+      "name": "Model parameter: reasoning_effort",
+      "description": "The parameter is accepted, validated, and effective where observable",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "model-param",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:parameter.reasoning.effort.high",
+          "kind": "native",
+          "probe_id": "aiqa.native.parameter.reasoning.effort.high",
+          "status": "pass",
+          "summary": "reasoning_effort=high is accepted and exposes reasoning evidence",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "parameter.reasoning.effort.low",
+      "name": "Model parameter: reasoning_effort",
+      "description": "The parameter is accepted, validated, and effective where observable",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "model-param",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:parameter.reasoning.effort.low",
+          "kind": "native",
+          "probe_id": "aiqa.native.parameter.reasoning.effort.low",
+          "status": "pass",
+          "summary": "reasoning_effort=low is accepted and exposes reasoning evidence",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "parameter.reasoning.effort.max",
+      "name": "Model parameter: reasoning_effort",
+      "description": "The parameter is accepted, validated, and effective where observable",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "model-param",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:parameter.reasoning.effort.max",
+          "kind": "native",
+          "probe_id": "aiqa.native.parameter.reasoning.effort.max",
+          "status": "pass",
+          "summary": "reasoning_effort=max is accepted and exposes reasoning evidence",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "parameter.reasoning.effort.medium",
+      "name": "Model parameter: reasoning_effort",
+      "description": "The parameter is accepted, validated, and effective where observable",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "model-param",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:parameter.reasoning.effort.medium",
+          "kind": "native",
+          "probe_id": "aiqa.native.parameter.reasoning.effort.medium",
+          "status": "pass",
+          "summary": "reasoning_effort=medium is accepted and exposes reasoning evidence",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "parameter.reasoning.effort.minimal",
+      "name": "Model parameter: reasoning_effort",
+      "description": "The parameter is accepted, validated, and effective where observable",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "model-param",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:parameter.reasoning.effort.minimal",
+          "kind": "native",
+          "probe_id": "aiqa.native.parameter.reasoning.effort.minimal",
+          "status": "pass",
+          "summary": "reasoning_effort=minimal participates in a validated family whose observable reasoning signal changes across modes",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "parameter.reasoning.effort.none",
+      "name": "Model parameter: reasoning_effort",
+      "description": "The parameter is accepted, validated, and effective where observable",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "model-param",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:parameter.reasoning.effort.none",
+          "kind": "native",
+          "probe_id": "aiqa.native.parameter.reasoning.effort.none",
+          "status": "pass",
+          "summary": "reasoning_effort=none participates in a validated family whose observable reasoning signal changes across modes",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "parameter.reasoning.effort.xhigh",
+      "name": "Model parameter: reasoning_effort",
+      "description": "The parameter is accepted, validated, and effective where observable",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "model-param",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:parameter.reasoning.effort.xhigh",
+          "kind": "native",
+          "probe_id": "aiqa.native.parameter.reasoning.effort.xhigh",
+          "status": "pass",
+          "summary": "reasoning_effort=xhigh is accepted and exposes reasoning evidence",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "parameter.reasoning.split.false",
+      "name": "Model parameter: reasoning_split",
+      "description": "The parameter is accepted, validated, and effective where observable",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "model-param",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:parameter.reasoning.split.false",
+          "kind": "native",
+          "probe_id": "aiqa.native.parameter.reasoning.split.false",
+          "status": "pass",
+          "summary": "reasoning_split=false produced a validated, observably different reasoning format",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "parameter.reasoning.split.true",
+      "name": "Model parameter: reasoning_split",
+      "description": "The parameter is accepted, validated, and effective where observable",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "model-param",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:parameter.reasoning.split.true",
+          "kind": "native",
+          "probe_id": "aiqa.native.parameter.reasoning.split.true",
+          "status": "pass",
+          "summary": "reasoning_split=true produced a validated, observably different reasoning format",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "parameter.seed.same.vs.different.seeds",
+      "name": "Model parameter: seed",
+      "description": "The parameter is accepted, validated, and effective where observable",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "model-param",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:parameter.seed.same.vs.different.seeds",
+          "kind": "native",
+          "probe_id": "aiqa.native.parameter.seed.same.vs.different.seeds",
+          "status": "pass",
+          "summary": "seed produced stable same-seed output and varied different-seed output",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "parameter.stop.stop",
+      "name": "Model parameter: stop",
+      "description": "The parameter is accepted, validated, and effective where observable",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "model-param",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:parameter.stop.stop",
+          "kind": "native",
+          "probe_id": "aiqa.native.parameter.stop.stop",
+          "status": "pass",
+          "summary": "stop is accepted, effective, and validates invalid values",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "parameter.temperature.0.0.vs.1.8",
+      "name": "Model parameter: temperature",
+      "description": "The parameter is accepted, validated, and effective where observable",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "model-param",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:parameter.temperature.0.0.vs.1.8",
+          "kind": "native",
+          "probe_id": "aiqa.native.parameter.temperature.0.0.vs.1.8",
+          "status": "pass",
+          "summary": "temperature is accepted, validated, and changed sample diversity",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "parameter.thinking.disabled",
+      "name": "Model parameter: thinking",
+      "description": "The parameter is accepted, validated, and effective where observable",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "model-param",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:parameter.thinking.disabled",
+          "kind": "native",
+          "probe_id": "aiqa.native.parameter.thinking.disabled",
+          "status": "pass",
+          "summary": "thinking=disabled participates in a validated family whose observable reasoning signal changes across modes",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "parameter.thinking.enabled",
+      "name": "Model parameter: thinking",
+      "description": "The parameter is accepted, validated, and effective where observable",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "model-param",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:parameter.thinking.enabled",
+          "kind": "native",
+          "probe_id": "aiqa.native.parameter.thinking.enabled",
+          "status": "pass",
+          "summary": "thinking=enabled is accepted and exposes reasoning evidence",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "parameter.top.p.0.01.vs.1.0",
+      "name": "Model parameter: top_p",
+      "description": "The parameter is accepted, validated, and effective where observable",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "model-param",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:parameter.top.p.0.01.vs.1.0",
+          "kind": "native",
+          "probe_id": "aiqa.native.parameter.top.p.0.01.vs.1.0",
+          "status": "pass",
+          "summary": "top_p is accepted, validated, and changed sample diversity",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "parameter.verbosity.low.vs.high",
+      "name": "Model parameter: verbosity",
+      "description": "The parameter is accepted, validated, and effective where observable",
+      "level": "optional",
+      "subject": {
+        "kind": "model",
+        "id": "vendor/model-a"
+      },
+      "module": "model-param",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:model:vendor.model.a:parameter.verbosity.low.vs.high",
+          "kind": "native",
+          "probe_id": "aiqa.native.parameter.verbosity.low.vs.high",
+          "status": "pass",
+          "summary": "verbosity is validated and high produced a materially longer answer than low",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "chat.error.invalid_auth",
+      "name": "Invalid chat authentication error",
+      "description": "An invalid API key on Chat Completions returns 401/403 and an OpenAI-shaped error",
+      "level": "optional",
+      "subject": {
+        "kind": "provider",
+        "id": "http://127.0.0.1:39013/v1"
+      },
+      "module": "chat-completions",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:provider:http.127.0.0.1.39013.v1:aiqa.native.chat.error.invalid.auth",
+          "kind": "native",
+          "probe_id": "aiqa.native.chat.error.invalid_auth",
+          "status": "pass",
+          "summary": "invalid authentication returned HTTP 401 with an OpenAI-shaped error",
+          "http_status": 401
+        }
+      ]
+    },
+    {
+      "id": "chat.error.invalid_json",
+      "name": "Malformed Chat Completions JSON error",
+      "description": "Malformed Chat Completions JSON returns a client error rather than 5xx",
+      "level": "core",
+      "subject": {
+        "kind": "provider",
+        "id": "http://127.0.0.1:39013/v1"
+      },
+      "module": "chat-completions",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:provider:http.127.0.0.1.39013.v1:aiqa.native.chat.error.invalid.json",
+          "kind": "native",
+          "probe_id": "aiqa.native.chat.error.invalid_json",
+          "status": "pass",
+          "summary": "all malformed JSON variants returned client errors with OpenAI-shaped bodies",
+          "http_status": 400
+        }
+      ]
+    },
+    {
+      "id": "chat.error.invalid_model",
+      "name": "Invalid chat model error",
+      "description": "An invalid model on Chat Completions returns a non-2xx OpenAI-shaped error",
+      "level": "core",
+      "subject": {
+        "kind": "provider",
+        "id": "http://127.0.0.1:39013/v1"
+      },
+      "module": "chat-completions",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:provider:http.127.0.0.1.39013.v1:aiqa.native.chat.error.invalid.model",
+          "kind": "native",
+          "probe_id": "aiqa.native.chat.error.invalid_model",
+          "status": "pass",
+          "summary": "invalid model returned HTTP 404 with an OpenAI-shaped error",
+          "http_status": 404
+        }
+      ]
+    },
+    {
+      "id": "chat.error.invalid_types",
+      "name": "Invalid Chat Completions request types",
+      "description": "Invalid Chat Completions field types are rejected with a client error",
+      "level": "optional",
+      "subject": {
+        "kind": "provider",
+        "id": "http://127.0.0.1:39013/v1"
+      },
+      "module": "chat-completions",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:provider:http.127.0.0.1.39013.v1:aiqa.native.chat.error.invalid.types",
+          "kind": "native",
+          "probe_id": "aiqa.native.chat.error.invalid_types",
+          "status": "pass",
+          "summary": "invalid request field types returned HTTP 400 with an OpenAI-shaped error",
+          "http_status": 400
+        }
+      ]
+    },
+    {
+      "id": "models.list.http",
+      "name": "List models: HTTP",
+      "description": "GET /models returns a successful JSON response",
+      "level": "core",
+      "subject": {
+        "kind": "provider",
+        "id": "http://127.0.0.1:39013/v1"
+      },
+      "module": "discovery",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:provider:http.127.0.0.1.39013.v1:aiqa.native.models.list.http",
+          "kind": "native",
+          "probe_id": "aiqa.native.models.list.http",
+          "status": "pass",
+          "summary": "GET /models returned HTTP 200 JSON",
+          "http_status": 200
+        }
+      ]
+    },
+    {
+      "id": "models.list.schema",
+      "name": "List models: schema",
+      "description": "Response follows the OpenAI list object shape",
+      "level": "core",
+      "subject": {
+        "kind": "provider",
+        "id": "http://127.0.0.1:39013/v1"
+      },
+      "module": "discovery",
+      "applicability": "applicable",
+      "status": "pass",
+      "evidence": [
+        {
+          "id": "native:provider:http.127.0.0.1.39013.v1:aiqa.native.models.list.schema",
+          "kind": "native",
+          "probe_id": "aiqa.native.models.list.schema",
+          "status": "pass",
+          "summary": "model list follows the OpenAI list shape",
+          "http_status": 200
+        }
+      ]
+    }
+  ],
+  "guidance": {
+    "schema_version": "aiqa.guidance.v1",
+    "status": "complete",
+    "engine": {
+      "version": "1.0.0",
+      "catalog_revision": "2026-09-01.1",
+      "packs": [
+        {
+          "id": "generic-openai-gateway",
+          "revision": "1",
+          "source": "builtin",
+          "detection_source": "default",
+          "confidence": "high"
+        }
+      ]
+    },
+    "summary": {
+      "eligible_findings": 0,
+      "eligible_requirements": 0,
+      "covered_requirements": 0,
+      "findings": 0,
+      "recommendations": 0,
+      "by_priority": {
+        "p0": 0,
+        "p1": 0,
+        "p2": 0,
+        "p3": 0
+      },
+      "guidance_coverage_percent": 100,
+      "actionable_coverage_percent": 100
+    },
+    "findings": [],
+    "recommendations": []
   }
 }

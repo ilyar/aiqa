@@ -40,6 +40,40 @@ var moduleSuites = map[string]struct {
 	"audio-transcriptions": {ModelEnv: "OPENAI_WHISPER_MODEL", Suites: []string{"audio_transcriptions"}},
 }
 
+var suiteRequirements = map[string][]string{
+	"models":                        {"models.list.schema"},
+	"models_get":                    {"models.retrieve"},
+	"chat_completions":              {"official-sdk.chat.completions"},
+	"chat_completions_stream":       {"official-sdk.chat.stream"},
+	"chat_completions_stream_usage": {"official-sdk.chat.stream.usage"},
+	"chat_completions_json":         {"official-sdk.chat.json"},
+	"chat_completions_tools":        {"official-sdk.chat.tools"},
+	"chat_completions_tools_stream": {"official-sdk.chat.tools.stream"},
+	"chat_completions_multi_turn":   {"official-sdk.chat.multi_turn"},
+	"error_responses":               {"official-sdk.error.responses"},
+	"images_generations":            {"official-sdk.images.generations"},
+	"embeddings":                    {"official-sdk.embeddings"},
+	"embeddings_batch":              {"official-sdk.embeddings.batch"},
+	"responses":                     {"official-sdk.responses"},
+	"responses_stream":              {"official-sdk.responses.stream"},
+	"responses_json":                {"official-sdk.responses.json"},
+	"responses_tools":               {"official-sdk.responses.tools"},
+	"audio_speech":                  {"official-sdk.audio.speech"},
+	"audio_transcriptions":          {"official-sdk.audio.transcriptions"},
+}
+
+var suiteRelatedRequirements = map[string][]string{
+	"chat_completions":              {"chat.basic"},
+	"chat_completions_stream":       {"chat.stream.sse"},
+	"chat_completions_stream_usage": {"chat.stream.usage"},
+	"chat_completions_json":         {"chat.structured.json_object"},
+	"chat_completions_tools":        {"chat.tools.required", "chat.tools.forced"},
+	"chat_completions_tools_stream": {"chat.tools.stream"},
+	"chat_completions_multi_turn":   {"chat.multi_turn"},
+	"error_responses":               {"chat.error.invalid_model", "chat.error.invalid_json", "chat.error.invalid_types"},
+	"images_generations":            {"images.generate.basic"},
+}
+
 var (
 	suiteStart  = regexp.MustCompile(`^==> running suite "([^"]+)"\s*$`)
 	suiteResult = regexp.MustCompile(`^\s*(PASS|FAIL|SKIP|ERROR)\s+\(([^)]+)\):?\s*(.*)$`)
@@ -121,6 +155,7 @@ func runSuite(parent context.Context, cfg config.Config, model string, p profile
 	err := cmd.Run()
 	cleanOutput := redactAndTruncate(output.String(), cfg.APIKey, 16*1024)
 	parsed := parseSuiteResults(output.String(), model)
+	redactSuiteResults(parsed, cfg.APIKey)
 	attachDiagnostics(parsed, cleanOutput)
 	if len(parsed) > 0 {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -310,12 +345,14 @@ func parseSuiteResults(output, model string) []result.ExternalResult {
 			summary = strings.ToLower(match[1])
 		}
 		out = append(out, result.ExternalResult{
-			Tool:       toolName,
-			Suite:      current,
-			Model:      model,
-			Status:     status,
-			DurationMS: duration.Milliseconds(),
-			Summary:    summary,
+			Tool:                  toolName,
+			Suite:                 current,
+			Model:                 model,
+			Status:                status,
+			DurationMS:            duration.Milliseconds(),
+			Summary:               summary,
+			RequirementIDs:        append([]string(nil), suiteRequirements[current]...),
+			RelatedRequirementIDs: append([]string(nil), suiteRelatedRequirements[current]...),
 		})
 		current = ""
 	}
@@ -359,27 +396,36 @@ func resolveMode(parent context.Context, requested, image string) (mode, path, r
 }
 
 func redactAndTruncate(s, secret string, max int) string {
-	if secret != "" {
-		s = strings.ReplaceAll(s, secret, "[REDACTED]")
-	}
-	// Avoid accidentally exposing bearer-like values echoed by third-party tools.
-	for _, prefix := range []string{"Authorization: Bearer ", "authorization: bearer "} {
-		for {
-			idx := strings.Index(s, prefix)
-			if idx < 0 {
-				break
-			}
-			start := idx + len(prefix)
-			end := start
-			for end < len(s) && s[end] != '\n' && s[end] != '\r' && s[end] != ' ' {
-				end++
-			}
-			s = s[:start] + "[REDACTED]" + s[end:]
-		}
-	}
+	s = redactSensitiveText(s, secret)
 	s = strings.TrimSpace(s)
 	if len(s) > max {
 		return s[:max] + fmt.Sprintf("\n… truncated %d bytes", len(s)-max)
 	}
+	return s
+}
+
+func redactSuiteResults(results []result.ExternalResult, secret string) {
+	for i := range results {
+		results[i].Summary = redactAndTruncate(results[i].Summary, secret, 4*1024)
+		results[i].Error = redactAndTruncate(results[i].Error, secret, 4*1024)
+	}
+}
+
+var externalCookieSecret = regexp.MustCompile(`(?i)((?:cookie|set-cookie)\s*:\s*)[^\r\n]+`)
+var externalBearerSecret = regexp.MustCompile(`(?i)(authorization\s*:\s*bearer\s+)[^\s]+`)
+var externalJSONSecret = regexp.MustCompile(`(?i)("(?:api[_-]?key|authorization|access[_-]?token|cookie|tool[_-]?arguments|arguments)"\s*:\s*")[^"]+(")`)
+var externalSignedURL = regexp.MustCompile(`(https?://[^\s"'<>?]+)\?[^\s"'<>)]*`)
+var externalLongBase64 = regexp.MustCompile(`[A-Za-z0-9+/]{256,}={0,2}`)
+
+func redactSensitiveText(s, secret string) string {
+	if secret != "" {
+		s = strings.ReplaceAll(s, secret, "[REDACTED]")
+	}
+	// Avoid accidentally exposing bearer-like values echoed by third-party tools.
+	s = externalBearerSecret.ReplaceAllString(s, `${1}[REDACTED]`)
+	s = externalCookieSecret.ReplaceAllString(s, `${1}[REDACTED]`)
+	s = externalJSONSecret.ReplaceAllString(s, `${1}[REDACTED]${2}`)
+	s = externalSignedURL.ReplaceAllString(s, `${1}?[REDACTED]`)
+	s = externalLongBase64.ReplaceAllString(s, `[REDACTED BASE64]`)
 	return s
 }

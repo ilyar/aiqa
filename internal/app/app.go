@@ -11,9 +11,11 @@ import (
 	"time"
 
 	"github.com/ilyar/aiqa/internal/api"
+	"github.com/ilyar/aiqa/internal/assessment"
 	"github.com/ilyar/aiqa/internal/capability"
 	"github.com/ilyar/aiqa/internal/config"
 	"github.com/ilyar/aiqa/internal/external"
+	"github.com/ilyar/aiqa/internal/guidance"
 	"github.com/ilyar/aiqa/internal/profile"
 	reportpkg "github.com/ilyar/aiqa/internal/report"
 	"github.com/ilyar/aiqa/internal/result"
@@ -97,6 +99,9 @@ func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, er
 			UnknownModel:           cfg.UnknownModel,
 			AllowBillableArtifacts: cfg.AllowBillableArtifacts,
 			MaxArtifactsPerModel:   cfg.MaxArtifactsPerModel,
+			Guidance:               cfg.Guidance,
+			GuidancePack:           cfg.GuidancePack,
+			GuidanceLocale:         cfg.GuidanceLocale,
 		},
 	}
 
@@ -126,6 +131,9 @@ func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, er
 			r.Discovery.Tests = append(r.Discovery.Tests, suites.DiscoveryTests(p, listResp, models, listErr)...)
 		}
 		reportpkg.Finalize(&r)
+		guidance.ExtractArtifacts(&r)
+		assessment.Apply(&r, p)
+		guidance.Apply(&r, p, guidance.Options{Mode: cfg.Guidance, Pack: cfg.GuidancePack, Locale: cfg.GuidanceLocale})
 		paths, writeErr := reportpkg.Write(r, cfg)
 		if writeErr != nil {
 			return RunResult{Report: r, ExitCode: 2}, writeErr
@@ -227,6 +235,9 @@ func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, er
 	r.RateLimit = result.RateLimitStats{SuccessfulRequests: stats.SuccessfulRequests, RateLimited: stats.RateLimited, RetriesRecovered: stats.RetriesRecovered, BackoffMS: stats.Backoff.Milliseconds(), SafeRate: stats.SafeRate, SafeConcurrency: stats.SafeConcurrency}
 	addLatencyStats(&r.RateLimit, r)
 	reportpkg.Finalize(&r)
+	guidance.ExtractArtifacts(&r)
+	assessment.Apply(&r, p)
+	guidance.Apply(&r, p, guidance.Options{Mode: cfg.Guidance, Pack: cfg.GuidancePack, Locale: cfg.GuidanceLocale})
 	paths, err := reportpkg.Write(r, cfg)
 	if err != nil {
 		return RunResult{Report: r, ExitCode: 2}, err
@@ -339,16 +350,33 @@ func joinModels(models []string) string {
 }
 
 func exitCode(cfg config.Config, s result.Summary) int {
+	if s.Assessment == nil {
+		switch cfg.FailOn {
+		case "never":
+			return 0
+		case "any":
+			if s.Fail > 0 || s.Error > 0 || s.Warn > 0 || s.Unsupported > 0 {
+				return 1
+			}
+			return 0
+		case "core":
+			if s.RequiredFail > 0 || s.Fail > 0 || s.Error > 0 {
+				return 1
+			}
+			return 0
+		}
+	}
+	verdict := s.Assessment.Verdict
 	switch cfg.FailOn {
 	case "never":
 		return 0
 	case "any":
-		if s.Fail > 0 || s.Error > 0 || s.Warn > 0 || s.Unsupported > 0 {
+		if verdict != "pass" {
 			return 1
 		}
 		return 0
 	case "core":
-		if s.RequiredFail > 0 || s.Fail > 0 || s.Error > 0 {
+		if verdict == "fail" || verdict == "inconclusive" {
 			return 1
 		}
 		return 0

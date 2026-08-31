@@ -53,6 +53,15 @@ func TestRunCompatibilityWritesReports(t *testing.T) {
 	if decoded.Summary.Fail != 0 || decoded.Summary.Error != 0 || decoded.Summary.Warn != 0 || decoded.Summary.Unsupported != 0 {
 		t.Fatalf("mock endpoint should pass every built-in compatibility probe: %+v", decoded.Summary)
 	}
+	if decoded.Summary.Assessment == nil || decoded.Summary.Assessment.Verdict != "pass" || len(decoded.Requirements) == 0 {
+		t.Fatalf("canonical assessment is missing or incorrect: summary=%+v requirements=%d", decoded.Summary, len(decoded.Requirements))
+	}
+	if !decoded.Summary.ScoreDeprecated || decoded.Summary.ScoreMethod != "legacy-pass-rate-v1" {
+		t.Fatalf("legacy score migration metadata is missing: %+v", decoded.Summary)
+	}
+	if decoded.Guidance.Status != "complete" || decoded.Guidance.SchemaVersion != "aiqa.guidance.v1" {
+		t.Fatalf("guidance contract is missing: %+v", decoded.Guidance)
+	}
 	if strings.Contains(string(data), "test-key") {
 		t.Fatal("API key leaked into JSON report")
 	}
@@ -84,7 +93,7 @@ func TestGenerateExampleReports(t *testing.T) {
 	cfg.ContextBudget = 50_000
 	cfg.ContextMaxBytes = 16 * 1024
 	out, err := Run(context.Background(), cfg, BuildInfo{
-		Version: "0.1.0-example",
+		Version: "1.0.0-alpha.0-example",
 		Commit:  "example",
 		Date:    "2026-08-30T00:00:00Z",
 	})
@@ -731,6 +740,31 @@ func TestExitPolicies(t *testing.T) {
 		t.Run(tc.policy, func(t *testing.T) {
 			got := exitCode(config.Config{FailOn: tc.policy}, tc.summary)
 			if got != tc.want {
+				t.Fatalf("got %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestExitPoliciesUseCanonicalVerdict(t *testing.T) {
+	cases := []struct {
+		policy  string
+		verdict string
+		want    int
+	}{
+		{"core", "pass", 0},
+		{"core", "pass-with-gaps", 0},
+		{"core", "partial", 0},
+		{"core", "fail", 1},
+		{"core", "inconclusive", 1},
+		{"any", "pass", 0},
+		{"any", "pass-with-gaps", 1},
+		{"never", "fail", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.policy+"/"+tc.verdict, func(t *testing.T) {
+			summary := result.Summary{Assessment: &result.ConformanceAssessment{Verdict: tc.verdict}}
+			if got := exitCode(config.Config{FailOn: tc.policy}, summary); got != tc.want {
 				t.Fatalf("got %d, want %d", got, tc.want)
 			}
 		})

@@ -33,6 +33,9 @@ type Config struct {
 	AllowBillableArtifacts bool
 	MaxArtifactsPerModel   int
 	FailOn                 string
+	Guidance               string
+	GuidancePack           string
+	GuidanceLocale         string
 	AllowHTTP              bool
 	Verbose                bool
 	Samples                int
@@ -144,6 +147,9 @@ func Parse(args []string) (Config, error) {
 		UnknownModel:         "chat",
 		MaxArtifactsPerModel: 1,
 		FailOn:               "core",
+		Guidance:             "full",
+		GuidancePack:         "auto",
+		GuidanceLocale:       "en",
 		Samples:              5,
 		ContextMaxTokens:     1_100_000,
 		ContextPrecision:     512,
@@ -176,6 +182,9 @@ func Parse(args []string) (Config, error) {
 	fs.BoolVar(&cfg.AllowBillableArtifacts, "allow-billable-artifacts", false, "allow modules that create billable media")
 	fs.IntVar(&cfg.MaxArtifactsPerModel, "max-artifacts-per-model", cfg.MaxArtifactsPerModel, "maximum billable artifacts generated per model")
 	fs.StringVar(&cfg.FailOn, "fail-on", cfg.FailOn, "exit policy: core,any,never")
+	fs.StringVar(&cfg.Guidance, "guidance", cfg.Guidance, "guidance output: full,summary,off")
+	fs.StringVar(&cfg.GuidancePack, "guidance-pack", cfg.GuidancePack, "guidance advice pack: auto,generic,PACK_ID")
+	fs.StringVar(&cfg.GuidanceLocale, "guidance-locale", cfg.GuidanceLocale, "guidance locale: en")
 	fs.BoolVar(&cfg.AllowHTTP, "allow-http", false, "allow non-TLS endpoints outside loopback")
 	fs.BoolVar(&cfg.Verbose, "verbose", false, "show probe progress on stderr")
 	fs.IntVar(&cfg.Samples, "samples", cfg.Samples, "samples used for semantic parameter checks")
@@ -205,6 +214,9 @@ func Parse(args []string) (Config, error) {
 	cfg.ExternalMode = strings.ToLower(strings.TrimSpace(cfg.ExternalMode))
 	cfg.ExternalImage = strings.TrimSpace(cfg.ExternalImage)
 	cfg.FailOn = strings.ToLower(strings.TrimSpace(cfg.FailOn))
+	cfg.Guidance = strings.ToLower(strings.TrimSpace(cfg.Guidance))
+	cfg.GuidancePack = strings.ToLower(strings.TrimSpace(cfg.GuidancePack))
+	cfg.GuidanceLocale = strings.ToLower(strings.TrimSpace(cfg.GuidanceLocale))
 	cfg.UnknownModel = strings.ToLower(strings.TrimSpace(cfg.UnknownModel))
 	cfg.CapabilityFile = strings.TrimSpace(cfg.CapabilityFile)
 	cfg.Name = strings.TrimSpace(cfg.Name)
@@ -345,6 +357,17 @@ func (c Config) Validate() error {
 	case "core", "any", "never":
 	default:
 		return fmt.Errorf("unknown --fail-on policy %q", c.FailOn)
+	}
+	switch c.Guidance {
+	case "full", "summary", "off":
+	default:
+		return fmt.Errorf("unknown --guidance mode %q", c.Guidance)
+	}
+	if c.GuidancePack == "" {
+		return errors.New("--guidance-pack must not be empty")
+	}
+	if c.GuidanceLocale != "en" {
+		return errors.New("--guidance-locale currently supports en")
 	}
 	return nil
 }

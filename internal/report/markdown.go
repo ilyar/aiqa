@@ -30,7 +30,7 @@ func Markdown(r result.Report) string {
 
 	fmt.Fprintln(&b, "## Summary")
 	fmt.Fprintln(&b)
-	writeSummaryTable(&b, r.Summary)
+	writeExecutiveSummary(&b, r)
 	fmt.Fprintln(&b)
 	fmt.Fprintf(&b, "Observed API usage: **%d prompt + %d completion = %d total tokens**", r.Summary.Usage.PromptTokens, r.Summary.Usage.CompletionTokens, r.Summary.Usage.TotalTokens)
 	if r.Summary.ContextProbeTokens > 0 {
@@ -38,24 +38,28 @@ func Markdown(r result.Report) string {
 	}
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b)
+	writeGuidance(&b, r)
 	writeRateLimit(&b, r.RateLimit)
 
-	fmt.Fprintln(&b, "## Model discovery")
+	fmt.Fprintln(&b, "## Model and module details")
 	fmt.Fprintln(&b)
-	writeTestTable(&b, r.Discovery.Tests)
-	if len(r.Discovery.Compatibility) > 0 {
+	if nonPass := filterTests(r.Discovery.Tests, false); len(nonPass) > 0 {
+		fmt.Fprintln(&b, "### Model discovery issues")
 		fmt.Fprintln(&b)
-		fmt.Fprintln(&b, "### Provider endpoint compatibility")
+		writeTestTable(&b, nonPass)
 		fmt.Fprintln(&b)
-		writeTestTable(&b, r.Discovery.Compatibility)
 	}
-	if len(r.Discovery.External) > 0 {
+	if nonPass := filterTests(r.Discovery.Compatibility, false); len(nonPass) > 0 {
+		fmt.Fprintln(&b, "### Provider endpoint issues")
 		fmt.Fprintln(&b)
-		fmt.Fprintln(&b, "### Official SDK")
+		writeTestTable(&b, nonPass)
 		fmt.Fprintln(&b)
-		writeExternalTable(&b, r.Discovery.External)
 	}
-	fmt.Fprintln(&b)
+	if nonPass := filterExternal(r.Discovery.External, false); len(nonPass) > 0 {
+		fmt.Fprintln(&b, "### Provider Official SDK issues")
+		fmt.Fprintln(&b)
+		writeExternalTable(&b, nonPass)
+	}
 	if len(r.Discovery.Models) > 0 {
 		fmt.Fprintf(&b, "Discovered models: **%d**.", len(r.Discovery.Models))
 		if len(r.Models) != len(r.Discovery.Models) {
@@ -65,7 +69,7 @@ func Markdown(r result.Report) string {
 		fmt.Fprintln(&b)
 	}
 
-	fmt.Fprintln(&b, "## Model inventory and routing")
+	fmt.Fprintln(&b, "### Model inventory and routing")
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "| Model | Detected capabilities | Source | Confidence | Chat | Images | Embeddings | Evaluation |")
 	fmt.Fprintln(&b, "|---|---|---|---:|---:|---:|---:|---|")
@@ -75,10 +79,10 @@ func Markdown(r result.Report) string {
 	}
 	fmt.Fprintln(&b)
 
-	fmt.Fprintln(&b, "## Models")
+	fmt.Fprintln(&b, "### Model summary")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "| Model | Status | Score | Required | Context | Tests |")
-	fmt.Fprintln(&b, "|---|---:|---:|---:|---:|---:|")
+	fmt.Fprintln(&b, "| Model | Status | Required | Context | Tests |")
+	fmt.Fprintln(&b, "|---|---:|---:|---:|---:|")
 	for _, m := range r.Models {
 		contextText := "not tested"
 		if m.Context != nil {
@@ -91,15 +95,15 @@ func Markdown(r result.Report) string {
 			}
 		}
 		count := m.Summary.Pass + m.Summary.Fail + m.Summary.Warn + m.Summary.Unsupported + m.Summary.Skip + m.Summary.Error
-		fmt.Fprintf(&b, "| `%s` | %s | %.1f%% | %d/%d | %s | %d |\n",
-			escapeCell(m.ID), statusLabelString(m.Summary.Status), m.Summary.Score,
+		fmt.Fprintf(&b, "| `%s` | %s | %d/%d | %s | %d |\n",
+			escapeCell(m.ID), statusLabelString(m.Summary.Status),
 			m.Summary.RequiredPass, m.Summary.RequiredPass+m.Summary.RequiredFail,
 			escapeCell(contextText), count)
 	}
 	fmt.Fprintln(&b)
 
 	for _, m := range r.Models {
-		fmt.Fprintf(&b, "## `%s`\n\n", escapeInline(m.ID))
+		fmt.Fprintf(&b, "### `%s`\n\n", escapeInline(m.ID))
 		writeSummaryTable(&b, m.Summary)
 		fmt.Fprintln(&b)
 		if len(m.Modules) > 0 {
@@ -116,72 +120,75 @@ func Markdown(r result.Report) string {
 			writeModelRateLimit(&b, *m.RateLimit)
 		}
 
-		if len(m.Compatibility) > 0 {
-			fmt.Fprintln(&b, "### OpenAI compatibility")
+		if nonPass := filterTests(m.Compatibility, false); len(nonPass) > 0 {
+			fmt.Fprintln(&b, "#### OpenAI compatibility issues")
 			fmt.Fprintln(&b)
-			writeTestTable(&b, m.Compatibility)
+			writeTestTable(&b, nonPass)
 			fmt.Fprintln(&b)
 		}
-		if len(m.Parameters) > 0 {
-			fmt.Fprintln(&b, "### Model parameters")
+		if nonPass := filterParameters(m.Parameters, false); len(nonPass) > 0 {
+			fmt.Fprintln(&b, "#### Model parameter issues")
 			fmt.Fprintln(&b)
-			writeParameterTable(&b, m.Parameters)
+			writeParameterTable(&b, nonPass)
 			fmt.Fprintln(&b)
 		}
 		if m.Context != nil {
 			writeContext(&b, *m.Context)
 		}
-		if len(m.External) > 0 {
-			fmt.Fprintln(&b, "### Official SDK")
+		if nonPass := filterExternal(m.External, false); len(nonPass) > 0 {
+			fmt.Fprintln(&b, "#### Official SDK issues")
 			fmt.Fprintln(&b)
-			writeExternalTable(&b, m.External)
-			for _, e := range m.External {
-				if e.Output != "" && e.Status != result.StatusPass {
-					fmt.Fprintln(&b, "<details><summary>External checker output</summary>")
-					fmt.Fprintln(&b)
-					fmt.Fprintln(&b, "```text")
-					fmt.Fprintln(&b, truncateMD(e.Output, 16000))
-					fmt.Fprintln(&b, "```")
-					fmt.Fprintln(&b, "</details>")
-					fmt.Fprintln(&b)
-				}
-			}
+			writeExternalTable(&b, nonPass)
 		}
 	}
 
-	fmt.Fprintln(&b, "## Interpretation")
+	writeRequirementAssessment(&b, r.Requirements)
+	writePassedChecks(&b, r)
+	writeRawEvidence(&b, r.Guidance.Artifacts)
+
+	fmt.Fprintln(&b, "## Methodology and limitations")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "- **Pass** means the expected protocol or observable behavior was demonstrated.")
-	fmt.Fprintln(&b, "- **Warn** means the request was accepted, but semantic effect could not be proved, validation was lax, or evidence was statistical.")
-	fmt.Fprintln(&b, "- **N/S** means an explicit 4xx rejection of an optional feature. It is a capability gap, not necessarily a broken core API.")
-	fmt.Fprintln(&b, "- **Fail** means a required contract or an accepted feature behaved incompatibly. **Error** is an inconclusive transport/provider failure.")
+	fmt.Fprintln(&b, "- **PASS** means the expected protocol or observable behavior was demonstrated.")
+	fmt.Fprintln(&b, "- **WARN** means the semantic effect or correctness was not proved. **SKIP** means the check did not run.")
+	fmt.Fprintln(&b, "- **UNSUP** means an optional capability was explicitly rejected with a suitable client error. **N/A** means the requirement does not apply.")
+	fmt.Fprintln(&b, "- **FAIL** means observed behavior violated the applicable contract. **ERROR** is an inconclusive transport, provider, or runner failure.")
+	fmt.Fprintln(&b, "- Findings and recommendations are deterministic guidance derived from canonical requirements and typed evidence. They do not change conformance status or exit policy.")
 	fmt.Fprintln(&b, "- Context results distinguish a measured accepted lower bound from an estimated first rejected boundary. Token counts are exact only when the provider returns `usage.prompt_tokens`.")
 	fmt.Fprintln(&b, "- Temperature, `top_p`, and seed checks are statistical. A warning does not prove that a parameter is ignored; it says this run did not produce enough evidence to claim effectiveness.")
+	if r.Summary.ScoreDeprecated {
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "<details><summary>Legacy scoring</summary>")
+		fmt.Fprintln(&b)
+		fmt.Fprintf(&b, "Legacy pass rate: %.1f%%\n\n", r.Summary.Score)
+		fmt.Fprintln(&b, "Formula: `pass / (pass + fail + warn + unsupported)`. This deprecated value must not be used to rank reports with different verdicts.")
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "</details>")
+	}
 	return strings.TrimRight(b.String(), "\n")
 }
 
 func writeModelRateLimit(b *strings.Builder, s result.RateLimitStats) {
-	fmt.Fprintln(b, "### Rate-limit and latency")
+	fmt.Fprintln(b, "#### Rate-limit and latency")
 	fmt.Fprintln(b)
-	fmt.Fprintln(b, "Request pacing: shared adaptive scheduler")
-	fmt.Fprintf(b, "Successful native requests: %d  \n", s.SuccessfulRequests)
-	fmt.Fprintf(b, "429 responses: %d  \n", s.RateLimited)
-	fmt.Fprintf(b, "Retries recovered: %d  \n", s.RetriesRecovered)
-	fmt.Fprintf(b, "Successful native latency (n=%d): mean %d ms; P50 %d ms; P95 %d ms  \n", s.LatencySamples, s.MeanLatencyMS, s.P50LatencyMS, s.P95LatencyMS)
-	fmt.Fprintf(b, "Backoff time: %d ms\n\n", s.BackoffMS)
+	fmt.Fprintln(b, "- Request pacing: shared adaptive scheduler")
+	fmt.Fprintf(b, "- Successful native requests: %d\n", s.SuccessfulRequests)
+	fmt.Fprintf(b, "- 429 responses: %d\n", s.RateLimited)
+	fmt.Fprintf(b, "- Retries recovered: %d\n", s.RetriesRecovered)
+	fmt.Fprintf(b, "- Successful native latency (n=%d): mean %d ms; P50 %d ms; P95 %d ms\n", s.LatencySamples, s.MeanLatencyMS, s.P50LatencyMS, s.P95LatencyMS)
+	fmt.Fprintf(b, "- Backoff time: %d ms\n\n", s.BackoffMS)
 }
 
 func writeRateLimit(b *strings.Builder, s result.RateLimitStats) {
 	fmt.Fprintln(b, "## Rate-limit and latency")
 	fmt.Fprintln(b)
-	fmt.Fprintln(b, "Request pacing: adaptive")
-	fmt.Fprintf(b, "Successful native requests: %d  \n", s.SuccessfulRequests)
-	fmt.Fprintf(b, "429 responses: %d  \n", s.RateLimited)
-	fmt.Fprintf(b, "Retries recovered: %d  \n", s.RetriesRecovered)
-	fmt.Fprintf(b, "Observed safe request rate: %.2f req/s  \n", s.SafeRate)
-	fmt.Fprintf(b, "Observed safe concurrency: %d  \n", s.SafeConcurrency)
-	fmt.Fprintf(b, "Successful native latency (n=%d): mean %d ms; P50 %d ms; P95 %d ms  \n", s.LatencySamples, s.MeanLatencyMS, s.P50LatencyMS, s.P95LatencyMS)
-	fmt.Fprintf(b, "Backoff time: %d ms\n\n", s.BackoffMS)
+	fmt.Fprintln(b, "- Request pacing: adaptive")
+	fmt.Fprintf(b, "- Successful native requests: %d\n", s.SuccessfulRequests)
+	fmt.Fprintf(b, "- 429 responses: %d\n", s.RateLimited)
+	fmt.Fprintf(b, "- Retries recovered: %d\n", s.RetriesRecovered)
+	fmt.Fprintf(b, "- Observed safe request rate: %.2f req/s\n", s.SafeRate)
+	fmt.Fprintf(b, "- Observed safe concurrency: %d\n", s.SafeConcurrency)
+	fmt.Fprintf(b, "- Successful native latency (n=%d): mean %d ms; P50 %d ms; P95 %d ms\n", s.LatencySamples, s.MeanLatencyMS, s.P50LatencyMS, s.P95LatencyMS)
+	fmt.Fprintf(b, "- Backoff time: %d ms\n\n", s.BackoffMS)
 }
 
 func externalChecks(r result.Report) string {
@@ -292,10 +299,10 @@ func executionCell(value result.ExecutionState) string {
 }
 
 func writeSummaryTable(b *strings.Builder, s result.Summary) {
-	fmt.Fprintln(b, "| Overall | Score | Pass | Fail | Warn | Unsupported | Skip | Error | Required |")
-	fmt.Fprintln(b, "|---|---:|---:|---:|---:|---:|---:|---:|---:|")
-	fmt.Fprintf(b, "| %s | %.1f%% | %d | %d | %d | %d | %d | %d | %d/%d |\n",
-		statusLabelString(s.Status), s.Score, s.Pass, s.Fail, s.Warn, s.Unsupported, s.Skip, s.Error,
+	fmt.Fprintln(b, "| Overall | Pass | Fail | Warn | UNSUP | Skip | Error | Required |")
+	fmt.Fprintln(b, "|---|---:|---:|---:|---:|---:|---:|---:|")
+	fmt.Fprintf(b, "| %s | %d | %d | %d | %d | %d | %d | %d/%d |\n",
+		statusLabelString(s.Status), s.Pass, s.Fail, s.Warn, s.Unsupported, s.Skip, s.Error,
 		s.RequiredPass, s.RequiredPass+s.RequiredFail)
 }
 
@@ -351,7 +358,7 @@ func writeParameterTable(b *strings.Builder, params []result.ParameterResult) {
 }
 
 func writeContext(b *strings.Builder, c result.ContextProbeResult) {
-	fmt.Fprintln(b, "### Context window")
+	fmt.Fprintln(b, "#### Context window")
 	fmt.Fprintln(b)
 	fmt.Fprintf(b, "**%s:** %s\n\n", statusLabel(c.Status), escapeCell(c.Summary))
 	fmt.Fprintln(b, "| Metadata limit | Server-reported limit | Accepted lower bound | First rejected estimate | Precision | Confidence | Probes | Probe tokens | Output cap |")
@@ -386,7 +393,7 @@ func statusLabel(status result.Status) string {
 	case result.StatusWarn:
 		return "WARN"
 	case result.StatusUnsupported:
-		return "N/S"
+		return "UNSUP"
 	case result.StatusSkip:
 		return "SKIP"
 	case result.StatusError:
@@ -406,6 +413,8 @@ func statusLabelString(status string) string {
 		return "PARTIAL"
 	case "fail":
 		return "FAIL"
+	case "inconclusive":
+		return "INCONCLUSIVE"
 	case "not-evaluated":
 		return "NOT-EVALUATED"
 	default:

@@ -82,6 +82,15 @@ func DiscoveryTests(p profile.Profile, resp api.Response, models []api.Model, li
 				problems = append(problems, fmt.Sprintf("created is missing in %d/%d model entries", missingCreated, len(data)))
 				schemaTest.Metrics["missing_created_entries"] = missingCreated
 				schemaTest.Metrics["model_entries"] = len(data)
+				schemaTest.Signals = append(schemaTest.Signals, result.EvidenceSignal{
+					Code: "contract.models.list.entry.created_missing",
+					Parameters: map[string]any{
+						"endpoint":        "GET /v1/models",
+						"json_pointer":    "/data/*/created",
+						"missing_entries": missingCreated,
+						"total_entries":   len(data),
+					},
+				})
 			}
 		}
 		if len(problems) == 0 {
@@ -172,6 +181,7 @@ func probeRetrieveModel(parent context.Context, env Environment, model string) r
 		}
 	case result.StatusUnsupported:
 		t.Summary = "GET /models/{model} is not supported"
+		t.Signals = append(t.Signals, result.EvidenceSignal{Code: "unsupported.models.retrieve", Parameters: map[string]any{"endpoint": "GET /v1/models/{model}"}})
 	case result.StatusError:
 		t.Summary = "model retrieval could not be evaluated"
 		t.Error = errorText(err)
@@ -299,6 +309,9 @@ func probeRole(parent context.Context, env Environment, model, role string) resu
 		}
 	} else if t.Status == result.StatusUnsupported {
 		t.Summary = role + " role is rejected or unsupported"
+		if role == "developer" {
+			t.Signals = append(t.Signals, result.EvidenceSignal{Code: "unsupported.chat.role.developer", Parameters: map[string]any{"endpoint": "POST /v1/chat/completions"}})
+		}
 	} else {
 		t.Summary = role + " role could not be evaluated"
 		t.Error = errorText(err)
@@ -544,6 +557,7 @@ func probeToolChoice(parent context.Context, env Environment, model, mode string
 	if t.Status != result.StatusPass {
 		if t.Status == result.StatusUnsupported {
 			t.Summary = "tool_choice=" + mode + " is unsupported"
+			t.Signals = append(t.Signals, toolChoiceConstraintSignal(mode))
 		} else {
 			t.Summary = "tool_choice=" + mode + " could not be evaluated"
 			t.Error = errorText(err)
@@ -607,6 +621,7 @@ func probeForcedTool(parent context.Context, env Environment, model string) (res
 	if t.Status != result.StatusPass {
 		if t.Status == result.StatusUnsupported {
 			t.Summary = "forced function tool_choice is unsupported"
+			t.Signals = append(t.Signals, toolChoiceConstraintSignal("forced"))
 		} else {
 			t.Summary = "forced tool call could not be evaluated"
 			t.Error = errorText(err)
@@ -685,6 +700,7 @@ func probeStreamingTool(parent context.Context, env Environment, model string) r
 		} else if resp.StatusCode >= 400 && resp.StatusCode < 500 {
 			t.Status = result.StatusUnsupported
 			t.Summary = "streaming tool calls are unsupported"
+			t.Signals = append(t.Signals, toolChoiceConstraintSignal("stream"))
 		} else {
 			t.Status = result.StatusError
 			t.Summary = fmt.Sprintf("streaming tool call returned HTTP %d", resp.StatusCode)
@@ -733,12 +749,14 @@ func probeToolContinuation(parent context.Context, env Environment, model string
 	t := testBase(env.Profile, "chat.tools.continuation", "compat")
 	if prerequisite.Status != result.StatusPass || assistantMessage == nil {
 		t.Status = result.StatusSkip
+		t.Signals = append(t.Signals, result.EvidenceSignal{Code: "blocked.chat.tools.continuation", Parameters: map[string]any{"blocked_by_requirement": "chat.tools.forced"}})
 		t.Summary = "skipped because forced tool calling did not pass"
 		return t
 	}
 	calls, _ := assistantMessage["tool_calls"].([]any)
 	if len(calls) == 0 {
 		t.Status = result.StatusSkip
+		t.Signals = append(t.Signals, result.EvidenceSignal{Code: "blocked.chat.tools.continuation", Parameters: map[string]any{"blocked_by_requirement": "chat.tools.forced"}})
 		t.Summary = "skipped because no tool call was available"
 		return t
 	}
@@ -901,6 +919,7 @@ func probeLogprobs(parent context.Context, env Environment, model string) result
 		if !exists || logprobs == nil {
 			t.Status = result.StatusFail
 			t.Summary = "logprobs request was accepted but no logprobs were returned"
+			t.Signals = append(t.Signals, result.EvidenceSignal{Code: "behavior.chat.logprobs.accepted_but_missing", Parameters: map[string]any{"endpoint": "POST /v1/chat/completions"}})
 		} else {
 			t.Summary = "logprobs and top_logprobs are returned"
 		}
@@ -1004,7 +1023,21 @@ func probeInvalidTypes(parent context.Context, env Environment, model string) re
 	})
 	t.DurationMS = resp.Duration.Milliseconds()
 	t.HTTP = httpObservation(resp)
-	return evaluateErrorProbe(t, resp, err, []int{400, 422}, "invalid request field types")
+	t = evaluateErrorProbe(t, resp, err, []int{400, 422}, "invalid request field types")
+	if resp.StatusCode >= 500 {
+		t.Signals = append(t.Signals, result.EvidenceSignal{Code: "contract.chat.invalid_request.upstream_5xx", Parameters: map[string]any{
+			"endpoint":    "POST /v1/chat/completions",
+			"status_code": resp.StatusCode,
+		}})
+	}
+	return t
+}
+
+func toolChoiceConstraintSignal(mode string) result.EvidenceSignal {
+	return result.EvidenceSignal{Code: "configuration.chat.tools.tool_choice_constraint", Parameters: map[string]any{
+		"endpoint": "POST /v1/chat/completions",
+		"mode":     mode,
+	}}
 }
 
 func evaluateErrorProbe(t result.TestResult, resp api.Response, err error, expectedStatus []int, label string) result.TestResult {

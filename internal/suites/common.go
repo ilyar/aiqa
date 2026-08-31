@@ -35,13 +35,15 @@ func (e Environment) probeContext(parent context.Context) (context.Context, cont
 func testBase(p profile.Profile, id, suite string) result.TestResult {
 	spec := p.Probe(id)
 	return result.TestResult{
-		ID:       id,
-		Name:     spec.Name,
-		Suite:    suite,
-		Category: spec.Category,
-		Required: spec.Required,
-		Expected: spec.Description,
-		Metrics:  map[string]any{},
+		ID:            id,
+		RequirementID: id,
+		ProbeID:       "aiqa.native." + id,
+		Name:          spec.Name,
+		Suite:         suite,
+		Category:      spec.Category,
+		Required:      spec.Required,
+		Expected:      spec.Description,
+		Metrics:       map[string]any{},
 	}
 }
 

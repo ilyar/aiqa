@@ -44,6 +44,15 @@
     },
     "rate_limit": {
       "$ref": "#/$defs/rateLimit"
+    },
+    "requirements": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/requirementAssessment"
+      }
+    },
+    "guidance": {
+      "$ref": "#/$defs/guidance"
     }
   },
   "additionalProperties": true,
@@ -123,6 +132,14 @@
           "type": "string",
           "minLength": 1
         },
+        "requirement_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "probe_id": {
+          "type": "string",
+          "minLength": 1
+        },
         "name": {
           "type": "string",
           "minLength": 1
@@ -162,6 +179,12 @@
         },
         "metrics": {
           "type": "object"
+        },
+        "signals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidenceSignal"
+          }
         },
         "error": {
           "type": "string"
@@ -227,6 +250,12 @@
         "metrics": {
           "type": "object"
         },
+        "signals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidenceSignal"
+          }
+        },
         "error": {
           "type": "string"
         }
@@ -288,6 +317,10 @@
           "type": "string"
         },
         "declared_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "server_limit_tokens": {
           "type": "integer",
           "minimum": 0
         },
@@ -380,11 +413,305 @@
         "output": {
           "type": "string"
         },
+        "artifact_ref": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "requirement_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "related_requirement_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "signals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidenceSignal"
+          }
+        },
         "error": {
           "type": "string"
         }
       },
       "additionalProperties": true
+    },
+    "evidenceSignal": {
+      "type": "object",
+      "required": [
+        "code"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parameters": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    "subjectRef": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "evidenceRef": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "native",
+            "official_sdk"
+          ]
+        },
+        "probe_id": {
+          "type": "string"
+        },
+        "suite": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "http_status": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 999
+        },
+        "artifact_ref": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "related_requirement_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "signals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidenceSignal"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "requirementAssessment": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "level",
+        "subject",
+        "applicability",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string"
+        },
+        "level": {
+          "enum": [
+            "core",
+            "optional"
+          ]
+        },
+        "subject": {
+          "$ref": "#/$defs/subjectRef"
+        },
+        "module": {
+          "type": "string"
+        },
+        "applicability": {
+          "enum": [
+            "applicable",
+            "not_applicable",
+            "unknown"
+          ]
+        },
+        "status": {
+          "enum": [
+            "pass",
+            "fail",
+            "warn",
+            "unsupported",
+            "skip",
+            "error",
+            "not_applicable"
+          ]
+        },
+        "failure_kind": {
+          "type": "string"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidenceRef"
+          }
+        },
+        "blocked_by": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "requirementMeasure": {
+      "type": "object",
+      "required": [
+        "total",
+        "pass",
+        "fail",
+        "warn",
+        "skip",
+        "error",
+        "percent"
+      ],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "pass": { "type": "integer", "minimum": 0 },
+        "fail": { "type": "integer", "minimum": 0 },
+        "unsupported": { "type": "integer", "minimum": 0 },
+        "warn": { "type": "integer", "minimum": 0 },
+        "skip": { "type": "integer", "minimum": 0 },
+        "error": { "type": "integer", "minimum": 0 },
+        "percent": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 100
+        }
+      },
+      "additionalProperties": false
+    },
+    "evidenceMeasure": {
+      "type": "object",
+      "required": [
+        "total",
+        "executed",
+        "conclusive",
+        "execution_percent",
+        "conclusive_percent"
+      ],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "executed": { "type": "integer", "minimum": 0 },
+        "conclusive": { "type": "integer", "minimum": 0 },
+        "execution_percent": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "conclusive_percent": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 100
+        }
+      },
+      "additionalProperties": false
+    },
+    "conformanceAssessment": {
+      "type": "object",
+      "required": [
+        "verdict",
+        "verdict_reason",
+        "core",
+        "optional",
+        "evidence",
+        "comparison"
+      ],
+      "properties": {
+        "verdict": {
+          "enum": [
+            "pass",
+            "pass-with-gaps",
+            "partial",
+            "fail",
+            "inconclusive"
+          ]
+        },
+        "verdict_reason": {
+          "type": "string"
+        },
+        "core": {
+          "$ref": "#/$defs/requirementMeasure"
+        },
+        "optional": {
+          "$ref": "#/$defs/requirementMeasure"
+        },
+        "evidence": {
+          "$ref": "#/$defs/evidenceMeasure"
+        },
+        "comparison": {
+          "type": "object",
+          "required": [
+            "policy",
+            "rankable",
+            "verdict_rank"
+          ],
+          "properties": {
+            "policy": {
+              "const": "verdict-core-optional-evidence/v1"
+            },
+            "rankable": {
+              "type": "boolean"
+            },
+            "verdict_rank": {
+              "type": ["integer", "null"],
+              "minimum": 0,
+              "maximum": 3
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
     },
     "artifact": {
       "type": "object",
@@ -521,6 +848,290 @@
       },
       "additionalProperties": false
     },
+    "attribution": {
+      "type": "object",
+      "required": [
+        "component",
+        "confidence",
+        "basis"
+      ],
+      "properties": {
+        "component": { "enum": ["provider_gateway", "model_adapter", "upstream_model", "client_configuration", "network_or_runtime", "aiqa_runner", "external_checker", "unknown"] },
+        "confidence": { "enum": ["low", "medium", "high"] },
+        "basis": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "finding": {
+      "type": "object",
+      "required": [
+        "id",
+        "fingerprint",
+        "code",
+        "class",
+        "evidence_state",
+        "confidence",
+        "title",
+        "subject",
+        "observed_scope",
+        "requirement_ids",
+        "evidence_refs",
+        "observed",
+        "attribution",
+        "baseline_state"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "fingerprint": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "code": { "type": "string", "minLength": 1 },
+        "class": {
+          "enum": [
+            "contract_violation",
+            "behavior_mismatch",
+            "unsupported_capability",
+            "configuration_constraint",
+            "evidence_conflict",
+            "evidence_gap",
+            "execution_failure",
+            "documentation_gap",
+            "runner_defect"
+          ]
+        },
+        "evidence_state": { "enum": ["confirmed", "probable", "conflicting", "inconclusive"] },
+        "confidence": { "enum": ["low", "medium", "high"] },
+        "title": { "type": "string", "minLength": 1 },
+        "subject": { "$ref": "#/$defs/subjectRef" },
+        "observed_scope": {
+          "type": "object",
+          "properties": {
+            "endpoint": { "type": "string" },
+            "models": { "type": "array", "items": { "type": "string" } },
+            "affected": { "type": "integer", "minimum": 0 },
+            "total": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "requirement_ids": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "evidence_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "expected": { "type": "string" },
+        "observed": { "type": "string" },
+        "attribution": { "$ref": "#/$defs/attribution" },
+        "details": { "type": "object" },
+        "artifact_refs": { "type": "array", "items": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" } },
+        "blocked_requirement_ids": { "type": "array", "items": { "type": "string" } },
+        "baseline_state": { "enum": ["unknown", "new", "unchanged", "updated", "resolved", "regressed"] }
+      },
+      "additionalProperties": false
+    },
+    "recommendation": {
+      "type": "object",
+      "required": [
+        "id",
+        "fingerprint",
+        "finding_ids",
+        "title",
+        "priority",
+        "action_kind",
+        "guidance_level",
+        "confidence",
+        "audiences",
+        "target",
+        "why",
+        "observed",
+        "steps",
+        "verification",
+        "potential_impact",
+        "references",
+        "source"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "fingerprint": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "finding_ids": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "title": { "type": "string", "minLength": 1 },
+        "priority": { "enum": ["p0", "p1", "p2", "p3"] },
+        "action_kind": { "enum": ["fix", "configure", "workaround", "document", "investigate", "rerun", "manual_review"] },
+        "guidance_level": { "type": "integer", "minimum": 1, "maximum": 3 },
+        "confidence": { "enum": ["low", "medium", "high"] },
+        "audiences": { "type": "array", "items": { "type": "string" } },
+        "target": {
+          "type": "object",
+          "required": ["component"],
+          "properties": {
+            "component": { "enum": ["provider_gateway", "model_adapter", "upstream_model", "client_configuration", "network_or_runtime", "aiqa_runner", "external_checker", "unknown"] },
+            "endpoint": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "why": { "type": "string", "minLength": 1 },
+        "observed": { "type": "string" },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "text"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "text": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "verification": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["kind"],
+            "properties": {
+              "kind": { "enum": ["command", "requirement", "requirements", "external_suite", "external_suites"] },
+              "ids": { "type": "array", "items": { "type": "string" } },
+              "shell": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "workarounds": { "type": "array", "items": { "type": "string" } },
+        "caveats": { "type": "array", "items": { "type": "string" } },
+        "potential_impact": {
+          "type": "object",
+          "required": [
+            "blocks_core",
+            "core_requirements_recovered",
+            "optional_requirements_recovered",
+            "evidence_requirements_recovered",
+            "current_verdict",
+            "projected_verdict"
+          ],
+          "properties": {
+            "blocks_core": { "type": "boolean" },
+            "core_requirements_recovered": { "type": "integer", "minimum": 0 },
+            "optional_requirements_recovered": { "type": "integer", "minimum": 0 },
+            "evidence_requirements_recovered": { "type": "integer", "minimum": 0 },
+            "current_verdict": { "enum": ["pass", "pass-with-gaps", "partial", "fail", "inconclusive"] },
+            "projected_verdict": { "type": ["string", "null"], "enum": ["pass", "pass-with-gaps", "partial", "fail", "inconclusive", null] },
+            "assumptions": { "type": "array", "items": { "type": "string" } }
+          },
+          "additionalProperties": false
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["title", "url", "source_kind"],
+            "properties": {
+              "title": { "type": "string", "minLength": 1 },
+              "url": { "type": "string", "format": "uri", "pattern": "^https://" },
+              "source_kind": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "source": {
+          "type": "object",
+          "required": ["kind", "id", "revision"],
+          "properties": {
+            "kind": { "enum": ["catalog", "heuristic"] },
+            "id": { "type": "string", "minLength": 1 },
+            "revision": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "guidance": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "status",
+        "engine",
+        "summary",
+        "findings",
+        "recommendations"
+      ],
+      "properties": {
+        "schema_version": { "const": "aiqa.guidance.v1" },
+        "status": { "enum": ["complete", "partial", "disabled", "error"] },
+        "error": { "type": "string" },
+        "engine": {
+          "type": "object",
+          "required": ["version", "catalog_revision", "packs"],
+          "properties": {
+            "version": { "type": "string" },
+            "catalog_revision": { "type": "string" },
+            "packs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["id", "revision", "source"],
+                "properties": {
+                  "id": { "type": "string" },
+                  "revision": { "type": "string" },
+                  "source": { "type": "string" },
+                  "detection_source": { "type": "string" },
+                  "confidence": { "type": "string" }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "summary": {
+          "type": "object",
+          "required": [
+            "eligible_findings",
+            "eligible_requirements",
+            "covered_requirements",
+            "findings",
+            "recommendations",
+            "by_priority",
+            "guidance_coverage_percent",
+            "actionable_coverage_percent"
+          ],
+          "properties": {
+            "eligible_findings": { "type": "integer", "minimum": 0 },
+            "eligible_requirements": { "type": "integer", "minimum": 0 },
+            "covered_requirements": { "type": "integer", "minimum": 0 },
+            "findings": { "type": "integer", "minimum": 0 },
+            "recommendations": { "type": "integer", "minimum": 0 },
+            "by_priority": {
+              "type": "object",
+              "required": ["p0", "p1", "p2", "p3"],
+              "properties": {
+                "p0": { "type": "integer", "minimum": 0 },
+                "p1": { "type": "integer", "minimum": 0 },
+                "p2": { "type": "integer", "minimum": 0 },
+                "p3": { "type": "integer", "minimum": 0 }
+              },
+              "additionalProperties": false
+            },
+            "guidance_coverage_percent": { "type": "number", "minimum": 0, "maximum": 100 },
+            "actionable_coverage_percent": { "type": "number", "minimum": 0, "maximum": 100 }
+          },
+          "additionalProperties": false
+        },
+        "findings": { "type": "array", "items": { "$ref": "#/$defs/finding" } },
+        "recommendations": { "type": "array", "items": { "$ref": "#/$defs/recommendation" } },
+        "artifacts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["kind", "media_type", "bytes", "sha256", "content", "truncated"],
+            "properties": {
+              "kind": { "const": "external_checker_log" },
+              "media_type": { "const": "text/plain" },
+              "bytes": { "type": "integer", "minimum": 0 },
+              "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+              "content": { "type": "string" },
+              "truncated": { "type": "boolean" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "rateLimit": {
       "type": "object",
       "properties": {
@@ -619,6 +1230,12 @@
           "minimum": 0,
           "maximum": 100
         },
+        "score_method": {
+          "type": "string"
+        },
+        "score_deprecated": {
+          "type": "boolean"
+        },
         "status": {
           "type": "string",
           "enum": [
@@ -628,6 +1245,9 @@
             "fail",
             "not-evaluated"
           ]
+        },
+        "assessment": {
+          "$ref": "#/$defs/conformanceAssessment"
         },
         "usage": {
           "$ref": "#/$defs/usage"
@@ -846,6 +1466,19 @@
         "max_artifacts_per_model": {
           "type": "integer",
           "minimum": 1
+        },
+        "guidance": {
+          "enum": [
+            "full",
+            "summary",
+            "off"
+          ]
+        },
+        "guidance_pack": {
+          "type": "string"
+        },
+        "guidance_locale": {
+          "type": "string"
         }
       },
       "additionalProperties": true

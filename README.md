@@ -170,7 +170,7 @@ aiqa test=compat \
 
 The same value is read from `AIQA_EXTERNAL_IMAGE`
 
-The native suite remains mandatory: the external checker is good at testing the SDK surface, but it does not prove that a parameter accepted by the server actually affected generation
+The native suite remains mandatory: the external checker is good at testing the SDK surface, but it does not prove that a parameter accepted by the server actually affected generation. Official SDK parseability is recorded as related interoperability evidence, so it does not receive a second vote for the native wire requirement.
 
 ## `test=model-param`
 
@@ -232,7 +232,7 @@ aiqa test=model-param \
 
 `aiqa` measures **accepted context**, it does not assess how well a model uses information from the beginning of a long document, that requires a separate needle-in-a-haystack or multi-hop benchmark, which is planned for future QA suites
 
-## Statuses
+## Statuses and verdicts
 
 | Status | Meaning |
 |---|---|
@@ -241,7 +241,10 @@ aiqa test=model-param \
 | `unsupported` | An optional feature was explicitly rejected with 4xx |
 | `fail` | The contract was violated, or an accepted feature behaves incompatibly |
 | `error` | Transport/provider failure, timeout, 429, or 5xx, the conclusion is incomplete |
-| `skip` | The check is inapplicable, or an external tool was not found in `auto` mode |
+| `skip` | An applicable check did not run |
+| `not_applicable` | The requirement does not apply to this provider or model and is excluded from coverage |
+
+AIQA derives the authoritative result from canonical requirements, not the number of probes. `FAIL` means a core requirement failed; `INCONCLUSIVE` means core evidence is incomplete; `PARTIAL` means core passed but an optional requirement failed; `PASS-WITH-GAPS` means core passed with optional gaps; `PASS` means every applicable requirement passed.
 
 ### Exit codes
 
@@ -255,9 +258,9 @@ Policies:
 
 | `--fail-on` | Exit 1 when |
 |---|---|
-| `core` | There is a required failure, any `fail`, or an `error`, `warn/unsupported` are allowed |
-| `any` | There is any `fail/error/warn/unsupported` |
-| `never` | Never because of probe results, the report still includes statuses |
+| `core` | The canonical verdict is `FAIL` or `INCONCLUSIVE` |
+| `any` | The canonical verdict is not `PASS` |
+| `never` | Never because of the verdict; the report still includes all evidence |
 
 ## Reports
 
@@ -269,9 +272,19 @@ JSON has a versioned root:
 }
 ```
 
-It contains raw model metadata, results for every probe, HTTP observations, token usage, context samples, confidence, and an aggregate summary, the API key is not written to the report, and external-checker output is additionally redacted
+It contains raw model metadata, probe evidence, canonical requirements, the authoritative assessment, findings, recommendations, HTTP observations, token usage, context samples, and confidence. The API key is not written to the report. External-checker output is redacted, deduplicated, and stored once as a referenced artifact.
 
-Markdown is intended for people and CI artifacts, the JSON Schema is in [`schema/report.schema.json`](schema/report.schema.json), an example of a complete combined run against a deterministic mock provider is available in [`examples/mock-report.md`](examples/mock-report.md) and [`examples/mock-report.json`](examples/mock-report.json)
+Markdown leads with core conformance, optional coverage, evidence completeness, and prioritized actions. Passed checks and raw evidence are collapsed by default. The former numeric pass ratio remains in JSON as a deprecated compatibility field and must not be used to rank reports.
+
+Guidance is deterministic and uses no additional API calls:
+
+```text
+--guidance=full|summary|off
+--guidance-pack=auto|generic|<id>
+--guidance-locale=en
+```
+
+The JSON Schema is in [`schema/report.schema.json`](schema/report.schema.json). A complete combined run against a deterministic mock provider is available in [`examples/mock-report.md`](examples/mock-report.md) and [`examples/mock-report.json`](examples/mock-report.json). See [`docs/reports.md`](docs/reports.md) for exact verdict, status, priority, confidence, and migration semantics.
 
 ## Full CLI reference
 
@@ -288,6 +301,9 @@ Main additional options:
 --verbose
 --fail-on core|any|never
 --external auto|off|binary|docker
+--guidance full|summary|off
+--guidance-pack auto|generic|ID
+--guidance-locale en
 ```
 
 Plain HTTP is automatically allowed only for loopback, any other address requires explicit `--allow-http`
@@ -309,6 +325,8 @@ Integration tests run a deterministic mock endpoint and check:
 - absence of the API key in JSON
 - exit policies
 - external runner modes
+- canonical requirement aggregation and actionable guidance
+- Draft 2020-12 report-schema validation and deterministic guidance fixtures
 
 See [`docs/adding-tests.md`](docs/adding-tests.md) for how to add a new suite or probe
 

@@ -1,0 +1,12 @@
+verdict=fail core=1/2 optional=0/4 evidence=4/6
+finding behavior.chat.logprobs.accepted_but_missing class=behavior_mismatch state=confirmed subject=model:gpt-5.4-mini requirements=chat.logprobs blocked= evidence=1
+finding contract.chat.invalid_request.upstream_5xx class=contract_violation state=confirmed subject=model:gpt-5.4-mini requirements=chat.error.invalid_types blocked= evidence=1
+finding contract.models.list.entry.created_missing class=contract_violation state=confirmed subject=provider:https://vibecode.example/v1 requirements=models.list.schema blocked= evidence=2
+finding evidence.chat.stream.native_sdk_conflict class=evidence_conflict state=conflicting subject=model:gpt-5.4-mini requirements=official-sdk.chat.stream blocked= evidence=2
+finding unsupported.models.retrieve class=unsupported_capability state=confirmed subject=model:gpt-5.4-mini requirements=models.retrieve blocked= evidence=1
+recommendation P0 fix level=3 confidence=high projected=partial title=Add `created` to every model object
+recommendation P1 fix level=3 confidence=high projected=fail title=Reject invalid field types at the gateway boundary
+recommendation P1 fix level=2 confidence=medium projected=fail title=Implement `logprobs` or reject it explicitly
+recommendation P1 investigate level=1 confidence=low projected=null title=Localize the streaming interoperability conflict
+recommendation P2 document level=2 confidence=high projected=null title=Implement or document `GET /models/{model}`
+artifacts=1 coverage=100.0 actionable=80.0

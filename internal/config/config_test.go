@@ -24,6 +24,35 @@ func TestParseExpectedCLI(t *testing.T) {
 	if cfg.UnknownModel != "chat" {
 		t.Fatalf("unexpected unknown-model policy: %s", cfg.UnknownModel)
 	}
+	if cfg.Guidance != "full" || cfg.GuidancePack != "auto" || cfg.GuidanceLocale != "en" {
+		t.Fatalf("unexpected guidance defaults: mode=%q pack=%q locale=%q", cfg.Guidance, cfg.GuidancePack, cfg.GuidanceLocale)
+	}
+}
+
+func TestParseGuidanceControls(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "https://example.test/v1")
+	t.Setenv("OPENAI_API_KEY", "secret")
+	cfg, err := Parse([]string{"test=compat", "--guidance=summary", "--guidance-pack=generic", "--guidance-locale=en"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Guidance != "summary" || cfg.GuidancePack != "generic" || cfg.GuidanceLocale != "en" {
+		t.Fatalf("guidance controls were not preserved: %+v", cfg)
+	}
+}
+
+func TestParseRejectsInvalidGuidanceControls(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "https://example.test/v1")
+	t.Setenv("OPENAI_API_KEY", "secret")
+	for _, args := range [][]string{
+		{"test=compat", "--guidance=verbose"},
+		{"test=compat", "--guidance-pack="},
+		{"test=compat", "--guidance-locale=ru"},
+	} {
+		if _, err := Parse(args); err == nil {
+			t.Fatalf("expected validation error for %v", args)
+		}
+	}
 }
 
 func TestParseCapabilityRoutingFlags(t *testing.T) {

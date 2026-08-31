@@ -34,6 +34,7 @@ schemas-check:
 	python3 -m json.tool schema/report.schema.json >/dev/null
 	python3 -m json.tool profile/openai-compat-2026-08.json >/dev/null
 	python3 -m json.tool profile/openai-compat-2026-09.json >/dev/null
+	python3 -c 'import json; from jsonschema import Draft202012Validator, FormatChecker; schema=json.load(open("schema/report.schema.json")); Draft202012Validator.check_schema(schema); validator=Draft202012Validator(schema, format_checker=FormatChecker()); [validator.validate(json.load(open(path))) for path in ("examples/mock-report.json", "schema/testdata/actionable-v1.json")]'
 
 profile-upstream-check:
 	go run ./script/check-profile-upstream.go

@@ -1,0 +1,199 @@
+{
+  "revision": "2026-09-01.1",
+  "entries": [
+    {
+      "id": "openai.models.created-missing",
+      "revision": "1",
+      "finding_code": "contract.models.list.entry.created_missing",
+      "finding_title": "Model entries omit the `created` field",
+      "recommendation_title": "Add `created` to every model object",
+      "default_priority": "p0",
+      "action_kind": "fix",
+      "guidance_level": 3,
+      "audiences": ["gateway_maintainer"],
+      "why": "The required model-list schema expects a stable Unix creation timestamp on every model entry.",
+      "attribution": {
+        "component": "provider_gateway",
+        "confidence": "high",
+        "basis": "The provider inventory endpoint emits the affected objects."
+      },
+      "steps": [
+        {"id": "populate-created", "text": "Populate `created` with a stable Unix timestamp in seconds for every item in `data`."},
+        {"id": "use-stable-source", "text": "Use model publication or gateway-registration time instead of request time."}
+      ],
+      "verification": [
+        {"kind": "requirement", "ids": ["models.list.schema"]},
+        {"kind": "external_suite", "ids": ["models"]}
+      ],
+      "references": [
+        {"title": "OpenAI Models API", "url": "https://developers.openai.com/api/reference/cli/resources/models/methods/list", "source_kind": "official"}
+      ]
+    },
+    {
+      "id": "openai.chat.invalid-types-upstream-5xx",
+      "revision": "1",
+      "finding_code": "contract.chat.invalid_request.upstream_5xx",
+      "finding_title": "Invalid request types reach an upstream 5xx path",
+      "recommendation_title": "Reject invalid field types at the gateway boundary",
+      "default_priority": "p1",
+      "action_kind": "fix",
+      "guidance_level": 3,
+      "audiences": ["gateway_maintainer"],
+      "why": "Malformed client input should receive an OpenAI-shaped client error instead of becoming an upstream provider failure.",
+      "attribution": {
+        "component": "provider_gateway",
+        "confidence": "high",
+        "basis": "Request-shape validation belongs at the OpenAI-compatible HTTP boundary."
+      },
+      "steps": [
+        {"id": "validate-types", "text": "Validate request field types before dispatching to the model backend."},
+        {"id": "return-client-error", "text": "Return HTTP 400 or 422 with an OpenAI-shaped error object."}
+      ],
+      "verification": [
+        {"kind": "requirement", "ids": ["chat.error.invalid_types"]}
+      ],
+      "references": [
+        {"title": "OpenAI API error handling", "url": "https://developers.openai.com/api/docs/guides/error-codes", "source_kind": "official"}
+      ]
+    },
+    {
+      "id": "openai.chat.logprobs-missing",
+      "revision": "1",
+      "finding_code": "behavior.chat.logprobs.accepted_but_missing",
+      "finding_title": "The endpoint accepts `logprobs` but omits the result",
+      "recommendation_title": "Implement `logprobs` or reject it explicitly",
+      "default_priority": "p1",
+      "action_kind": "fix",
+      "guidance_level": 2,
+      "audiences": ["model_integrator", "gateway_maintainer"],
+      "why": "Silent acceptance tells SDK clients that the optional feature is available even though the promised data is absent.",
+      "attribution": {
+        "component": "model_adapter",
+        "confidence": "medium",
+        "basis": "The gateway or model adapter may be dropping either the request field or upstream response data."
+      },
+      "steps": [
+        {"id": "preserve-logprobs", "text": "Forward the requested log-probability settings and return `choices[].logprobs` in the response."},
+        {"id": "reject-if-unsupported", "text": "If the backend cannot provide log probabilities, reject the optional feature with a suitable OpenAI-shaped 4xx response."}
+      ],
+      "verification": [
+        {"kind": "requirement", "ids": ["chat.logprobs"]}
+      ],
+      "references": [
+        {"title": "OpenAI Chat Completions API", "url": "https://developers.openai.com/api/reference/cli/resources/chat/subresources/completions/methods/create", "source_kind": "official"}
+      ]
+    },
+    {
+      "id": "openai.chat.tool-choice-constraint",
+      "revision": "1",
+      "finding_code": "configuration.chat.tools.tool_choice_constraint",
+      "finding_title": "Tool choice is constrained by the active model mode",
+      "recommendation_title": "Expose a compatible tool-calling mode or document the constraint",
+      "default_priority": "p2",
+      "action_kind": "configure",
+      "guidance_level": 2,
+      "audiences": ["model_integrator", "client_developer"],
+      "why": "Required, forced, and streamed tool choices must either work in a documented mode or be rejected consistently.",
+      "attribution": {
+        "component": "model_adapter",
+        "confidence": "medium",
+        "basis": "The restriction can originate in model mode or adapter parameter translation; one model result does not prove a gateway-wide defect."
+      },
+      "steps": [
+        {"id": "test-without-thinking", "text": "Retest required, forced, and streamed tool choices with thinking or reasoning mode disabled."},
+        {"id": "preserve-client-choice", "text": "Where the gateway translates parameters, preserve the explicit client tool choice or return a documented 4xx response."},
+        {"id": "publish-matrix", "text": "Document the supported tool-choice modes in the model capability matrix."}
+      ],
+      "verification": [
+        {"kind": "requirement", "ids": ["chat.tools.required", "chat.tools.forced", "chat.tools.stream", "chat.tools.continuation"]}
+      ],
+      "references": [
+        {"title": "OpenAI function calling", "url": "https://developers.openai.com/api/docs/guides/function-calling", "source_kind": "official"}
+      ]
+    },
+    {
+      "id": "openai.chat.developer-role",
+      "revision": "1",
+      "finding_code": "unsupported.chat.role.developer",
+      "finding_title": "The model rejects the `developer` role",
+      "recommendation_title": "Support or explicitly document the `developer` role gap",
+      "default_priority": "p2",
+      "action_kind": "document",
+      "guidance_level": 2,
+      "audiences": ["model_integrator", "client_developer"],
+      "why": "Clients need to know whether developer instructions and their precedence semantics are available.",
+      "attribution": {
+        "component": "model_adapter",
+        "confidence": "medium",
+        "basis": "The role can be rejected by the adapter or unsupported by the upstream model."
+      },
+      "steps": [
+        {"id": "preserve-role", "text": "Implement developer-role handling while preserving its precedence semantics where the backend permits it."},
+        {"id": "document-gap", "text": "Otherwise, publish the capability gap and any client workaround without claiming full conformance."}
+      ],
+      "verification": [
+        {"kind": "requirement", "ids": ["chat.role.developer"]}
+      ],
+      "references": [
+        {"title": "OpenAI Chat Completions messages", "url": "https://developers.openai.com/api/reference/cli/resources/chat/subresources/completions/methods/create", "source_kind": "official"}
+      ]
+    },
+    {
+      "id": "openai.models.retrieve-unsupported",
+      "revision": "1",
+      "finding_code": "unsupported.models.retrieve",
+      "finding_title": "Model retrieval by ID is unsupported",
+      "recommendation_title": "Implement or document `GET /models/{model}`",
+      "default_priority": "p2",
+      "action_kind": "document",
+      "guidance_level": 2,
+      "audiences": ["gateway_maintainer", "client_developer"],
+      "why": "The endpoint is optional in the active profile, but SDK clients need a clear capability contract.",
+      "attribution": {
+        "component": "provider_gateway",
+        "confidence": "high",
+        "basis": "The route is owned by the provider's OpenAI-compatible inventory API."
+      },
+      "steps": [
+        {"id": "implement-route", "text": "Return the requested model object from `GET /models/{model}` when the route is supported."},
+        {"id": "document-optional-gap", "text": "Otherwise, document the optional SDK capability gap and keep returning a clear client error."}
+      ],
+      "verification": [
+        {"kind": "requirement", "ids": ["models.retrieve"]},
+        {"kind": "external_suite", "ids": ["models_get"]}
+      ],
+      "references": [
+        {"title": "OpenAI Retrieve model API", "url": "https://developers.openai.com/api/reference/cli/resources/models/methods/retrieve", "source_kind": "official"}
+      ]
+    },
+    {
+      "id": "openai.chat.stream-evidence-conflict",
+      "revision": "1",
+      "finding_code": "evidence.chat.stream.native_sdk_conflict",
+      "finding_title": "Native and Official SDK streaming evidence conflict",
+      "recommendation_title": "Localize the streaming interoperability conflict",
+      "default_priority": "p1",
+      "action_kind": "investigate",
+      "guidance_level": 1,
+      "audiences": ["gateway_maintainer", "qa_operator"],
+      "why": "A provider fix is unsafe until the differing request settings or parser expectations are identified.",
+      "attribution": {
+        "component": "unknown",
+        "confidence": "low",
+        "basis": "The observations disagree, so neither the stream adapter nor the external checker is yet localized as the cause."
+      },
+      "steps": [
+        {"id": "compare-requests", "text": "Compare the exact native and Official SDK request bodies."},
+        {"id": "compare-chunks", "text": "Compare missing versus empty `choices`, usage placement, finish reasons, and chunks after completion."},
+        {"id": "replay-parser", "text": "Replay the captured stream through the pinned official SDK parser before changing the provider."}
+      ],
+      "verification": [
+        {"kind": "requirement", "ids": ["chat.stream.sse"]},
+        {"kind": "external_suite", "ids": ["chat_completions_stream"]}
+      ],
+      "references": [
+        {"title": "OpenAI streaming responses", "url": "https://developers.openai.com/api/reference/cli/resources/chat/subresources/completions/methods/create", "source_kind": "official"}
+      ]
+    }
+  ]
+}

@@ -3,6 +3,7 @@ package external
 import (
 	"context"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,6 +21,18 @@ func TestExplicitExternalModeFailsWhenToolIsMissing(t *testing.T) {
 				t.Fatalf("mode=%q reason=%q, want error", mode, reason)
 			}
 		})
+	}
+}
+
+func TestRedactSuiteResultsCoversSummariesAndErrors(t *testing.T) {
+	secret := "top-secret"
+	results := []result.ExternalResult{{
+		Summary: "Authorization: Bearer " + secret + " https://cdn.example.test/a?sig=" + secret,
+		Error:   `{\"api_key\":\"` + secret + `\"}`,
+	}}
+	redactSuiteResults(results, secret)
+	if strings.Contains(results[0].Summary, secret) || strings.Contains(results[0].Error, secret) || !strings.Contains(results[0].Summary, "[REDACTED]") {
+		t.Fatalf("suite diagnostics were not redacted: %+v", results[0])
 	}
 }
 
@@ -88,6 +101,9 @@ func TestParseSuiteResultsUsesSuiteDurations(t *testing.T) {
 	}
 	if got[1].Suite != "chat_completions" || got[1].Status != result.StatusPass || got[1].DurationMS != (time.Second+283*time.Millisecond).Milliseconds() {
 		t.Fatalf("unexpected second suite result: %+v", got[1])
+	}
+	if len(got[1].RequirementIDs) != 1 || got[1].RequirementIDs[0] != "official-sdk.chat.completions" || len(got[1].RelatedRequirementIDs) != 1 || got[1].RelatedRequirementIDs[0] != "chat.basic" {
+		t.Fatalf("unexpected canonical SDK mapping: %+v", got[1])
 	}
 }
 
