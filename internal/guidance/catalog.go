@@ -259,7 +259,7 @@ func validConfidence(value string) bool {
 
 func validAttributionComponent(value string) bool {
 	switch value {
-	case "provider_gateway", "model_adapter", "upstream_model", "client_configuration", "network_or_runtime", "aiqa_runner", "external_checker", "unknown":
+	case "provider_gateway", "model_adapter", "upstream_model", "client_configuration", "network_or_runtime", "aiqa_runner", "extension_runner", "unknown":
 		return true
 	default:
 		return false

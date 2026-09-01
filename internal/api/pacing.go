@@ -240,6 +240,16 @@ func (p *pacer) snapshot() PacingStats {
 	return out
 }
 
+func (p *pacer) constraints() PacingStats {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := PacingStats{SafeConcurrency: p.limit}
+	if p.interval > 0 {
+		out.SafeRate = float64(p.limit) / p.interval.Seconds()
+	}
+	return out
+}
+
 func (p *pacer) snapshotForModel(model string) PacingStats {
 	p.mu.Lock()
 	defer p.mu.Unlock()

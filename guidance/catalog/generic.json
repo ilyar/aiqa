@@ -180,7 +180,7 @@
       "attribution": {
         "component": "unknown",
         "confidence": "low",
-        "basis": "The observations disagree, so neither the stream adapter nor the external checker is yet localized as the cause."
+        "basis": "The observations disagree, so neither the stream adapter nor the extension suite is yet localized as the cause."
       },
       "steps": [
         {"id": "compare-requests", "text": "Compare the exact native and Official SDK request bodies."},

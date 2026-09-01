@@ -10,7 +10,38 @@ func Finalize(r *result.Report) {
 	for i := range r.Models {
 		finalizeModel(&r.Models[i])
 	}
+	for _, run := range r.Extensions {
+		if run.Subject.Kind != "model" {
+			continue
+		}
+		for index := range r.Models {
+			if r.Models[index].ID == run.Subject.ID {
+				addExtensionRun(&r.Models[index].Summary, run)
+			}
+		}
+	}
+	for index := range r.Models {
+		if r.Models[index].Summary.Status != "not-evaluated" || hasModelExtension(r.Extensions, r.Models[index].ID) {
+			finishSummary(&r.Models[index].Summary)
+		}
+	}
 	r.Summary = summarizeReport(*r)
+}
+
+func hasModelExtension(runs []result.ExtensionRun, model string) bool {
+	for _, run := range runs {
+		if run.Subject.Kind == "model" && run.Subject.ID == model && len(run.Suites) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func addExtensionRun(summary *result.Summary, run result.ExtensionRun) {
+	for _, suite := range run.Suites {
+		addStatus(summary, suite.Status)
+		summary.Usage = summary.Usage.Add(suite.Usage)
+	}
 }
 
 func finalizeModel(m *result.ModelReport) {
@@ -105,11 +136,8 @@ func summarizeModel(m result.ModelReport) result.Summary {
 		addStatus(&s, m.Context.Status)
 		s.ContextProbeTokens += m.Context.ConsumedTokens
 	}
-	for _, e := range m.External {
-		addStatus(&s, e.Status)
-	}
 	finishSummary(&s)
-	if len(m.Compatibility) == 0 && len(m.Parameters) == 0 && m.Context == nil && len(m.External) == 0 {
+	if len(m.Compatibility) == 0 && len(m.Parameters) == 0 && m.Context == nil {
 		s.Status = "not-evaluated"
 	}
 	return s
@@ -146,9 +174,6 @@ func summarizeReport(r result.Report) result.Summary {
 			}
 		}
 	}
-	for _, e := range r.Discovery.External {
-		addStatus(&s, e.Status)
-	}
 	for _, m := range r.Models {
 		if m.Summary.Status != "not-evaluated" {
 			evaluatedModels++
@@ -163,6 +188,12 @@ func summarizeReport(r result.Report) result.Summary {
 		s.RequiredFail += m.Summary.RequiredFail
 		s.Usage = s.Usage.Add(m.Summary.Usage)
 		s.ContextProbeTokens += m.Summary.ContextProbeTokens
+	}
+	for _, run := range r.Extensions {
+		if run.Subject.Kind == "model" {
+			continue
+		}
+		addExtensionRun(&s, run)
 	}
 	finishSummary(&s)
 	if len(r.Models) > 0 && evaluatedModels == 0 && s.RequiredFail == 0 && s.Fail == 0 && s.Error == 0 && s.Warn == 0 && s.Unsupported == 0 {

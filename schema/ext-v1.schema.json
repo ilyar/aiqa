@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/aiqa/schema/ext-v1.schema.json",
+  "title": "AIQA extension process protocol v1",
+  "oneOf": [
+    {"$ref": "#/$defs/manifestRequest"},
+    {"$ref": "#/$defs/manifest"},
+    {"$ref": "#/$defs/runRequest"},
+    {"$ref": "#/$defs/suiteResult"}
+  ],
+  "$defs": {
+    "stableID": {"type": "string", "pattern": "^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"},
+    "subject": {
+      "type": "object", "required": ["kind", "id"],
+      "properties": {"target_id": {"type": "string"}, "protocol": {"enum": ["openai", "anthropic"]}, "kind": {"enum": ["provider", "model"]}, "id": {"type": "string", "minLength": 1}},
+      "additionalProperties": false
+    },
+    "httpObservation": {
+      "type": "object",
+      "properties": {
+        "status_code": {"type": "integer", "minimum": 0, "maximum": 599},
+        "content_type": {"type": "string"},
+        "request_id": {"type": "string"},
+        "headers": {"type": "object", "additionalProperties": {"type": "string"}},
+        "snippet": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "usage": {
+      "type": "object",
+      "properties": {
+        "input_tokens": {"type": "integer", "minimum": 0},
+        "output_tokens": {"type": "integer", "minimum": 0},
+        "cache_creation_input_tokens": {"type": "integer", "minimum": 0},
+        "cache_read_input_tokens": {"type": "integer", "minimum": 0},
+        "thinking_tokens": {"type": "integer", "minimum": 0},
+        "prompt_tokens": {"type": "integer", "minimum": 0},
+        "completion_tokens": {"type": "integer", "minimum": 0},
+        "total_tokens": {"type": "integer", "minimum": 0},
+        "reasoning_tokens": {"type": "integer", "minimum": 0},
+        "provider_fields": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}}
+      },
+      "additionalProperties": false
+    },
+    "signal": {
+      "type": "object",
+      "required": ["code"],
+      "properties": {
+        "code": {"$ref": "#/$defs/stableID"},
+        "parameters": {"type": "object"}
+      },
+      "additionalProperties": false
+    },
+    "manifestRequest": {
+      "type": "object", "required": ["schema_version", "type", "host"],
+      "properties": {"schema_version": {"const": "aiqa.ext.v1"}, "type": {"const": "manifest_request"}, "host": {"type": "object", "required": ["name", "version"], "properties": {"name": {"const": "aiqa"}, "version": {"type": "string"}}, "additionalProperties": false}},
+      "additionalProperties": false
+    },
+    "manifest": {
+      "type": "object", "required": ["schema_version", "type", "extension", "report_contracts", "profile_contracts", "protocols", "suites"],
+      "properties": {
+        "schema_version": {"const": "aiqa.ext.v1"}, "type": {"const": "manifest"},
+        "extension": {"type": "object", "required": ["id", "name", "version"], "properties": {"id": {"$ref": "#/$defs/stableID"}, "name": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}}, "additionalProperties": false},
+        "report_contracts": {"type": "array", "contains": {"const": "aiqa.report.v3"}}, "profile_contracts": {"type": "array", "contains": {"const": "aiqa.profile.v3"}},
+        "protocols": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["openai", "anthropic"]}},
+        "suites": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["id", "subject", "cost", "internal_concurrency"], "properties": {"id": {"$ref": "#/$defs/stableID"}, "subject": {"enum": ["provider", "model"]}, "capabilities": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/stableID"}}, "cost": {"enum": ["text", "billable_artifact"]}, "internal_concurrency": {"type": "integer", "minimum": 0, "maximum": 32}}, "allOf": [{"if": {"properties": {"cost": {"const": "billable_artifact"}}, "required": ["cost"]}, "then": {"properties": {"subject": {"const": "model"}}}}], "additionalProperties": false}}
+      },
+      "additionalProperties": false
+    },
+    "runRequest": {
+      "type": "object", "required": ["schema_version", "type", "run_id", "target", "subject", "suite_ids", "profile", "limits", "credential"],
+      "properties": {
+        "schema_version": {"const": "aiqa.ext.v1"}, "type": {"const": "run_request"}, "run_id": {"type": "string", "minLength": 1},
+        "target": {"type": "object", "required": ["id", "protocol", "base_url"], "properties": {"id": {"type": "string"}, "protocol": {"enum": ["openai", "anthropic"]}, "base_url": {"type": "string", "format": "uri"}, "api_version": {"type": "string"}}, "additionalProperties": false},
+        "subject": {"$ref": "#/$defs/subject"}, "suite_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/stableID"}},
+        "profile": {"type": "object", "required": ["id", "revision"], "properties": {"id": {"type": "string"}, "revision": {"type": "string"}}, "additionalProperties": false},
+        "limits": {"type": "object", "required": ["request_timeout_ms", "deadline_ms", "max_concurrency", "request_interval_ms", "retry_limit", "observed_safe_requests_per_second", "observed_safe_concurrency", "max_output_bytes"], "properties": {"request_timeout_ms": {"type": "integer", "minimum": 1}, "deadline_ms": {"type": "integer", "minimum": 1}, "max_concurrency": {"type": "integer", "minimum": 1}, "request_interval_ms": {"type": "integer", "minimum": 0}, "retry_limit": {"type": "integer", "minimum": 0}, "observed_safe_requests_per_second": {"type": "number", "minimum": 0}, "observed_safe_concurrency": {"type": "integer", "minimum": 0}, "max_output_bytes": {"type": "integer", "minimum": 1}}, "additionalProperties": false},
+        "credential": {"type": "object", "required": ["type", "value"], "properties": {"type": {"const": "api_key"}, "value": {"type": "string"}}, "additionalProperties": false}
+      },
+      "additionalProperties": false
+    },
+    "suiteResult": {
+      "type": "object", "required": ["schema_version", "type", "run_id", "extension_id", "suite_id", "subject", "outcome", "duration_ms", "summary"],
+      "properties": {
+        "schema_version": {"const": "aiqa.ext.v1"}, "type": {"const": "suite_result"}, "run_id": {"type": "string"}, "extension_id": {"$ref": "#/$defs/stableID"}, "suite_id": {"$ref": "#/$defs/stableID"}, "subject": {"$ref": "#/$defs/subject"},
+        "outcome": {"enum": ["pass", "assertion_failed", "request_rejected", "execution_error", "skip"]}, "duration_ms": {"type": "integer", "minimum": 0}, "summary": {"type": "string", "minLength": 1},
+        "error_kind": {"const": "capability_rejection"}, "http": {"$ref": "#/$defs/httpObservation"}, "usage": {"$ref": "#/$defs/usage"}, "signals": {"type": "array", "items": {"$ref": "#/$defs/signal"}}, "error": {"type": "string"}
+      },
+      "additionalProperties": false
+    }
+  }
+}

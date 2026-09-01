@@ -134,6 +134,10 @@ func (c *Client) PacingStatsForModel(model string) api.PacingStats {
 	return c.inner.PacingStatsForModel(model)
 }
 
+// TransportClient returns the target-owned client so extension checks can
+// continue with the same adaptive pacing state as native Anthropic probes.
+func (c *Client) TransportClient() *api.Client { return c.inner }
+
 func cloneMap(in map[string]any) map[string]any {
 	out := make(map[string]any, len(in)+1)
 	for key, value := range in {

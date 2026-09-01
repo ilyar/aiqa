@@ -129,17 +129,17 @@ func TestRunnerFailureIsLocalizedToExternalChecker(t *testing.T) {
 		Requirements: []result.RequirementAssessment{{
 			ID: "official-sdk.runner", Name: "Official SDK runner", Level: result.RequirementOptional,
 			Subject: result.SubjectRef{Kind: "provider", ID: "https://example.test/v1"}, Applicability: result.ApplicabilityApplicable, Status: result.RequirementError,
-			Evidence: []result.EvidenceRef{{ID: "runner", Kind: "official_sdk", Status: result.StatusError, Signals: []result.EvidenceSignal{{Code: "external.runner.error"}}}},
+			Evidence: []result.EvidenceRef{{ID: "runner", Kind: "extension", Status: result.StatusError, Signals: []result.EvidenceSignal{{Code: "extension.runner.missing_result"}}}},
 		}},
 	}
 	Apply(&r, testProfile(), Options{Pack: "generic"})
 	finding, recommendation := r.Guidance.Findings[0], r.Guidance.Recommendations[0]
-	if finding.Class != "runner_defect" || finding.Attribution.Component != "external_checker" || recommendation.ActionKind != "rerun" || recommendation.PotentialImpact.ProjectedVerdict != nil {
+	if finding.Class != "runner_defect" || finding.Attribution.Component != "extension_runner" || recommendation.ActionKind != "rerun" || recommendation.PotentialImpact.ProjectedVerdict != nil {
 		t.Fatalf("runner failure was misclassified: finding=%+v recommendation=%+v", finding, recommendation)
 	}
 }
 
-func TestExternalArtifactsAreDeduplicatedAndRedacted(t *testing.T) {
+func TestExtensionArtifactsAreDeduplicatedAndRedacted(t *testing.T) {
 	secret := "secret-value"
 	base64Payload := strings.Repeat("A", 300)
 	output := "Authorization: Bearer " + secret +
@@ -149,15 +149,14 @@ func TestExternalArtifactsAreDeduplicatedAndRedacted(t *testing.T) {
 		"\n" + base64Payload +
 		"\nchecker failed"
 	r := result.Report{
-		Discovery: result.Discovery{External: []result.ExternalResult{{Output: output}}},
-		Models:    []result.ModelReport{{External: []result.ExternalResult{{Output: output}}}},
+		Extensions: []result.ExtensionRun{{Runner: result.ExtensionRunnerResult{Output: output}}, {Runner: result.ExtensionRunnerResult{Output: output}}},
 	}
 	ExtractArtifacts(&r)
 	if len(r.Guidance.Artifacts) != 1 {
 		t.Fatalf("artifacts=%d, want one", len(r.Guidance.Artifacts))
 	}
-	if r.Discovery.External[0].Output != "" || r.Models[0].External[0].Output != "" || r.Discovery.External[0].ArtifactRef != r.Models[0].External[0].ArtifactRef {
-		t.Fatalf("inline output was not replaced by one reference: %+v %+v", r.Discovery.External[0], r.Models[0].External[0])
+	if r.Extensions[0].Runner.Output != "" || r.Extensions[1].Runner.Output != "" || r.Extensions[0].Runner.ArtifactRef != r.Extensions[1].Runner.ArtifactRef {
+		t.Fatalf("inline output was not replaced by one reference: %+v %+v", r.Extensions[0].Runner, r.Extensions[1].Runner)
 	}
 	for _, artifact := range r.Guidance.Artifacts {
 		if strings.Contains(artifact.Content, secret) || strings.Contains(artifact.Content, base64Payload) || !strings.Contains(artifact.Content, "[REDACTED]") {
@@ -209,10 +208,10 @@ func TestGuidanceEmitsTargetsWithoutBroadCommands(t *testing.T) {
 }
 
 func TestArtifactReferencesAreQualifiedPerTarget(t *testing.T) {
-	r := result.Report{Discovery: result.Discovery{External: []result.ExternalResult{{Output: "same output"}}}}
+	r := result.Report{Extensions: []result.ExtensionRun{{Runner: result.ExtensionRunnerResult{Output: "same output"}}}}
 	ExtractArtifacts(&r)
 	QualifyArtifacts(&r, "Anthropic Main")
-	ref := r.Discovery.External[0].ArtifactRef
+	ref := r.Extensions[0].Runner.ArtifactRef
 	if !strings.HasPrefix(ref, "target:anthropic-main:sha256:") {
 		t.Fatalf("artifact ref=%q, want target-qualified digest", ref)
 	}

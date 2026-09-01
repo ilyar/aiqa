@@ -94,11 +94,11 @@ aiqa test=compat \
 
 Reports retain only the observed image format, media type, byte size, dimensions, and SHA-256 digest. Base64 payloads, binary data, and signed URL query strings are not stored.
 
-The native image probe consumes one artifact slot. Set `--max-artifacts-per-model=2` when the Official SDK image suite should run as well; the default limit of one prevents the external checker from creating a second billable image.
+The native image probe consumes one artifact slot. Set `--max-artifacts-per-model=2` for a combined native and Official SDK image run; the default limit of one prevents the extension suite from creating a second billable image.
 
 ## Installation
 
-Go 1.27 or later is required, the native core has no external Go dependencies
+Go 1.27 or later is required. The main module pins the official OpenAI and Anthropic Go SDKs.
 
 ```bash
 make install
@@ -160,38 +160,29 @@ The current modular profile is in [`profile/openai-compat-2026-09.json`](profile
 
 The Anthropic compatibility contract is in [`profile/anthropic-compat-2026-09.json`](profile/anthropic-compat-2026-09.json). It pins `anthropic-version: 2023-06-01` and the official Go SDK v1.68.0. AIQA sends `x-api-key`, does not inherit `ANTHROPIC_AUTH_TOKEN` or beta headers, parses Anthropic content blocks and named SSE events, and keeps Anthropic token fields distinct from OpenAI usage fields. The profile covers Models, Messages, streaming, tools, Count Tokens, structured output, vision routing, and opt-in thinking. It does not claim coverage of the entire Anthropic Platform API.
 
-See [`docs/anthropic-compatibility.md`](docs/anthropic-compatibility.md) for the complete activation, routing, module, streaming, SDK checker, report, and maintenance contract.
+See [`docs/anthropic-compatibility.md`](docs/anthropic-compatibility.md) for the complete activation, routing, module, streaming, Official SDK, report, and maintenance contract.
 
-## Official SDK checkers
+## Extension suites and Official SDKs
 
-The built-in checks are complemented by [`beranekio/openai-compatibility-tester`](https://github.com/beranekio/openai-compatibility-tester), it calls the endpoint through the official OpenAI Go SDK and detects incompatibilities that prevent a real SDK from sending a request or parsing a response
-
-```bash
-aiqa test=compat --external=auto
-```
-
-Modes:
-
-| Mode | Behavior |
-|---|---|
-| `auto` | Uses an installed binary, otherwise, uses an already local Docker image, it does not silently download anything |
-| `off` | Native probes only |
-| `binary` | Requires `openai-compatibility-tester` in `PATH`, its absence is an error |
-| `docker` | Runs the Docker image, Docker can download it if it is missing |
-
-For reproducibility, the image can be pinned to a tag or digest:
+Official SDK checks are compiled into AIQA and use the same extension contract as installed third-party suites. They run only when `ext-suite` is selected:
 
 ```bash
-aiqa test=compat \
-  --external=docker \
-  --external-image='ghcr.io/beranekio/openai-compatibility-tester:latest'
+aiqa test=ext-suite
+aiqa test=compat,ext-suite
+aiqa test=ext-suite --ext-suite=official-sdk.openai
 ```
 
-The same value is read from `AIQA_EXTERNAL_IMAGE`
+The binary pins the official OpenAI Go SDK `v3.54.0` and Anthropic Go SDK `v1.68.0`. SDK retries are disabled, and requests share AIQA's global concurrency and adaptive pacing policy. Each suite contributes separately through an explicit `aiqa.profile.v3` binding.
 
-The native suite remains mandatory: the external checker is good at testing the SDK surface, but it does not prove that a parameter accepted by the server actually affected generation. Official SDK parseability is recorded as related interoperability evidence, so it does not receive a second vote for the native wire requirement.
+Third-party suites are trusted executables. Supply an absolute path or install a matching `aiqa-*-ext-suite` command:
 
-Anthropic uses the separate checker in [`tools/anthropic-sdk-checker`](tools/anthropic-sdk-checker). It pins `anthropic-sdk-go v1.68.0`, disables SDK retries, accepts only explicit target credentials, and emits one `aiqa.external.v1` JSONL object per suite. `--anthropic-external=auto` uses an installed `anthropic-sdk-checker` binary and otherwise reports `not setup`; it does not download a binary or image. Use `--anthropic-external=docker` and `--anthropic-external-image` for an explicitly configured image.
+```bash
+aiqa test=ext-suite \
+  --ext-suite=acme.gateway \
+  --ext-suite-path=/opt/aiqa/aiqa-acme-ext-suite
+```
+
+AIQA passes credentials to executables only through stdin. Executables are not sandboxed and run with the user's OS privileges. See [`docs/extension-suites.md`](docs/extension-suites.md) for discovery, `aiqa.ext.v1`, profile bindings, status derivation, security limits, and the author fixture.
 
 ## `test=model-param`
 
@@ -285,17 +276,17 @@ Policies:
 
 ## Reports
 
-OpenAI-only runs retain the v1 root by default:
+Every run uses one report contract:
 
 ```json
 {
-  "schema_version": "aiqa.report.v1"
+  "schema_version": "aiqa.report.v3"
 }
 ```
 
-Anthropic-only and multi-target runs use `aiqa.report.v2`. Each target has its own profile, discovery inventory, models, canonical requirements, verdict, guidance, usage, and rate-limit telemetry. The root verdict applies the hardest target outcome and never computes a cross-protocol percentage. Select the contract explicitly with `--report-schema=v1|v2`; v1 is valid only for one OpenAI target.
+Each target has its own profile, discovery inventory, models, canonical requirements, verdict, guidance, usage, rate-limit telemetry, and grouped extension results. The root verdict applies the hardest target outcome and never computes a cross-protocol percentage.
 
-It contains raw model metadata, probe evidence, canonical requirements, the authoritative assessment, findings, recommendations, HTTP observations, token usage, context samples, and confidence. The API key is not written to the report. External-checker output is redacted, deduplicated, and stored once as a referenced artifact.
+It contains raw model metadata, probe evidence, canonical requirements, the authoritative assessment, findings, recommendations, HTTP observations, token usage, context samples, extension provenance, and confidence. The API key is not written to the report. Failed extension-runner diagnostics are redacted, deduplicated, and stored once as referenced artifacts.
 
 Markdown leads with core conformance, optional coverage, evidence completeness, and prioritized actions. Passed checks and raw evidence are collapsed by default. AIQA emits no overall numeric compatibility score; compare reports by canonical verdict, then by the separate core, optional, and evidence measures.
 
@@ -309,7 +300,7 @@ Guidance is deterministic and uses no additional API calls:
 --guidance-locale=en
 ```
 
-The schemas are [`schema/report.schema.json`](schema/report.schema.json), [`schema/report-v2.schema.json`](schema/report-v2.schema.json), and [`schema/profile-v2.schema.json`](schema/profile-v2.schema.json). A complete OpenAI run against a deterministic mock provider is available in [`examples/mock-report.md`](examples/mock-report.md) and [`examples/mock-report.json`](examples/mock-report.json). See [`docs/reports.md`](docs/reports.md) for exact verdict, status, priority, confidence, and multi-target semantics.
+The public schemas are [`schema/report-v3.schema.json`](schema/report-v3.schema.json), [`schema/profile-v3.schema.json`](schema/profile-v3.schema.json), and [`schema/ext-v1.schema.json`](schema/ext-v1.schema.json). See [`docs/reports.md`](docs/reports.md) for exact verdict, status, priority, confidence, and multi-target semantics.
 
 ## Full CLI reference
 
@@ -325,17 +316,17 @@ Main additional options:
 --allow-http
 --verbose
 --fail-on core|any|never
---external auto|off|binary|docker
+--ext-suite ID[,ID]
+--ext-suite-path /absolute/path
 --target auto|openai|anthropic|openai,anthropic
 --openai-model ID[,ID]
 --anthropic-model ID[,ID]
---report-schema auto|v1|v2
 --guidance full|summary|off
 --guidance-pack auto|generic|ID
 --guidance-locale en
 ```
 
-`--concurrency` limits concurrently executing native probes across all model workers. Independent checks run in parallel, while checks with data dependencies remain ordered. The adaptive pacer may temporarily reduce the active request count after rate-limit responses.
+`--concurrency` limits concurrently executing native and built-in extension requests and reserves capacity for executable extensions. Independent checks run in parallel, while checks with data dependencies remain ordered. The adaptive pacer may temporarily reduce the active request count after rate-limit responses.
 
 Plain HTTP is automatically allowed only for loopback, any other address requires explicit `--allow-http`
 
@@ -355,13 +346,13 @@ Integration tests run a deterministic mock endpoint and check:
 - discovery of an artificial context-window boundary
 - absence of the API key in JSON
 - exit policies
-- external runner modes
+- built-in and executable extension runners
 - canonical requirement aggregation and actionable guidance
 - Draft 2020-12 report-schema validation and deterministic guidance fixtures
-- dual-facade OpenAI and Anthropic execution, protocol-specific headers, named Anthropic SSE events, and v2 report isolation
-- the pinned Anthropic Official SDK checker as a separate Go module
+- dual-facade OpenAI and Anthropic execution, protocol-specific headers, named Anthropic SSE events, and v3 report isolation
+- pinned built-in OpenAI and Anthropic Official SDK suites
 
-Live CI jobs are disabled unless the repository variables `AIQA_LIVE_OPENAI`, `AIQA_LIVE_ANTHROPIC`, or `AIQA_LIVE_DUAL` equal `1`. They also require matching secret URLs and keys plus an explicit model variable. Live jobs are non-blocking, run one model, disable external checkers, and never scan a production catalog by default.
+Live CI jobs are disabled unless the repository variables `AIQA_LIVE_OPENAI`, `AIQA_LIVE_ANTHROPIC`, or `AIQA_LIVE_DUAL` equal `1`. They also require matching secret URLs and keys plus an explicit model variable. Live jobs are non-blocking, run one model, omit `ext-suite`, and never scan a production catalog by default.
 
 See [`docs/adding-tests.md`](docs/adding-tests.md) for how to add a new suite or probe
 
@@ -378,7 +369,6 @@ An upstream change does not automatically update the profile: first review the d
 
 - OpenAI OpenAPI specification: <https://github.com/openai/openai-openapi>
 - Official OpenAI Go SDK: <https://github.com/openai/openai-go>
-- External SDK compatibility tester: <https://github.com/beranekio/openai-compatibility-tester>
 - Anthropic API versioning and Messages documentation: <https://platform.claude.com/docs/en/api/versioning>
 - Official Anthropic Go SDK v1.68.0: <https://github.com/anthropics/anthropic-sdk-go/releases/tag/v1.68.0>
 

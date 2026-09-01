@@ -21,6 +21,7 @@ jobs:
           python-version: '3.x'
       - run: python3 -m pip install 'jsonschema==4.25.1'
       - run: make check
+      - run: make security-check
       - run: make build VERSION=ci COMMIT="${GITHUB_SHA::12}" DATE=ci
       - run: ./bin/aiqa --version
       - run: make race
@@ -42,7 +43,7 @@ jobs:
           OPENAI_MODEL: ${{ vars.AIQA_OPENAI_MODEL }}
         run: |
           test -n "$OPENAI_BASE_URL" && test -n "$OPENAI_API_KEY" && test -n "$OPENAI_MODEL"
-          ./bin/aiqa test=compat --openai-model="$OPENAI_MODEL" --external=off --timeout=30 --request-interval=250ms --format=json --name=live-openai
+          ./bin/aiqa test=compat --openai-model="$OPENAI_MODEL" --timeout=30 --request-interval=250ms --format=json --name=live-openai
       - name: Upload sanitized OpenAI report
         if: always()
         uses: actions/upload-artifact@v4
@@ -69,7 +70,7 @@ jobs:
           ANTHROPIC_MODEL: ${{ vars.AIQA_ANTHROPIC_MODEL }}
         run: |
           test -n "$ANTHROPIC_BASE_URL" && test -n "$ANTHROPIC_API_KEY" && test -n "$ANTHROPIC_MODEL"
-          ./bin/aiqa test=compat --anthropic-model="$ANTHROPIC_MODEL" --external=off --timeout=30 --request-interval=250ms --format=json --name=live-anthropic
+          ./bin/aiqa test=compat --anthropic-model="$ANTHROPIC_MODEL" --timeout=30 --request-interval=250ms --format=json --name=live-anthropic
       - name: Upload sanitized Anthropic report
         if: always()
         uses: actions/upload-artifact@v4
@@ -100,7 +101,7 @@ jobs:
         run: |
           test -n "$OPENAI_BASE_URL" && test -n "$OPENAI_API_KEY" && test -n "$ANTHROPIC_BASE_URL" && test -n "$ANTHROPIC_API_KEY"
           test -n "$OPENAI_MODEL" && test -n "$ANTHROPIC_MODEL"
-          ./bin/aiqa test=compat --openai-model="$OPENAI_MODEL" --anthropic-model="$ANTHROPIC_MODEL" --external=off --timeout=30 --request-interval=250ms --format=json --name=live-dual
+          ./bin/aiqa test=compat --openai-model="$OPENAI_MODEL" --anthropic-model="$ANTHROPIC_MODEL" --timeout=30 --request-interval=250ms --format=json --name=live-dual
       - name: Upload sanitized dual-target report
         if: always()
         uses: actions/upload-artifact@v4

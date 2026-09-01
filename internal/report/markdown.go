@@ -2,7 +2,6 @@ package report
 
 import (
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -25,7 +24,6 @@ func Markdown(r result.Report) string {
 	fmt.Fprintf(&b, "- **Suites:** `%s`\n", strings.Join(r.Config.Tests, ","))
 	fmt.Fprintf(&b, "- **Timeout:** `%s` per request\n", r.Config.Timeout)
 	fmt.Fprintf(&b, "- **Profile:** `%s@%s` (`%s`) – %s\n", r.Profile.ID, r.Profile.Revision, shortSHA(r.Profile.SourceCommit), r.Profile.Scope)
-	fmt.Fprintf(&b, "- **External checks:** %s\n", externalChecks(r))
 	fmt.Fprintln(&b)
 
 	fmt.Fprintln(&b, "## Summary")
@@ -48,11 +46,6 @@ func Markdown(r result.Report) string {
 		fmt.Fprintln(&b)
 		writeTestTable(&b, nonPass)
 		fmt.Fprintln(&b)
-	}
-	if nonPass := filterExternal(r.Discovery.External, false); len(nonPass) > 0 {
-		fmt.Fprintln(&b, "### Provider Official SDK issues")
-		fmt.Fprintln(&b)
-		writeExternalTable(&b, nonPass)
 	}
 	if len(r.Discovery.Models) > 0 {
 		fmt.Fprintf(&b, "Discovered models: **%d**.", len(r.Discovery.Models))
@@ -129,11 +122,6 @@ func Markdown(r result.Report) string {
 		if m.Context != nil {
 			writeContext(&b, *m.Context)
 		}
-		if nonPass := filterExternal(m.External, false); len(nonPass) > 0 {
-			fmt.Fprintln(&b, "#### Official SDK issues")
-			fmt.Fprintln(&b)
-			writeExternalTable(&b, nonPass)
-		}
 	}
 
 	writeRequirementAssessment(&b, r.Requirements)
@@ -186,49 +174,6 @@ func writeRateLimit(b *strings.Builder, s result.RateLimitStats) {
 	fmt.Fprintf(b, "- Observed safe concurrency: %d\n", s.SafeConcurrency)
 	fmt.Fprintf(b, "- Successful native latency (n=%d): mean %d ms; P50 %d ms; P95 %d ms\n", s.LatencySamples, s.MeanLatencyMS, s.P50LatencyMS, s.P95LatencyMS)
 	fmt.Fprintf(b, "- Backoff time: %d ms\n\n", s.BackoffMS)
-}
-
-func externalChecks(r result.Report) string {
-	checks := map[string]bool{}
-	for _, check := range r.Discovery.External {
-		if check.Suite != "" {
-			checks[check.Tool] = true
-		}
-	}
-	for _, model := range r.Models {
-		for _, check := range model.External {
-			if check.Suite != "" {
-				checks[check.Tool] = true
-			}
-		}
-	}
-	if len(checks) == 0 {
-		return "not setup"
-	}
-	names := make([]string, 0, len(checks))
-	for name := range checks {
-		switch name {
-		case "official-SDK":
-			names = append(names, "Official SDK")
-		default:
-			names = append(names, name)
-		}
-	}
-	sort.Strings(names)
-	return strings.Join(names, ", ")
-}
-
-func writeExternalTable(b *strings.Builder, external []result.ExternalResult) {
-	fmt.Fprintln(b, "| Suite | Status | Summary | Duration |")
-	fmt.Fprintln(b, "|---|---:|---|---:|")
-	for _, e := range external {
-		suite := e.Suite
-		if suite == "" {
-			suite = "runner"
-		}
-		fmt.Fprintf(b, "| `%s` | %s | %s | %d ms |\n", escapeCell(suite), statusLabel(e.Status), escapeCell(e.Summary), e.DurationMS)
-	}
-	fmt.Fprintln(b)
 }
 
 func capabilityCells(m result.ModelReport) (string, string, string) {

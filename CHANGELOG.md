@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Replace Docker and checker-specific Official SDK transports with the explicit `test=ext-suite` architecture.
+- Embed OpenAI Go SDK `v3.54.0` and Anthropic Go SDK `v1.68.0`, disable SDK retries, and route built-in requests through AIQA concurrency and pacing controls.
+- Preserve the retained Models, chat/Messages, streaming, structured-output, tools, error, token-counting, and image SDK cases as independently bound suites; omit obsolete OpenAI checker labels that had no selectable profile module.
+- Add trusted executable discovery, the strict `aiqa.ext.v1` JSONL protocol, bounded partial-output recovery, stdin-only credentials, clean child environments, and executable SHA-256 provenance.
+- Share each target's adaptive pacer and global executor across native and extension phases, expose current pacing constraints to executables, and enforce one deterministic per-model artifact budget across native and extension suites.
+- Introduce `aiqa.profile.v3` extension bindings and grouped `aiqa.report.v3` provenance, runner, and suite results. Unbound extension evidence is supplementary and cannot affect conformance.
+- Remove legacy external-checker flags, Docker assets, human-output parsing, report fields, schemas, and the separate Anthropic checker module.
+- Document the extension author contract and publish a reusable conformance fixture under `test/fixtures/ext-suite`.
+
 ## 1.0.0-alpha.2 – 2026-08-30
 
 - Initial `compat` suite for OpenAI Models and Chat Completions APIs.

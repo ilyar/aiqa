@@ -192,20 +192,65 @@ type Summary struct {
 	ContextProbeTokens int64                  `json:"context_probe_tokens,omitempty"`
 }
 
-type ExternalResult struct {
-	Tool                  string           `json:"tool"`
-	Suite                 string           `json:"suite,omitempty"`
-	Model                 string           `json:"model,omitempty"`
+// ExtensionOutcome is the raw observation reported by an extension suite.
+// It deliberately does not include conformance terms such as "unsupported";
+// AIQA derives the public Status from this observation and the active profile.
+type ExtensionOutcome string
+
+const (
+	ExtensionOutcomePass            ExtensionOutcome = "pass"
+	ExtensionOutcomeAssertionFailed ExtensionOutcome = "assertion_failed"
+	ExtensionOutcomeRequestRejected ExtensionOutcome = "request_rejected"
+	ExtensionOutcomeExecutionError  ExtensionOutcome = "execution_error"
+	ExtensionOutcomeSkip            ExtensionOutcome = "skip"
+)
+
+type ExtensionProvenance struct {
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Version         string `json:"version"`
+	Source          string `json:"source"`
+	ProtocolVersion string `json:"protocol_version"`
+	Path            string `json:"path,omitempty"`
+	SHA256          string `json:"sha256,omitempty"`
+}
+
+type ExtensionRunnerResult struct {
+	Status            Status `json:"status"`
+	StartupDurationMS int64  `json:"startup_duration_ms"`
+	TotalDurationMS   int64  `json:"total_duration_ms"`
+	ExitCode          int    `json:"exit_code"`
+	PacingCompliance  string `json:"pacing_compliance"`
+	Summary           string `json:"summary"`
+	ArtifactRef       string `json:"artifact_ref,omitempty"`
+	Error             string `json:"error,omitempty"`
+	Output            string `json:"-"`
+}
+
+type ExtensionSuiteResult struct {
+	ExtensionID           string           `json:"extension_id"`
+	SuiteID               string           `json:"suite_id"`
+	Subject               SubjectRef       `json:"subject"`
+	Outcome               ExtensionOutcome `json:"outcome"`
 	Status                Status           `json:"status"`
-	ExitCode              int              `json:"exit_code,omitempty"`
-	DurationMS            int64            `json:"duration_ms,omitempty"`
+	DurationMS            int64            `json:"duration_ms"`
 	Summary               string           `json:"summary"`
-	Output                string           `json:"output,omitempty"`
-	ArtifactRef           string           `json:"artifact_ref,omitempty"`
-	RequirementIDs        []string         `json:"requirement_ids,omitempty"`
-	RelatedRequirementIDs []string         `json:"related_requirement_ids,omitempty"`
+	HTTP                  HTTPObservation  `json:"http,omitempty"`
+	Usage                 Usage            `json:"usage,omitempty"`
 	Signals               []EvidenceSignal `json:"signals,omitempty"`
+	RequirementID         string           `json:"requirement_id,omitempty"`
+	RelatedRequirementIDs []string         `json:"related_requirement_ids,omitempty"`
+	Bound                 bool             `json:"bound"`
+	ArtifactRef           string           `json:"artifact_ref,omitempty"`
 	Error                 string           `json:"error,omitempty"`
+}
+
+type ExtensionRun struct {
+	Provenance ExtensionProvenance    `json:"provenance"`
+	TargetID   string                 `json:"target_id"`
+	Subject    SubjectRef             `json:"subject"`
+	Runner     ExtensionRunnerResult  `json:"runner"`
+	Suites     []ExtensionSuiteResult `json:"suites"`
 }
 
 type ModelReport struct {
@@ -214,7 +259,6 @@ type ModelReport struct {
 	Compatibility []TestResult           `json:"compatibility,omitempty"`
 	Parameters    []ParameterResult      `json:"parameters,omitempty"`
 	Context       *ContextProbeResult    `json:"context,omitempty"`
-	External      []ExternalResult       `json:"external,omitempty"`
 	RateLimit     *RateLimitStats        `json:"rate_limit,omitempty"`
 	Capabilities  []CapabilityAssessment `json:"capabilities,omitempty"`
 	Modules       []ModuleAssessment     `json:"modules,omitempty"`
@@ -244,25 +288,28 @@ type TargetPublicConfig struct {
 	APIVersion        string   `json:"api_version,omitempty"`
 }
 
-type PublicConfigV2 struct {
-	Tests    []string             `json:"tests"`
-	Targets  []TargetPublicConfig `json:"targets"`
-	Timeout  string               `json:"timeout"`
-	Formats  []string             `json:"formats"`
-	FailOn   string               `json:"fail_on"`
-	Guidance string               `json:"guidance,omitempty"`
+type PublicConfigV3 struct {
+	Tests     []string             `json:"tests"`
+	Targets   []TargetPublicConfig `json:"targets"`
+	Timeout   string               `json:"timeout"`
+	Formats   []string             `json:"formats"`
+	FailOn    string               `json:"fail_on"`
+	Guidance  string               `json:"guidance,omitempty"`
+	ExtSuites []string             `json:"ext_suites,omitempty"`
 }
 
 type TargetReport struct {
-	ID           string                  `json:"id"`
-	Protocol     string                  `json:"protocol"`
-	Profile      ProfileInfo             `json:"profile"`
-	Discovery    Discovery               `json:"discovery"`
-	Models       []ModelReport           `json:"models"`
-	Requirements []RequirementAssessment `json:"requirements,omitempty"`
-	Summary      Summary                 `json:"summary"`
-	Guidance     GuidanceReport          `json:"guidance"`
-	RateLimit    RateLimitStats          `json:"rate_limit"`
+	ID                 string                  `json:"id"`
+	Protocol           string                  `json:"protocol"`
+	Profile            ProfileInfo             `json:"profile"`
+	Discovery          Discovery               `json:"discovery"`
+	Models             []ModelReport           `json:"models"`
+	Requirements       []RequirementAssessment `json:"requirements,omitempty"`
+	Summary            Summary                 `json:"summary"`
+	Guidance           GuidanceReport          `json:"guidance"`
+	RateLimit          RateLimitStats          `json:"rate_limit"`
+	ExtensionRateLimit *RateLimitStats         `json:"extension_rate_limit,omitempty"`
+	Extensions         []ExtensionRun          `json:"extensions,omitempty"`
 }
 
 type RunSummary struct {
@@ -272,11 +319,13 @@ type RunSummary struct {
 	BlockingTargets []string       `json:"blocking_targets,omitempty"`
 }
 
-type ReportV2 struct {
+// ReportV3 is the public multi-target report contract. Extension provenance,
+// runner state, and suite evidence are grouped per target.
+type ReportV3 struct {
 	SchemaVersion string         `json:"schema_version"`
 	GeneratedAt   time.Time      `json:"generated_at"`
 	Tool          ToolInfo       `json:"tool"`
-	Config        PublicConfigV2 `json:"config"`
+	Config        PublicConfigV3 `json:"config"`
 	Targets       []TargetReport `json:"targets"`
 	Summary       RunSummary     `json:"summary"`
 }
@@ -295,7 +344,7 @@ type PublicConfig struct {
 	RequestedModels        []string `json:"requested_models,omitempty"`
 	Timeout                string   `json:"timeout"`
 	Formats                []string `json:"formats"`
-	ExternalMode           string   `json:"external_mode"`
+	ExtSuites              []string `json:"ext_suites,omitempty"`
 	FailOn                 string   `json:"fail_on"`
 	ContextMaxTokens       int64    `json:"context_max_tokens,omitempty"`
 	ContextPrecision       int64    `json:"context_precision_tokens,omitempty"`
@@ -315,21 +364,22 @@ type Discovery struct {
 	Tests         []TestResult     `json:"tests,omitempty"`
 	Compatibility []TestResult     `json:"compatibility,omitempty"`
 	ModelCount    int              `json:"model_count"`
-	External      []ExternalResult `json:"external,omitempty"`
 }
 
 type Report struct {
-	SchemaVersion string                  `json:"schema_version"`
-	GeneratedAt   time.Time               `json:"generated_at"`
-	Tool          ToolInfo                `json:"tool"`
-	Profile       ProfileInfo             `json:"profile"`
-	Config        PublicConfig            `json:"config"`
-	Discovery     Discovery               `json:"discovery"`
-	Models        []ModelReport           `json:"models"`
-	Summary       Summary                 `json:"summary"`
-	RateLimit     RateLimitStats          `json:"rate_limit"`
-	Requirements  []RequirementAssessment `json:"requirements,omitempty"`
-	Guidance      GuidanceReport          `json:"guidance"`
+	SchemaVersion      string                  `json:"schema_version"`
+	GeneratedAt        time.Time               `json:"generated_at"`
+	Tool               ToolInfo                `json:"tool"`
+	Profile            ProfileInfo             `json:"profile"`
+	Config             PublicConfig            `json:"config"`
+	Discovery          Discovery               `json:"discovery"`
+	Models             []ModelReport           `json:"models"`
+	Summary            Summary                 `json:"summary"`
+	RateLimit          RateLimitStats          `json:"rate_limit"`
+	ExtensionRateLimit *RateLimitStats         `json:"-"`
+	Requirements       []RequirementAssessment `json:"requirements,omitempty"`
+	Guidance           GuidanceReport          `json:"guidance"`
+	Extensions         []ExtensionRun          `json:"extensions,omitempty"`
 }
 
 type RateLimitStats struct {

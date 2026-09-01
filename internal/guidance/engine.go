@@ -83,38 +83,33 @@ func Apply(r *result.Report, p profile.Profile, opts Options) {
 	}
 }
 
-// ExtractArtifacts stores each sanitized external checker log once and replaces
-// repeated inline output with a stable content-addressed reference.
+// ExtractArtifacts stores each sanitized extension runner diagnostic once and
+// replaces inline output with a stable content-addressed reference.
 func ExtractArtifacts(r *result.Report) {
 	if r.Guidance.Artifacts == nil {
 		r.Guidance.Artifacts = map[string]result.GuidanceArtifact{}
 	}
-	visit := func(external *result.ExternalResult) {
-		if external.Output == "" {
+	visit := func(runner *result.ExtensionRunnerResult) {
+		if runner.Output == "" {
 			return
 		}
-		content, truncated := sanitizeArtifact(external.Output, 16*1024)
+		content, truncated := sanitizeArtifact(runner.Output, 16*1024)
 		sum := sha256.Sum256([]byte(content))
 		hexDigest := hex.EncodeToString(sum[:])
 		ref := "sha256:" + hexDigest
 		r.Guidance.Artifacts[ref] = result.GuidanceArtifact{
-			Kind:      "external_checker_log",
+			Kind:      "extension_runner_log",
 			MediaType: "text/plain",
 			Bytes:     len(content),
 			SHA256:    hexDigest,
 			Content:   content,
 			Truncated: truncated,
 		}
-		external.ArtifactRef = ref
-		external.Output = ""
+		runner.ArtifactRef = ref
+		runner.Output = ""
 	}
-	for i := range r.Discovery.External {
-		visit(&r.Discovery.External[i])
-	}
-	for modelIndex := range r.Models {
-		for i := range r.Models[modelIndex].External {
-			visit(&r.Models[modelIndex].External[i])
-		}
+	for i := range r.Extensions {
+		visit(&r.Extensions[i].Runner)
 	}
 }
 
@@ -137,13 +132,8 @@ func QualifyArtifacts(r *result.Report, targetID string) {
 		qualified[rewrite(ref)] = artifact
 	}
 	r.Guidance.Artifacts = qualified
-	for index := range r.Discovery.External {
-		r.Discovery.External[index].ArtifactRef = rewrite(r.Discovery.External[index].ArtifactRef)
-	}
-	for modelIndex := range r.Models {
-		for index := range r.Models[modelIndex].External {
-			r.Models[modelIndex].External[index].ArtifactRef = rewrite(r.Models[modelIndex].External[index].ArtifactRef)
-		}
+	for index := range r.Extensions {
+		r.Extensions[index].Runner.ArtifactRef = rewrite(r.Extensions[index].Runner.ArtifactRef)
 	}
 }
 
@@ -260,7 +250,7 @@ func rootCauseKey(requirement result.RequirementAssessment, code string) string 
 
 func findingCodes(requirement result.RequirementAssessment, catalog Catalog) []string {
 	if requirement.FailureKind == "evidence_conflict" {
-		if requirement.ID == "chat.stream.sse" || requirement.ID == "chat.stream.usage" || requirement.ID == "official-sdk.chat.stream" || requirement.ID == "official-sdk.chat.stream.usage" {
+		if requirement.ID == "chat.stream.sse" || requirement.ID == "chat.stream.usage" || strings.HasSuffix(requirement.ID, "official-sdk.openai.chat.stream") || strings.HasSuffix(requirement.ID, "official-sdk.openai.chat.stream.usage") {
 			return []string{"evidence.chat.stream.native_sdk_conflict"}
 		}
 		return []string{"evidence." + findingCodeID(requirement.ID) + ".native_sdk_conflict"}
@@ -272,7 +262,7 @@ func findingCodes(requirement result.RequirementAssessment, catalog Catalog) []s
 			if _, ok := catalog.Entry(signal.Code); ok {
 				curated[signal.Code] = true
 			}
-			if strings.HasPrefix(signal.Code, "external.runner.") {
+			if strings.HasPrefix(signal.Code, "extension.runner.") {
 				runner[signal.Code] = true
 			}
 		}
@@ -445,7 +435,7 @@ func findingClass(code string, statuses map[result.RequirementStatus]bool, failu
 		return "unsupported_capability"
 	case strings.HasPrefix(code, "configuration."):
 		return "configuration_constraint"
-	case strings.HasPrefix(code, "external.runner"):
+	case strings.HasPrefix(code, "extension.runner"):
 		return "runner_defect"
 	case strings.HasPrefix(code, "execution.") || statuses[result.RequirementError]:
 		return "execution_failure"
@@ -488,8 +478,8 @@ func defaultAttribution(code string, subject result.SubjectRef, statuses map[res
 	if failureKinds["evidence_conflict"] {
 		return result.Attribution{Component: "unknown", Confidence: "low", Basis: "The evidence sources disagree, so the responsible component is not localized."}
 	}
-	if strings.HasPrefix(code, "external.runner") {
-		return result.Attribution{Component: "external_checker", Confidence: "low", Basis: "The external checker failed before it produced requirement evidence."}
+	if strings.HasPrefix(code, "extension.runner") {
+		return result.Attribution{Component: "extension_runner", Confidence: "low", Basis: "The extension runner failed before it produced complete requirement evidence."}
 	}
 	if statuses[result.RequirementError] {
 		return result.Attribution{Component: "network_or_runtime", Confidence: "low", Basis: "Execution failed before compatibility could be established."}

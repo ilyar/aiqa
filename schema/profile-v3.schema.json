@@ -1,16 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://example.invalid/aiqa/schema/profile-v2.schema.json",
-  "title": "AIQA compatibility profile v2",
+  "$id": "https://example.invalid/aiqa/schema/profile-v3.schema.json",
+  "title": "AIQA compatibility profile v3",
   "type": "object",
-  "required": ["schema_version", "id", "protocol", "revision", "base_url_semantics", "sources", "scope", "modules", "probes"],
+  "required": ["schema_version", "id", "protocol", "revision", "base_url_semantics", "source", "source_commit", "sources", "scope", "modules", "probes", "extension_bindings", "standard_parameters", "vendor_extensions"],
   "properties": {
-    "schema_version": {"const": "aiqa.profile.v2"},
+    "schema_version": {"const": "aiqa.profile.v3"},
     "id": {"type": "string", "minLength": 1},
     "protocol": {"enum": ["openai", "anthropic"]},
     "revision": {"type": "string", "format": "date"},
     "api_version": {"type": "string", "minLength": 1},
-    "base_url_semantics": {"enum": ["includes_v1", "prefix_before_v1"]},
+    "base_url_semantics": {"type": "string", "minLength": 1},
     "source": {"type": "string", "format": "uri"},
     "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "source_ref_revision": {"type": "string"},
@@ -26,7 +26,8 @@
           "reviewed_at": {"type": "string", "format": "date"},
           "version": {"type": "string"},
           "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
-        }, "additionalProperties": false
+        },
+        "additionalProperties": false
       }
     },
     "modules": {
@@ -40,8 +41,9 @@
           "default_enabled": {"type": "boolean"},
           "cost_class": {"type": "string", "minLength": 1},
           "capabilities": {"type": "array", "items": {"type": "string", "minLength": 1}},
-          "probe_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
-        }, "additionalProperties": false
+          "probe_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+        },
+        "additionalProperties": false
       }
     },
     "probes": {
@@ -53,8 +55,26 @@
           "name": {"type": "string", "minLength": 1},
           "category": {"type": "string", "minLength": 1},
           "required": {"type": "boolean"},
-          "description": {"type": "string", "minLength": 1}
-        }, "additionalProperties": false
+          "description": {"type": "string", "minLength": 1},
+          "executor": {"enum": ["native", "extension"]}
+        },
+        "additionalProperties": false
+      }
+    },
+    "extension_bindings": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["extension_id", "suite_id", "requirement_id", "subject", "module"],
+        "properties": {
+          "extension_id": {"type": "string", "pattern": "^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"},
+          "suite_id": {"type": "string", "pattern": "^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"},
+          "requirement_id": {"type": "string", "minLength": 1},
+          "related_requirement_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+          "subject": {"enum": ["provider", "model"]},
+          "module": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
       }
     },
     "standard_parameters": {"type": "array", "items": {"type": "string"}},

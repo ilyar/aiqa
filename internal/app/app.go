@@ -14,7 +14,9 @@ import (
 	"github.com/ilyar/aiqa/internal/assessment"
 	"github.com/ilyar/aiqa/internal/capability"
 	"github.com/ilyar/aiqa/internal/config"
-	"github.com/ilyar/aiqa/internal/external"
+	"github.com/ilyar/aiqa/internal/extsuite"
+	extanthropic "github.com/ilyar/aiqa/internal/extsuite/builtin/anthropic"
+	extopenai "github.com/ilyar/aiqa/internal/extsuite/builtin/openai"
 	"github.com/ilyar/aiqa/internal/guidance"
 	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/profile"
@@ -32,9 +34,11 @@ type BuildInfo struct {
 
 type RunResult struct {
 	Report   result.Report
-	ReportV2 *result.ReportV2
+	ReportV3 *result.ReportV3
 	Paths    []string
 	ExitCode int
+	client   *api.Client
+	executor *probe.Executor
 }
 
 func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, error) {
@@ -47,11 +51,8 @@ func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, er
 			ID: "openai", Protocol: config.ProtocolOpenAI, BaseURL: cfg.BaseURL, APIKey: cfg.APIKey,
 			Models: append([]string(nil), cfg.Models...), ProfileFile: profileFile, Modules: append([]string(nil), cfg.Modules...),
 			ModelCapabilities: append([]string(nil), cfg.ModelCapabilities...), CapabilityFile: cfg.CapabilityFile, UnknownModel: cfg.UnknownModel,
-			ExternalMode: cfg.ExternalMode, ExternalImage: cfg.ExternalImage, RequestInterval: cfg.RequestInterval,
+			RequestInterval: cfg.RequestInterval,
 		}}
-	}
-	if len(cfg.Targets) == 1 && cfg.Targets[0].Protocol == config.ProtocolOpenAI && cfg.ReportSchema != "v2" {
-		return runOpenAI(ctx, openAIConfig(cfg, cfg.Targets[0]), build)
 	}
 	return runMultiTarget(ctx, cfg, build)
 }
@@ -90,7 +91,7 @@ func runOpenAI(ctx context.Context, cfg config.Config, build BuildInfo) (RunResu
 	client.SetConcurrency(cfg.Concurrency)
 	probeExecutor := probe.NewExecutor(cfg.Concurrency)
 	r := result.Report{
-		SchemaVersion: "aiqa.report.v1",
+		SchemaVersion: "aiqa.report.internal",
 		GeneratedAt:   time.Now().UTC(),
 		Tool: result.ToolInfo{
 			Name:      "aiqa",
@@ -117,7 +118,7 @@ func runOpenAI(ctx context.Context, cfg config.Config, build BuildInfo) (RunResu
 			RequestedModels:        append([]string(nil), cfg.Models...),
 			Timeout:                cfg.Timeout.String(),
 			Formats:                append([]string(nil), cfg.Formats...),
-			ExternalMode:           cfg.ExternalMode,
+			ExtSuites:              append([]string(nil), cfg.ExtSuites...),
 			FailOn:                 cfg.FailOn,
 			ContextMaxTokens:       cfg.ContextMaxTokens,
 			ContextPrecision:       cfg.ContextPrecision,
@@ -162,14 +163,10 @@ func runOpenAI(ctx context.Context, cfg config.Config, build BuildInfo) (RunResu
 		guidance.ExtractArtifacts(&r)
 		assessment.Apply(&r, p)
 		guidance.Apply(&r, p, guidance.Options{Mode: cfg.Guidance, Pack: cfg.GuidancePack, Locale: cfg.GuidanceLocale})
-		paths, writeErr := reportpkg.Write(r, cfg)
-		if writeErr != nil {
-			return RunResult{Report: r, ExitCode: 2}, writeErr
-		}
 		if listErr != nil {
-			return RunResult{Report: r, Paths: paths, ExitCode: 1}, fmt.Errorf("no models available: %w", listErr)
+			return RunResult{Report: r, ExitCode: 1, client: client, executor: probeExecutor}, fmt.Errorf("no models available: %w", listErr)
 		}
-		return RunResult{Report: r, Paths: paths, ExitCode: 1}, fmt.Errorf("no models returned by endpoint")
+		return RunResult{Report: r, ExitCode: 1, client: client, executor: probeExecutor}, fmt.Errorf("no models returned by endpoint")
 	}
 	fmt.Fprintf(os.Stderr, "aiqa: testing %d model(s): %s\n", len(selected), joinModels(selected))
 	if cfg.HasTest("model-param") {
@@ -187,9 +184,6 @@ func runOpenAI(ctx context.Context, cfg config.Config, build BuildInfo) (RunResu
 	if cfg.HasTest("compat") && chatRepresentative != "" {
 		r.Discovery.Compatibility = append(r.Discovery.Compatibility, suites.RunEndpointCompat(ctx, env, chatRepresentative)...)
 		suites.SortTests(r.Discovery.Compatibility)
-	}
-	if cfg.HasTest("compat") && cfg.ExternalMode != "off" {
-		r.Discovery.External = external.RunModule(ctx, cfg, "", p, "discovery")
 	}
 
 	type item struct {
@@ -226,15 +220,6 @@ func runOpenAI(ctx context.Context, cfg config.Config, build BuildInfo) (RunResu
 				if cfg.HasTest("model-param") && chatModule != nil && chatModule.Execution == result.ExecutionExecuted {
 					mr.Parameters, mr.Context = suites.RunModelParameters(ctx, env, model, metadata[model])
 				}
-				if cfg.HasTest("compat") && cfg.ExternalMode != "off" && chatModule != nil && chatModule.Execution == result.ExecutionExecuted {
-					mr.External = append(mr.External, external.RunModule(ctx, cfg, model, p, capability.ModuleChat)...)
-				}
-				// The native image probe consumes the first artifact slot. The
-				// Official SDK image suite is also billable, so run it only when
-				// the user explicitly budgets a second artifact.
-				if cfg.HasTest("compat") && cfg.ExternalMode != "off" && cfg.MaxArtifactsPerModel >= 2 && imageModule != nil && imageModule.Execution == result.ExecutionExecuted {
-					mr.External = append(mr.External, external.RunModule(ctx, cfg, model, p, capability.ModuleImages)...)
-				}
 				if len(selected) > 1 {
 					stats := client.PacingStatsForModel(model)
 					mr.RateLimit = &result.RateLimitStats{SuccessfulRequests: stats.SuccessfulRequests, RateLimited: stats.RateLimited, RetriesRecovered: stats.RetriesRecovered, BackoffMS: stats.Backoff.Milliseconds(), SafeRate: stats.SafeRate, SafeConcurrency: stats.SafeConcurrency}
@@ -266,33 +251,43 @@ func runOpenAI(ctx context.Context, cfg config.Config, build BuildInfo) (RunResu
 	guidance.ExtractArtifacts(&r)
 	assessment.Apply(&r, p)
 	guidance.Apply(&r, p, guidance.Options{Mode: cfg.Guidance, Pack: cfg.GuidancePack, Locale: cfg.GuidanceLocale})
-	paths, err := reportpkg.Write(r, cfg)
-	if err != nil {
-		return RunResult{Report: r, ExitCode: 2}, err
-	}
-	return RunResult{Report: r, Paths: paths, ExitCode: exitCode(cfg, r.Summary)}, nil
+	return RunResult{Report: r, ExitCode: exitCode(cfg, r.Summary), client: client, executor: probeExecutor}, nil
 }
 
 func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, error) {
-	r := result.ReportV2{
-		SchemaVersion: "aiqa.report.v2",
+	r := result.ReportV3{
+		SchemaVersion: "aiqa.report.v3",
 		GeneratedAt:   time.Now().UTC(),
 		Tool:          result.ToolInfo{Name: "aiqa", Version: build.Version, Commit: build.Commit, BuildDate: build.Date, GoVersion: runtime.Version()},
-		Config:        result.PublicConfigV2{Tests: append([]string(nil), cfg.Tests...), Timeout: cfg.Timeout.String(), Formats: append([]string(nil), cfg.Formats...), FailOn: cfg.FailOn, Guidance: cfg.Guidance},
+		Config:        result.PublicConfigV3{Tests: append([]string(nil), cfg.Tests...), Timeout: cfg.Timeout.String(), Formats: append([]string(nil), cfg.Formats...), FailOn: cfg.FailOn, Guidance: cfg.Guidance, ExtSuites: append([]string(nil), cfg.ExtSuites...)},
+	}
+	registry, err := extsuite.NewRegistry(extopenai.New(), extanthropic.New())
+	if err != nil {
+		return RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("register built-in extension suites: %w", err)
+	}
+	if cfg.HasTest("ext-suite") {
+		if err := extsuite.RegisterExecutables(ctx, registry, cfg, extsuite.HostInfo{Name: "aiqa", Version: build.Version}); err != nil {
+			return RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("discover extension suites: %w", err)
+		}
+		if err := extsuite.ValidateSelection(registry, cfg.ExtSuites); err != nil {
+			return RunResult{ReportV3: &r, ExitCode: 2}, err
+		}
 	}
 	logf := func(format string, args ...any) {
 		if cfg.Verbose {
 			fmt.Fprintf(os.Stderr, "aiqa: "+format+"\n", args...)
 		}
 	}
-	for _, target := range cfg.Targets {
+	targets := append([]config.TargetConfig(nil), cfg.Targets...)
+	sort.Slice(targets, func(i, j int) bool { return targets[i].ID < targets[j].ID })
+	for _, target := range targets {
 		r.Config.Targets = append(r.Config.Targets, result.TargetPublicConfig{ID: target.ID, Protocol: string(target.Protocol), BaseURL: target.BaseURL, BaseURLNormalized: target.BaseURLNormalized, RequestedModels: append([]string(nil), target.Models...), APIVersion: target.APIVersion})
 		p, err := profile.LoadFile(target.ProfileFile)
 		if err != nil {
-			return RunResult{ReportV2: &r, ExitCode: 2}, fmt.Errorf("load %s profile: %w", target.ID, err)
+			return RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("load %s profile: %w", target.ID, err)
 		}
 		if p.Protocol != string(target.Protocol) {
-			return RunResult{ReportV2: &r, ExitCode: 2}, fmt.Errorf("profile %s uses protocol %s, expected %s", target.ProfileFile, p.Protocol, target.Protocol)
+			return RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("profile %s uses protocol %s, expected %s", target.ProfileFile, p.Protocol, target.Protocol)
 		}
 		switch target.Protocol {
 		case config.ProtocolOpenAI:
@@ -300,31 +295,41 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (Ru
 			openCfg.Formats = nil
 			out, runErr := runOpenAI(ctx, openCfg, build)
 			if out.Report.SchemaVersion == "" {
-				return RunResult{ReportV2: &r, ExitCode: 2}, fmt.Errorf("run OpenAI target: %w", runErr)
+				return RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("run OpenAI target: %w", runErr)
 			}
 			guidance.QualifyArtifacts(&out.Report, target.ID)
 			assessment.ApplyTarget(&out.Report, p, target.ID, string(target.Protocol))
 			guidance.Apply(&out.Report, p, guidance.Options{Mode: cfg.Guidance, Pack: cfg.GuidancePack, Locale: cfg.GuidanceLocale})
-			r.Targets = append(r.Targets, targetFromV1(target, out.Report))
+			targetReport := targetFromV1(target, out.Report)
+			targetReport, extErr := finishTargetExtensions(ctx, cfg, target, p, targetReport, registry, out.client, out.executor)
+			if extErr != nil {
+				return RunResult{ReportV3: &r, ExitCode: 2}, extErr
+			}
+			r.Targets = append(r.Targets, targetReport)
 		case config.ProtocolAnthropic:
-			targetReport, runErr := protocolanthropic.Run(ctx, protocolanthropic.RunOptions{Target: target, Config: cfg, Profile: p, UserAgent: "aiqa/" + build.Version, Logf: logf})
+			runtime := &protocolanthropic.Runtime{}
+			targetReport, runErr := protocolanthropic.Run(ctx, protocolanthropic.RunOptions{Target: target, Config: cfg, Profile: p, UserAgent: "aiqa/" + build.Version, Logf: logf, Runtime: runtime})
 			if targetReport.ID == "" {
-				return RunResult{ReportV2: &r, ExitCode: 2}, fmt.Errorf("run Anthropic target: %w", runErr)
+				return RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("run Anthropic target: %w", runErr)
 			}
 			tmp := reportFromTarget(targetReport, target.BaseURL)
 			guidance.Apply(&tmp, p, guidance.Options{Mode: cfg.Guidance, Pack: cfg.GuidancePack, Locale: cfg.GuidanceLocale})
 			targetReport.Guidance = tmp.Guidance
+			targetReport, extErr := finishTargetExtensions(ctx, cfg, target, p, targetReport, registry, runtime.Client, runtime.Executor)
+			if extErr != nil {
+				return RunResult{ReportV3: &r, ExitCode: 2}, extErr
+			}
 			r.Targets = append(r.Targets, targetReport)
 		default:
-			return RunResult{ReportV2: &r, ExitCode: 2}, fmt.Errorf("unsupported target protocol %s", target.Protocol)
+			return RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("unsupported target protocol %s", target.Protocol)
 		}
 	}
 	r.Summary = summarizeRun(r.Targets)
-	paths, err := reportpkg.WriteV2(r, cfg)
+	paths, err := reportpkg.WriteV3(r, cfg)
 	if err != nil {
-		return RunResult{ReportV2: &r, ExitCode: 2}, err
+		return RunResult{ReportV3: &r, ExitCode: 2}, err
 	}
-	return RunResult{ReportV2: &r, Paths: paths, ExitCode: multiExitCode(cfg, r.Summary)}, nil
+	return RunResult{ReportV3: &r, Paths: paths, ExitCode: multiExitCode(cfg, r.Summary)}, nil
 }
 
 func openAIConfig(cfg config.Config, target config.TargetConfig) config.Config {
@@ -336,17 +341,59 @@ func openAIConfig(cfg config.Config, target config.TargetConfig) config.Config {
 	cfg.CapabilityFile = target.CapabilityFile
 	cfg.UnknownModel = target.UnknownModel
 	cfg.OpenAIProfile = target.ProfileFile
-	cfg.ExternalMode = target.ExternalMode
-	cfg.ExternalImage = target.ExternalImage
 	return cfg
 }
 
 func targetFromV1(target config.TargetConfig, r result.Report) result.TargetReport {
-	return result.TargetReport{ID: target.ID, Protocol: string(target.Protocol), Profile: r.Profile, Discovery: r.Discovery, Models: r.Models, Requirements: r.Requirements, Summary: r.Summary, Guidance: r.Guidance, RateLimit: r.RateLimit}
+	return result.TargetReport{ID: target.ID, Protocol: string(target.Protocol), Profile: r.Profile, Discovery: r.Discovery, Models: r.Models, Requirements: r.Requirements, Summary: r.Summary, Guidance: r.Guidance, RateLimit: r.RateLimit, ExtensionRateLimit: r.ExtensionRateLimit, Extensions: r.Extensions}
 }
 
 func reportFromTarget(target result.TargetReport, baseURL string) result.Report {
-	return result.Report{SchemaVersion: "aiqa.report.v1", Profile: target.Profile, Config: result.PublicConfig{BaseURL: baseURL}, Discovery: target.Discovery, Models: target.Models, Requirements: target.Requirements, Summary: target.Summary, Guidance: target.Guidance, RateLimit: target.RateLimit}
+	return result.Report{SchemaVersion: "aiqa.report.internal", Profile: target.Profile, Config: result.PublicConfig{BaseURL: baseURL}, Discovery: target.Discovery, Models: target.Models, Requirements: target.Requirements, Summary: target.Summary, Guidance: target.Guidance, RateLimit: target.RateLimit, ExtensionRateLimit: target.ExtensionRateLimit, Extensions: target.Extensions}
+}
+
+func finishTargetExtensions(ctx context.Context, cfg config.Config, target config.TargetConfig, p profile.Profile, targetReport result.TargetReport, registry *extsuite.Registry, client *api.Client, executor *probe.Executor) (result.TargetReport, error) {
+	if !cfg.HasTest("ext-suite") {
+		return targetReport, nil
+	}
+	if client == nil || executor == nil {
+		return targetReport, fmt.Errorf("prepare %s extension runtime: native target runtime is unavailable", target.ID)
+	}
+	before := client.PacingStats()
+	targetReport.Extensions = extsuite.ExecuteTarget(ctx, registry, cfg, target, p, targetReport.Models, client, executor)
+	if hasBuiltInExtension(targetReport.Extensions) {
+		after := client.PacingStats()
+		targetReport.ExtensionRateLimit = &result.RateLimitStats{
+			SuccessfulRequests: after.SuccessfulRequests - before.SuccessfulRequests,
+			RateLimited:        after.RateLimited - before.RateLimited,
+			RetriesRecovered:   after.RetriesRecovered - before.RetriesRecovered,
+			BackoffMS:          (after.Backoff - before.Backoff).Milliseconds(),
+			SafeRate:           after.SafeRate,
+			SafeConcurrency:    after.SafeConcurrency,
+		}
+	}
+	tmp := reportFromTarget(targetReport, target.BaseURL)
+	tmp.Config.Tests = append([]string(nil), cfg.Tests...)
+	reportpkg.Finalize(&tmp)
+	guidance.ExtractArtifacts(&tmp)
+	guidance.QualifyArtifacts(&tmp, target.ID)
+	assessment.ApplyTarget(&tmp, p, target.ID, string(target.Protocol))
+	guidance.Apply(&tmp, p, guidance.Options{Mode: cfg.Guidance, Pack: cfg.GuidancePack, Locale: cfg.GuidanceLocale})
+	targetReport.Models = tmp.Models
+	targetReport.Requirements = tmp.Requirements
+	targetReport.Summary = tmp.Summary
+	targetReport.Guidance = tmp.Guidance
+	targetReport.ExtensionRateLimit = tmp.ExtensionRateLimit
+	return targetReport, nil
+}
+
+func hasBuiltInExtension(runs []result.ExtensionRun) bool {
+	for _, run := range runs {
+		if run.Provenance.Source == "builtin" {
+			return true
+		}
+	}
+	return false
 }
 
 func summarizeRun(targets []result.TargetReport) result.RunSummary {

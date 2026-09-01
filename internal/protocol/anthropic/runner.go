@@ -17,7 +17,6 @@ import (
 	"github.com/ilyar/aiqa/internal/assessment"
 	"github.com/ilyar/aiqa/internal/capability"
 	"github.com/ilyar/aiqa/internal/config"
-	"github.com/ilyar/aiqa/internal/external"
 	"github.com/ilyar/aiqa/internal/guidance"
 	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/profile"
@@ -31,6 +30,15 @@ type RunOptions struct {
 	Profile   profile.Profile
 	UserAgent string
 	Logf      func(string, ...any)
+	Runtime   *Runtime
+}
+
+// Runtime exposes the target-owned transport and executor to the extension
+// phase. Native and extension probes therefore share one adaptive pacer and
+// one global concurrency budget for the target.
+type Runtime struct {
+	Client   *api.Client
+	Executor *probe.Executor
 }
 
 func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
@@ -69,7 +77,11 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	}
 	client.SetConcurrency(cfg.Concurrency)
 	probeExecutor := probe.NewExecutor(cfg.Concurrency)
-	tmp := result.Report{SchemaVersion: "aiqa.report.v1", Profile: profileInfo(p), Config: result.PublicConfig{BaseURL: target.BaseURL, Tests: cfg.Tests, RequestedModels: target.Models, Timeout: cfg.Timeout.String(), Formats: cfg.Formats, ExternalMode: target.ExternalMode, FailOn: cfg.FailOn, Guidance: cfg.Guidance, GuidancePack: cfg.GuidancePack, GuidanceLocale: cfg.GuidanceLocale}}
+	if options.Runtime != nil {
+		options.Runtime.Client = client.TransportClient()
+		options.Runtime.Executor = probeExecutor
+	}
+	tmp := result.Report{SchemaVersion: "aiqa.report.internal", Profile: profileInfo(p), Config: result.PublicConfig{BaseURL: target.BaseURL, Tests: cfg.Tests, RequestedModels: target.Models, Timeout: cfg.Timeout.String(), Formats: cfg.Formats, ExtSuites: cfg.ExtSuites, FailOn: cfg.FailOn, Guidance: cfg.Guidance, GuidancePack: cfg.GuidancePack, GuidanceLocale: cfg.GuidanceLocale}}
 
 	listCtx, cancel := context.WithTimeout(ctx, cfg.Timeout)
 	models, listResp, listErr := client.ListModels(listCtx)
@@ -78,10 +90,9 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	for _, model := range models {
 		tmp.Discovery.Models = append(tmp.Discovery.Models, cloneMap(model.Raw))
 	}
-	tmp.Discovery.Tests = append(tmp.Discovery.Tests, discoveryResults(p, listResp, models, listErr)...)
-	tmp.Discovery.Tests = append(tmp.Discovery.Tests, paginationResult(ctx, client, cfg.Timeout, p, listResp, models, listErr))
 	if cfg.HasTest("compat") {
-		tmp.Discovery.External = external.RunAnthropic(ctx, target, cfg.Timeout, "", []string{"models_list"})
+		tmp.Discovery.Tests = append(tmp.Discovery.Tests, discoveryResults(p, listResp, models, listErr)...)
+		tmp.Discovery.Tests = append(tmp.Discovery.Tests, paginationResult(ctx, client, cfg.Timeout, p, listResp, models, listErr))
 	}
 	selected, metadata := selectModels(target.Models, models)
 	if len(selected) == 0 {
@@ -125,7 +136,6 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 				}
 				if cfg.HasTest("compat") {
 					mr.Compatibility = runModel(ctx, client, cfg, p, model, modules, probeExecutor)
-					mr.External = external.RunAnthropic(ctx, target, cfg.Timeout, model, externalSuitesForModules(modules))
 				}
 				sort.Slice(mr.Compatibility, func(i, j int) bool { return mr.Compatibility[i].ID < mr.Compatibility[j].ID })
 				if len(selected) > 1 {
@@ -1179,23 +1189,6 @@ func moduleExecuted(modules []result.ModuleAssessment, id string) bool {
 		}
 	}
 	return false
-}
-
-func externalSuitesForModules(modules []result.ModuleAssessment) []string {
-	out := []string{"models_get"}
-	if moduleExecuted(modules, "anthropic.messages") {
-		out = append(out, "messages", "messages_stream", "system", "multi_turn", "error_responses")
-	}
-	if moduleExecuted(modules, "anthropic.tools") {
-		out = append(out, "tools", "tools_stream")
-	}
-	if moduleExecuted(modules, "anthropic.token-counting") {
-		out = append(out, "count_tokens")
-	}
-	if moduleExecuted(modules, "anthropic.structured-output") {
-		out = append(out, "structured_output")
-	}
-	return out
 }
 
 func addModelLatency(out *result.RateLimitStats, model result.ModelReport) {

@@ -7,7 +7,7 @@ import (
 )
 
 func TestRedactSecretsCoversTypedFieldsMetadataAndMapKeys(t *testing.T) {
-	report := ReportV2{Targets: []TargetReport{{
+	report := ReportV3{Targets: []TargetReport{{
 		ID: "anthropic",
 		Discovery: Discovery{Models: []map[string]any{{
 			"echo-secret": "prefix secret suffix",

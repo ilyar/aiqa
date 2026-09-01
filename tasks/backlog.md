@@ -16,7 +16,7 @@ The proposed interface is:
 
 ```text
 aiqa verify --requirement <requirement-id> [--model <exact-model-id>]
-aiqa verify --external-suite <suite-id> [--model <exact-model-id>]
+aiqa verify --ext-suite <extension-id>/<suite-id> [--model <exact-model-id>]
 ```
 
 Report generation must remain command-free by default. A separate `--report-verify-commands` flag may add commands to Markdown and JSON only when the installed AIQA version can execute every emitted target selectively.
@@ -31,7 +31,7 @@ Report generation must remain command-free by default. A separate `--report-veri
 - Native and Official SDK targets retain their distinct execution paths.
 - The targeted result states which prerequisites ran and which target produced the final status.
 - `--report-verify-commands` defaults to off and changes neither probes nor conformance results.
-- Commands are omitted when a target is not executable by the current binary, profile, or external-checker setup.
+- Commands are omitted when a target is not executable by the current binary, profile, or extension setup.
 - Generated commands exclude secrets and rely on the normal environment for endpoint credentials.
 - Unit tests prove target resolution, prerequisite planning, literal model rendering, provider scope, disabled-by-default output, and rejection of broad fallback execution.
 - Integration tests prove that each emitted command runs only the advertised target against the deterministic mock provider.

@@ -218,9 +218,9 @@ func writeRequirementAssessment(b *strings.Builder, requirements []result.Requir
 }
 
 func writePassedChecks(b *strings.Builder, r result.Report) {
-	count := len(filterTests(r.Discovery.Tests, true)) + len(filterTests(r.Discovery.Compatibility, true)) + len(filterExternal(r.Discovery.External, true))
+	count := len(filterTests(r.Discovery.Tests, true)) + len(filterTests(r.Discovery.Compatibility, true))
 	for _, model := range r.Models {
-		count += len(filterTests(model.Compatibility, true)) + len(filterParameters(model.Parameters, true)) + len(filterExternal(model.External, true))
+		count += len(filterTests(model.Compatibility, true)) + len(filterParameters(model.Parameters, true))
 		if model.Context != nil && model.Context.Status == result.StatusPass {
 			count++
 		}
@@ -243,16 +243,10 @@ func writePassedChecks(b *strings.Builder, r result.Report) {
 		writeTestTable(b, tests)
 		fmt.Fprintln(b)
 	}
-	if external := filterExternal(r.Discovery.External, true); len(external) > 0 {
-		fmt.Fprintln(b, "### Provider Official SDK")
-		fmt.Fprintln(b)
-		writeExternalTable(b, external)
-	}
 	for _, model := range r.Models {
 		tests := filterTests(model.Compatibility, true)
 		parameters := filterParameters(model.Parameters, true)
-		external := filterExternal(model.External, true)
-		if len(tests)+len(parameters)+len(external) == 0 && (model.Context == nil || model.Context.Status != result.StatusPass) {
+		if len(tests)+len(parameters) == 0 && (model.Context == nil || model.Context.Status != result.StatusPass) {
 			continue
 		}
 		fmt.Fprintf(b, "### `%s`\n\n", escapeInline(model.ID))
@@ -267,11 +261,6 @@ func writePassedChecks(b *strings.Builder, r result.Report) {
 			fmt.Fprintln(b)
 			writeParameterTable(b, parameters)
 			fmt.Fprintln(b)
-		}
-		if len(external) > 0 {
-			fmt.Fprintln(b, "#### Official SDK")
-			fmt.Fprintln(b)
-			writeExternalTable(b, external)
 		}
 		if model.Context != nil && model.Context.Status == result.StatusPass {
 			fmt.Fprintf(b, "Context window: **PASS** — %s\n\n", escapeCell(model.Context.Summary))
@@ -316,16 +305,6 @@ func filterTests(in []result.TestResult, passed bool) []result.TestResult {
 
 func filterParameters(in []result.ParameterResult, passed bool) []result.ParameterResult {
 	var out []result.ParameterResult
-	for _, item := range in {
-		if (item.Status == result.StatusPass) == passed {
-			out = append(out, item)
-		}
-	}
-	return out
-}
-
-func filterExternal(in []result.ExternalResult, passed bool) []result.ExternalResult {
-	var out []result.ExternalResult
 	for _, item := range in {
 		if (item.Status == result.StatusPass) == passed {
 			out = append(out, item)

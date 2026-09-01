@@ -29,7 +29,7 @@ func TestRunCompatibilityWritesReports(t *testing.T) {
 		t.Fatal(err)
 	}
 	if out.ExitCode != 0 {
-		t.Fatalf("unexpected exit code %d; summary=%+v", out.ExitCode, out.Report.Summary)
+		t.Fatalf("unexpected exit code %d; summary=%+v", out.ExitCode, out.ReportV3.Summary)
 	}
 	for _, path := range []string{"report.md", "report.json"} {
 		if _, err := os.Stat(path); err != nil {
@@ -40,15 +40,18 @@ func TestRunCompatibilityWritesReports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var decoded result.Report
+	var decoded result.ReportV3
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	var raw struct {
 		Summary map[string]json.RawMessage `json:"summary"`
-		Models  []struct {
+		Targets []struct {
 			Summary map[string]json.RawMessage `json:"summary"`
-		} `json:"models"`
+			Models  []struct {
+				Summary map[string]json.RawMessage `json:"summary"`
+			} `json:"models"`
+		} `json:"targets"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		t.Fatal(err)
@@ -57,20 +60,26 @@ func TestRunCompatibilityWritesReports(t *testing.T) {
 		if _, exists := raw.Summary[field]; exists {
 			t.Fatalf("legacy scoring field %q remains in report summary", field)
 		}
-		for _, model := range raw.Models {
-			if _, exists := model.Summary[field]; exists {
-				t.Fatalf("legacy scoring field %q remains in model summary", field)
+		for _, target := range raw.Targets {
+			if _, exists := target.Summary[field]; exists {
+				t.Fatalf("legacy scoring field %q remains in target summary", field)
+			}
+			for _, model := range target.Models {
+				if _, exists := model.Summary[field]; exists {
+					t.Fatalf("legacy scoring field %q remains in model summary", field)
+				}
 			}
 		}
 	}
-	if len(decoded.Models) != 1 || decoded.Models[0].ID != "vendor/model-a" {
-		t.Fatalf("unexpected models: %#v", decoded.Models)
+	if len(decoded.Targets) != 1 || len(decoded.Targets[0].Models) != 1 || decoded.Targets[0].Models[0].ID != "vendor/model-a" {
+		t.Fatalf("unexpected targets/models: %#v", decoded.Targets)
 	}
-	if decoded.Summary.RequiredFail != 0 {
-		t.Fatalf("core tests failed: %+v", decoded.Summary)
+	target := decoded.Targets[0]
+	if target.Summary.RequiredFail != 0 {
+		t.Fatalf("core tests failed: %+v", target.Summary)
 	}
 	var basicUsage, usageCheck result.Usage
-	for _, probe := range decoded.Models[0].Compatibility {
+	for _, probe := range target.Models[0].Compatibility {
 		switch probe.ID {
 		case "chat.basic":
 			basicUsage = probe.Usage
@@ -81,17 +90,108 @@ func TestRunCompatibilityWritesReports(t *testing.T) {
 	if basicUsage.TotalTokens != 0 || usageCheck.TotalTokens == 0 {
 		t.Fatalf("basic response usage must be counted once by chat.usage: basic=%+v usage=%+v", basicUsage, usageCheck)
 	}
-	if decoded.Summary.Fail != 0 || decoded.Summary.Error != 0 || decoded.Summary.Warn != 0 || decoded.Summary.Unsupported != 0 {
-		t.Fatalf("mock endpoint should pass every built-in compatibility probe: %+v", decoded.Summary)
+	if target.Summary.Fail != 0 || target.Summary.Error != 0 || target.Summary.Warn != 0 || target.Summary.Unsupported != 0 {
+		t.Fatalf("mock endpoint should pass every built-in compatibility probe: %+v", target.Summary)
 	}
-	if decoded.Summary.Assessment == nil || decoded.Summary.Assessment.Verdict != "pass" || len(decoded.Requirements) == 0 {
-		t.Fatalf("canonical assessment is missing or incorrect: summary=%+v requirements=%d", decoded.Summary, len(decoded.Requirements))
+	if target.Summary.Assessment == nil || target.Summary.Assessment.Verdict != "pass" || len(target.Requirements) == 0 {
+		t.Fatalf("canonical assessment is missing or incorrect: summary=%+v requirements=%d", target.Summary, len(target.Requirements))
 	}
-	if decoded.Guidance.Status != "complete" || decoded.Guidance.SchemaVersion != "aiqa.guidance.v1" {
-		t.Fatalf("guidance contract is missing: %+v", decoded.Guidance)
+	if target.Guidance.Status != "complete" || target.Guidance.SchemaVersion != "aiqa.guidance.v1" {
+		t.Fatalf("guidance contract is missing: %+v", target.Guidance)
 	}
 	if strings.Contains(string(data), "test-key") {
 		t.Fatal("API key leaked into JSON report")
+	}
+}
+
+func TestCompatibilityOnlyDoesNotDiscoverPATHConstructedExtensions(t *testing.T) {
+	server := newMockOpenAI(t)
+	defer server.Close()
+	pathDir := t.TempDir()
+	broken := filepath.Join(pathDir, "aiqa-broken-ext-suite")
+	if err := os.WriteFile(broken, []byte("not an executable format"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", pathDir)
+	withTempWorkingDirectory(t)
+	cfg := testConfig(server.URL+"/v1", []string{"compat"})
+	cfg.Formats = nil
+	if _, err := Run(context.Background(), cfg, BuildInfo{Version: "test"}); err != nil {
+		t.Fatalf("compat-only run touched PATH extension candidate: %v", err)
+	}
+}
+
+func TestUnavailableSelectedExtensionIsConfigurationError(t *testing.T) {
+	server := newMockOpenAI(t)
+	defer server.Close()
+	t.Setenv("PATH", t.TempDir())
+	cfg := testConfig(server.URL+"/v1", []string{"ext-suite"})
+	cfg.ExtSuites = []string{"missing.extension"}
+	cfg.Formats = nil
+	out, err := Run(context.Background(), cfg, BuildInfo{Version: "test"})
+	if err == nil || out.ExitCode != 2 || !strings.Contains(err.Error(), "not installed") {
+		t.Fatalf("unexpected missing-extension result: exit=%d err=%v", out.ExitCode, err)
+	}
+}
+
+func TestBuiltInExtensionRequestsShareGlobalConcurrencyCeiling(t *testing.T) {
+	var active atomic.Int32
+	var maximum atomic.Int32
+	server := newMockOpenAIWithMiddleware(t, func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			current := active.Add(1)
+			for {
+				seen := maximum.Load()
+				if current <= seen || maximum.CompareAndSwap(seen, current) {
+					break
+				}
+			}
+			time.Sleep(20 * time.Millisecond)
+			next.ServeHTTP(w, r)
+			active.Add(-1)
+		})
+	})
+	defer server.Close()
+	t.Setenv("PATH", t.TempDir())
+	cfg := testConfig(server.URL+"/v1", []string{"ext-suite"})
+	cfg.ExtSuites = []string{"official-sdk.openai"}
+	cfg.Concurrency = 3
+	cfg.Formats = nil
+	out, err := Run(context.Background(), cfg, BuildInfo{Version: "test"})
+	if err != nil || out.ExitCode != 0 {
+		t.Fatalf("extension run failed: exit=%d err=%v", out.ExitCode, err)
+	}
+	if got := maximum.Load(); got < 2 || got > 3 {
+		t.Fatalf("maximum concurrent extension requests=%d, want 2..3", got)
+	}
+}
+
+func TestCombinedNativeAndExtensionRunProducesOneAssessment(t *testing.T) {
+	server := newMockOpenAI(t)
+	defer server.Close()
+	t.Setenv("PATH", t.TempDir())
+	cfg := testConfig(server.URL+"/v1", []string{"compat", "ext-suite"})
+	cfg.ExtSuites = []string{"official-sdk.openai"}
+	cfg.Concurrency = 3
+	cfg.Formats = nil
+	out, err := Run(context.Background(), cfg, BuildInfo{Version: "test"})
+	if err != nil || out.ReportV3 == nil || len(out.ReportV3.Targets) != 1 {
+		t.Fatalf("combined run failed: exit=%d err=%v report=%+v", out.ExitCode, err, out.ReportV3)
+	}
+	target := out.ReportV3.Targets[0]
+	if len(target.Models) != 1 || len(target.Models[0].Compatibility) == 0 || len(target.Extensions) == 0 {
+		t.Fatalf("combined evidence is incomplete: models=%d native=%d extensions=%d", len(target.Models), len(target.Models[0].Compatibility), len(target.Extensions))
+	}
+	if target.Summary.Assessment == nil || target.Summary.Assessment.Verdict != "pass" {
+		t.Fatalf("combined assessment is not authoritative: %+v", target.Summary.Assessment)
+	}
+	seen := map[string]bool{}
+	for _, requirement := range target.Requirements {
+		key := requirement.Subject.Kind + "\x00" + requirement.Subject.ID + "\x00" + requirement.ID
+		if seen[key] {
+			t.Fatalf("canonical requirement was counted more than once: %s", requirement.ID)
+		}
+		seen[key] = true
 	}
 }
 
@@ -120,8 +220,8 @@ func TestRunCompatibilityAppliesConcurrencyToProbes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Report.Summary.Fail != 0 || out.Report.Summary.Error != 0 {
-		t.Fatalf("parallel run changed compatibility results: %+v", out.Report.Summary)
+	if out.ReportV3.Targets[0].Summary.Fail != 0 || out.ReportV3.Targets[0].Summary.Error != 0 {
+		t.Fatalf("parallel run changed compatibility results: %+v", out.ReportV3.Targets[0].Summary)
 	}
 	if got := maximum.Load(); got < 2 || got > 4 {
 		t.Fatalf("maximum concurrent HTTP requests=%d, want 2..4", got)
@@ -162,7 +262,7 @@ func TestGenerateExampleReports(t *testing.T) {
 		t.Fatal(err)
 	}
 	if out.ExitCode != 0 {
-		t.Fatalf("example run failed: %+v", out.Report.Summary)
+		t.Fatalf("example run failed: %+v", out.ReportV3.Summary)
 	}
 }
 
@@ -183,10 +283,10 @@ func TestRunModelParametersFindsContextBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(out.Report.Models) != 1 {
-		t.Fatalf("unexpected model count: %d", len(out.Report.Models))
+	if len(out.ReportV3.Targets[0].Models) != 1 {
+		t.Fatalf("unexpected model count: %d", len(out.ReportV3.Targets[0].Models))
 	}
-	model := out.Report.Models[0]
+	model := out.ReportV3.Targets[0].Models[0]
 	if model.Context == nil || model.Context.LowerBoundTokens <= 0 || model.Context.UpperBoundTokens <= model.Context.LowerBoundTokens {
 		t.Fatalf("context boundary not found: %+v", model.Context)
 	}
@@ -222,10 +322,10 @@ func TestMixedNonChatCatalogDoesNotReceiveChatRequests(t *testing.T) {
 	if got := chatRequests.Load(); got != 0 {
 		t.Fatalf("non-chat catalog received %d chat requests", got)
 	}
-	if len(out.Report.Models) != 2 {
-		t.Fatalf("inventory lost models: %+v", out.Report.Models)
+	if len(out.ReportV3.Targets[0].Models) != 2 {
+		t.Fatalf("inventory lost models: %+v", out.ReportV3.Targets[0].Models)
 	}
-	for _, model := range out.Report.Models {
+	for _, model := range out.ReportV3.Targets[0].Models {
 		if model.Assessment.Verdict != "not-evaluated" {
 			t.Fatalf("model %s verdict=%q", model.ID, model.Assessment.Verdict)
 		}
@@ -242,7 +342,7 @@ func TestMixedNonChatCatalogDoesNotReceiveChatRequests(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(markdown)
-	if !strings.Contains(text, "| `gpt-image-2` | images.generations") || !strings.Contains(text, "| N/A | – | classified capabilities do not include chat.completions.text") {
+	if !strings.Contains(text, "#### Model details: `gpt-image-2`") || !strings.Contains(text, "| `chat-completions` | `chat.completions.text` | NOT-APPLICABLE | – | classified capabilities do not include chat.completions.text") {
 		t.Fatalf("mixed-catalog routing is not visible in Markdown:\n%s", text)
 	}
 	if !strings.Contains(text, "NOT-EVALUATED") || !strings.Contains(text, "UNKNOWN") {
@@ -289,7 +389,7 @@ func TestImageModelUsesImageEndpointWithoutChatRequests(t *testing.T) {
 	if chatRequests.Load() != 0 || imageRequests.Load() != 3 {
 		t.Fatalf("unexpected endpoint routing: chat=%d images=%d", chatRequests.Load(), imageRequests.Load())
 	}
-	model := out.Report.Models[0]
+	model := out.ReportV3.Targets[0].Models[0]
 	imageModule := moduleByID(model.Modules, "images-generations")
 	if imageModule == nil || imageModule.Execution != result.ExecutionExecuted || imageModule.Summary == nil || imageModule.Summary.RequiredFail != 0 {
 		t.Fatalf("image module was not evaluated successfully: %+v", imageModule)
@@ -334,7 +434,6 @@ func testConfig(baseURL string, tests []string) config.Config {
 		Formats:              []string{"markdown", "json"},
 		Name:                 "report",
 		Concurrency:          1,
-		ExternalMode:         "off",
 		Modules:              []string{"auto"},
 		UnknownModel:         "inventory",
 		MaxArtifactsPerModel: 1,

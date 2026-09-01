@@ -71,9 +71,79 @@ func (c *Client) CloneWithHeaders(headers http.Header) *Client {
 
 func (c *Client) BaseURL() string          { return c.baseURL.String() }
 func (c *Client) PacingStats() PacingStats { return c.pacer.snapshot() }
+func (c *Client) PacingConstraints() PacingStats {
+	return c.pacer.constraints()
+}
 func (c *Client) SetConcurrency(limit int) { c.pacer.setConcurrency(limit) }
 func (c *Client) PacingStatsForModel(model string) PacingStats {
 	return c.pacer.snapshotForModel(model)
+}
+
+// PacedHTTPClient exposes the target's transport and adaptive pacing to an
+// official SDK without exposing AIQA credentials or request construction. The
+// SDK must still disable its own retries; this transport owns the shared retry
+// and rate-limit policy.
+func (c *Client) PacedHTTPClient(model string) *http.Client {
+	return &http.Client{Transport: &pacedRoundTripper{client: c, model: model}}
+}
+
+type pacedRoundTripper struct {
+	client *Client
+	model  string
+}
+
+func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	for attempt := 0; attempt < 3; attempt++ {
+		if err := r.client.pacer.wait(request.Context(), r.model); err != nil {
+			return nil, err
+		}
+		current := request
+		if attempt > 0 {
+			if request.GetBody == nil {
+				r.client.pacer.release(r.model)
+				return nil, errors.New("cannot retry SDK request with a non-replayable body")
+			}
+			body, err := request.GetBody()
+			if err != nil {
+				r.client.pacer.release(r.model)
+				return nil, err
+			}
+			current = request.Clone(request.Context())
+			current.Body = body
+		}
+		response, err := r.client.http.Transport.RoundTrip(current)
+		retry := err != nil || response.StatusCode == http.StatusRequestTimeout || response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500
+		if attempt == 2 && response != nil && response.StatusCode == http.StatusTooManyRequests {
+			r.client.pacer.limited(r.model, retryAfter(response.Header))
+		}
+		if !retry || attempt == 2 {
+			if err == nil && response.StatusCode >= 200 && response.StatusCode < 300 {
+				r.client.pacer.success(r.model)
+				if attempt > 0 {
+					r.client.pacer.recovered(r.model)
+				}
+			}
+			r.client.pacer.release(r.model)
+			return response, err
+		}
+		r.client.pacer.release(r.model)
+		delay := time.Duration(1<<attempt) * 100 * time.Millisecond
+		if response != nil {
+			if response.StatusCode == http.StatusTooManyRequests {
+				delay = r.client.pacer.limited(r.model, retryAfter(response.Header))
+			}
+			if response.Body != nil {
+				_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
+				_ = response.Body.Close()
+			}
+		}
+		if response == nil || response.StatusCode != http.StatusTooManyRequests {
+			if err := waitDuration(request.Context(), delay); err != nil {
+				return nil, err
+			}
+		}
+	}
+	panic("unreachable")
 }
 
 func (c *Client) ListModels(ctx context.Context) ([]Model, Response, error) {

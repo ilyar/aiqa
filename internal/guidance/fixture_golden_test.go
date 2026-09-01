@@ -52,21 +52,15 @@ func vibecodeActionableFixture() result.Report {
 			{ID: "chat.logprobs", Name: "Log probabilities", Status: result.StatusFail, Summary: "request accepted but choices[0].logprobs is missing", Signals: []result.EvidenceSignal{{Code: "behavior.chat.logprobs.accepted_but_missing"}}},
 			{ID: "models.retrieve", Name: "Retrieve model", Status: result.StatusUnsupported, Summary: "GET /models/{model} returned 404", Signals: []result.EvidenceSignal{{Code: "unsupported.models.retrieve"}}},
 		},
-		External: []result.ExternalResult{{
-			Tool: "official-SDK", Suite: "chat_completions_stream", Model: "gpt-5.4-mini", Status: result.StatusFail,
-			Summary: "stream chunk missing choices", RequirementIDs: []string{"official-sdk.chat.stream"}, RelatedRequirementIDs: []string{"chat.stream.sse"},
-		}},
 	}
 	return result.Report{
-		Config: result.PublicConfig{BaseURL: "https://vibecode.example/v1", Guidance: "full"},
-		Discovery: result.Discovery{
-			Tests: []result.TestResult{providerTest},
-			External: []result.ExternalResult{{
-				Tool: "official-SDK", Suite: "models", Status: result.StatusFail, Summary: "SDK rejected model objects without created",
-				RequirementIDs: []string{"models.list.schema"}, Output: "checker: model object missing created",
-			}},
+		Config:    result.PublicConfig{BaseURL: "https://vibecode.example/v1", Guidance: "full"},
+		Discovery: result.Discovery{Tests: []result.TestResult{providerTest}},
+		Models:    []result.ModelReport{model},
+		Extensions: []result.ExtensionRun{
+			{Provenance: result.ExtensionProvenance{ID: "official-sdk.openai"}, Subject: result.SubjectRef{Kind: "provider", ID: "https://vibecode.example/v1"}, Runner: result.ExtensionRunnerResult{Status: result.StatusError, Output: "extension: model object missing created"}},
+			{Provenance: result.ExtensionProvenance{ID: "official-sdk.openai"}, Subject: result.SubjectRef{Kind: "model", ID: "gpt-5.4-mini"}, Runner: result.ExtensionRunnerResult{Status: result.StatusPass}, Suites: []result.ExtensionSuiteResult{{ExtensionID: "official-sdk.openai", SuiteID: "chat.stream", Subject: result.SubjectRef{Kind: "model", ID: "gpt-5.4-mini"}, Status: result.StatusFail, Bound: true, RequirementID: "official-sdk.openai.chat.stream", RelatedRequirementIDs: []string{"chat.stream.sse"}, Summary: "stream chunk missing choices"}}},
 		},
-		Models: []result.ModelReport{model},
 	}
 }
 
@@ -103,11 +97,8 @@ func qwenActionableFixture() result.Report {
 		Models: []result.ModelReport{{
 			ID:            "qwen3.8-flash",
 			Compatibility: coreModel,
-			External: []result.ExternalResult{{
-				Tool: "official-SDK", Suite: "chat_completions_stream", Status: result.StatusFail, Summary: "stream parser rejected an empty choices chunk",
-				RequirementIDs: []string{"official-sdk.chat.stream"}, RelatedRequirementIDs: []string{"chat.stream.sse"},
-			}},
 		}},
+		Extensions: []result.ExtensionRun{{Provenance: result.ExtensionProvenance{ID: "official-sdk.openai"}, Subject: result.SubjectRef{Kind: "model", ID: "qwen3.8-flash"}, Runner: result.ExtensionRunnerResult{Status: result.StatusPass}, Suites: []result.ExtensionSuiteResult{{ExtensionID: "official-sdk.openai", SuiteID: "chat.stream", Subject: result.SubjectRef{Kind: "model", ID: "qwen3.8-flash"}, Status: result.StatusFail, Bound: true, RequirementID: "official-sdk.openai.chat.stream", RelatedRequirementIDs: []string{"chat.stream.sse"}, Summary: "stream parser rejected an empty choices chunk"}}}},
 	}
 }
 

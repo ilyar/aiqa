@@ -3,13 +3,14 @@ package report
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/ilyar/aiqa/internal/config"
 	"github.com/ilyar/aiqa/internal/result"
 )
 
-func WriteV2(r result.ReportV2, cfg config.Config) ([]string, error) {
+func WriteV3(r result.ReportV3, cfg config.Config) ([]string, error) {
 	result.RedactSecrets(&r, reportSecrets(cfg)...)
 	var paths []string
 	for _, format := range cfg.Formats {
@@ -21,7 +22,7 @@ func WriteV2(r result.ReportV2, cfg config.Config) ([]string, error) {
 			data, err = json.MarshalIndent(r, "", "  ")
 			ext = ".json"
 		case "markdown":
-			data = []byte(MarkdownV2(r))
+			data = []byte(MarkdownV3(r))
 			ext = ".md"
 		default:
 			return paths, fmt.Errorf("unsupported format %q", format)
@@ -38,7 +39,7 @@ func WriteV2(r result.ReportV2, cfg config.Config) ([]string, error) {
 	return paths, nil
 }
 
-func MarkdownV2(r result.ReportV2) string {
+func MarkdownV3(r result.ReportV3) string {
 	var b strings.Builder
 	fmt.Fprintln(&b, "# AIQA compatibility report")
 	fmt.Fprintln(&b)
@@ -47,7 +48,8 @@ func MarkdownV2(r result.ReportV2) string {
 	fmt.Fprintf(&b, "- **Generated:** %s\n", r.GeneratedAt.Format("2006-01-02 15:04:05Z07:00"))
 	fmt.Fprintf(&b, "- **Tool:** `aiqa %s`\n", escapeInline(r.Tool.Version))
 	fmt.Fprintf(&b, "- **Suites:** `%s`\n", strings.Join(r.Config.Tests, ","))
-	fmt.Fprintf(&b, "- **Timeout:** `%s` per request\n\n", r.Config.Timeout)
+	fmt.Fprintf(&b, "- **Timeout:** `%s` per request\n", r.Config.Timeout)
+	fmt.Fprintf(&b, "- **External checks:** %s\n\n", runExternalChecks(r.Targets))
 	fmt.Fprintln(&b, "## Targets")
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "| Target | Protocol | Profile | Verdict | Core | Optional | Evidence | Models | Actions |")
@@ -86,6 +88,7 @@ func MarkdownV2(r result.ReportV2) string {
 		writeTargetGuidance(&b, target)
 		writeRequirementAssessment(&b, target.Requirements)
 		writeTargetModels(&b, target)
+		writeTargetExtensions(&b, target.Extensions, target.ExtensionRateLimit)
 	}
 
 	fmt.Fprintln(&b, "## Observed API usage")
@@ -103,7 +106,7 @@ func MarkdownV2(r result.ReportV2) string {
 	if len(r.Targets) > 1 {
 		fmt.Fprintf(&b, "| **All targets** | **%d** | **%d** | **%d** | **%d** | **%d** | **%d** |\n", combined.input, combined.output, combined.cacheCreation, combined.cacheRead, combined.reasoning, combined.total)
 	}
-	return b.String()
+	return strings.TrimRight(b.String(), "\n")
 }
 
 type observedUsage struct {
@@ -156,32 +159,59 @@ func targetConfigNormalized(configs []result.TargetPublicConfig, targetID string
 }
 
 func targetExternalChecks(target result.TargetReport) string {
-	var entries []result.ExternalResult
-	entries = append(entries, target.Discovery.External...)
-	for _, model := range target.Models {
-		entries = append(entries, model.External...)
+	byID := map[string]result.ExtensionProvenance{}
+	for _, run := range target.Extensions {
+		byID[run.Provenance.ID] = run.Provenance
 	}
-	var tools []string
-	for _, entry := range entries {
-		if entry.Status == result.StatusSkip && entry.Suite == "" {
-			continue
-		}
-		if entry.Tool != "" {
-			tools = append(tools, entry.Tool)
-		}
-	}
-	tools = uniqueStrings(tools)
-	if len(tools) == 0 {
+	if len(byID) == 0 {
 		return "not setup"
 	}
-	if target.Protocol == "anthropic" {
-		for _, tool := range tools {
-			if strings.Contains(tool, "anthropic-official-sdk") {
-				return "[Official Anthropic Go SDK v1.68.0](https://github.com/anthropics/anthropic-sdk-go/releases/tag/v1.68.0)"
-			}
+	ids := make([]string, 0, len(byID))
+	for id := range byID {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	checks := make([]string, 0, len(ids))
+	for _, id := range ids {
+		checks = append(checks, extensionLabel(byID[id]))
+	}
+	return strings.Join(checks, ", ")
+}
+
+func runExternalChecks(targets []result.TargetReport) string {
+	byKey := map[string]result.ExtensionProvenance{}
+	for _, target := range targets {
+		for _, run := range target.Extensions {
+			key := run.Provenance.ID + "\x00" + run.Provenance.Version
+			byKey[key] = run.Provenance
 		}
 	}
-	return strings.Join(tools, ", ")
+	if len(byKey) == 0 {
+		return "not setup"
+	}
+	keys := make([]string, 0, len(byKey))
+	for key := range byKey {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		provenance := byKey[key]
+		parts = append(parts, extensionLabel(provenance))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func extensionLabel(provenance result.ExtensionProvenance) string {
+	label := provenance.Name + " " + provenance.Version
+	switch provenance.ID {
+	case "official-sdk.openai":
+		return "[" + label + "](https://github.com/openai/openai-go/releases/tag/" + provenance.Version + ")"
+	case "official-sdk.anthropic":
+		return "[" + label + "](https://github.com/anthropics/anthropic-sdk-go/releases/tag/" + provenance.Version + ")"
+	default:
+		return escapeInline(label)
+	}
 }
 
 func targetVerdict(target result.TargetReport) (string, string, string, string) {
@@ -279,5 +309,74 @@ func writeTargetModels(b *strings.Builder, target result.TargetReport) {
 				s.MeanLatencyMS, s.P50LatencyMS, s.P95LatencyMS)
 		}
 		fmt.Fprintln(b)
+	}
+	for _, model := range target.Models {
+		if len(model.Modules) == 0 {
+			continue
+		}
+		fmt.Fprintf(b, "#### Model details: `%s`\n\n", escapeInline(model.ID))
+		fmt.Fprintln(b, "| Module | Capability | Applicability | Execution | Reason |")
+		fmt.Fprintln(b, "|---|---|---:|---:|---|")
+		for _, module := range model.Modules {
+			applicability := strings.ToUpper(strings.ReplaceAll(string(module.Applicability), "_", "-"))
+			execution := strings.ToUpper(strings.ReplaceAll(string(module.Execution), "_", "-"))
+			if execution == "" {
+				execution = "–"
+			}
+			fmt.Fprintf(b, "| `%s` | `%s` | %s | %s | %s |\n", escapeCell(module.ID), escapeCell(module.Capability), applicability, execution, escapeCell(module.Reason))
+		}
+		fmt.Fprintln(b)
+	}
+}
+
+func writeTargetExtensions(b *strings.Builder, runs []result.ExtensionRun, rateLimit *result.RateLimitStats) {
+	if len(runs) == 0 {
+		return
+	}
+	groups := map[string][]result.ExtensionRun{}
+	provenance := map[string]result.ExtensionProvenance{}
+	for _, run := range runs {
+		groups[run.Provenance.ID] = append(groups[run.Provenance.ID], run)
+		provenance[run.Provenance.ID] = run.Provenance
+	}
+	ids := make([]string, 0, len(groups))
+	for id := range groups {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	fmt.Fprintln(b, "### Extension suites")
+	fmt.Fprintln(b)
+	if rateLimit != nil {
+		fmt.Fprintln(b, "Built-in extension transport counts are separate from native latency percentiles. Safe rate and concurrency show the target pacer's state after extension execution; executable extensions report only validated suite evidence.")
+		fmt.Fprintln(b)
+		fmt.Fprintln(b, "| Successful | 429 | Recovered retries | Backoff | Safe req/s | Safe concurrency |")
+		fmt.Fprintln(b, "|---:|---:|---:|---:|---:|---:|")
+		fmt.Fprintf(b, "| %d | %d | %d | %dms | %.2f | %d |\n\n", rateLimit.SuccessfulRequests, rateLimit.RateLimited, rateLimit.RetriesRecovered, rateLimit.BackoffMS, rateLimit.SafeRate, rateLimit.SafeConcurrency)
+	}
+	for _, id := range ids {
+		p := provenance[id]
+		fmt.Fprintf(b, "#### %s %s\n\n", escapeCell(p.Name), escapeCell(p.Version))
+		fmt.Fprintln(b, "| Suite | Subject | Status | Duration | Summary |")
+		fmt.Fprintln(b, "|---|---|---:|---:|---|")
+		for _, run := range groups[id] {
+			for _, suite := range run.Suites {
+				fmt.Fprintf(b, "| `%s` | `%s:%s` | %s | %dms | %s |\n", escapeCell(suite.SuiteID), escapeCell(suite.Subject.Kind), escapeCell(suite.Subject.ID), statusLabel(suite.Status), suite.DurationMS, escapeCell(suite.Summary))
+			}
+		}
+		fmt.Fprintln(b)
+		var failures []result.ExtensionRun
+		for _, run := range groups[id] {
+			if run.Runner.Status == result.StatusError {
+				failures = append(failures, run)
+			}
+		}
+		if len(failures) > 0 {
+			fmt.Fprintln(b, "**Runner issues:**")
+			fmt.Fprintln(b)
+			for _, run := range failures {
+				fmt.Fprintf(b, "- `%s:%s`: %s\n", escapeInline(run.Subject.Kind), escapeInline(run.Subject.ID), escapeCell(run.Runner.Summary))
+			}
+			fmt.Fprintln(b)
+		}
 	}
 }

@@ -52,13 +52,16 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, `usage:
   aiqa test=compat [options]
   aiqa test=model-param [options]
+  aiqa test=ext-suite [options]
   aiqa test=compat,model-param [options]
+  aiqa test=compat,ext-suite [options]
 
 environment:
   OPENAI_BASE_URL      OpenAI base URL including /v1
   OPENAI_API_KEY       OpenAI bearer token
   ANTHROPIC_BASE_URL   Anthropic prefix before /v1
   ANTHROPIC_API_KEY    Anthropic x-api-key value
+  AIQA_EXT_SUITE_PATHS OS path-list of trusted extension executables
 
 targets:
   --target auto|openai|anthropic|openai,anthropic
@@ -67,16 +70,13 @@ targets:
   --anthropic-model ID[,ID] Anthropic-specific model selection
   --openai-profile FILE     embedded OpenAI profile
   --anthropic-profile FILE  embedded Anthropic profile
-  --report-schema auto|v1|v2
-                            v1 for OpenAI-only auto; v2 for Anthropic/multi-target
-
 selection and output:
   --model ID[,ID]          test selected models; default: discover all
   --timeout 120|2m         per-request timeout (default 120s)
   --request-interval 2s    initial adaptive request interval (default 2s)
   --format markdown,json   report formats (default both)
   --name report            output basename (default report)
-  --concurrency 1          models tested concurrently (default 1)
+  --concurrency 1          global native and extension request ceiling (default 1)
 
 compatibility:
   --module MODULE[,MODULE]
@@ -98,13 +98,8 @@ compatibility:
                             permit modules that generate billable media
   --max-artifacts-per-model N
                             artifact safety limit per model (default 1)
-  --external auto|off|binary|docker
-                            optional official-SDK checker integration
-  --external-image IMAGE    Docker image or digest for the checker
-  --openai-external MODE    OpenAI checker override
-  --anthropic-external MODE Anthropic checker override
-  --openai-external-image IMAGE
-  --anthropic-external-image IMAGE
+  --ext-suite ID[,ID]      restrict extension execution to exact IDs
+  --ext-suite-path PATH    trusted absolute extension executable; repeatable
   --fail-on core|any|never exit-code policy (default core)
   --guidance full|summary|off
                             actionable guidance output (default full)

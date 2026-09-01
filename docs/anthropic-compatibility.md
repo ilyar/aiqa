@@ -32,7 +32,7 @@ POST <base>/v1/messages
 POST <base>/v1/messages/count_tokens
 ```
 
-A trailing `/v1` is removed once and the normalization is recorded as `config.targets[].base_url_normalized` in report v2. A configured base URL without `ANTHROPIC_API_KEY` is a configuration error. A key without a base URL does not activate the target.
+A trailing `/v1` is removed once and the normalization is recorded as `config.targets[].base_url_normalized` in report v3. A configured base URL without `ANTHROPIC_API_KEY` is a configuration error. A key without a base URL does not activate the target.
 
 Use `--anthropic-model` to select one or more exact IDs. A slash inside a model ID is encoded as one path parameter for native and Official SDK retrieve checks. If a facade supports Messages but intentionally omits Models, provide an explicit model for current diagnostics; a separate Messages-only profile remains backlog work.
 
@@ -95,45 +95,35 @@ The Anthropic stream validator consumes named SSE events. It accepts pings and u
 
 For an applicable optional capability, a stable 400, 404, or 422 response is `UNSUP`. The same rejection cannot turn a required requirement into a pass or optional gap: required unsupported behavior is a core failure.
 
-## Official SDK checker
+## Official SDK extension
 
-[`tools/anthropic-sdk-checker`](../tools/anthropic-sdk-checker) is a separate Go module and container image. The main AIQA binary remains dependency-light.
+`official-sdk.anthropic` is compiled into AIQA and pins `anthropic-sdk-go v1.68.0`. Run it explicitly with `test=ext-suite` or combine it with native probes using `test=compat,ext-suite`.
 
-The checker receives an explicit base URL, key, model, and suite list; clears ambient Anthropic variables; disables SDK retries; and emits one `aiqa.external.v1` JSON object per suite. Current suites cover:
+The extension receives the selected target and subject, disables SDK retries, uses AIQA's bounded executor and adaptive HTTP transport, and emits each case through the shared extension validator. Current suites cover:
 
 ```text
-models_list
-models_get
+models.list
+models.get
 messages
-messages_stream
-system
-multi_turn
+messages.stream
+messages.system
+messages.multi-turn
 tools
-tools_stream
-count_tokens
-structured_output
-error_responses
+tools.stream
+count-tokens
+structured-output
+error.responses
 ```
 
-Suite durations measure checker request work, not process or container startup. Valid JSONL entries survive a malformed neighboring line; the malformed line becomes runner evidence. Native and SDK evidence remain independent. A disagreement creates an evidence conflict and does not overwrite the native result.
-
-`--anthropic-external=auto` uses an installed `anthropic-sdk-checker` binary. If none is installed, it reports `not setup`; it does not download code or an image. Use `--anthropic-external=docker` with `--anthropic-external-image` for explicit container execution. Linux loopback targets use host networking.
-
-Build a local checker image from the isolated module when needed:
-
-```bash
-docker build \
-  -t aiqa-anthropic-sdk-checker:1.0.0-alpha.2 \
-  tools/anthropic-sdk-checker
-```
+Suite durations measure SDK request and parse work. Native and SDK evidence remain independent profile-bound requirements. A disagreement creates an evidence conflict and does not overwrite the native result. The general executable protocol and security model are documented in [`extension-suites.md`](extension-suites.md).
 
 ## Reports and exit policy
 
-Anthropic-only and combined runs use `aiqa.report.v2`. Each target owns its profile, discovery inventory, selected models, requirements, assessment, guidance, usage, and rate-limit telemetry. Subjects, evidence IDs, artifact references, recommendation targets, and verification targets carry target identity.
+Anthropic-only and combined runs use `aiqa.report.v3`. Each target owns its profile, discovery inventory, selected models, requirements, assessment, guidance, usage, rate-limit telemetry, and grouped extension results. Subjects, evidence IDs, artifact references, recommendation targets, and verification targets carry target identity.
 
-The root run verdict reflects the hardest target outcome and the configured `--fail-on` policy. It has no cross-protocol percentage. OpenAI-only `auto` runs retain report v1 during the migration cycle; explicit report v1 is rejected when an Anthropic target is active.
+The root run verdict reflects the hardest target outcome and the configured `--fail-on` policy. It has no cross-protocol percentage.
 
-The final write boundary redacts every configured key from typed fields, provider metadata, artifacts, and map keys. External logs are additionally bounded, sanitized, deduplicated, and referenced rather than repeated.
+The final write boundary redacts every configured key from typed fields, provider metadata, artifacts, and map keys. Extension runner diagnostics are additionally bounded, sanitized, deduplicated, and referenced rather than repeated.
 
 ## Verification and maintenance
 
@@ -147,8 +137,8 @@ go run ./script/check-profile-upstream.go \
   --profile profile/anthropic-compat-2026-09.json
 ```
 
-`make check` validates both report schemas, profile v2, the complete dual-facade mock, the separate SDK module, formatting, vet, and unit/integration tests.
+`make check` validates report v3, profile v3, `aiqa.ext.v1`, both built-in SDKs, the complete dual-facade mock, formatting, vet, and unit/integration tests.
 
-Optional live CI jobs are disabled by default and non-blocking. They require explicit repository variables, target secrets, and one selected model. They disable external checkers, billable artifact modules, and high-token thinking; use fixed profile request caps, a 30-second per-request timeout, and adaptive 250 ms initial pacing; and upload only redacted JSON reports with short retention.
+Optional live CI jobs are disabled by default and non-blocking. They require explicit repository variables, target secrets, and one selected model. They omit `ext-suite`, billable artifact modules, and high-token thinking; use fixed profile request caps, a 30-second per-request timeout, and adaptive 250 ms initial pacing; and upload only redacted JSON reports with short retention.
 
 Unimplemented surfaces are listed in [`tasks/backlog.md`](../tasks/backlog.md), including Anthropic model-parameter/context tests, prompt caching, document input, Message Batches, Files, a Messages-only profile, and multi-target HTML or SARIF output.

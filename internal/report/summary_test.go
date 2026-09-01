@@ -33,10 +33,10 @@ func TestNotApplicableModulesDoNotAffectSummary(t *testing.T) {
 	}
 }
 
-func TestProviderExternalResultContributesOnlyToProviderSummary(t *testing.T) {
+func TestProviderExtensionResultContributesOnlyToProviderSummary(t *testing.T) {
 	report := result.Report{
-		Discovery: result.Discovery{External: []result.ExternalResult{{Tool: "official-SDK", Suite: "models", Status: result.StatusFail, Summary: "schema mismatch"}}},
-		Models:    []result.ModelReport{{ID: "inventory-only"}},
+		Extensions: []result.ExtensionRun{{Subject: result.SubjectRef{Kind: "provider", ID: "provider"}, Suites: []result.ExtensionSuiteResult{{Status: result.StatusFail}}}},
+		Models:     []result.ModelReport{{ID: "inventory-only"}},
 	}
 	Finalize(&report)
 	if report.Summary.Fail != 1 || report.Summary.Status != "partial" {

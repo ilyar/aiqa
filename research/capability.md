@@ -1,3 +1,7 @@
+# Historical capability-routing research
+
+> This document records the pre-v3 investigation that led to capability routing. Its descriptions of then-current code are historical, not operating instructions. For the implemented architecture, use [`docs/architecture.md`](../docs/architecture.md) and [`docs/extension-suites.md`](../docs/extension-suites.md).
+
 # Вердикт
 
 Диагноз верный: нынешний `openai-compat-2026-08` — это **профиль OpenAI Chat Completions**, а не профиль всей OpenAI API. Он содержит только discovery, `GET /models/{id}` и текстовые `POST /chat/completions` probes; ни image generation, ни embeddings, ни audio, ни Responses API в нём нет.
@@ -569,7 +573,7 @@ Responses API в современной OpenAI API является самост
 
 # 7. Внешний official-SDK checker
 
-Сейчас в `internal/external/runner.go` захардкожены только:
+The removed pre-v3 external runner hard-coded only these suites:
 
 ```text
 models
@@ -892,10 +896,10 @@ model-param для non-chat модели → N/A
 | `internal/suites/compat.go`          | Разделить на `discovery.go`, `chat.go`                 |
 | `internal/suites/images.go`          | Native image generation probes                         |
 | `internal/api/client.go`             | `ImagesGenerate`, безопасное получение URL artifact    |
-| `internal/external/runner.go`        | Module-specific suites и env vars                      |
+| `internal/extsuite/`                 | Profile-bound built-in and executable extension suites |
 | `internal/report/summary.go`         | Aggregation только применимых исполненных requirements |
 | `internal/report/markdown.go`        | Capability routing matrix и N/A                        |
-| `schema/report.schema.json`          | Additive capability/module fields                      |
+| `schema/report-v3.schema.json`       | Capability, module, and grouped extension fields       |
 | `internal/app/app_test.go`           | Mixed catalog mock: chat + image + embedding + unknown |
 
 ---

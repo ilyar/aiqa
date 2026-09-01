@@ -12,11 +12,6 @@ import (
 	"time"
 )
 
-const (
-	DefaultExternalImage          = "ghcr.io/beranekio/openai-compatibility-tester:latest"
-	DefaultAnthropicExternalImage = "ghcr.io/ilyar/aiqa-anthropic-sdk-checker:1.0.0-alpha.2"
-)
-
 type Protocol string
 
 const (
@@ -36,8 +31,6 @@ type TargetConfig struct {
 	ModelCapabilities []string
 	CapabilityFile    string
 	UnknownModel      string
-	ExternalMode      string
-	ExternalImage     string
 	RequestInterval   time.Duration
 	APIVersion        string
 }
@@ -53,8 +46,8 @@ type Config struct {
 	Formats                    []string
 	Name                       string
 	Concurrency                int
-	ExternalMode               string
-	ExternalImage              string
+	ExtSuites                  []string
+	ExtSuitePaths              []string
 	Modules                    []string
 	ModelCapabilities          []string
 	CapabilityFile             string
@@ -85,11 +78,6 @@ type Config struct {
 	AnthropicUnknownModel      string
 	OpenAIProfile              string
 	AnthropicProfile           string
-	OpenAIExternalMode         string
-	AnthropicExternalMode      string
-	OpenAIExternalImage        string
-	AnthropicExternalImage     string
-	ReportSchema               string
 	AllowHighTokenProbes       bool
 }
 
@@ -169,51 +157,38 @@ func parseHumanInt(s string) (int64, error) {
 	return n * mult, nil
 }
 
-func externalImageFromEnv() string {
-	if image := strings.TrimSpace(os.Getenv("AIQA_EXTERNAL_IMAGE")); image != "" {
-		return image
-	}
-	return DefaultExternalImage
-}
-
 func Parse(args []string) (Config, error) {
 	openAIBaseURL := strings.TrimSpace(os.Getenv("OPENAI_BASE_URL"))
 	openAIAPIKey := os.Getenv("OPENAI_API_KEY")
 	anthropicBaseURL := strings.TrimSpace(os.Getenv("ANTHROPIC_BASE_URL"))
 	anthropicAPIKey := os.Getenv("ANTHROPIC_API_KEY")
 	cfg := Config{
-		BaseURL:                openAIBaseURL,
-		APIKey:                 openAIAPIKey,
-		Tests:                  []string{"compat"},
-		Timeout:                120 * time.Second,
-		RequestInterval:        2 * time.Second,
-		Formats:                []string{"markdown", "json"},
-		Name:                   "report",
-		Concurrency:            1,
-		ExternalMode:           "auto",
-		ExternalImage:          externalImageFromEnv(),
-		Modules:                []string{"auto"},
-		UnknownModel:           "chat",
-		AnthropicUnknownModel:  "messages",
-		MaxArtifactsPerModel:   1,
-		FailOn:                 "core",
-		Guidance:               "full",
-		GuidancePack:           "auto",
-		GuidanceLocale:         "en",
-		Samples:                5,
-		ContextMaxTokens:       1_100_000,
-		ContextPrecision:       512,
-		ContextBudget:          8_000_000,
-		ContextStartBytes:      1024,
-		ContextMaxBytes:        32 * 1024 * 1024,
-		TargetSelection:        "auto",
-		OpenAIProfile:          "openai-compat-2026-09.json",
-		AnthropicProfile:       "anthropic-compat-2026-09.json",
-		OpenAIExternalMode:     "",
-		AnthropicExternalMode:  "",
-		OpenAIExternalImage:    "",
-		AnthropicExternalImage: "",
-		ReportSchema:           "auto",
+		BaseURL:               openAIBaseURL,
+		APIKey:                openAIAPIKey,
+		Tests:                 []string{"compat"},
+		Timeout:               120 * time.Second,
+		RequestInterval:       2 * time.Second,
+		Formats:               []string{"markdown", "json"},
+		Name:                  "report",
+		Concurrency:           1,
+		ExtSuitePaths:         splitPathList(os.Getenv("AIQA_EXT_SUITE_PATHS")),
+		Modules:               []string{"auto"},
+		UnknownModel:          "chat",
+		AnthropicUnknownModel: "messages",
+		MaxArtifactsPerModel:  1,
+		FailOn:                "core",
+		Guidance:              "full",
+		GuidancePack:          "auto",
+		GuidanceLocale:        "en",
+		Samples:               5,
+		ContextMaxTokens:      1_100_000,
+		ContextPrecision:      512,
+		ContextBudget:         8_000_000,
+		ContextStartBytes:     1024,
+		ContextMaxBytes:       32 * 1024 * 1024,
+		TargetSelection:       "auto",
+		OpenAIProfile:         "openai-compat-2026-09.json",
+		AnthropicProfile:      "anthropic-compat-2026-09.json",
 	}
 
 	args = normalizeTestArgument(args)
@@ -222,10 +197,12 @@ func Parse(args []string) (Config, error) {
 
 	var tests, models, openAIModels, anthropicModels, formats, modules, modelCapabilities string
 	var openAIModelCapabilities, anthropicModelCapabilities string
+	extSuitePaths := multiValue{values: append([]string(nil), cfg.ExtSuitePaths...)}
+	extSuiteValues := multiValue{}
 	tests = strings.Join(cfg.Tests, ",")
 	formats = strings.Join(cfg.Formats, ",")
 	modules = strings.Join(cfg.Modules, ",")
-	fs.StringVar(&tests, "test", tests, "comma-separated suites: compat,model-param")
+	fs.StringVar(&tests, "test", tests, "comma-separated suites: compat,model-param,ext-suite")
 	fs.StringVar(&models, "model", "", "one or more comma-separated model IDs; default: discover via /models")
 	fs.StringVar(&openAIModels, "openai-model", "", "OpenAI model IDs")
 	fs.StringVar(&anthropicModels, "anthropic-model", "", "Anthropic model IDs")
@@ -236,14 +213,9 @@ func Parse(args []string) (Config, error) {
 	fs.Var(durationValue{&cfg.RequestInterval}, "request-interval", "initial adaptive request interval, e.g. 2s")
 	fs.StringVar(&formats, "format", formats, "comma-separated report formats: markdown,json")
 	fs.StringVar(&cfg.Name, "name", cfg.Name, "output basename without extension")
-	fs.IntVar(&cfg.Concurrency, "concurrency", cfg.Concurrency, "maximum number of native probes executed concurrently")
-	fs.StringVar(&cfg.ExternalMode, "external", cfg.ExternalMode, "external checker: auto,off,binary,docker")
-	fs.StringVar(&cfg.ExternalImage, "external-image", cfg.ExternalImage, "container image for --external=docker")
-	fs.StringVar(&cfg.OpenAIExternalMode, "openai-external", "", "OpenAI external checker override")
-	fs.StringVar(&cfg.AnthropicExternalMode, "anthropic-external", "", "Anthropic external checker override")
-	fs.StringVar(&cfg.OpenAIExternalImage, "openai-external-image", "", "OpenAI checker image override")
-	fs.StringVar(&cfg.AnthropicExternalImage, "anthropic-external-image", "", "Anthropic checker image override")
-	fs.StringVar(&cfg.ReportSchema, "report-schema", cfg.ReportSchema, "report schema: auto,v1,v2")
+	fs.IntVar(&cfg.Concurrency, "concurrency", cfg.Concurrency, "global ceiling for concurrent native and extension probe work")
+	fs.Var(&extSuiteValues, "ext-suite", "extension IDs to run; repeatable or comma-separated; default: all applicable extensions")
+	fs.Var(&extSuitePaths, "ext-suite-path", "absolute extension executable path; may be repeated")
 	fs.BoolVar(&cfg.AllowHighTokenProbes, "allow-high-token-probes", false, "allow opt-in high-token probes")
 	fs.StringVar(&modules, "module", modules, "capability modules: auto, chat-completions, images-generations, or anthropic.*")
 	fs.StringVar(&modelCapabilities, "model-capability", "", "model capability overrides: model=capability[+capability]")
@@ -287,11 +259,14 @@ func Parse(args []string) (Config, error) {
 	cfg.AnthropicModels = splitUnique(anthropicModels)
 	cfg.Formats = normalizeFormats(splitUnique(formats))
 	cfg.Modules = splitUnique(modules)
+	cfg.ExtSuites = splitUnique(strings.Join(extSuiteValues.values, ","))
+	if duplicate := duplicateCleanPath(extSuitePaths.values); duplicate != "" {
+		return Config{}, fmt.Errorf("extension path %q is configured more than once", duplicate)
+	}
+	cfg.ExtSuitePaths = uniqueStrings(extSuitePaths.values)
 	cfg.ModelCapabilities = splitUnique(modelCapabilities)
 	cfg.OpenAIModelCapabilities = splitUnique(openAIModelCapabilities)
 	cfg.AnthropicModelCapabilities = splitUnique(anthropicModelCapabilities)
-	cfg.ExternalMode = strings.ToLower(strings.TrimSpace(cfg.ExternalMode))
-	cfg.ExternalImage = strings.TrimSpace(cfg.ExternalImage)
 	cfg.FailOn = strings.ToLower(strings.TrimSpace(cfg.FailOn))
 	cfg.Guidance = strings.ToLower(strings.TrimSpace(cfg.Guidance))
 	cfg.GuidancePack = strings.ToLower(strings.TrimSpace(cfg.GuidancePack))
@@ -303,13 +278,8 @@ func Parse(args []string) (Config, error) {
 	cfg.AnthropicCapabilityFile = strings.TrimSpace(cfg.AnthropicCapabilityFile)
 	cfg.Name = strings.TrimSpace(cfg.Name)
 	cfg.TargetSelection = strings.ToLower(strings.TrimSpace(cfg.TargetSelection))
-	cfg.ReportSchema = strings.ToLower(strings.TrimSpace(cfg.ReportSchema))
 	cfg.OpenAIProfile = strings.TrimSpace(cfg.OpenAIProfile)
 	cfg.AnthropicProfile = strings.TrimSpace(cfg.AnthropicProfile)
-	cfg.OpenAIExternalMode = strings.ToLower(strings.TrimSpace(cfg.OpenAIExternalMode))
-	cfg.AnthropicExternalMode = strings.ToLower(strings.TrimSpace(cfg.AnthropicExternalMode))
-	cfg.OpenAIExternalImage = strings.TrimSpace(cfg.OpenAIExternalImage)
-	cfg.AnthropicExternalImage = strings.TrimSpace(cfg.AnthropicExternalImage)
 
 	if err := cfg.configureTargets(openAIBaseURL, openAIAPIKey, anthropicBaseURL, anthropicAPIKey); err != nil {
 		return Config{}, err
@@ -322,6 +292,66 @@ func Parse(args []string) (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+type multiValue struct{ values []string }
+
+func (v *multiValue) String() string { return strings.Join(v.values, string(os.PathListSeparator)) }
+func (v *multiValue) Set(value string) error {
+	v.values = append(v.values, strings.TrimSpace(value))
+	return nil
+}
+
+func splitPathList(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return uniqueStrings(filepath.SplitList(value))
+}
+
+func uniqueStrings(values []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" && !seen[value] {
+			seen[value] = true
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func duplicateCleanPath(values []string) string {
+	seen := map[string]bool{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		cleaned := filepath.Clean(value)
+		if seen[cleaned] {
+			return value
+		}
+		seen[cleaned] = true
+	}
+	return ""
+}
+
+func validStableID(value string) bool {
+	if value == "" {
+		return false
+	}
+	for index, r := range value {
+		letterOrDigit := r >= 'a' && r <= 'z' || r >= '0' && r <= '9'
+		if !letterOrDigit && r != '.' && r != '-' {
+			return false
+		}
+		if (index == 0 || index == len(value)-1) && !letterOrDigit {
+			return false
+		}
+	}
+	return true
 }
 
 func normalizeTestArgument(args []string) []string {
@@ -389,8 +419,8 @@ func (c Config) Validate() error {
 		return errors.New("at least one test suite is required")
 	}
 	for _, test := range c.Tests {
-		if test != "compat" && test != "model-param" {
-			return fmt.Errorf("unknown test suite %q; supported: compat,model-param", test)
+		if test != "compat" && test != "model-param" && test != "ext-suite" {
+			return fmt.Errorf("unknown test suite %q; supported: compat,model-param,ext-suite", test)
 		}
 	}
 	if len(c.Formats) == 0 {
@@ -419,29 +449,18 @@ func (c Config) Validate() error {
 	if c.ContextPrecision > c.ContextMaxTokens {
 		return errors.New("--context-precision must not exceed --context-max")
 	}
-	switch c.ExternalMode {
-	case "auto", "off", "binary", "docker":
-	default:
-		return fmt.Errorf("unknown --external mode %q", c.ExternalMode)
-	}
-	for _, mode := range []string{c.OpenAIExternalMode, c.AnthropicExternalMode} {
-		if mode == "" {
-			continue
-		}
-		switch mode {
-		case "auto", "off", "binary", "docker":
-		default:
-			return fmt.Errorf("unknown protocol external mode %q", mode)
+	for _, path := range c.ExtSuitePaths {
+		if !filepath.IsAbs(path) {
+			return fmt.Errorf("--ext-suite-path must be absolute: %q", path)
 		}
 	}
-	if c.ReportSchema != "auto" && c.ReportSchema != "v1" && c.ReportSchema != "v2" {
-		return fmt.Errorf("unknown --report-schema %q", c.ReportSchema)
+	for _, id := range c.ExtSuites {
+		if !validStableID(id) {
+			return fmt.Errorf("invalid --ext-suite id %q", id)
+		}
 	}
-	if c.ReportSchema == "v1" && len(c.Targets) != 1 || c.ReportSchema == "v1" && c.Targets[0].Protocol != ProtocolOpenAI {
-		return errors.New("--report-schema=v1 supports only one OpenAI target")
-	}
-	if c.ExternalImage == "" {
-		return errors.New("--external-image must not be empty")
+	if len(c.ExtSuites) > 0 && !c.HasTest("ext-suite") {
+		return errors.New("--ext-suite requires test=ext-suite")
 	}
 	if len(c.Modules) == 0 {
 		return errors.New("at least one --module is required")
@@ -534,13 +553,6 @@ func (c *Config) configureTargets(openAIBaseURL, openAIAPIKey, anthropicBaseURL,
 		if len(requested) <= 1 && len(models) == 0 {
 			models = c.Models
 		}
-		mode, image := c.OpenAIExternalMode, c.OpenAIExternalImage
-		if mode == "" {
-			mode = c.ExternalMode
-		}
-		if image == "" {
-			image = c.ExternalImage
-		}
 		capabilities, capabilityFile := c.OpenAIModelCapabilities, c.OpenAICapabilityFile
 		if len(requested) <= 1 && len(capabilities) == 0 {
 			capabilities = c.ModelCapabilities
@@ -548,19 +560,12 @@ func (c *Config) configureTargets(openAIBaseURL, openAIAPIKey, anthropicBaseURL,
 		if len(requested) <= 1 && capabilityFile == "" {
 			capabilityFile = c.CapabilityFile
 		}
-		configured["openai"] = TargetConfig{ID: "openai", Protocol: ProtocolOpenAI, BaseURL: openAIBaseURL, APIKey: openAIAPIKey, Models: models, ProfileFile: c.OpenAIProfile, Modules: append([]string(nil), c.Modules...), ModelCapabilities: append([]string(nil), capabilities...), CapabilityFile: capabilityFile, UnknownModel: c.UnknownModel, ExternalMode: mode, ExternalImage: image, RequestInterval: c.RequestInterval}
+		configured["openai"] = TargetConfig{ID: "openai", Protocol: ProtocolOpenAI, BaseURL: openAIBaseURL, APIKey: openAIAPIKey, Models: models, ProfileFile: c.OpenAIProfile, Modules: append([]string(nil), c.Modules...), ModelCapabilities: append([]string(nil), capabilities...), CapabilityFile: capabilityFile, UnknownModel: c.UnknownModel, RequestInterval: c.RequestInterval}
 	}
 	if wants("anthropic") && anthropicBaseURL != "" && anthropicAPIKey != "" {
 		models := c.AnthropicModels
 		if len(requested) <= 1 && len(models) == 0 {
 			models = c.Models
-		}
-		mode, image := c.AnthropicExternalMode, c.AnthropicExternalImage
-		if mode == "" {
-			mode = c.ExternalMode
-		}
-		if image == "" {
-			image = DefaultAnthropicExternalImage
 		}
 		capabilities, capabilityFile := c.AnthropicModelCapabilities, c.AnthropicCapabilityFile
 		if len(requested) <= 1 && len(capabilities) == 0 {
@@ -570,7 +575,7 @@ func (c *Config) configureTargets(openAIBaseURL, openAIAPIKey, anthropicBaseURL,
 			capabilityFile = c.CapabilityFile
 		}
 		normalized := normalizeAnthropicBaseURL(anthropicBaseURL)
-		configured["anthropic"] = TargetConfig{ID: "anthropic", Protocol: ProtocolAnthropic, BaseURL: normalized, BaseURLNormalized: normalized != strings.TrimRight(strings.TrimSpace(anthropicBaseURL), "/"), APIKey: anthropicAPIKey, Models: models, ProfileFile: c.AnthropicProfile, Modules: append([]string(nil), c.Modules...), ModelCapabilities: append([]string(nil), capabilities...), CapabilityFile: capabilityFile, UnknownModel: c.AnthropicUnknownModel, ExternalMode: mode, ExternalImage: image, RequestInterval: c.RequestInterval, APIVersion: "2023-06-01"}
+		configured["anthropic"] = TargetConfig{ID: "anthropic", Protocol: ProtocolAnthropic, BaseURL: normalized, BaseURLNormalized: normalized != strings.TrimRight(strings.TrimSpace(anthropicBaseURL), "/"), APIKey: anthropicAPIKey, Models: models, ProfileFile: c.AnthropicProfile, Modules: append([]string(nil), c.Modules...), ModelCapabilities: append([]string(nil), capabilities...), CapabilityFile: capabilityFile, UnknownModel: c.AnthropicUnknownModel, RequestInterval: c.RequestInterval, APIVersion: "2023-06-01"}
 	}
 	order := requested
 	if len(order) == 0 {

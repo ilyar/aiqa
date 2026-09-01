@@ -4,36 +4,21 @@ An AIQA report states which parts of an OpenAI or Anthropic API facade were demo
 
 ## Report contracts
 
-`aiqa.report.v1` represents one OpenAI target. OpenAI-only runs use it by default during the migration cycle. `aiqa.report.v2` represents one or more protocol targets and is automatic for Anthropic-only and combined runs.
+`aiqa.report.v3` represents one or more OpenAI or Anthropic targets. It is the only public report contract.
 
-Each v2 target owns these fields:
+Each target owns these fields:
 
 - target ID and protocol;
 - profile and source revision;
 - discovery inventory and selected models;
 - canonical requirements and target verdict;
-- findings, recommendations, usage, and rate-limit telemetry.
+- findings, recommendations, usage, rate-limit telemetry, and grouped extension runs.
 
-Model verdicts in v2 are derived from that model's canonical requirements, including applicable profile probes that were planned but not executed. A missing probe therefore cannot leave a model labelled `PASS`.
+Model verdicts are derived from that model's canonical requirements. A missing planned native or profile-bound extension result cannot leave a model labelled `PASS`.
 
 Requirement subjects and evidence IDs include the target ID. The same model name on OpenAI and Anthropic targets remains two separate subjects. The root contains a run verdict and target counts, but no weighted score or cross-protocol percentage. The hardest target outcome wins in this order: `FAIL`, `INCONCLUSIVE`, `PARTIAL`, `PASS-WITH-GAPS`, and `PASS`.
 
-`--report-schema=v1` is valid only with one OpenAI target. `--report-schema=v2` can represent OpenAI-only, Anthropic-only, or combined execution. API keys are absent from both contracts.
-
-For an OpenAI-only migration, the main JSON Pointer mapping is:
-
-| v1 | v2 |
-|---|---|
-| `/profile` | `/targets/0/profile` |
-| `/config/base_url` | `/config/targets/0/base_url` |
-| `/discovery` | `/targets/0/discovery` |
-| `/models` | `/targets/0/models` |
-| `/requirements` | `/targets/0/requirements` |
-| `/guidance` | `/targets/0/guidance` |
-| `/rate_limit` | `/targets/0/rate_limit` |
-| `/summary` | `/targets/0/summary` |
-
-The v2 `/summary` is a run-level verdict and must not replace `/targets/0/summary` in a consumer that needs target conformance details.
+API keys are absent from the contract. The root `/summary` is a run-level verdict and must not replace `/targets/0/summary` in a consumer that needs target conformance details.
 
 ## Result model
 
@@ -49,7 +34,7 @@ Guidance never changes a requirement status, conformance assessment, or exit cod
 
 A probe is an experiment; a requirement is the contract unit being assessed. Several probes may support one requirement without giving that requirement extra weight. Native and Official SDK observations retain separate evidence IDs.
 
-Official SDK parsing is normally an explicit optional interoperability requirement linked to the related native wire requirement. Conflicting native and SDK observations therefore create an evidence diagnostic without rewriting a passing native core result. A suite that checks the same response object, such as the Models list schema, may contribute evidence directly to that requirement.
+Official SDK parsing is normally an explicit optional interoperability requirement linked to the related native wire requirement. `aiqa.profile.v3` supplies the binding; an extension cannot define its own requiredness or weight. Conflicting native and SDK observations create an evidence diagnostic without rewriting a passing native core result. Unbound extension results remain visible but do not enter conformance measures.
 
 Each requirement has a level, applicability, status, subject, and evidence:
 
@@ -125,9 +110,9 @@ Verification entries identify the affected target, protocol, requirement IDs, an
 
 Markdown is rendered from the same report object serialized as JSON. Its order is:
 
-For v1, Markdown shows run metadata, the executive summary, global telemetry, prioritized actions, model detail, collapsed passing checks, raw evidence, limitations, and usage. For v2, it shows the target comparison table, the run verdict, per-target telemetry, separate target sections, and normalized provider-reported usage. OpenAI `prompt_tokens`/`completion_tokens` and Anthropic `input_tokens`/`output_tokens` share common Input and Output columns. Anthropic cache creation and cache read remain separate input categories; thinking/reasoning is shown as an output subset and is not added twice. The Total column and the multi-target total row show the observed aggregate. When a target evaluates more than one model, its model section also shows separate rate-limit and latency observations for each model. Percentages remain target-local.
+Markdown shows the target comparison table, run verdict, per-target telemetry, separate target sections, model routing, grouped extension suites, and normalized provider-reported usage. OpenAI `prompt_tokens`/`completion_tokens` and Anthropic `input_tokens`/`output_tokens` share common Input and Output columns. Anthropic cache creation and cache read remain separate input categories; thinking/reasoning is shown as an output subset and is not added twice. The Total column and the multi-target total row show the observed aggregate. When a target evaluates more than one model, its model section also shows separate rate-limit and latency observations for each model. Percentages remain target-local.
 
-External checker logs are redacted, truncated, stored once in `guidance.artifacts`, and linked by content-addressed `artifact_ref` values. API keys, bearer tokens, cookies, signed query strings, tool arguments, and long base64 payloads are removed before rendering.
+Failed extension-runner diagnostics are redacted, truncated, stored once in `guidance.artifacts`, and linked by content-addressed `artifact_ref` values. API keys, bearer tokens, cookies, signed query strings, tool arguments, and long base64 payloads are removed before rendering.
 
 ## CLI controls
 
@@ -157,6 +142,6 @@ Exit `2` remains reserved for configuration, orchestration, or report-writing fa
 
 ## Current scope and future work
 
-The v1 and v2 report contracts contain canonical requirements and authoritative target assessments; neither contains a deprecated overall score. `aiqa.profile.v2` adds protocol, API version, base-URL semantics, and multiple provenance sources while keeping probes as a normative manifest rather than an HTTP request DSL.
+Report v3 contains canonical requirements and authoritative target assessments without an overall score. `aiqa.profile.v3` adds explicit extension requirements and bindings while keeping the profile a normative manifest rather than an HTTP request DSL.
 
-Baseline comparison, offline `aiqa explain`, targeted `aiqa verify`, opt-in verification commands, Russian guidance, HTML, SARIF, and generated explanations are not implemented. They remain separate future work and must not be inferred from the v1 guidance contract.
+Baseline comparison, offline `aiqa explain`, targeted `aiqa verify`, opt-in verification commands, Russian guidance, HTML, SARIF, and generated explanations are not implemented. They remain separate future work and must not be inferred from the guidance contract.

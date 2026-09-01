@@ -19,12 +19,12 @@ import (
 	"github.com/ilyar/aiqa/internal/result"
 )
 
-func TestDualTargetCommandWritesIndependentV2Report(t *testing.T) {
+func TestDualTargetCommandWritesIndependentV3Report(t *testing.T) {
 	openAI := newMockOpenAI(t)
 	defer openAI.Close()
 	anthropic := newMockAnthropic(t)
 	defer anthropic.Close()
-	schemaPath, err := filepath.Abs(filepath.Join("..", "..", "schema", "report-v2.schema.json"))
+	schemaPath, err := filepath.Abs(filepath.Join("..", "..", "schema", "report-v3.schema.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func TestDualTargetCommandWritesIndependentV2Report(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "anthropic-test-key")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "must-not-be-used")
 	t.Setenv("ANTHROPIC_BETA", "must-not-be-used")
-	cfg, err := config.Parse([]string{"test=compat", "--timeout=5", "--request-interval=1ms", "--external=off", "--format=markdown,json", "--name=dual"})
+	cfg, err := config.Parse([]string{"test=compat", "--timeout=5", "--request-interval=1ms", "--format=markdown,json", "--name=dual"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,20 +44,20 @@ func TestDualTargetCommandWritesIndependentV2Report(t *testing.T) {
 		t.Fatal(err)
 	}
 	if out.ExitCode != 0 {
-		t.Fatalf("exit=%d summary=%+v", out.ExitCode, out.ReportV2.Summary)
+		t.Fatalf("exit=%d summary=%+v", out.ExitCode, out.ReportV3.Summary)
 	}
 	data, err := os.ReadFile("dual.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var report result.ReportV2
+	var report result.ReportV3
 	if err := json.Unmarshal(data, &report); err != nil {
 		t.Fatal(err)
 	}
-	if report.SchemaVersion != "aiqa.report.v2" || len(report.Targets) != 2 {
+	if report.SchemaVersion != "aiqa.report.v3" || len(report.Targets) != 2 {
 		t.Fatalf("unexpected report: schema=%s targets=%d", report.SchemaVersion, len(report.Targets))
 	}
-	if report.Targets[0].Protocol != "openai" || report.Targets[1].Protocol != "anthropic" {
+	if report.Targets[0].Protocol != "anthropic" || report.Targets[1].Protocol != "openai" {
 		t.Fatalf("target order/protocols: %+v", report.Targets)
 	}
 	for _, target := range report.Targets {
@@ -109,6 +109,9 @@ func TestDualTargetCommandWritesIndependentV2Report(t *testing.T) {
 		}
 	}
 	for _, probe := range contract.Probes {
+		if probe.Executor == "extension" {
+			continue
+		}
 		if !covered[probe.ID] {
 			t.Fatalf("profile probe %s is absent from canonical requirements", probe.ID)
 		}
@@ -121,7 +124,7 @@ from jsonschema import Draft202012Validator,FormatChecker
 schema=json.load(open(sys.argv[1])); Draft202012Validator.check_schema(schema)
 Draft202012Validator(schema,format_checker=FormatChecker()).validate(json.load(open(sys.argv[2])))`
 	if output, err := exec.Command("python3", "-c", program, schemaPath, "dual.json").CombinedOutput(); err != nil {
-		t.Fatalf("v2 schema validation failed: %v\n%s", err, output)
+		t.Fatalf("v3 schema validation failed: %v\n%s", err, output)
 	}
 	markdown, err := os.ReadFile("dual.md")
 	if err != nil {
@@ -143,7 +146,7 @@ func TestAnthropicThinkingRequiresOptInAndRedactsPrivateContent(t *testing.T) {
 	t.Setenv("ANTHROPIC_BASE_URL", server.URL+"/anthropic")
 	t.Setenv("ANTHROPIC_API_KEY", "anthropic-test-key")
 	cfg, err := config.Parse([]string{
-		"test=compat", "--external=off", "--format=json", "--name=thinking", "--timeout=5", "--request-interval=1ms",
+		"test=compat", "--format=json", "--name=thinking", "--timeout=5", "--request-interval=1ms",
 		"--module=anthropic.thinking", "--allow-high-token-probes",
 		"--anthropic-model-capability=claude-mock=anthropic.messages.text+anthropic.messages.thinking.manual+anthropic.messages.thinking.adaptive",
 	})
@@ -154,18 +157,18 @@ func TestAnthropicThinkingRequiresOptInAndRedactsPrivateContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.ReportV2 == nil || len(out.ReportV2.Targets) != 1 {
-		t.Fatalf("unexpected report: %+v", out.ReportV2)
+	if out.ReportV3 == nil || len(out.ReportV3.Targets) != 1 {
+		t.Fatalf("unexpected report: %+v", out.ReportV3)
 	}
 	seen := map[string]result.Status{}
-	for _, probe := range out.ReportV2.Targets[0].Models[0].Compatibility {
+	for _, probe := range out.ReportV3.Targets[0].Models[0].Compatibility {
 		if strings.HasPrefix(probe.ID, "anthropic.thinking.") {
 			seen[probe.ID] = probe.Status
 		}
 	}
 	for _, id := range []string{"anthropic.thinking.adaptive", "anthropic.thinking.effort", "anthropic.thinking.manual", "anthropic.thinking.manual.validation", "anthropic.thinking.stream"} {
 		if seen[id] != result.StatusPass {
-			t.Fatalf("thinking probe %s=%s, all=%v model=%+v", id, seen[id], seen, out.ReportV2.Targets[0].Models[0])
+			t.Fatalf("thinking probe %s=%s, all=%v model=%+v", id, seen[id], seen, out.ReportV3.Targets[0].Models[0])
 		}
 	}
 	data, err := os.ReadFile("thinking.json")
@@ -200,7 +203,7 @@ func TestAnthropicConcurrencyAppliesToProbes(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("ANTHROPIC_BASE_URL", server.URL+"/anthropic")
 	t.Setenv("ANTHROPIC_API_KEY", "anthropic-test-key")
-	cfg, err := config.Parse([]string{"test=compat", "--timeout=5", "--request-interval=1ms", "--concurrency=4", "--external=off", "--format=json", "--name=anthropic-parallel"})
+	cfg, err := config.Parse([]string{"test=compat", "--timeout=5", "--request-interval=1ms", "--concurrency=4", "--format=json", "--name=anthropic-parallel"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,11 +211,75 @@ func TestAnthropicConcurrencyAppliesToProbes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.ReportV2 == nil || out.ExitCode != 0 {
-		t.Fatalf("parallel run changed compatibility results: %+v", out.ReportV2)
+	if out.ReportV3 == nil || out.ExitCode != 0 {
+		t.Fatalf("parallel run changed compatibility results: %+v", out.ReportV3)
 	}
 	if got := maximum.Load(); got < 2 || got > 4 {
 		t.Fatalf("maximum concurrent HTTP requests=%d, want 2..4", got)
+	}
+}
+
+func TestBuiltInOfficialSDKExtensionsRunWithoutDocker(t *testing.T) {
+	openAI := newMockOpenAI(t)
+	defer openAI.Close()
+	anthropic := newMockAnthropic(t)
+	defer anthropic.Close()
+	schemaPath, err := filepath.Abs(filepath.Join("..", "..", "schema", "report-v3.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	withTempWorkingDirectory(t)
+	originalPath := os.Getenv("PATH")
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("OPENAI_BASE_URL", openAI.URL+"/v1")
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("ANTHROPIC_BASE_URL", anthropic.URL+"/anthropic")
+	t.Setenv("ANTHROPIC_API_KEY", "anthropic-test-key")
+	cfg, err := config.Parse([]string{"test=ext-suite", "--timeout=5", "--request-interval=1ms", "--concurrency=4", "--format=json", "--name=extensions"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := Run(context.Background(), cfg, BuildInfo{Version: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.ReportV3 == nil || len(out.ReportV3.Targets) != 2 {
+		t.Fatalf("unexpected extension report: %+v", out.ReportV3)
+	}
+	for _, target := range out.ReportV3.Targets {
+		if len(target.Extensions) == 0 {
+			t.Fatalf("target %s has no extension runs", target.ID)
+		}
+		for _, run := range target.Extensions {
+			if run.Provenance.Source != "builtin" || run.Runner.Status != result.StatusPass || run.Runner.PacingCompliance != "host_enforced" {
+				t.Fatalf("target %s extension runner: %+v", target.ID, run)
+			}
+			for _, suite := range run.Suites {
+				if suite.Status != result.StatusPass {
+					t.Fatalf("target %s suite %s=%s: %s", target.ID, suite.SuiteID, suite.Status, suite.Summary)
+				}
+			}
+		}
+		for _, model := range target.Models {
+			if len(model.Compatibility) != 0 {
+				t.Fatalf("extension-only run executed native compatibility probes for %s/%s", target.ID, model.ID)
+			}
+		}
+	}
+	data, err := os.ReadFile("extensions.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), `"external"`) || strings.Contains(string(data), "docker") || strings.Contains(string(data), "test-key") || strings.Contains(string(data), "anthropic-test-key") {
+		t.Fatalf("v3 report contains legacy transport or credential data: %s", data)
+	}
+	t.Setenv("PATH", originalPath)
+	program := `import json,sys
+from jsonschema import Draft202012Validator,FormatChecker
+schema=json.load(open(sys.argv[1])); Draft202012Validator.check_schema(schema)
+Draft202012Validator(schema,format_checker=FormatChecker()).validate(json.load(open(sys.argv[2])))`
+	if output, err := exec.Command("python3", "-c", program, schemaPath, "extensions.json").CombinedOutput(); err != nil {
+		t.Fatalf("v3 extension schema validation failed: %v\n%s", err, output)
 	}
 }
 

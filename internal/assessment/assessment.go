@@ -41,17 +41,11 @@ func apply(r *result.Report, p profile.Profile, targetID, protocol string) {
 	for i := range r.Discovery.Compatibility {
 		addNative(items, provider, &r.Discovery.Compatibility[i], p)
 	}
-	for i := range r.Discovery.External {
-		addExternal(items, provider, &r.Discovery.External[i], p)
-	}
 	for modelIndex := range r.Models {
 		model := &r.Models[modelIndex]
 		subject := result.SubjectRef{TargetID: targetID, Protocol: protocol, Kind: "model", ID: model.ID}
 		for i := range model.Compatibility {
 			addNative(items, subject, &model.Compatibility[i], p)
-		}
-		for i := range model.External {
-			addExternal(items, subject, &model.External[i], p)
 		}
 		for i := range model.Parameters {
 			addParameter(items, subject, &model.Parameters[i])
@@ -59,9 +53,20 @@ func apply(r *result.Report, p profile.Profile, targetID, protocol string) {
 		if model.Context != nil {
 			addContext(items, subject, model.Context)
 		}
-		materializeModuleCoverage(items, subject, model.Modules, p)
+		if nativeCoverageSelected(r.Config.Tests) {
+			materializeModuleCoverage(items, subject, model.Modules, p)
+		}
 	}
-	materializeProviderCoverage(items, provider, p)
+	for runIndex := range r.Extensions {
+		run := &r.Extensions[runIndex]
+		for suiteIndex := range run.Suites {
+			addExtension(items, &run.Suites[suiteIndex], p)
+		}
+		addExtensionRunner(items, run, p)
+	}
+	if nativeCoverageSelected(r.Config.Tests) {
+		materializeProviderCoverage(items, provider, p)
+	}
 
 	for _, item := range items {
 		finalizeRequirement(item)
@@ -87,6 +92,19 @@ func apply(r *result.Report, p profile.Profile, targetID, protocol string) {
 	if targetID != "" {
 		applyModelAssessments(r, requirements)
 	}
+}
+
+func containsString(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
+}
+
+func nativeCoverageSelected(tests []string) bool {
+	return len(tests) == 0 || containsString(tests, "compat")
 }
 
 func applyModelAssessments(r *result.Report, requirements []result.RequirementAssessment) {
@@ -135,51 +153,65 @@ func addNative(items map[requirementKey]*result.RequirementAssessment, subject r
 	appendBlockedBy(item, test.Signals)
 }
 
-func addExternal(items map[requirementKey]*result.RequirementAssessment, subject result.SubjectRef, external *result.ExternalResult, p profile.Profile) {
-	if external.Suite == "" && external.Status == result.StatusSkip {
-		// An unavailable or explicitly disabled checker did not exercise a
-		// requirement. Keep the raw setup state in the report without turning it
-		// into an optional compatibility gap.
+func addExtension(items map[requirementKey]*result.RequirementAssessment, suite *result.ExtensionSuiteResult, p profile.Profile) {
+	if !suite.Bound || suite.RequirementID == "" {
 		return
 	}
-	ids := external.RequirementIDs
-	if len(ids) == 0 {
-		suite := external.Suite
-		if suite == "" {
-			suite = "runner"
-		}
-		ids = []string{"official-sdk." + strings.ReplaceAll(suite, "_", ".")}
-		external.RequirementIDs = append([]string(nil), ids...)
+	spec := p.Probe(suite.RequirementID)
+	level := result.RequirementOptional
+	if spec.Required {
+		level = result.RequirementCore
 	}
-	for _, id := range ids {
-		spec := p.Probe(id)
-		name := spec.Name
-		description := spec.Description
+	item := get(items, suite.Subject, suite.RequirementID, spec.Name, spec.Description, level, moduleForProbe(p, suite.RequirementID))
+	item.Evidence = append(item.Evidence, result.EvidenceRef{
+		ID:                    evidenceID("extension", suite.Subject, suite.ExtensionID+"."+suite.SuiteID),
+		Kind:                  "extension",
+		Suite:                 suite.SuiteID,
+		Status:                suite.Status,
+		Summary:               suite.Summary,
+		HTTPStatus:            suite.HTTP.StatusCode,
+		ArtifactRef:           suite.ArtifactRef,
+		RelatedRequirementIDs: append([]string(nil), suite.RelatedRequirementIDs...),
+		Signals:               cloneSignals(suite.Signals),
+	})
+}
+
+func addExtensionRunner(items map[requirementKey]*result.RequirementAssessment, run *result.ExtensionRun, p profile.Profile) {
+	if run.Runner.Status != result.StatusError {
+		return
+	}
+	for _, suite := range run.Suites {
+		if !suite.Bound || suite.RequirementID == "" {
+			continue
+		}
+		spec := p.Probe(suite.RequirementID)
 		level := result.RequirementOptional
 		if spec.Required {
 			level = result.RequirementCore
 		}
-		if name == id || name == "" {
-			name = "Official SDK: " + external.Suite
-			description = "The official OpenAI SDK can execute and parse this suite"
-		}
-		item := get(items, subject, id, name, description, level, moduleForProbe(p, id))
+		item := get(items, suite.Subject, suite.RequirementID, spec.Name, spec.Description, level, moduleForProbe(p, suite.RequirementID))
 		item.Evidence = append(item.Evidence, result.EvidenceRef{
-			ID:                    evidenceID("official-sdk", subject, external.Suite),
-			Kind:                  "official_sdk",
-			Suite:                 external.Suite,
-			Status:                external.Status,
-			Summary:               external.Summary,
-			ArtifactRef:           external.ArtifactRef,
-			RelatedRequirementIDs: append([]string(nil), external.RelatedRequirementIDs...),
-			Signals:               cloneSignals(external.Signals),
+			ID:          evidenceID("extension-runner", suite.Subject, suite.ExtensionID+"."+suite.SuiteID),
+			Kind:        "extension_runner",
+			Suite:       suite.SuiteID,
+			Status:      result.StatusError,
+			Summary:     run.Runner.Summary,
+			ArtifactRef: run.Runner.ArtifactRef,
+			Signals:     []result.EvidenceSignal{{Code: "extension.runner.failure", Parameters: map[string]any{"extension_id": suite.ExtensionID}}},
 		})
 	}
 }
 
 func reconcileRelatedEvidence(items map[requirementKey]*result.RequirementAssessment) {
 	for key, item := range items {
-		if !strings.HasPrefix(item.ID, "official-sdk.") {
+		isExtension := false
+		for _, evidence := range item.Evidence {
+			if evidence.Kind == "extension" {
+				isExtension = true
+				break
+			}
+		}
+		if !isExtension {
 			continue
 		}
 		conflict := false
@@ -461,9 +493,6 @@ func ensureSignals(r *result.Report) {
 	for i := range r.Discovery.Compatibility {
 		ensureTestSignals(&r.Discovery.Compatibility[i])
 	}
-	for i := range r.Discovery.External {
-		ensureExternalSignals(&r.Discovery.External[i])
-	}
 	for modelIndex := range r.Models {
 		model := &r.Models[modelIndex]
 		for i := range model.Compatibility {
@@ -474,8 +503,13 @@ func ensureSignals(r *result.Report) {
 				model.Parameters[i].Signals = []result.EvidenceSignal{{Code: genericSignalCode("parameter."+normalizedID(model.Parameters[i].Name), model.Parameters[i].Status)}}
 			}
 		}
-		for i := range model.External {
-			ensureExternalSignals(&model.External[i])
+	}
+	for runIndex := range r.Extensions {
+		for suiteIndex := range r.Extensions[runIndex].Suites {
+			suite := &r.Extensions[runIndex].Suites[suiteIndex]
+			if suite.Status != result.StatusPass && len(suite.Signals) == 0 {
+				suite.Signals = []result.EvidenceSignal{{Code: "extension." + normalizedID(suite.ExtensionID+"."+suite.SuiteID) + "." + string(suite.Status)}}
+			}
 		}
 	}
 }
@@ -489,17 +523,6 @@ func ensureTestSignals(test *result.TestResult) {
 		id = test.ID
 	}
 	test.Signals = []result.EvidenceSignal{{Code: genericSignalCode(id, test.Status), Parameters: map[string]any{"http_status": test.HTTP.StatusCode}}}
-}
-
-func ensureExternalSignals(external *result.ExternalResult) {
-	if external.Status == result.StatusPass || len(external.Signals) > 0 {
-		return
-	}
-	suite := external.Suite
-	if suite == "" {
-		suite = "runner"
-	}
-	external.Signals = []result.EvidenceSignal{{Code: "external." + normalizedID(suite) + "." + string(external.Status)}}
 }
 
 func genericSignalCode(id string, status result.Status) string {
@@ -518,6 +541,11 @@ func genericSignalCode(id string, status result.Status) string {
 }
 
 func moduleForProbe(p profile.Profile, id string) string {
+	for _, binding := range p.ExtensionBindings {
+		if binding.RequirementID == id {
+			return binding.Module
+		}
+	}
 	for _, module := range p.Modules {
 		for _, probeID := range module.ProbeIDs {
 			if probeID == id || (strings.HasPrefix(id, "chat.error.") && probeID == strings.TrimPrefix(id, "chat.")) {

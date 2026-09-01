@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +9,33 @@ import (
 	"testing"
 	"time"
 )
+
+func TestPacedSDKTransportOwnsRetriesAndCountsExhaustedRateLimit(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"message":"slow down"}}`))
+	}))
+	defer server.Close()
+	client, err := NewClient(server.URL, "test", "aiqa-test", time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.SetConcurrency(4)
+	request, _ := http.NewRequest(http.MethodPost, server.URL, bytes.NewReader([]byte(`{}`)))
+	response, err := client.PacedHTTPClient("model-a").Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if calls.Load() != 3 || client.PacingStats().RateLimited != 3 {
+		t.Fatalf("calls=%d rate_limited=%d, want 3/3", calls.Load(), client.PacingStats().RateLimited)
+	}
+	if got := client.PacingConstraints().SafeConcurrency; got != 1 {
+		t.Fatalf("current adaptive concurrency=%d after 429, want 1", got)
+	}
+}
 
 func TestDoRawStopsAfterThreeRateLimitedAttempts(t *testing.T) {
 	var calls atomic.Int32

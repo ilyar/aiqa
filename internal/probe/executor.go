@@ -17,8 +17,26 @@ func NewExecutor(limit int) *Executor {
 }
 
 func (e *Executor) Do(fn func()) {
-	e.sem <- struct{}{}
-	defer func() { <-e.sem }()
+	e.DoN(1, fn)
+}
+
+// DoN reserves several global probe slots for one operation. Extension
+// executables use this to account for their declared internal concurrency.
+func (e *Executor) DoN(slots int, fn func()) {
+	if slots < 1 {
+		slots = 1
+	}
+	if slots > cap(e.sem) {
+		slots = cap(e.sem)
+	}
+	for range slots {
+		e.sem <- struct{}{}
+	}
+	defer func() {
+		for range slots {
+			<-e.sem
+		}
+	}()
 	fn()
 }
 

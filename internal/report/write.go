@@ -1,44 +1,12 @@
 package report
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/ilyar/aiqa/internal/config"
-	"github.com/ilyar/aiqa/internal/result"
 )
-
-func Write(r result.Report, cfg config.Config) ([]string, error) {
-	result.RedactSecrets(&r, reportSecrets(cfg)...)
-	var paths []string
-	for _, format := range cfg.Formats {
-		var data []byte
-		var ext string
-		var err error
-		switch format {
-		case "json":
-			data, err = json.MarshalIndent(r, "", "  ")
-			ext = ".json"
-		case "markdown":
-			data = []byte(Markdown(r))
-			ext = ".md"
-		default:
-			return paths, fmt.Errorf("unsupported format %q", format)
-		}
-		if err != nil {
-			return paths, err
-		}
-		data = append(data, '\n')
-		path := cfg.Name + ext
-		if err := atomicWrite(path, data, 0o644); err != nil {
-			return paths, err
-		}
-		paths = append(paths, path)
-	}
-	return paths, nil
-}
 
 func reportSecrets(cfg config.Config) []string {
 	out := []string{cfg.APIKey}

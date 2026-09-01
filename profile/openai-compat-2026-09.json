@@ -1,10 +1,27 @@
 {
+  "schema_version": "aiqa.profile.v3",
   "id": "openai-compat",
+  "protocol": "openai",
   "revision": "2026-09-01",
   "source": "https://github.com/openai/openai-openapi",
   "source_commit": "690521b1753dce0c6d6b275f583d22537679cff9",
   "source_ref_revision": "1030392",
   "scope": "GET /v1/models, GET /v1/models/{model}, POST /v1/chat/completions, POST /v1/images/generations",
+  "base_url_semantics": "endpoint_root_includes_v1",
+  "sources": [
+    {
+      "kind": "api_version",
+      "url": "https://github.com/openai/openai-openapi",
+      "revision": "1030392",
+      "reviewed_at": "2026-09-01"
+    },
+    {
+      "kind": "official_sdk",
+      "url": "https://github.com/openai/openai-go",
+      "version": "v3.54.0",
+      "commit": "34c838da0b4d903953dd14717fb7b80ddb4118a0"
+    }
+  ],
   "modules": [
     {
       "id": "discovery",
@@ -286,7 +303,108 @@
       "category": "errors",
       "required": true,
       "description": "Malformed image JSON returns a client error rather than 5xx"
+    },
+    {
+      "id": "official-sdk.openai.models.list",
+      "name": "Official SDK: list models",
+      "category": "official-sdk",
+      "required": false,
+      "description": "The official OpenAI Go SDK lists models",
+      "executor": "extension"
+    },
+    {
+      "id": "official-sdk.openai.models.get",
+      "name": "Official SDK: retrieve model",
+      "category": "official-sdk",
+      "required": false,
+      "description": "The official OpenAI Go SDK retrieves the selected model",
+      "executor": "extension"
+    },
+    {
+      "id": "official-sdk.openai.chat.completions",
+      "name": "Official SDK: chat completion",
+      "category": "official-sdk",
+      "required": false,
+      "description": "The official OpenAI Go SDK sends and parses a chat completion",
+      "executor": "extension"
+    },
+    {
+      "id": "official-sdk.openai.chat.stream",
+      "name": "Official SDK: chat stream",
+      "category": "official-sdk",
+      "required": false,
+      "description": "The official OpenAI Go SDK consumes a chat stream",
+      "executor": "extension"
+    },
+    {
+      "id": "official-sdk.openai.chat.stream.usage",
+      "name": "Official SDK: streaming usage",
+      "category": "official-sdk",
+      "required": false,
+      "description": "The official OpenAI Go SDK reconstructs streaming usage",
+      "executor": "extension"
+    },
+    {
+      "id": "official-sdk.openai.chat.json",
+      "name": "Official SDK: JSON mode",
+      "category": "official-sdk",
+      "required": false,
+      "description": "The official OpenAI Go SDK parses JSON mode output",
+      "executor": "extension"
+    },
+    {
+      "id": "official-sdk.openai.chat.tools",
+      "name": "Official SDK: tools",
+      "category": "official-sdk",
+      "required": false,
+      "description": "The official OpenAI Go SDK parses and continues tool calls",
+      "executor": "extension"
+    },
+    {
+      "id": "official-sdk.openai.chat.tools.stream",
+      "name": "Official SDK: streaming tools",
+      "category": "official-sdk",
+      "required": false,
+      "description": "The official OpenAI Go SDK reconstructs streamed tool calls",
+      "executor": "extension"
+    },
+    {
+      "id": "official-sdk.openai.chat.multi_turn",
+      "name": "Official SDK: multi-turn chat",
+      "category": "official-sdk",
+      "required": false,
+      "description": "The official OpenAI Go SDK sends multi-turn messages",
+      "executor": "extension"
+    },
+    {
+      "id": "official-sdk.openai.error.responses",
+      "name": "Official SDK: errors",
+      "category": "official-sdk",
+      "required": false,
+      "description": "The official OpenAI Go SDK parses API errors",
+      "executor": "extension"
+    },
+    {
+      "id": "official-sdk.openai.images.generations",
+      "name": "Official SDK: image generation",
+      "category": "official-sdk",
+      "required": false,
+      "description": "The official OpenAI Go SDK sends and parses image generation",
+      "executor": "extension"
     }
+  ],
+  "extension_bindings": [
+    {"extension_id":"official-sdk.openai","suite_id":"models.list","requirement_id":"official-sdk.openai.models.list","related_requirement_ids":["models.list.http","models.list.schema"],"subject":"provider","module":"discovery"},
+    {"extension_id":"official-sdk.openai","suite_id":"models.get","requirement_id":"official-sdk.openai.models.get","related_requirement_ids":["models.retrieve"],"subject":"model","module":"chat-completions"},
+    {"extension_id":"official-sdk.openai","suite_id":"chat.completions","requirement_id":"official-sdk.openai.chat.completions","related_requirement_ids":["chat.basic","chat.schema","chat.usage"],"subject":"model","module":"chat-completions"},
+    {"extension_id":"official-sdk.openai","suite_id":"chat.stream","requirement_id":"official-sdk.openai.chat.stream","related_requirement_ids":["chat.stream.sse"],"subject":"model","module":"chat-completions"},
+    {"extension_id":"official-sdk.openai","suite_id":"chat.stream.usage","requirement_id":"official-sdk.openai.chat.stream.usage","related_requirement_ids":["chat.stream.usage"],"subject":"model","module":"chat-completions"},
+    {"extension_id":"official-sdk.openai","suite_id":"chat.json","requirement_id":"official-sdk.openai.chat.json","related_requirement_ids":["chat.structured.json_object"],"subject":"model","module":"chat-completions"},
+    {"extension_id":"official-sdk.openai","suite_id":"chat.tools","requirement_id":"official-sdk.openai.chat.tools","related_requirement_ids":["chat.tools.forced","chat.tools.continuation"],"subject":"model","module":"chat-completions"},
+    {"extension_id":"official-sdk.openai","suite_id":"chat.tools.stream","requirement_id":"official-sdk.openai.chat.tools.stream","related_requirement_ids":["chat.tools.stream"],"subject":"model","module":"chat-completions"},
+    {"extension_id":"official-sdk.openai","suite_id":"chat.multi-turn","requirement_id":"official-sdk.openai.chat.multi_turn","related_requirement_ids":["chat.multi_turn"],"subject":"model","module":"chat-completions"},
+    {"extension_id":"official-sdk.openai","suite_id":"error.responses","requirement_id":"official-sdk.openai.error.responses","related_requirement_ids":["chat.error.invalid_model"],"subject":"model","module":"chat-completions"},
+    {"extension_id":"official-sdk.openai","suite_id":"images.generations","requirement_id":"official-sdk.openai.images.generations","related_requirement_ids":["images.generate.basic","images.generate.schema","images.generate.artifact"],"subject":"model","module":"images-generations"}
   ],
   "standard_parameters": [
     "max_completion_tokens",

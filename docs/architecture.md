@@ -4,7 +4,7 @@
 
 `aiqa` separates protocol conformance, observable behavior, capability discovery, vendor extensions, and benchmarking. Accepting a request is not enough to prove that a feature works, and a provider or transport error is not evidence that a capability is incompatible.
 
-The native binary uses the Go standard library only. Compatibility profiles, external checkers, guidance catalogs, and report schemas remain separate from probe implementation so each can evolve without hiding changes in test meaning. Guidance is downstream of conformance assessment: it can explain a result, but it cannot change the result or the process exit code.
+The main module pins the official OpenAI and Anthropic Go SDKs for built-in extension suites. Compatibility profiles, extension manifests, guidance catalogs, and report schemas remain separate from probe implementation so each can evolve without hiding changes in test meaning. Guidance is downstream of conformance assessment: it can explain a result, but it cannot change the result or the process exit code.
 
 ## Runtime flow
 
@@ -24,7 +24,7 @@ OpenAI profile and client                 Anthropic profile and client
 Bearer + base includes /v1                x-api-key + version + /v1 paths
         |                                             |
         v                                             v
-discovery, routing, native probes, and protocol-specific Official SDK suites
+discovery, routing, native probes, and explicitly selected extension suites
         |                                             |
         v                                             v
 target-local requirements, verdict, guidance, usage, and telemetry
@@ -35,10 +35,10 @@ target-local requirements, verdict, guidance, usage, and telemetry
                  hardest target determines run verdict
                                |
                                v
-                  atomic v1 or v2 JSON/Markdown writers
+                     atomic v3 JSON/Markdown writers
 ```
 
-`internal/app` owns this flow. It activates a target only from a base URL and its matching key, loads a protocol-matched profile, and keeps OpenAI and Anthropic credentials and telemetry separate. Each target discovers its own model inventory and derives its own authoritative verdict. The v2 root records no cross-protocol score; it selects the hardest target verdict for exit policy. Reports are written before that policy is applied.
+`internal/app` owns this flow. It activates a target only from a base URL and its matching key, loads a protocol-matched profile, and keeps OpenAI and Anthropic credentials and telemetry separate. Each target discovers its own model inventory and derives its own authoritative verdict. The v3 root records no cross-protocol score; it selects the hardest target verdict for exit policy. Reports are written before that policy is applied.
 
 ## Packages and assets
 
@@ -51,7 +51,7 @@ internal/protocol/anthropic
 internal/profile     embedded profile loading and validation
 internal/capability  capability evidence, classification, and module routing
 internal/suites      native compatibility and model-parameter probes
-internal/external    Official SDK checker process adapter
+internal/extsuite    extension registry, planning, validation, process protocol, and built-ins
 internal/result      stable in-memory and JSON report data model
 internal/assessment  canonical requirements, verdict, and comparison policy
 internal/guidance    findings, recommendations, fingerprints, and advice packs
@@ -59,21 +59,19 @@ internal/report      raw-result counters and atomic JSON/Markdown writers
 internal/app         discovery, orchestration, concurrency, and exit policy
 profile/             embedded compatibility-profile assets
 guidance/            embedded generic catalog and non-normative advice packs
-schema/              machine-readable report contract
+schema/              machine-readable report, profile, and extension protocol contracts
 script/              repository maintenance programs, not shipped CLI features
-tools/anthropic-sdk-checker
-                     isolated official Anthropic Go SDK integration
 ```
 
-`profile/embed.go` embeds every JSON profile in `profile/`. `internal/profile` accepts the historical OpenAI profile shape and the protocol-aware `aiqa.profile.v2` shape. It validates provenance, protocol, API version, qualified Anthropic IDs, unique probe IDs, module ownership, and source records. OpenAI defaults to `openai-compat-2026-09.json`. Anthropic uses `anthropic-compat-2026-09.json` and pins the stable API version `2023-06-01`.
+`profile/embed.go` embeds every JSON profile in `profile/`. The current profiles use `aiqa.profile.v3`. `internal/profile` validates provenance, protocol, API version, qualified Anthropic IDs, unique probe IDs, native module ownership, extension requirements, and explicit suite bindings. OpenAI defaults to `openai-compat-2026-09.json`. Anthropic uses `anthropic-compat-2026-09.json` and pins the stable API version `2023-06-01`.
 
 ## Protocol isolation
 
 OpenAI and Anthropic are separate protocols, even when one gateway exposes both. The OpenAI target uses Bearer authentication, endpoints below its configured `/v1`, OpenAI response envelopes, `[DONE]` streaming termination, and prompt/completion usage names. The Anthropic target uses `x-api-key`, appends `/v1` to a configured prefix, sends `anthropic-version: 2023-06-01`, parses content blocks and named SSE events, and preserves input/output/cache usage names.
 
-Ambient Anthropic auth-token, beta, and custom-header variables do not affect native probes or the Official SDK checker. The SDK checker runs out of process with explicit base URL, key, model, suite list, and zero SDK retries. A malformed JSONL line becomes runner evidence without discarding valid suite entries parsed before or after it.
+Ambient Anthropic auth-token, beta, and custom-header variables do not affect native probes or the built-in Official SDK extension. The SDK receives explicit target configuration and disables automatic retries. Third-party executables receive credentials only through an `aiqa.ext.v1` stdin request. A malformed JSONL line becomes runner evidence without discarding valid suite entries parsed before or after it.
 
-Target IDs qualify requirement subjects and evidence IDs in report v2. The same model ID may therefore appear under both facades without merging findings or SDK evidence.
+Target IDs qualify requirement subjects and evidence IDs in report v3. The same model ID may therefore appear under both facades without merging findings or SDK evidence.
 
 The complete Anthropic target contract, including module gates and failure semantics, is documented in [`anthropic-compatibility.md`](anthropic-compatibility.md).
 
@@ -111,24 +109,24 @@ The native implementation executes OpenAI Chat Completions and image generation 
 
 1. **Transport** — HTTP status, content type, timeout behavior, and SSE framing.
 2. **Shape** — request and response fields follow the selected protocol contract.
-3. **SDK** — an official SDK can issue and parse a call through the external checker.
+3. **SDK** — an official SDK can issue and parse a call through a built-in extension suite.
 4. **Semantic** — requested behavior is observed; for example, `n=2` yields two choices.
 5. **Validation canary** — deliberately invalid input is rejected instead of silently ignored.
 6. **Statistical evidence** — repeated generations compare observed distributions without presenting a small sample as certainty.
 
 Raw native and Official SDK evidence distinguishes `pass`, `warn`, `unsupported`, `fail`, `error`, and `skip`. Optional capabilities rejected with an appropriate 400, 404, or 422 response are `unsupported`. Timeouts, exhausted 429 responses, 5xx responses, and runner failures are `error` because the compatibility conclusion is incomplete. The requirement layer additionally uses `not_applicable`; this is distinct from a skipped applicable check.
 
-## Native and Official SDK checks
+## Native probes and extension suites
 
-Native probes test wire behavior, response shape, validation, and semantic effects. The Official SDK adapter complements them by checking whether the official OpenAI Go SDK can send requests and parse responses through [`beranekio/openai-compatibility-tester`](https://github.com/beranekio/openai-compatibility-tester).
+Native probes test wire behavior, response shape, validation, and semantic effects. Built-in Official SDK extensions check whether the official OpenAI and Anthropic Go clients can send requests and parse responses through the target.
 
-The checker runs as an installed binary or a Docker container. On Linux, Docker uses host networking for loopback endpoints. Each checker suite is launched and parsed separately, so its result contributes independently to the report. AIQA normalizes known optional-capability rejections against the active profile and converts provider-side 408, 429, and 5xx failures to `error` rather than compatibility failures. Detailed checker output is retained only for failed or errored suites.
+Extension execution requires `test=ext-suite`. The application registers built-ins explicitly and may discover trusted `aiqa-*-ext-suite` executables. Built-ins and executables share manifest, planning, event validation, profile binding, status derivation, and report types. Each suite contributes independently. AIQA normalizes known optional-capability rejections against the active profile and converts provider-side 408, 429, and 5xx failures to `error` rather than compatibility failures.
 
-External execution remains a process boundary. Suite duration comes from the checker's reported request work rather than Docker startup and is never mixed into native request latency. A failure before any suite result is reported as a runner error rather than a failed compatibility check.
+Executable extensions remain a trusted process boundary, not a sandbox. Suite duration comes from the extension's reported request and parse work rather than process startup and is never mixed into native request latency. A startup, protocol, timeout, or termination failure is a runner error rather than a failed compatibility check. [`extension-suites.md`](extension-suites.md) defines this contract.
 
 ## Canonical requirements and evidence
 
-Raw probes are evidence sources, not independently weighted result units. Each native result carries a stable requirement ID and probe ID. Each Official SDK suite declares its interoperability requirement and any related native requirements. `internal/assessment` joins observations that test the same contract, so adding another probe does not increase that requirement's weight. When SDK parsing is a distinct promise, it remains an explicit optional `official-sdk.*` requirement. A native/SDK disagreement then becomes a linked evidence diagnostic without rewriting the native requirement.
+Raw probes are evidence sources, not independently weighted result units. Each native result carries a stable requirement ID and probe ID. An `aiqa.profile.v3` binding maps an extension ID and suite ID to its canonical requirement and related native requirements. `internal/assessment` joins observations that test the same contract, so adding another probe does not increase that requirement's weight. Unbound extension results remain supplementary. A native/SDK disagreement becomes a linked evidence diagnostic without rewriting the native requirement.
 
 The assessment preserves every evidence reference and resolves the canonical requirement status deterministically. Conflicting positive and negative observations become `warn` with `evidence_conflict`; a required capability reported as unsupported becomes a core failure; provider or runner errors remain inconclusive evidence. Model parameters and context-boundary observations are optional requirements unless a future profile declares otherwise.
 
@@ -150,13 +148,13 @@ Normative facts remain in the compatibility profile and requirement assessment. 
 
 Recommendations are ordered by priority and action type. A projected verdict is shown only for fix or configuration actions and is explicitly conditional on the affected requirements passing without regressions elsewhere. Execution failures and conflicting evidence produce investigate or rerun guidance rather than unsupported-capability claims.
 
-External checker output is sanitized, truncated, hashed, and stored once in `guidance.artifacts`. Evidence records refer to it by `artifact_ref`; Markdown renders each artifact once instead of copying the same log into every suite section.
+Failed extension-runner diagnostics are sanitized, truncated, hashed, and stored once in `guidance.artifacts`. Evidence records refer to them by `artifact_ref`; Markdown renders each artifact once instead of copying the same log into every suite section.
 
 ## Request pacing and telemetry
 
-Independent native probes are submitted to one bounded executor shared by all model workers. `--concurrency` is therefore a run-wide ceiling for native probes, not merely the number of models tested at once. Results are collected in canonical order, so scheduling does not make reports nondeterministic. Probes with a real data dependency remain sequential, including tool continuation after a forced tool call and parameter checks that require a baseline.
+Independent native probes and built-in extension requests are submitted to one bounded executor shared by all model workers. `--concurrency` is therefore a run-wide ceiling, not merely the number of models tested at once. Executable invocations reserve their declared capacity from the same executor. Results are collected in canonical order, so scheduling does not make reports nondeterministic. Probes with a real data dependency remain sequential, including tool continuation after a forced tool call and parameter checks that require a baseline.
 
-All native HTTP calls also share an adaptive pacer. It starts with up to `--concurrency` request lanes; `--request-interval` is the initial interval within each lane. After quiet success windows, it reduces the interval. A 429 response resets active concurrency to one, increases the interval, honors `Retry-After` when present, and retries the request up to three times. After the service remains stable, concurrency can recover up to the configured ceiling.
+All native HTTP calls also share an adaptive pacer. It starts with up to `--concurrency` request lanes; `--request-interval` is the initial interval within each lane. After quiet success windows, it reduces the interval. A 429 response resets active concurrency to one, increases the interval, honors `Retry-After` when present, and retries the request at most twice (three attempts total). After the service remains stable, concurrency can recover up to the configured ceiling.
 
 The report keeps rate-limit observations separate from compatibility results:
 
@@ -167,7 +165,7 @@ The report keeps rate-limit observations separate from compatibility results:
 - observed safe request rate and concurrency;
 - mean, P50, and P95 latency for successful native compatibility requests.
 
-Latency measures the HTTP operation after pacing, not queueing or backoff time. Global statistics include discovery and native compatibility requests. Per-model rate-limit and latency sections are emitted when more than one model is tested. Official SDK process time, model-parameter probes, and context probes are not mixed into these latency percentiles.
+Latency measures the HTTP operation after pacing, not queueing or backoff time. Global statistics include discovery and native compatibility requests. Per-model rate-limit and latency sections are emitted when more than one model is tested. Extension suite duration, process time, model-parameter probes, and context probes are not mixed into native latency percentiles.
 
 ## Context probing
 
@@ -186,7 +184,7 @@ The report separates declared metadata, a provider-reported server limit, the la
 
 ## Reports, assessment, and exit policy
 
-`internal/result` is the shared contract between native probes, external suites, assessment, guidance, and both writers. Report v1 represents one OpenAI target. Report v2 contains an ordered `targets[]` array, and every target owns its profile, discovery, models, requirements, summary, guidance, and telemetry. Markdown leads with the target table and per-target rate-limit and latency data. Secondary token usage remains at the end. Writers create a temporary file, sync it, and atomically replace the destination. [`docs/reports.md`](reports.md) defines the user-facing status, verdict, and guidance semantics.
+`internal/result` is the shared contract between native probes, extension suites, assessment, guidance, and both writers. Report v3 contains an ordered `targets[]` array, and every target owns its profile, discovery, models, requirements, summary, guidance, telemetry, and grouped extension runs. Markdown leads with the target table and per-target rate-limit and latency data. Secondary token usage remains at the end. Writers create a temporary file, sync it, and atomically replace the destination. [`docs/reports.md`](reports.md) defines the user-facing status, verdict, and guidance semantics.
 
 The raw summary keeps status counts and a raw-result status for diagnostics. The authoritative result is `summary.assessment.verdict`. AIQA emits no overall numeric compatibility score because one percentage cannot preserve core gates, optional coverage, and inconclusive evidence at the same time. Comparisons use the canonical verdict first, followed by the separate core, optional, and evidence measures. The design rationale is retained in [`research/scoring.md`](../research/scoring.md).
 
@@ -200,6 +198,6 @@ With `--fail-on=core`, `fail` and `inconclusive` return `1`; optional-only gaps 
 
 ## Safety boundaries
 
-The API key is used for requests but is not written to the public configuration in the report. External diagnostics redact the configured key and are size-limited. Native responses are bounded before decoding. Artifact reports store format, media type, size, dimensions, and SHA-256, not image payloads or signed URL query strings. Remote artifact fetching rejects unsafe URL schemes and network targets.
+The API key is used for requests but is not written to the public configuration in the report. Extension credentials are absent from argv and the child environment; captured diagnostics redact secrets and are size-limited. Native responses are bounded before decoding. Artifact reports store format, media type, size, dimensions, and SHA-256, not image payloads or signed URL query strings. Remote artifact fetching rejects unsafe URL schemes and network targets.
 
 Suites that execute code, create persistent objects, browse external resources, or generate billable media must remain explicit opt-ins. See [`docs/adding-tests.md`](adding-tests.md) for the extension checklist.

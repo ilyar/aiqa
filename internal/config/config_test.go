@@ -1,10 +1,44 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestParseExtensionSelectionAndPaths(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "https://example.test/v1")
+	t.Setenv("OPENAI_API_KEY", "secret")
+	envPath := filepath.Join(t.TempDir(), "aiqa-env-ext-suite")
+	flagPath := filepath.Join(t.TempDir(), "aiqa-flag-ext-suite")
+	t.Setenv("AIQA_EXT_SUITE_PATHS", strings.Join([]string{envPath}, string(os.PathListSeparator)))
+	cfg, err := Parse([]string{"test=ext-suite", "--ext-suite=official-sdk.openai,acme.gateway", "--ext-suite=acme.gateway", "--ext-suite-path=" + flagPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(cfg.ExtSuites, ",") != "official-sdk.openai,acme.gateway" || len(cfg.ExtSuitePaths) != 2 || cfg.ExtSuitePaths[0] != envPath || cfg.ExtSuitePaths[1] != flagPath {
+		t.Fatalf("extension controls were not preserved: suites=%v paths=%v", cfg.ExtSuites, cfg.ExtSuitePaths)
+	}
+}
+
+func TestParseRejectsExtensionFilterWithoutExtensionTest(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "https://example.test/v1")
+	t.Setenv("OPENAI_API_KEY", "secret")
+	if _, err := Parse([]string{"test=compat", "--ext-suite=official-sdk.openai"}); err == nil {
+		t.Fatal("extension filter without test=ext-suite was accepted")
+	}
+}
+
+func TestParseRejectsDuplicateExplicitExtensionPath(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "https://example.test/v1")
+	t.Setenv("OPENAI_API_KEY", "secret")
+	path := filepath.Join(t.TempDir(), "aiqa-demo-ext-suite")
+	if _, err := Parse([]string{"test=ext-suite", "--ext-suite-path=" + path, "--ext-suite-path=" + path}); err == nil || !strings.Contains(err.Error(), "configured more than once") {
+		t.Fatalf("duplicate explicit path was not rejected: %v", err)
+	}
+}
 
 func TestParseExpectedCLI(t *testing.T) {
 	t.Setenv("OPENAI_BASE_URL", "https://example.test/v1")
@@ -134,7 +168,7 @@ func TestParseDualTargetsInDeterministicOrder(t *testing.T) {
 	}
 }
 
-func TestParsePreservesExplicitTargetOrder(t *testing.T) {
+func TestParsePreservesExplicitTargetSelectionOrderBeforePlanning(t *testing.T) {
 	t.Setenv("OPENAI_BASE_URL", "http://127.0.0.1:8080/openai/v1")
 	t.Setenv("OPENAI_API_KEY", "openai-secret")
 	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:8080/anthropic")

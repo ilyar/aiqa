@@ -22,7 +22,7 @@ func TestEmbeddedProfileIsValid(t *testing.T) {
 	}
 }
 
-func TestAnthropicProfileV2RejectsMissingVersionAndUnqualifiedCapability(t *testing.T) {
+func TestAnthropicProfileV3RejectsMissingVersionAndUnqualifiedCapability(t *testing.T) {
 	data, err := profiledata.Files.ReadFile("anthropic-compat-2026-09.json")
 	if err != nil {
 		t.Fatal(err)
@@ -37,7 +37,7 @@ func TestAnthropicProfileV2RejectsMissingVersionAndUnqualifiedCapability(t *test
 	}
 }
 
-func TestAnthropicProfileV2RejectsDuplicateModules(t *testing.T) {
+func TestAnthropicProfileV3RejectsDuplicateModules(t *testing.T) {
 	data, err := profiledata.Files.ReadFile("anthropic-compat-2026-09.json")
 	if err != nil {
 		t.Fatal(err)

@@ -38,42 +38,76 @@ func TestOptionalUnsupportedIsPassWithGaps(t *testing.T) {
 	}
 }
 
-func TestExternalCheckerNotSetupDoesNotCreateRequirement(t *testing.T) {
+func TestUnboundExtensionDoesNotCreateRequirement(t *testing.T) {
 	r := result.Report{
-		Config: result.PublicConfig{BaseURL: "https://example.test/v1"},
-		Discovery: result.Discovery{External: []result.ExternalResult{{
-			Tool: "official-SDK", Status: result.StatusSkip, Summary: "external checker disabled",
-		}}},
+		Config:     result.PublicConfig{BaseURL: "https://example.test/v1"},
+		Extensions: []result.ExtensionRun{{Suites: []result.ExtensionSuiteResult{{ExtensionID: "third-party.example", SuiteID: "extra", Bound: false, Status: result.StatusFail, Subject: result.SubjectRef{Kind: "provider", ID: "https://example.test/v1"}}}}},
 	}
 	Apply(&r, profile.Profile{})
 	if len(r.Requirements) != 0 || r.Summary.Assessment.Verdict != "pass" {
-		t.Fatalf("checker setup state affected conformance: requirements=%+v assessment=%+v", r.Requirements, r.Summary.Assessment)
+		t.Fatalf("unbound evidence affected conformance: requirements=%+v assessment=%+v", r.Requirements, r.Summary.Assessment)
 	}
 }
 
-func TestExternalEvidenceJoinsCanonicalRequirement(t *testing.T) {
-	r := reportWithTest(result.TestResult{ID: "chat.stream.sse", Name: "stream", Status: result.StatusPass})
+func TestExtensionEvidenceCreatesProfileBoundRequirement(t *testing.T) {
+	p, err := profile.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := result.Report{Config: result.PublicConfig{BaseURL: "https://example.test/v1"}}
 	r.Models = []result.ModelReport{{
 		ID:            "model-a",
 		Compatibility: []result.TestResult{{ID: "chat.stream.sse", Name: "stream", Status: result.StatusPass}},
-		External: []result.ExternalResult{{
-			Tool: "official-SDK", Suite: "chat_completions_stream", Model: "model-a", Status: result.StatusFail,
-			RequirementIDs: []string{"chat.stream.sse"},
-		}},
 	}}
-	// Keep only the model-scoped native evidence for this assertion.
-	r.Discovery.Tests = nil
-	Apply(&r, profile.Profile{})
-	if len(r.Requirements) != 1 {
-		t.Fatalf("requirements=%d, want one canonical requirement: %+v", len(r.Requirements), r.Requirements)
+	r.Extensions = []result.ExtensionRun{{Suites: []result.ExtensionSuiteResult{{ExtensionID: "official-sdk.openai", SuiteID: "chat.stream", RequirementID: "official-sdk.openai.chat.stream", RelatedRequirementIDs: []string{"chat.stream.sse"}, Bound: true, Status: result.StatusPass, Subject: result.SubjectRef{Kind: "model", ID: "model-a"}}}}}
+	Apply(&r, p)
+	var found *result.RequirementAssessment
+	for index := range r.Requirements {
+		if r.Requirements[index].ID == "official-sdk.openai.chat.stream" {
+			found = &r.Requirements[index]
+		}
 	}
-	requirement := r.Requirements[0]
-	if len(requirement.Evidence) != 2 || requirement.Status != result.RequirementWarn || requirement.FailureKind != "evidence_conflict" {
-		t.Fatalf("unexpected merged requirement: %+v", requirement)
+	if found == nil || len(found.Evidence) != 1 || found.Status != result.RequirementPass {
+		t.Fatalf("bound extension requirement missing: %+v", found)
+	}
+}
+
+func TestRunnerFailureKeepsPassingSuiteButMakesEvidenceIncomplete(t *testing.T) {
+	p, err := profile.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := result.Report{Config: result.PublicConfig{BaseURL: "https://example.test/v1"}, Extensions: []result.ExtensionRun{{
+		Runner: result.ExtensionRunnerResult{Status: result.StatusError, Summary: "process exited after emitting results"},
+		Suites: []result.ExtensionSuiteResult{{ExtensionID: "official-sdk.openai", SuiteID: "chat.stream", RequirementID: "official-sdk.openai.chat.stream", Bound: true, Status: result.StatusPass, Subject: result.SubjectRef{Kind: "model", ID: "model-a"}}},
+	}}}
+	Apply(&r, p)
+	if r.Summary.Assessment.Verdict != "pass-with-gaps" || len(r.Requirements) != 1 || r.Requirements[0].Status != result.RequirementWarn || r.Requirements[0].FailureKind != "evidence_gap" || len(r.Requirements[0].Evidence) != 2 {
+		t.Fatalf("runner failure did not remain inconclusive evidence: requirements=%+v assessment=%+v", r.Requirements, r.Summary.Assessment)
+	}
+}
+
+func TestMultipleSuiteCasesCountOneCanonicalRequirement(t *testing.T) {
+	p, err := profile.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	subject := result.SubjectRef{Kind: "model", ID: "model-a"}
+	r := result.Report{Config: result.PublicConfig{BaseURL: "https://example.test/v1"}, Extensions: []result.ExtensionRun{{Suites: []result.ExtensionSuiteResult{
+		{ExtensionID: "fixture.multi", SuiteID: "case-a", RequirementID: "official-sdk.openai.chat.stream", Bound: true, Status: result.StatusPass, Subject: subject},
+		{ExtensionID: "fixture.multi", SuiteID: "case-b", RequirementID: "official-sdk.openai.chat.stream", Bound: true, Status: result.StatusPass, Subject: subject},
+	}}}}
+	Apply(&r, p)
+	if len(r.Requirements) != 1 || len(r.Requirements[0].Evidence) != 2 || r.Summary.Assessment.Optional.Total != 1 || r.Summary.Assessment.Optional.Pass != 1 {
+		t.Fatalf("suite cases changed canonical weighting: requirements=%+v assessment=%+v", r.Requirements, r.Summary.Assessment)
 	}
 }
 
 func TestOfficialSDKConflictDoesNotRewriteNativeCoreRequirement(t *testing.T) {
+	p, err := profile.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
 	r := result.Report{
 		Config: result.PublicConfig{BaseURL: "https://example.test/v1"},
 		Models: []result.ModelReport{{
@@ -81,13 +115,10 @@ func TestOfficialSDKConflictDoesNotRewriteNativeCoreRequirement(t *testing.T) {
 			Compatibility: []result.TestResult{{
 				ID: "chat.stream.sse", Name: "stream", Required: true, Status: result.StatusPass,
 			}},
-			External: []result.ExternalResult{{
-				Tool: "official-SDK", Suite: "chat_completions_stream", Status: result.StatusFail,
-				RequirementIDs: []string{"official-sdk.chat.stream"}, RelatedRequirementIDs: []string{"chat.stream.sse"},
-			}},
 		}},
+		Extensions: []result.ExtensionRun{{Suites: []result.ExtensionSuiteResult{{ExtensionID: "official-sdk.openai", SuiteID: "chat.stream", RequirementID: "official-sdk.openai.chat.stream", RelatedRequirementIDs: []string{"chat.stream.sse"}, Bound: true, Status: result.StatusFail, Subject: result.SubjectRef{Kind: "model", ID: "model-a"}}}}},
 	}
-	Apply(&r, profile.Profile{})
+	Apply(&r, p)
 	if got := r.Summary.Assessment.Verdict; got != "pass-with-gaps" {
 		t.Fatalf("verdict=%q, want pass-with-gaps: %+v", got, r.Requirements)
 	}
@@ -96,7 +127,7 @@ func TestOfficialSDKConflictDoesNotRewriteNativeCoreRequirement(t *testing.T) {
 	}
 	var sdk *result.RequirementAssessment
 	for i := range r.Requirements {
-		if r.Requirements[i].ID == "official-sdk.chat.stream" {
+		if r.Requirements[i].ID == "official-sdk.openai.chat.stream" {
 			sdk = &r.Requirements[i]
 		}
 	}
