@@ -123,7 +123,7 @@ Build a local checker image from the isolated module when needed:
 
 ```bash
 docker build \
-  -t aiqa-anthropic-sdk-checker:1.0.0-alpha.0 \
+  -t aiqa-anthropic-sdk-checker:1.0.0-alpha.2 \
   tools/anthropic-sdk-checker
 ```
 

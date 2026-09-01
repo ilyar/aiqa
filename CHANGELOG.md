@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.0-alpha.0 – 2026-08-30
+## 1.0.0-alpha.2 – 2026-08-30
 
 - Initial `compat` suite for OpenAI Models and Chat Completions APIs.
 - SSE chunk validation, streaming usage, tool-choice modes, streamed tools, tool continuation, structured outputs, logprobs, and error-shape probes.

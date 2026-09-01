@@ -14,7 +14,7 @@ import (
 
 const (
 	DefaultExternalImage          = "ghcr.io/beranekio/openai-compatibility-tester:latest"
-	DefaultAnthropicExternalImage = "ghcr.io/ilyar/aiqa-anthropic-sdk-checker:1.0.0-alpha.0"
+	DefaultAnthropicExternalImage = "ghcr.io/ilyar/aiqa-anthropic-sdk-checker:1.0.0-alpha.2"
 )
 
 type Protocol string
