@@ -37,7 +37,7 @@
     {
       "id": "anthropic",
       "protocol": "anthropic",
-      "profile": {"id":"anthropic-messages-compat","revision":"2026-09-01","source":"https://github.com/anthropics/anthropic-sdk-go","source_commit":"d19dea9ed85bbb5fdb2d6f20fb6f903920ed23fa","scope":"Anthropic Messages fixture","protocol":"anthropic","api_version":"2023-06-01"},
+      "profile": {"id":"anthropic-compat","revision":"2026-09-01","source":"https://github.com/anthropics/anthropic-sdk-go","source_commit":"d19dea9ed85bbb5fdb2d6f20fb6f903920ed23fa","scope":"Anthropic Messages fixture","protocol":"anthropic","api_version":"2023-06-01"},
       "discovery": {"model_count":0},
       "models": [],
       "requirements": [],

@@ -17,7 +17,7 @@ func TestMarkdownV2RendersTargetActionsAndPerModelTelemetry(t *testing.T) {
 		Summary: result.RunSummary{Verdict: "pass-with-gaps"},
 		Targets: []result.TargetReport{{
 			ID: "anthropic", Protocol: "anthropic",
-			Profile: result.ProfileInfo{ID: "anthropic-messages-compat", Revision: "2026-09"},
+			Profile: result.ProfileInfo{ID: "anthropic-compat", Revision: "2026-09"},
 			Summary: result.Summary{Assessment: &assessment},
 			Models: []result.ModelReport{
 				{ID: "model-a", Assessment: result.ModelAssessment{Verdict: "pass"}, RateLimit: &result.RateLimitStats{SuccessfulRequests: 2, SafeRate: 1.5, MeanLatencyMS: 10, P50LatencyMS: 9, P95LatencyMS: 12}},

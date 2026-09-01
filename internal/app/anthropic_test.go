@@ -80,7 +80,7 @@ func TestDualTargetCommandWritesIndependentV2Report(t *testing.T) {
 	if anthropicTarget == nil {
 		t.Fatal("Anthropic target is missing")
 	}
-	contract, err := profile.LoadFile("anthropic-messages-compat-2026-09.json")
+	contract, err := profile.LoadFile("anthropic-compat-2026-09.json")
 	if err != nil {
 		t.Fatal(err)
 	}

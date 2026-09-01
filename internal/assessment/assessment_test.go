@@ -127,7 +127,7 @@ func TestNonApplicableModuleDoesNotEnterMeasures(t *testing.T) {
 }
 
 func TestTargetModelVerdictIncludesMaterializedProfileGaps(t *testing.T) {
-	p, err := profile.LoadFile("anthropic-messages-compat-2026-09.json")
+	p, err := profile.LoadFile("anthropic-compat-2026-09.json")
 	if err != nil {
 		t.Fatal(err)
 	}

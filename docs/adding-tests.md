@@ -20,7 +20,7 @@ A probe should record:
 
 When several probes test the same normative promise, map them to one canonical requirement. When they test distinct promises, such as valid SSE framing and Official SDK parser interoperability, give them separate requirement IDs and link the external suite through `related_requirement_ids`.
 
-For Anthropic, add the probe to `profile/anthropic-messages-compat-2026-09.json` and use an `anthropic.*` requirement ID. Implement request construction and validation under `internal/protocol/anthropic`; do not translate the probe into an OpenAI Chat Completions request. Stable probes must send `x-api-key` and `anthropic-version: 2023-06-01`, must not inherit beta headers, and must preserve Anthropic content blocks, error envelopes, named SSE events, and usage fields.
+For Anthropic, add the probe to `profile/anthropic-compat-2026-09.json` and use an `anthropic.*` requirement ID. Implement request construction and validation under `internal/protocol/anthropic`; do not translate the probe into an OpenAI Chat Completions request. Stable probes must send `x-api-key` and `anthropic-version: 2023-06-01`, must not inherit beta headers, and must preserve Anthropic content blocks, error envelopes, named SSE events, and usage fields.
 
 Keep new behavior consistent with the target contract in [`anthropic-compatibility.md`](anthropic-compatibility.md).
 

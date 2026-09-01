@@ -1,6 +1,6 @@
 {
   "schema_version": "aiqa.profile.v2",
-  "id": "anthropic-messages-compat",
+  "id": "anthropic-compat",
   "protocol": "anthropic",
   "revision": "2026-09-01",
   "api_version": "2023-06-01",

@@ -65,7 +65,7 @@ tools/anthropic-sdk-checker
                      isolated official Anthropic Go SDK integration
 ```
 
-`profile/embed.go` embeds every JSON profile in `profile/`. `internal/profile` accepts the historical OpenAI profile shape and the protocol-aware `aiqa.profile.v2` shape. It validates provenance, protocol, API version, qualified Anthropic IDs, unique probe IDs, module ownership, and source records. OpenAI defaults to `openai-compat-2026-09.json`. Anthropic uses `anthropic-messages-compat-2026-09.json` and pins the stable API version `2023-06-01`.
+`profile/embed.go` embeds every JSON profile in `profile/`. `internal/profile` accepts the historical OpenAI profile shape and the protocol-aware `aiqa.profile.v2` shape. It validates provenance, protocol, API version, qualified Anthropic IDs, unique probe IDs, module ownership, and source records. OpenAI defaults to `openai-compat-2026-09.json`. Anthropic uses `anthropic-compat-2026-09.json` and pins the stable API version `2023-06-01`.
 
 ## Protocol isolation
 

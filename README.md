@@ -158,7 +158,7 @@ The native profile checks several levels of compatibility
 
 The current modular profile is in [`profile/openai-compat-2026-09.json`](profile/openai-compat-2026-09.json) and is embedded in the binary. The immutable [`profile/openai-compat-2026-08.json`](profile/openai-compat-2026-08.json) remains available for historical reproducibility. The profiles are based on the official OpenAI OpenAPI specification and augmented with semantic probes that cannot be expressed in JSON Schema alone.
 
-The Anthropic Messages contract is in [`profile/anthropic-messages-compat-2026-09.json`](profile/anthropic-messages-compat-2026-09.json). It pins `anthropic-version: 2023-06-01` and the official Go SDK v1.68.0. AIQA sends `x-api-key`, does not inherit `ANTHROPIC_AUTH_TOKEN` or beta headers, parses Anthropic content blocks and named SSE events, and keeps Anthropic token fields distinct from OpenAI usage fields. The profile covers Models, Messages, streaming, tools, Count Tokens, structured output, vision routing, and opt-in thinking. It does not claim coverage of the entire Anthropic Platform API.
+The Anthropic compatibility contract is in [`profile/anthropic-compat-2026-09.json`](profile/anthropic-compat-2026-09.json). It pins `anthropic-version: 2023-06-01` and the official Go SDK v1.68.0. AIQA sends `x-api-key`, does not inherit `ANTHROPIC_AUTH_TOKEN` or beta headers, parses Anthropic content blocks and named SSE events, and keeps Anthropic token fields distinct from OpenAI usage fields. The profile covers Models, Messages, streaming, tools, Count Tokens, structured output, vision routing, and opt-in thinking. It does not claim coverage of the entire Anthropic Platform API.
 
 See [`docs/anthropic-compatibility.md`](docs/anthropic-compatibility.md) for the complete activation, routing, module, streaming, SDK checker, report, and maintenance contract.
 
@@ -369,7 +369,7 @@ The profile pins the SHA of the official OpenAI OpenAPI snapshot, check whether 
 
 ```bash
 make profile-upstream-check
-go run ./script/check-profile-upstream.go --profile profile/anthropic-messages-compat-2026-09.json
+go run ./script/check-profile-upstream.go --profile profile/anthropic-compat-2026-09.json
 ```
 
 An upstream change does not automatically update the profile: first review the diff, adjust semantic probes, update `revision`/`source_commit`, and rerun the quality gates. Automatically rewriting a contract from a moving `main` would be convenient only until the first quiet-breaking change.

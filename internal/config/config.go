@@ -208,7 +208,7 @@ func Parse(args []string) (Config, error) {
 		ContextMaxBytes:        32 * 1024 * 1024,
 		TargetSelection:        "auto",
 		OpenAIProfile:          "openai-compat-2026-09.json",
-		AnthropicProfile:       "anthropic-messages-compat-2026-09.json",
+		AnthropicProfile:       "anthropic-compat-2026-09.json",
 		OpenAIExternalMode:     "",
 		AnthropicExternalMode:  "",
 		OpenAIExternalImage:    "",

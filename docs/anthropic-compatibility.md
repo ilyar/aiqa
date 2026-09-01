@@ -1,8 +1,8 @@
-# Anthropic Messages compatibility
+# Anthropic compatibility
 
 AIQA assesses an Anthropic Messages facade as an independent protocol target. It does not translate Anthropic requests into OpenAI Chat Completions, share credentials between targets, or combine their results into one compatibility score.
 
-The embedded contract is [`anthropic-messages-compat-2026-09.json`](../profile/anthropic-messages-compat-2026-09.json). It pins:
+The embedded contract is [`anthropic-compat-2026-09.json`](../profile/anthropic-compat-2026-09.json). It pins:
 
 - `anthropic-version: 2023-06-01`;
 - Official Anthropic Go SDK v1.68.0;
@@ -144,7 +144,7 @@ make check
 make race
 make build
 go run ./script/check-profile-upstream.go \
-  --profile profile/anthropic-messages-compat-2026-09.json
+  --profile profile/anthropic-compat-2026-09.json
 ```
 
 `make check` validates both report schemas, profile v2, the complete dual-facade mock, the separate SDK module, formatting, vet, and unit/integration tests.

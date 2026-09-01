@@ -23,7 +23,7 @@ func TestEmbeddedProfileIsValid(t *testing.T) {
 }
 
 func TestAnthropicProfileV2RejectsMissingVersionAndUnqualifiedCapability(t *testing.T) {
-	data, err := profiledata.Files.ReadFile("anthropic-messages-compat-2026-09.json")
+	data, err := profiledata.Files.ReadFile("anthropic-compat-2026-09.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func TestAnthropicProfileV2RejectsMissingVersionAndUnqualifiedCapability(t *test
 }
 
 func TestAnthropicProfileV2RejectsDuplicateModules(t *testing.T) {
-	data, err := profiledata.Files.ReadFile("anthropic-messages-compat-2026-09.json")
+	data, err := profiledata.Files.ReadFile("anthropic-compat-2026-09.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,13 +53,13 @@ func TestEmbeddedProfileFilesCanBeListedAndLoaded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(files) != 3 || files[0] != "anthropic-messages-compat-2026-09.json" || files[1] != "openai-compat-2026-08.json" || files[2] != DefaultFile {
+	if len(files) != 3 || files[0] != "anthropic-compat-2026-09.json" || files[1] != "openai-compat-2026-08.json" || files[2] != DefaultFile {
 		t.Fatalf("unexpected embedded profile files: %#v", files)
 	}
 	if _, err := LoadFile(DefaultFile); err != nil {
 		t.Fatalf("load default profile: %v", err)
 	}
-	anthropic, err := LoadFile("anthropic-messages-compat-2026-09.json")
+	anthropic, err := LoadFile("anthropic-compat-2026-09.json")
 	if err != nil {
 		t.Fatalf("load Anthropic profile: %v", err)
 	}
