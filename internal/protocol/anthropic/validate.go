@@ -141,6 +141,7 @@ func ParseUsage(root map[string]any) result.Usage {
 		CacheCreationInputTokens: int64Value(usage["cache_creation_input_tokens"]),
 		CacheReadInputTokens:     int64Value(usage["cache_read_input_tokens"]),
 	}
+	u.TotalTokens = u.InputTokens + u.OutputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
 	if details, ok := usage["output_tokens_details"].(map[string]any); ok {
 		u.ThinkingTokens = int64Value(details["thinking_tokens"])
 	}
@@ -295,7 +296,21 @@ func ValidateStream(stream api.StreamResponse) StreamValidation {
 			}
 			messageDeltaSeen = true
 			if usage, ok := event.JSON["usage"].(map[string]any); ok {
-				out.Usage.OutputTokens = int64Value(usage["output_tokens"])
+				if _, present := usage["input_tokens"]; present {
+					out.Usage.InputTokens = int64Value(usage["input_tokens"])
+				}
+				if _, present := usage["output_tokens"]; present {
+					out.Usage.OutputTokens = int64Value(usage["output_tokens"])
+				}
+				if _, present := usage["cache_creation_input_tokens"]; present {
+					out.Usage.CacheCreationInputTokens = int64Value(usage["cache_creation_input_tokens"])
+				}
+				if _, present := usage["cache_read_input_tokens"]; present {
+					out.Usage.CacheReadInputTokens = int64Value(usage["cache_read_input_tokens"])
+				}
+				if details, ok := usage["output_tokens_details"].(map[string]any); ok {
+					out.Usage.ThinkingTokens = int64Value(details["thinking_tokens"])
+				}
 			}
 		case "message_stop":
 			if !started || len(openBlocks) > 0 || stopped || !messageDeltaSeen {
@@ -313,6 +328,7 @@ func ValidateStream(stream api.StreamResponse) StreamValidation {
 	if !out.ProviderError && !out.SawMessageStop {
 		out.Incomplete = true
 	}
+	out.Usage.TotalTokens = out.Usage.InputTokens + out.Usage.OutputTokens + out.Usage.CacheCreationInputTokens + out.Usage.CacheReadInputTokens
 	return out
 }
 

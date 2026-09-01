@@ -266,7 +266,6 @@ func runModel(parent context.Context, client *Client, cfg config.Config, p profi
 		basic := testBase(p, "anthropic.messages.basic")
 		basic.DurationMS = resp.Duration.Milliseconds()
 		basic.HTTP = observation(resp)
-		basic.Usage = ParseUsage(resp.JSON)
 		setHTTPStatus(&basic, resp, err, false)
 		if basic.Status == result.StatusPass {
 			if strings.Contains(Text(resp.JSON), "AIQA_OK") {
@@ -369,7 +368,7 @@ func runModel(parent context.Context, client *Client, cfg config.Config, p profi
 		func() []result.TestResult { return runErrors(parent, client, timeout, p, model) },
 		func() []result.TestResult { return runStream(parent, client, timeout, p, model) },
 	}
-	tasks = append(tasks, optionalModelTasks(parent, client, cfg, p, model, modules, basic.Usage.InputTokens)...)
+	tasks = append(tasks, optionalModelTasks(parent, client, cfg, p, model, modules, usage.Usage.InputTokens)...)
 	return append(out, flattenProbeGroups(probe.Map(executor, tasks...))...)
 }
 
@@ -409,6 +408,7 @@ func runAssistantPrefill(parent context.Context, client *Client, timeout time.Du
 	resp, err := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, body) })
 	test := testBase(p, "anthropic.messages.assistant_prefill")
 	test.DurationMS, test.HTTP = resp.Duration.Milliseconds(), observation(resp)
+	test.Usage = ParseUsage(resp.JSON)
 	setHTTPStatus(&test, resp, err, true)
 	if test.Status == result.StatusPass && strings.TrimSpace(Text(resp.JSON)) == "" {
 		test.Status = result.StatusFail
@@ -427,6 +427,7 @@ func runStopSequence(parent context.Context, client *Client, timeout time.Durati
 	resp, err := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, body) })
 	test := testBase(p, "anthropic.messages.stop_sequences")
 	test.DurationMS, test.HTTP = resp.Duration.Milliseconds(), observation(resp)
+	test.Usage = ParseUsage(resp.JSON)
 	setHTTPStatus(&test, resp, err, true)
 	if test.Status == result.StatusPass {
 		if stringValue(resp.JSON["stop_reason"]) != "stop_sequence" || stringValue(resp.JSON["stop_sequence"]) != marker {
@@ -446,6 +447,7 @@ func runMaxTokens(parent context.Context, client *Client, timeout time.Duration,
 	resp, err := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, body) })
 	test := testBase(p, "anthropic.messages.max_tokens")
 	test.DurationMS, test.HTTP = resp.Duration.Milliseconds(), observation(resp)
+	test.Usage = ParseUsage(resp.JSON)
 	setHTTPStatus(&test, resp, err, true)
 	if test.Status == result.StatusPass {
 		reason := stringValue(resp.JSON["stop_reason"])
@@ -468,6 +470,7 @@ func runErrors(parent context.Context, client *Client, timeout time.Duration, p 
 	invalidModel := testBase(p, "anthropic.error.invalid_model")
 	invalidModel.DurationMS = resp.Duration.Milliseconds()
 	invalidModel.HTTP = observation(resp)
+	invalidModel.Usage = ParseUsage(resp.JSON)
 	setExpectedError(&invalidModel, resp, err)
 	if invalidModel.Status == result.StatusPass {
 		invalidModel.Summary = "Invalid model returned a client-side Anthropic error"
@@ -500,6 +503,7 @@ func runErrors(parent context.Context, client *Client, timeout time.Duration, p 
 	for i, raw := range variants {
 		r, e := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.MessageRaw(ctx, raw) })
 		invalidJSON.DurationMS += r.Duration.Milliseconds()
+		invalidJSON.Usage = invalidJSON.Usage.Add(ParseUsage(r.JSON))
 		if i == 0 {
 			invalidJSON.HTTP = observation(r)
 		}
@@ -526,6 +530,7 @@ func runErrors(parent context.Context, client *Client, timeout time.Duration, p 
 	invalidTypes := testBase(p, "anthropic.error.invalid_types")
 	invalidTypes.DurationMS = r.Duration.Milliseconds()
 	invalidTypes.HTTP = observation(r)
+	invalidTypes.Usage = ParseUsage(r.JSON)
 	setExpectedError(&invalidTypes, r, e)
 	invalidTypes.Summary = "Invalid field types are rejected with a client error"
 	return []result.TestResult{invalidModel, shape, requestID, invalidJSON, invalidTypes}
@@ -619,6 +624,7 @@ func runTools(parent context.Context, client *Client, timeout time.Duration, p p
 	specific := testBase(p, "anthropic.tools.specific")
 	specific.DurationMS = resp.Duration.Milliseconds()
 	specific.HTTP = observation(resp)
+	specific.Usage = ParseUsage(resp.JSON)
 	setHTTPStatus(&specific, resp, err, true)
 	uses := ToolUses(resp.JSON)
 	if specific.Status == result.StatusPass {
@@ -651,6 +657,7 @@ func runTools(parent context.Context, client *Client, timeout time.Duration, p p
 		r, e := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, cont) })
 		continuation.DurationMS = r.Duration.Milliseconds()
 		continuation.HTTP = observation(r)
+		continuation.Usage = ParseUsage(r.JSON)
 		setHTTPStatus(&continuation, r, e, true)
 		if continuation.Status == result.StatusPass && strings.Contains(strings.ToLower(Text(r.JSON)), "available") {
 			continuation.Summary = "tool_result was accepted and used in the final answer"
@@ -666,6 +673,7 @@ func runTools(parent context.Context, client *Client, timeout time.Duration, p p
 	streamProbe.DurationMS = stream.Duration.Milliseconds()
 	streamProbe.HTTP = result.HTTPObservation{StatusCode: stream.StatusCode, ContentType: stream.ContentType, RequestID: stream.RequestID, Snippet: truncate(stream.RawSnippet, 1000)}
 	validation := ValidateStream(stream)
+	streamProbe.Usage = validation.Usage
 	if streamErr != nil {
 		if stream.StatusCode == 400 || stream.StatusCode == 404 || stream.StatusCode == 422 {
 			streamProbe.Status = result.StatusUnsupported
@@ -701,6 +709,7 @@ func runTools(parent context.Context, client *Client, timeout time.Duration, p p
 	parallelResp, parallelErr := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, parallelBody) })
 	parallel := testBase(p, "anthropic.tools.parallel")
 	parallel.DurationMS, parallel.HTTP = parallelResp.Duration.Milliseconds(), observation(parallelResp)
+	parallel.Usage = ParseUsage(parallelResp.JSON)
 	setHTTPStatus(&parallel, parallelResp, parallelErr, true)
 	parallelUses := ToolUses(parallelResp.JSON)
 	if parallel.Status == result.StatusPass {
@@ -734,6 +743,7 @@ func runToolChoiceProbe(parent context.Context, client *Client, timeout time.Dur
 	resp, err := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, body) })
 	test := testBase(p, id)
 	test.DurationMS, test.HTTP = resp.Duration.Milliseconds(), observation(resp)
+	test.Usage = ParseUsage(resp.JSON)
 	setHTTPStatus(&test, resp, err, true)
 	uses := ToolUses(resp.JSON)
 	test.Metrics = map[string]any{"tool_use_count": len(uses)}
@@ -826,6 +836,7 @@ func runStructured(parent context.Context, client *Client, timeout time.Duration
 	probe := testBase(p, "anthropic.structured.json_schema")
 	probe.DurationMS = resp.Duration.Milliseconds()
 	probe.HTTP = observation(resp)
+	probe.Usage = ParseUsage(resp.JSON)
 	setHTTPStatus(&probe, resp, err, true)
 	if probe.Status == result.StatusPass {
 		if !validStructuredOutput(Text(resp.JSON)) {
@@ -925,6 +936,7 @@ func runThinking(parent context.Context, client *Client, timeout time.Duration, 
 	streamProbe.DurationMS = stream.Duration.Milliseconds()
 	streamProbe.HTTP = result.HTTPObservation{StatusCode: stream.StatusCode, ContentType: stream.ContentType, RequestID: stream.RequestID}
 	streamValidation := ValidateStream(stream)
+	streamProbe.Usage = streamValidation.Usage
 	if streamErr != nil {
 		streamProbe.Status = result.StatusError
 		streamProbe.Summary = "Thinking stream could not be evaluated"
@@ -954,7 +966,6 @@ func runVision(parent context.Context, client *Client, timeout time.Duration, p 
 	probe := testBase(p, "anthropic.vision.image_base64")
 	probe.DurationMS = resp.Duration.Milliseconds()
 	probe.HTTP = observation(resp)
-	probe.Usage = ParseUsage(resp.JSON)
 	setHTTPStatus(&probe, resp, err, true)
 	decoded, _ := base64.StdEncoding.DecodeString(encoded)
 	digest := sha256.Sum256(decoded)
@@ -969,7 +980,7 @@ func runVision(parent context.Context, client *Client, timeout time.Duration, p 
 	schema.Artifacts = append([]result.ArtifactObservation(nil), probe.Artifacts...)
 	schema.Summary = "Anthropic base64 image block was accepted"
 	usage := derived(p, "anthropic.vision.usage", probe)
-	usage.Usage = probe.Usage
+	usage.Usage = ParseUsage(resp.JSON)
 	usage.Summary = "Vision usage is non-negative"
 	return []result.TestResult{probe, schema, usage}
 }
@@ -999,6 +1010,7 @@ func credentialProbe(parent context.Context, client *Client, timeout time.Durati
 	})
 	t := testBase(p, id)
 	t.DurationMS, t.HTTP = resp.Duration.Milliseconds(), observation(resp)
+	t.Usage = ParseUsage(resp.JSON)
 	setExpectedError(&t, resp, err)
 	if t.Status == result.StatusPass {
 		t.Summary = p.Probe(id).Name + " returned a compatible client error"

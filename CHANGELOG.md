@@ -17,3 +17,4 @@
 - `aiqa.report.v2` with target-local requirements, verdicts, guidance, usage, per-target/model rate-limit telemetry, strict schema validation, and output-boundary secret redaction; no cross-protocol percentage.
 - Separate JSONL Anthropic Official SDK checker with explicit credentials, disabled retries, Docker packaging, and partial-output recovery.
 - Run independent OpenAI and Anthropic native probes concurrently under one `--concurrency` ceiling, with deterministic result ordering and adaptive reduction after rate limits.
+- Normalize multi-target token usage into input/output/cache/total columns and fix missing or duplicated usage from native OpenAI and Anthropic probes.

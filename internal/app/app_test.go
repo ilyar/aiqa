@@ -69,6 +69,18 @@ func TestRunCompatibilityWritesReports(t *testing.T) {
 	if decoded.Summary.RequiredFail != 0 {
 		t.Fatalf("core tests failed: %+v", decoded.Summary)
 	}
+	var basicUsage, usageCheck result.Usage
+	for _, probe := range decoded.Models[0].Compatibility {
+		switch probe.ID {
+		case "chat.basic":
+			basicUsage = probe.Usage
+		case "chat.usage":
+			usageCheck = probe.Usage
+		}
+	}
+	if basicUsage.TotalTokens != 0 || usageCheck.TotalTokens == 0 {
+		t.Fatalf("basic response usage must be counted once by chat.usage: basic=%+v usage=%+v", basicUsage, usageCheck)
+	}
 	if decoded.Summary.Fail != 0 || decoded.Summary.Error != 0 || decoded.Summary.Warn != 0 || decoded.Summary.Unsupported != 0 {
 		t.Fatalf("mock endpoint should pass every built-in compatibility probe: %+v", decoded.Summary)
 	}

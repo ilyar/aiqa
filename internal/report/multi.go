@@ -90,13 +90,60 @@ func MarkdownV2(r result.ReportV2) string {
 
 	fmt.Fprintln(&b, "## Observed API usage")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "| Target | Input | Output | Prompt | Completion | Cache creation | Cache read | Thinking/reasoning |")
-	fmt.Fprintln(&b, "|---|---:|---:|---:|---:|---:|---:|---:|")
+	fmt.Fprintln(&b, "Provider-reported token usage is normalized to common input and output columns. For Anthropic, cached input is reported separately from uncached input. Thinking/reasoning tokens are a subset of output and are not added twice.")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "| Target | Input | Output | Cache creation | Cache read | Thinking/reasoning | Total |")
+	fmt.Fprintln(&b, "|---|---:|---:|---:|---:|---:|---:|")
+	var combined observedUsage
 	for _, target := range r.Targets {
-		u := target.Summary.Usage
-		fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d | %d | %d | %d |\n", escapeCell(target.ID), u.InputTokens, u.OutputTokens, u.PromptTokens, u.CompletionTokens, u.CacheCreationInputTokens, u.CacheReadInputTokens, u.ThinkingTokens+u.ReasoningTokens)
+		u := normalizeObservedUsage(target.Protocol, target.Summary.Usage)
+		combined = combined.add(u)
+		fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d | %d | **%d** |\n", escapeCell(target.ID), u.input, u.output, u.cacheCreation, u.cacheRead, u.reasoning, u.total)
+	}
+	if len(r.Targets) > 1 {
+		fmt.Fprintf(&b, "| **All targets** | **%d** | **%d** | **%d** | **%d** | **%d** | **%d** |\n", combined.input, combined.output, combined.cacheCreation, combined.cacheRead, combined.reasoning, combined.total)
 	}
 	return b.String()
+}
+
+type observedUsage struct {
+	input         int64
+	output        int64
+	cacheCreation int64
+	cacheRead     int64
+	reasoning     int64
+	total         int64
+}
+
+func normalizeObservedUsage(protocol string, usage result.Usage) observedUsage {
+	row := observedUsage{
+		cacheCreation: usage.CacheCreationInputTokens,
+		cacheRead:     usage.CacheReadInputTokens,
+		reasoning:     usage.ThinkingTokens + usage.ReasoningTokens,
+	}
+	switch protocol {
+	case "anthropic":
+		row.input, row.output = usage.InputTokens, usage.OutputTokens
+		row.total = row.input + row.output + row.cacheCreation + row.cacheRead
+	default:
+		row.input, row.output = usage.PromptTokens, usage.CompletionTokens
+		row.total = usage.TotalTokens
+		if row.total == 0 {
+			row.total = row.input + row.output
+		}
+	}
+	return row
+}
+
+func (u observedUsage) add(v observedUsage) observedUsage {
+	return observedUsage{
+		input:         u.input + v.input,
+		output:        u.output + v.output,
+		cacheCreation: u.cacheCreation + v.cacheCreation,
+		cacheRead:     u.cacheRead + v.cacheRead,
+		reasoning:     u.reasoning + v.reasoning,
+		total:         u.total + v.total,
+	}
 }
 
 func targetConfigNormalized(configs []result.TargetPublicConfig, targetID string) bool {

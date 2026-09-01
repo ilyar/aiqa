@@ -80,6 +80,23 @@ func TestDualTargetCommandWritesIndependentV2Report(t *testing.T) {
 	if anthropicTarget == nil {
 		t.Fatal("Anthropic target is missing")
 	}
+	if anthropicTarget.Summary.Usage.TotalTokens != anthropicTarget.Summary.Usage.InputTokens+anthropicTarget.Summary.Usage.OutputTokens+anthropicTarget.Summary.Usage.CacheCreationInputTokens+anthropicTarget.Summary.Usage.CacheReadInputTokens {
+		t.Fatalf("Anthropic total usage is inconsistent: %+v", anthropicTarget.Summary.Usage)
+	}
+	var basicUsage, usageCheck, toolUsage result.Usage
+	for _, probe := range anthropicTarget.Models[0].Compatibility {
+		switch probe.ID {
+		case "anthropic.messages.basic":
+			basicUsage = probe.Usage
+		case "anthropic.messages.usage":
+			usageCheck = probe.Usage
+		case "anthropic.tools.specific":
+			toolUsage = probe.Usage
+		}
+	}
+	if basicUsage.TotalTokens != 0 || usageCheck.TotalTokens == 0 || toolUsage.TotalTokens == 0 {
+		t.Fatalf("Anthropic usage must be counted once and include tool probes: basic=%+v usage=%+v tool=%+v", basicUsage, usageCheck, toolUsage)
+	}
 	contract, err := profile.LoadFile("anthropic-compat-2026-09.json")
 	if err != nil {
 		t.Fatal(err)

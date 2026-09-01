@@ -41,7 +41,7 @@ func TestValidateErrorAndCountTokenUsage(t *testing.T) {
 		t.Fatal("missing error.message accepted")
 	}
 	usage := ParseUsage(map[string]any{"usage": map[string]any{"input_tokens": json.Number("7"), "output_tokens": json.Number("2"), "cache_creation_input_tokens": json.Number("3"), "cache_read_input_tokens": json.Number("4"), "output_tokens_details": map[string]any{"thinking_tokens": json.Number("1")}}})
-	if usage.InputTokens != 7 || usage.OutputTokens != 2 || usage.CacheCreationInputTokens != 3 || usage.CacheReadInputTokens != 4 || usage.ThinkingTokens != 1 {
+	if usage.InputTokens != 7 || usage.OutputTokens != 2 || usage.CacheCreationInputTokens != 3 || usage.CacheReadInputTokens != 4 || usage.ThinkingTokens != 1 || usage.TotalTokens != 16 {
 		t.Fatalf("usage mapping distorted Anthropic fields: %+v", usage)
 	}
 }
@@ -74,11 +74,11 @@ func TestValidateStreamAcceptsNamedAnthropicSequence(t *testing.T) {
 		event("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"AIQA_OK"}}`),
 		event("content_block_stop", `{"type":"content_block_stop","index":0}`),
 		event("future_event", `{"type":"future_event","value":1}`),
-		event("message_delta", `{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":2}}`),
+		event("message_delta", `{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":5,"output_tokens":2,"cache_creation_input_tokens":3,"cache_read_input_tokens":4,"output_tokens_details":{"thinking_tokens":1}}}`),
 		event("message_stop", `{"type":"message_stop"}`),
 	}
 	got := ValidateStream(api.StreamResponse{Events: events})
-	if len(got.Problems) > 0 || got.Text != "AIQA_OK" || !got.SawMessageStop || len(got.Unknown) != 1 {
+	if len(got.Problems) > 0 || got.Text != "AIQA_OK" || !got.SawMessageStop || len(got.Unknown) != 1 || got.Usage.TotalTokens != 14 || got.Usage.ThinkingTokens != 1 {
 		t.Fatalf("unexpected validation: %+v", got)
 	}
 }

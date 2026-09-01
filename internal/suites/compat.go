@@ -201,7 +201,6 @@ func evaluateBasic(p profile.Profile, resp api.Response, err error) result.TestR
 	t := testBase(p, "chat.basic", "compat")
 	t.DurationMS = resp.Duration.Milliseconds()
 	t.HTTP = httpObservation(resp)
-	t.Usage = api.ParseUsage(resp.JSON)
 	if err != nil && resp.StatusCode == 0 {
 		t.Status = result.StatusError
 		t.Summary = "chat request failed before an HTTP response"
@@ -946,6 +945,7 @@ func probeInvalidModel(parent context.Context, env Environment) result.TestResul
 	})
 	t.DurationMS = resp.Duration.Milliseconds()
 	t.HTTP = httpObservation(resp)
+	t.Usage = api.ParseUsage(resp.JSON)
 	return evaluateErrorProbe(t, resp, err, []int{400, 404, 422}, "invalid model")
 }
 
@@ -965,6 +965,7 @@ func probeInvalidAuth(parent context.Context, env Environment, model string) res
 	})
 	t.DurationMS = resp.Duration.Milliseconds()
 	t.HTTP = httpObservation(resp)
+	t.Usage = api.ParseUsage(resp.JSON)
 	return evaluateErrorProbe(t, resp, err, []int{401, 403}, "invalid authentication")
 }
 
@@ -987,6 +988,7 @@ func probeInvalidJSON(parent context.Context, env Environment) result.TestResult
 		base.HTTP = httpObservation(resp)
 		attempt := evaluateErrorProbe(base, resp, err, []int{400, 422}, "malformed JSON")
 		t.DurationMS += attempt.DurationMS
+		t.Usage = t.Usage.Add(api.ParseUsage(resp.JSON))
 		statuses[variant.name] = map[string]any{"status": attempt.Status, "http": resp.StatusCode, "summary": attempt.Summary}
 		if attempt.Status == result.StatusPass {
 			passed++
@@ -1028,6 +1030,7 @@ func probeInvalidTypes(parent context.Context, env Environment, model string) re
 	})
 	t.DurationMS = resp.Duration.Milliseconds()
 	t.HTTP = httpObservation(resp)
+	t.Usage = api.ParseUsage(resp.JSON)
 	t = evaluateErrorProbe(t, resp, err, []int{400, 422}, "invalid request field types")
 	if resp.StatusCode >= 500 {
 		t.Signals = append(t.Signals, result.EvidenceSignal{Code: "contract.chat.invalid_request.upstream_5xx", Parameters: map[string]any{

@@ -45,7 +45,6 @@ func probeImageGeneration(parent context.Context, env Environment, model string)
 	basic := testBase(env.Profile, "images.generate.basic", "compat")
 	basic.DurationMS = resp.Duration.Milliseconds()
 	basic.HTTP = imageHTTPObservation(resp)
-	basic.Usage = api.ParseUsage(resp.JSON)
 	if err != nil && resp.StatusCode == 0 {
 		basic.Status, basic.Summary, basic.Error = result.StatusError, "image generation failed before an HTTP response", errorText(err)
 	} else if providerFailureStatusCode(resp.StatusCode) {

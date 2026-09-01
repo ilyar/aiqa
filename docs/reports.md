@@ -125,7 +125,7 @@ Verification entries identify the affected target, protocol, requirement IDs, an
 
 Markdown is rendered from the same report object serialized as JSON. Its order is:
 
-For v1, Markdown shows run metadata, the executive summary, global telemetry, prioritized actions, model detail, collapsed passing checks, raw evidence, limitations, and usage. For v2, it shows the target comparison table, the run verdict, per-target telemetry, separate target sections, and protocol-labelled usage. When a target evaluates more than one model, its model section also shows separate rate-limit and latency observations for each model. Percentages remain target-local.
+For v1, Markdown shows run metadata, the executive summary, global telemetry, prioritized actions, model detail, collapsed passing checks, raw evidence, limitations, and usage. For v2, it shows the target comparison table, the run verdict, per-target telemetry, separate target sections, and normalized provider-reported usage. OpenAI `prompt_tokens`/`completion_tokens` and Anthropic `input_tokens`/`output_tokens` share common Input and Output columns. Anthropic cache creation and cache read remain separate input categories; thinking/reasoning is shown as an output subset and is not added twice. The Total column and the multi-target total row show the observed aggregate. When a target evaluates more than one model, its model section also shows separate rate-limit and latency observations for each model. Percentages remain target-local.
 
 External checker logs are redacted, truncated, stored once in `guidance.artifacts`, and linked by content-addressed `artifact_ref` values. API keys, bearer tokens, cookies, signed query strings, tool arguments, and long base64 payloads are removed before rendering.
 
