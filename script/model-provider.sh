@@ -36,25 +36,18 @@ MODEL_CONTEXT="${MODEL_CONTEXT:-4096}"
 # Pinned defaults. Override explicitly when upgrading and test before changing them here.
 LLAMA_IMAGE="${LLAMA_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda-b10362}"
 BIFROST_IMAGE="${BIFROST_IMAGE:-maximhq/bifrost:v1.6.6}"
-COMPAT_IMAGE="${COMPAT_IMAGE:-python:3.13.11-alpine3.23}"
 CADDY_IMAGE="${CADDY_IMAGE:-caddy:2.11.3-alpine}"
 
 NETWORK="model-provider"
 LLAMA_CONTAINER="model-provider-llama"
 BIFROST_CONTAINER="model-provider-bifrost"
-COMPAT_CONTAINER="model-provider-compat"
 CADDY_CONTAINER="model-provider-caddy"
 
 log() { printf '\n==> %s\n' "$*"; }
 die() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "missing command: $1"; }
 
-CONTAINERS=(
-  "$LLAMA_CONTAINER"
-  "$BIFROST_CONTAINER"
-  "$COMPAT_CONTAINER"
-  "$CADDY_CONTAINER"
-)
+CONTAINERS=("$LLAMA_CONTAINER" "$BIFROST_CONTAINER" "$CADDY_CONTAINER")
 
 usage() {
   cat <<EOF_USAGE
@@ -111,6 +104,11 @@ down_and_wipe() {
 
 COMMAND="${1:-}"
 case "$COMMAND" in
+  up)
+    [[ $# -eq 3 ]] || { usage >&2; exit 2; }
+    STORAGE="$2"
+    TARGET="$3"
+    ;;
   stop)
     [[ $# -eq 1 ]] || { usage >&2; exit 2; }
     need docker
@@ -133,11 +131,6 @@ case "$COMMAND" in
     docker info >/dev/null 2>&1 || die "Docker daemon is unavailable"
     down_and_wipe
     exit 0
-    ;;
-  up)
-    [[ $# -eq 3 ]] || { usage >&2; exit 2; }
-    STORAGE="$2"
-    TARGET="$3"
     ;;
   *)
     usage >&2
@@ -164,13 +157,9 @@ STORAGE="$(cd "$STORAGE" && pwd)"
 STATE="$STORAGE/.model-provider"
 SECRETS="$STATE/secrets.env"
 BIFROST_CONFIG="$STATE/bifrost.json"
-BIFROST_DATA="$STATE/bifrost-data"
-COMPAT_SERVER="$STATE/openai_compat.py"
 CADDYFILE="$STATE/Caddyfile"
 mkdir -p "$STATE"
 chmod 700 "$STATE"
-mkdir -p "$BIFROST_DATA"
-chmod 700 "$BIFROST_DATA"
 
 # -----------------------------------------------------------------------------
 # Model
@@ -311,234 +300,30 @@ jq -e . "$BIFROST_CONFIG" >/dev/null
 chmod 644 "$BIFROST_CONFIG"
 
 # -----------------------------------------------------------------------------
-# OpenAI compatibility facade
-# -----------------------------------------------------------------------------
-# Bifrost is the authenticated provider router. This small stdlib-only facade
-# fixes the remaining OpenAI wire differences that Bifrost v1.6.6 exposes on
-# /v1: model-list object, model retrieval, error type, and stream usage chunks.
-cat > "$COMPAT_SERVER" <<'PYTHON'
-import copy
-import http.client
-import json
-import os
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import unquote, urlsplit
-
-UPSTREAM_HOST = os.environ.get("BIFROST_HOST", "model-provider-bifrost")
-UPSTREAM_PORT = int(os.environ.get("BIFROST_PORT", "8080"))
-
-
-def openai_error(message, error_type="invalid_request_error"):
-    return {"error": {"message": message, "type": error_type, "code": None}}
-
-
-class Handler(BaseHTTPRequestHandler):
-    protocol_version = "HTTP/1.1"
-
-    def log_message(self, _format, *_args):
-        pass
-
-    def request_body(self):
-        length = int(self.headers.get("Content-Length", "0"))
-        return self.rfile.read(length) if length else b""
-
-    def upstream(self, method, path, body=b""):
-        headers = {
-            key: value for key, value in self.headers.items()
-            if key.lower() not in {"host", "connection", "content-length"}
-        }
-        if body:
-            headers["Content-Length"] = str(len(body))
-        connection = http.client.HTTPConnection(UPSTREAM_HOST, UPSTREAM_PORT, timeout=300)
-        connection.request(method, path, body=body, headers=headers)
-        return connection, connection.getresponse()
-
-    def send_json(self, status, payload):
-        encoded = json.dumps(payload, separators=(",", ":")).encode()
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(encoded)))
-        self.end_headers()
-        self.wfile.write(encoded)
-
-    def copy_response_headers(self, response):
-        for key, value in response.getheaders():
-            if key.lower() not in {"connection", "content-length", "transfer-encoding"}:
-                self.send_header(key, value)
-
-    def normal_json(self, status, payload):
-        if status >= 400:
-            error = payload.get("error") if isinstance(payload, dict) else None
-            if isinstance(error, dict):
-                error.setdefault("type", "invalid_request_error")
-                error.setdefault("code", None)
-            else:
-                payload = openai_error(str(payload))
-        return payload
-
-    def list_models(self):
-        connection, response = self.upstream("GET", "/openai/v1/models")
-        raw = response.read()
-        connection.close()
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError:
-            self.send_json(response.status, openai_error("invalid upstream model list", "server_error"))
-            return
-        if response.status >= 400:
-            self.send_json(response.status, self.normal_json(response.status, payload))
-            return
-        data = payload.get("data", [])
-        for model in data:
-            if isinstance(model, dict):
-                model.setdefault("object", "model")
-        self.send_json(200, {"object": "list", "data": data})
-
-    def retrieve_model(self, model_id):
-        connection, response = self.upstream("GET", "/openai/v1/models")
-        raw = response.read()
-        connection.close()
-        try:
-            payload = json.loads(raw)
-            models = payload.get("data", [])
-        except json.JSONDecodeError:
-            models = []
-        for model in models:
-            if isinstance(model, dict) and model.get("id") == model_id:
-                model = dict(model)
-                model.setdefault("object", "model")
-                self.send_json(200, model)
-                return
-        self.send_json(404, openai_error("The model '%s' does not exist" % model_id, "invalid_request_error"))
-
-    def stream(self, response, include_usage):
-        self.send_response(response.status)
-        self.copy_response_headers(response)
-        self.send_header("Content-Type", "text/event-stream")
-        self.send_header("Cache-Control", "no-cache")
-        self.send_header("Connection", "close")
-        self.end_headers()
-        for raw_line in response:
-            line = raw_line.decode("utf-8", "replace").rstrip("\r\n")
-            if not line.startswith("data: "):
-                self.wfile.write(raw_line)
-                self.wfile.flush()
-                continue
-            value = line[6:]
-            if value == "[DONE]":
-                self.wfile.write(b"data: [DONE]\n\n")
-                self.wfile.flush()
-                self.close_connection = True
-                break
-            try:
-                event = json.loads(value)
-            except json.JSONDecodeError:
-                self.wfile.write(raw_line)
-                self.wfile.flush()
-                continue
-            for choice in event.get("choices", []):
-                choice.setdefault("finish_reason", None)
-            usage = event.get("usage")
-            if include_usage and usage and event.get("choices"):
-                choice_event = copy.deepcopy(event)
-                choice_event["usage"] = None
-                usage_event = copy.deepcopy(event)
-                usage_event["choices"] = []
-                self.wfile.write(("data: " + json.dumps(choice_event, separators=(",", ":")) + "\n\n").encode())
-                self.wfile.write(("data: " + json.dumps(usage_event, separators=(",", ":")) + "\n\n").encode())
-            else:
-                self.wfile.write(("data: " + json.dumps(event, separators=(",", ":")) + "\n\n").encode())
-            self.wfile.flush()
-
-    def forward(self):
-        body = self.request_body()
-        path = urlsplit(self.path).path
-        query = urlsplit(self.path).query
-        if path == "/health":
-            upstream_path = "/health"
-        elif path.startswith("/v1/"):
-            upstream_path = "/openai" + path
-        else:
-            self.send_json(404, openai_error("Not found", "invalid_request_error"))
-            return
-        if query:
-            upstream_path += "?" + query
-        request_payload = None
-        include_usage = False
-        if body:
-            try:
-                request_payload = json.loads(body)
-                include_usage = bool(request_payload.get("stream_options", {}).get("include_usage"))
-            except (ValueError, AttributeError):
-                pass
-        try:
-            connection, response = self.upstream(self.command, upstream_path, body)
-            content_type = response.getheader("Content-Type", "")
-            if "text/event-stream" in content_type:
-                self.stream(response, include_usage)
-                connection.close()
-                return
-            raw = response.read()
-            connection.close()
-        except (OSError, http.client.HTTPException) as error:
-            self.send_json(502, openai_error("upstream unavailable: %s" % error, "server_error"))
-            return
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError:
-            payload = openai_error(raw.decode("utf-8", "replace"), "server_error")
-        requested_model = request_payload.get("model") if isinstance(request_payload, dict) else None
-        error = payload.get("error") if isinstance(payload, dict) else None
-        if response.status >= 400 and isinstance(requested_model, str) and isinstance(error, dict):
-            message = str(error.get("message", ""))
-            if "resolve a provider" in message or "no keys found" in message:
-                error["message"] = "The model '%s' does not exist or you do not have access to it." % requested_model
-                error["type"] = "invalid_request_error"
-                error["param"] = "model"
-                error["code"] = "model_not_found"
-        self.send_json(response.status, self.normal_json(response.status, payload))
-
-    def do_GET(self):
-        path = urlsplit(self.path).path
-        if path == "/v1/models":
-            self.list_models()
-        elif path.startswith("/v1/models/"):
-            self.retrieve_model(unquote(path[len("/v1/models/"):]))
-        else:
-            self.forward()
-
-    def do_POST(self):
-        self.forward()
-
-
-ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
-PYTHON
-chmod 644 "$COMPAT_SERVER"
-
-# -----------------------------------------------------------------------------
 # Runtime
 # -----------------------------------------------------------------------------
 log "Pulling pinned images"
 docker pull "$LLAMA_IMAGE" >/dev/null
 docker pull "$BIFROST_IMAGE" >/dev/null
-docker pull "$COMPAT_IMAGE" >/dev/null
 [[ "$MODE" == "public" ]] && docker pull "$CADDY_IMAGE" >/dev/null
 
 # Record immutable digests actually used by this deployment.
 {
   printf 'LLAMA_IMAGE=%s\n' "$(docker image inspect "$LLAMA_IMAGE" --format '{{index .RepoDigests 0}}')"
   printf 'BIFROST_IMAGE=%s\n' "$(docker image inspect "$BIFROST_IMAGE" --format '{{index .RepoDigests 0}}')"
-  printf 'COMPAT_IMAGE=%s\n' "$(docker image inspect "$COMPAT_IMAGE" --format '{{index .RepoDigests 0}}')"
   [[ "$MODE" == "public" ]] && \
     printf 'CADDY_IMAGE=%s\n' "$(docker image inspect "$CADDY_IMAGE" --format '{{index .RepoDigests 0}}')"
 } > "$STATE/images.lock"
 
 docker rm -f \
-  "$CADDY_CONTAINER" "$COMPAT_CONTAINER" "$BIFROST_CONTAINER" "$LLAMA_CONTAINER" \
+  "$CADDY_CONTAINER" "$BIFROST_CONTAINER" "$LLAMA_CONTAINER" \
   model-provider llama.cpp \
   >/dev/null 2>&1 || true
 
 docker network inspect "$NETWORK" >/dev/null 2>&1 || docker network create "$NETWORK" >/dev/null
+docker volume inspect model-provider-bifrost-data >/dev/null 2>&1 || \
+  docker volume create model-provider-bifrost-data >/dev/null
+
 log "Starting llama.cpp"
 docker run -d \
   --name "$LLAMA_CONTAINER" \
@@ -555,12 +340,11 @@ docker run -d \
   >/dev/null
 
 if [[ "$MODE" == "lan" ]]; then
-  BIFROST_HOST_PORT="${BIFROST_ADMIN_PORT:-8081}"
-  COMPAT_PUBLISH=( -p "0.0.0.0:$PORT:8080" )
+  BIFROST_HOST_PORT="$PORT"
+  PUBLISH=( -p "0.0.0.0:$PORT:8080" )
 else
   BIFROST_HOST_PORT="${BIFROST_ADMIN_PORT:-8081}"
-  COMPAT_HOST_PORT="${COMPAT_HOST_PORT:-8082}"
-  COMPAT_PUBLISH=( -p "127.0.0.1:$COMPAT_HOST_PORT:8080" )
+  PUBLISH=( -p "127.0.0.1:$BIFROST_HOST_PORT:8080" )
 fi
 
 log "Starting Bifrost"
@@ -568,11 +352,11 @@ docker run -d \
   --name "$BIFROST_CONTAINER" \
   --restart unless-stopped \
   --network "$NETWORK" \
-  -p "127.0.0.1:$BIFROST_HOST_PORT:8080" \
+  "${PUBLISH[@]}" \
   --env-file "$SECRETS" \
   -e APP_HOST=0.0.0.0 \
   -e APP_PORT=8080 \
-  -v "$BIFROST_DATA:/app/data" \
+  -v model-provider-bifrost-data:/app/data \
   -v "$BIFROST_CONFIG:/app/data/config.json:ro" \
   "$BIFROST_IMAGE" \
   >/dev/null
@@ -594,25 +378,6 @@ wait_url "$LOCAL_GATEWAY/health" || {
   die "Bifrost health check failed"
 }
 
-log "Starting OpenAI compatibility facade"
-docker run -d \
-  --name "$COMPAT_CONTAINER" \
-  --restart unless-stopped \
-  --network "$NETWORK" \
-  "${COMPAT_PUBLISH[@]}" \
-  -e BIFROST_HOST="$BIFROST_CONTAINER" \
-  -e BIFROST_PORT=8080 \
-  -v "$COMPAT_SERVER:/app/server.py:ro" \
-  "$COMPAT_IMAGE" \
-  python /app/server.py \
-  >/dev/null
-
-LOCAL_API="http://127.0.0.1:${COMPAT_HOST_PORT:-$PORT}"
-wait_url "$LOCAL_API/health" || {
-  docker logs --tail 100 "$COMPAT_CONTAINER" >&2 || true
-  die "OpenAI compatibility facade health check failed"
-}
-
 # -----------------------------------------------------------------------------
 # HTTPS for public mode. Only provider APIs are Internet-facing; Bifrost
 # management remains on 127.0.0.1:$BIFROST_HOST_PORT.
@@ -622,13 +387,8 @@ if [[ "$MODE" == "public" ]]; then
 $DOMAIN {
     encode zstd gzip
 
-    @openai path /v1 /v1/* /health
-    handle @openai {
-        reverse_proxy $COMPAT_CONTAINER:8080
-    }
-
-    @anthropic path /anthropic /anthropic/*
-    handle @anthropic {
+    @api path /openai /openai/* /anthropic /anthropic/* /health
+    handle @api {
         reverse_proxy $BIFROST_CONTAINER:8080
     }
 
@@ -667,7 +427,8 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# Smoke tests verify the public protocol facades, not merely that containers run.
+# Smoke tests through Bifrost. They verify the actual protocol facades, not
+# merely that the containers are running.
 # -----------------------------------------------------------------------------
 smoke() {
   local kind="$1" url="$2" header="$3" jq_path="$4" body response
@@ -686,7 +447,7 @@ smoke() {
 
 log "OpenAI smoke test"
 # Empty first argument prevents the Anthropic version header.
-smoke "" "$LOCAL_API/v1/chat/completions" \
+smoke "" "$LOCAL_GATEWAY/openai/v1/chat/completions" \
   "Authorization: Bearer $PROVIDER_API_KEY" '.choices[0].message.content' || {
     docker logs --tail 100 "$LLAMA_CONTAINER" >&2 || true
     docker logs --tail 100 "$BIFROST_CONTAINER" >&2 || true
@@ -710,7 +471,7 @@ Model:
   $PUBLIC_MODEL_ID
 
 OpenAI:
-  export OPENAI_BASE_URL=$BASE_URL/v1
+  export OPENAI_BASE_URL=$BASE_URL/openai/v1
   export OPENAI_API_KEY=$PROVIDER_API_KEY
   export OPENAI_MODEL=$PUBLIC_MODEL_ID
 
@@ -736,7 +497,7 @@ if [[ "$MODE" == "lan" && -n "$LAN_IP" ]]; then
   cat <<EOF_LAN
 
 LAN:
-  OPENAI_BASE_URL=http://$LAN_IP:$PORT/v1
+  OPENAI_BASE_URL=http://$LAN_IP:$PORT/openai/v1
   ANTHROPIC_BASE_URL=http://$LAN_IP:$PORT/anthropic
 EOF_LAN
 fi
