@@ -21,8 +21,7 @@ func finalizeModel(m *result.ModelReport) {
 		module.Summary = nil
 		var tests []result.TestResult
 		for _, test := range m.Compatibility {
-			isImage := strings.HasPrefix(test.ID, "images.")
-			if (module.ID == "images-generations" && isImage) || (module.ID == "chat-completions" && !isImage) {
+			if testBelongsToModule(test.ID, module.ID) {
 				tests = append(tests, test)
 				module.TestIDs = append(module.TestIDs, test.ID)
 			}
@@ -39,9 +38,35 @@ func finalizeModel(m *result.ModelReport) {
 	}
 }
 
+func testBelongsToModule(testID, moduleID string) bool {
+	switch moduleID {
+	case "images-generations":
+		return strings.HasPrefix(testID, "images.")
+	case "chat-completions":
+		return !strings.HasPrefix(testID, "images.") && !strings.HasPrefix(testID, "anthropic.")
+	case "anthropic.messages":
+		return strings.HasPrefix(testID, "anthropic.messages.") || strings.HasPrefix(testID, "anthropic.error.") || strings.HasPrefix(testID, "anthropic.header.") || strings.HasPrefix(testID, "anthropic.auth.") || testID == "anthropic.models.retrieve"
+	case "anthropic.tools":
+		return strings.HasPrefix(testID, "anthropic.tools.") && testID != "anthropic.tools.strict_schema"
+	case "anthropic.token-counting":
+		return strings.HasPrefix(testID, "anthropic.tokens.")
+	case "anthropic.structured-output":
+		return strings.HasPrefix(testID, "anthropic.structured.") || testID == "anthropic.tools.strict_schema"
+	case "anthropic.vision":
+		return strings.HasPrefix(testID, "anthropic.vision.")
+	case "anthropic.thinking":
+		return strings.HasPrefix(testID, "anthropic.thinking.")
+	default:
+		return false
+	}
+}
+
 func summarizeTests(tests []result.TestResult) result.Summary {
 	var s result.Summary
 	for _, test := range tests {
+		if test.Applicability == result.ApplicabilityNotApplicable {
+			continue
+		}
 		addStatus(&s, test.Status)
 		s.Usage = s.Usage.Add(test.Usage)
 		if test.Required {
@@ -59,6 +84,9 @@ func summarizeTests(tests []result.TestResult) result.Summary {
 func summarizeModel(m result.ModelReport) result.Summary {
 	var s result.Summary
 	for _, t := range m.Compatibility {
+		if t.Applicability == result.ApplicabilityNotApplicable {
+			continue
+		}
 		addStatus(&s, t.Status)
 		s.Usage = s.Usage.Add(t.Usage)
 		if t.Required {
@@ -91,6 +119,9 @@ func summarizeReport(r result.Report) result.Summary {
 	var s result.Summary
 	evaluatedModels := 0
 	for _, t := range r.Discovery.Tests {
+		if t.Applicability == result.ApplicabilityNotApplicable {
+			continue
+		}
 		addStatus(&s, t.Status)
 		s.Usage = s.Usage.Add(t.Usage)
 		if t.Required {
@@ -102,6 +133,9 @@ func summarizeReport(r result.Report) result.Summary {
 		}
 	}
 	for _, t := range r.Discovery.Compatibility {
+		if t.Applicability == result.ApplicabilityNotApplicable {
+			continue
+		}
 		addStatus(&s, t.Status)
 		s.Usage = s.Usage.Add(t.Usage)
 		if t.Required {

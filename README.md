@@ -1,6 +1,6 @@
 # aiqa
 
-QA utility for testing AI things
+Compatibility and behavior testing for OpenAI and Anthropic API facades.
 
 ## Quick start
 
@@ -13,6 +13,21 @@ aiqa test=compat \
   --format=markdown,json \
   --name=compat-report
 ```
+
+Configure both facades to assess them in one run:
+
+```bash
+export OPENAI_BASE_URL="http://127.0.0.1:8080/openai/v1"
+export OPENAI_API_KEY="<OPENAI_API_KEY>"
+export ANTHROPIC_BASE_URL="http://127.0.0.1:8080/anthropic"
+export ANTHROPIC_API_KEY="<ANTHROPIC_API_KEY>"
+
+aiqa --verbose test=compat \
+  --format=markdown,json \
+  --name=compat-report
+```
+
+The OpenAI base URL includes `/v1`. The Anthropic base URL is the prefix before `/v1`; AIQA appends `/v1/models`, `/v1/messages`, and `/v1/messages/count_tokens`. A configured base URL without its matching key is a configuration error. Use `--openai-model` and `--anthropic-model` for protocol-specific selection. The shared `--model` flag is rejected when both targets are active.
 
 Test the parameters of every discovered model classified as Chat Completions capable:
 
@@ -143,7 +158,11 @@ The native profile checks several levels of compatibility
 
 The current modular profile is in [`profile/openai-compat-2026-09.json`](profile/openai-compat-2026-09.json) and is embedded in the binary. The immutable [`profile/openai-compat-2026-08.json`](profile/openai-compat-2026-08.json) remains available for historical reproducibility. The profiles are based on the official OpenAI OpenAPI specification and augmented with semantic probes that cannot be expressed in JSON Schema alone.
 
-## Existing official SDK checker
+The Anthropic Messages contract is in [`profile/anthropic-messages-compat-2026-09.json`](profile/anthropic-messages-compat-2026-09.json). It pins `anthropic-version: 2023-06-01` and the official Go SDK v1.68.0. AIQA sends `x-api-key`, does not inherit `ANTHROPIC_AUTH_TOKEN` or beta headers, parses Anthropic content blocks and named SSE events, and keeps Anthropic token fields distinct from OpenAI usage fields. The profile covers Models, Messages, streaming, tools, Count Tokens, structured output, vision routing, and opt-in thinking. It does not claim coverage of the entire Anthropic Platform API.
+
+See [`docs/anthropic-compatibility.md`](docs/anthropic-compatibility.md) for the complete activation, routing, module, streaming, SDK checker, report, and maintenance contract.
+
+## Official SDK checkers
 
 The built-in checks are complemented by [`beranekio/openai-compatibility-tester`](https://github.com/beranekio/openai-compatibility-tester), it calls the endpoint through the official OpenAI Go SDK and detects incompatibilities that prevent a real SDK from sending a request or parsing a response
 
@@ -171,6 +190,8 @@ aiqa test=compat \
 The same value is read from `AIQA_EXTERNAL_IMAGE`
 
 The native suite remains mandatory: the external checker is good at testing the SDK surface, but it does not prove that a parameter accepted by the server actually affected generation. Official SDK parseability is recorded as related interoperability evidence, so it does not receive a second vote for the native wire requirement.
+
+Anthropic uses the separate checker in [`tools/anthropic-sdk-checker`](tools/anthropic-sdk-checker). It pins `anthropic-sdk-go v1.68.0`, disables SDK retries, accepts only explicit target credentials, and emits one `aiqa.external.v1` JSONL object per suite. `--anthropic-external=auto` uses an installed `anthropic-sdk-checker` binary and otherwise reports `not setup`; it does not download a binary or image. Use `--anthropic-external=docker` and `--anthropic-external-image` for an explicitly configured image.
 
 ## `test=model-param`
 
@@ -264,13 +285,15 @@ Policies:
 
 ## Reports
 
-JSON has a versioned root:
+OpenAI-only runs retain the v1 root by default:
 
 ```json
 {
   "schema_version": "aiqa.report.v1"
 }
 ```
+
+Anthropic-only and multi-target runs use `aiqa.report.v2`. Each target has its own profile, discovery inventory, models, canonical requirements, verdict, guidance, usage, and rate-limit telemetry. The root verdict applies the hardest target outcome and never computes a cross-protocol percentage. Select the contract explicitly with `--report-schema=v1|v2`; v1 is valid only for one OpenAI target.
 
 It contains raw model metadata, probe evidence, canonical requirements, the authoritative assessment, findings, recommendations, HTTP observations, token usage, context samples, and confidence. The API key is not written to the report. External-checker output is redacted, deduplicated, and stored once as a referenced artifact.
 
@@ -286,7 +309,7 @@ Guidance is deterministic and uses no additional API calls:
 --guidance-locale=en
 ```
 
-The JSON Schema is in [`schema/report.schema.json`](schema/report.schema.json). A complete combined run against a deterministic mock provider is available in [`examples/mock-report.md`](examples/mock-report.md) and [`examples/mock-report.json`](examples/mock-report.json). See [`docs/reports.md`](docs/reports.md) for exact verdict, status, priority, confidence, and report semantics.
+The schemas are [`schema/report.schema.json`](schema/report.schema.json), [`schema/report-v2.schema.json`](schema/report-v2.schema.json), and [`schema/profile-v2.schema.json`](schema/profile-v2.schema.json). A complete OpenAI run against a deterministic mock provider is available in [`examples/mock-report.md`](examples/mock-report.md) and [`examples/mock-report.json`](examples/mock-report.json). See [`docs/reports.md`](docs/reports.md) for exact verdict, status, priority, confidence, and multi-target semantics.
 
 ## Full CLI reference
 
@@ -303,6 +326,10 @@ Main additional options:
 --verbose
 --fail-on core|any|never
 --external auto|off|binary|docker
+--target auto|openai|anthropic|openai,anthropic
+--openai-model ID[,ID]
+--anthropic-model ID[,ID]
+--report-schema auto|v1|v2
 --guidance full|summary|off
 --guidance-pack auto|generic|ID
 --guidance-locale en
@@ -329,6 +356,10 @@ Integration tests run a deterministic mock endpoint and check:
 - external runner modes
 - canonical requirement aggregation and actionable guidance
 - Draft 2020-12 report-schema validation and deterministic guidance fixtures
+- dual-facade OpenAI and Anthropic execution, protocol-specific headers, named Anthropic SSE events, and v2 report isolation
+- the pinned Anthropic Official SDK checker as a separate Go module
+
+Live CI jobs are disabled unless the repository variables `AIQA_LIVE_OPENAI`, `AIQA_LIVE_ANTHROPIC`, or `AIQA_LIVE_DUAL` equal `1`. They also require matching secret URLs and keys plus an explicit model variable. Live jobs are non-blocking, run one model, disable external checkers, and never scan a production catalog by default.
 
 See [`docs/adding-tests.md`](docs/adding-tests.md) for how to add a new suite or probe
 
@@ -336,6 +367,7 @@ The profile pins the SHA of the official OpenAI OpenAPI snapshot, check whether 
 
 ```bash
 make profile-upstream-check
+go run ./script/check-profile-upstream.go --profile profile/anthropic-messages-compat-2026-09.json
 ```
 
 An upstream change does not automatically update the profile: first review the diff, adjust semantic probes, update `revision`/`source_commit`, and rerun the quality gates. Automatically rewriting a contract from a moving `main` would be convenient only until the first quiet-breaking change.
@@ -345,6 +377,8 @@ An upstream change does not automatically update the profile: first review the d
 - OpenAI OpenAPI specification: <https://github.com/openai/openai-openapi>
 - Official OpenAI Go SDK: <https://github.com/openai/openai-go>
 - External SDK compatibility tester: <https://github.com/beranekio/openai-compatibility-tester>
+- Anthropic API versioning and Messages documentation: <https://platform.claude.com/docs/en/api/versioning>
+- Official Anthropic Go SDK v1.68.0: <https://github.com/anthropics/anthropic-sdk-go/releases/tag/v1.68.0>
 
 ## License
 

@@ -32,9 +32,22 @@ type Module struct {
 	ProbeIDs         []string `json:"probe_ids"`
 }
 
+type Source struct {
+	Kind       string `json:"kind"`
+	URL        string `json:"url"`
+	Revision   string `json:"revision,omitempty"`
+	ReviewedAt string `json:"reviewed_at,omitempty"`
+	Version    string `json:"version,omitempty"`
+	Commit     string `json:"commit,omitempty"`
+}
+
 type Profile struct {
+	SchemaVersion      string   `json:"schema_version,omitempty"`
 	ID                 string   `json:"id"`
+	Protocol           string   `json:"protocol,omitempty"`
 	Revision           string   `json:"revision"`
+	APIVersion         string   `json:"api_version,omitempty"`
+	BaseURLSemantics   string   `json:"base_url_semantics,omitempty"`
 	Source             string   `json:"source"`
 	SourceCommit       string   `json:"source_commit"`
 	SourceRefRevision  string   `json:"source_ref_revision"`
@@ -43,6 +56,7 @@ type Profile struct {
 	StandardParameters []string `json:"standard_parameters"`
 	VendorExtensions   []string `json:"vendor_extensions"`
 	Modules            []Module `json:"modules,omitempty"`
+	Sources            []Source `json:"sources,omitempty"`
 	byID               map[string]Probe
 }
 
@@ -84,12 +98,42 @@ func parse(data []byte) (Profile, error) {
 }
 
 func (p *Profile) validate() error {
+	p.SchemaVersion = strings.TrimSpace(p.SchemaVersion)
 	p.ID = strings.TrimSpace(p.ID)
+	p.Protocol = strings.TrimSpace(p.Protocol)
 	p.Revision = strings.TrimSpace(p.Revision)
+	p.APIVersion = strings.TrimSpace(p.APIVersion)
+	p.BaseURLSemantics = strings.TrimSpace(p.BaseURLSemantics)
 	p.Source = strings.TrimSpace(p.Source)
 	p.SourceCommit = strings.TrimSpace(p.SourceCommit)
 	p.SourceRefRevision = strings.TrimSpace(p.SourceRefRevision)
 	p.Scope = strings.TrimSpace(p.Scope)
+	if p.SchemaVersion == "" {
+		p.SchemaVersion = "aiqa.profile.v1"
+	}
+	if p.Protocol == "" {
+		p.Protocol = "openai"
+	}
+	if p.SchemaVersion != "aiqa.profile.v1" && p.SchemaVersion != "aiqa.profile.v2" {
+		return fmt.Errorf("unsupported schema_version %q", p.SchemaVersion)
+	}
+	if p.Protocol != "openai" && p.Protocol != "anthropic" {
+		return fmt.Errorf("unsupported protocol %q", p.Protocol)
+	}
+	if p.SchemaVersion == "aiqa.profile.v2" {
+		if p.Protocol == "anthropic" && p.APIVersion == "" {
+			return fmt.Errorf("Anthropic profile requires api_version")
+		}
+		if p.BaseURLSemantics == "" {
+			return fmt.Errorf("profile v2 requires base_url_semantics")
+		}
+		if p.Protocol == "anthropic" && p.BaseURLSemantics != "prefix_before_v1" {
+			return fmt.Errorf("Anthropic profile requires base_url_semantics=prefix_before_v1")
+		}
+		if len(p.Sources) == 0 {
+			return fmt.Errorf("profile v2 requires sources")
+		}
+	}
 	if p.ID == "" || p.Revision == "" || p.Source == "" || p.SourceCommit == "" || p.Scope == "" {
 		return fmt.Errorf("id, revision, source, source_commit, and scope are required")
 	}
@@ -120,6 +164,9 @@ func (p *Profile) validate() error {
 		if _, exists := p.byID[probe.ID]; exists {
 			return fmt.Errorf("duplicate probe id %q", probe.ID)
 		}
+		if p.Protocol == "anthropic" && !strings.HasPrefix(probe.ID, "anthropic.") {
+			return fmt.Errorf("Anthropic probe id %q must be protocol-qualified", probe.ID)
+		}
 		p.byID[probe.ID] = *probe
 	}
 
@@ -141,6 +188,9 @@ func (p *Profile) validate() error {
 		if _, exists := moduleIDs[module.ID]; exists {
 			return fmt.Errorf("duplicate module id %q", module.ID)
 		}
+		if p.Protocol == "anthropic" && !strings.HasPrefix(module.ID, "anthropic.") {
+			return fmt.Errorf("Anthropic module id %q must be protocol-qualified", module.ID)
+		}
 		moduleIDs[module.ID] = struct{}{}
 		if len(module.ProbeIDs) == 0 {
 			return fmt.Errorf("module %q must reference at least one probe", module.ID)
@@ -159,6 +209,49 @@ func (p *Profile) validate() error {
 		}
 		if _, err := validateNames("module "+module.ID+" capability", module.Capabilities, nil); err != nil {
 			return err
+		}
+		if p.Protocol == "anthropic" {
+			for _, capability := range module.Capabilities {
+				if !strings.HasPrefix(capability, "anthropic.") {
+					return fmt.Errorf("Anthropic capability %q must be protocol-qualified", capability)
+				}
+			}
+		}
+	}
+	sourceKinds := map[string]bool{}
+	for index, source := range p.Sources {
+		if strings.TrimSpace(source.Kind) == "" || strings.TrimSpace(source.URL) == "" {
+			return fmt.Errorf("source %d requires kind and url", index)
+		}
+		u, err := url.Parse(source.URL)
+		if err != nil || u.Scheme != "https" || u.Host == "" {
+			return fmt.Errorf("source %d URL must be absolute HTTPS", index)
+		}
+		if source.Commit != "" && (len(source.Commit) != 40 || !isLowerHex(source.Commit)) {
+			return fmt.Errorf("source %d commit must be a 40-character lowercase Git SHA", index)
+		}
+		if sourceKinds[source.Kind] {
+			return fmt.Errorf("duplicate source kind %q", source.Kind)
+		}
+		sourceKinds[source.Kind] = true
+		switch source.Kind {
+		case "api_version":
+			if source.Revision == "" || source.ReviewedAt == "" {
+				return fmt.Errorf("api_version source requires revision and reviewed_at")
+			}
+			if _, err := time.Parse("2006-01-02", source.ReviewedAt); err != nil {
+				return fmt.Errorf("api_version source reviewed_at must use YYYY-MM-DD: %w", err)
+			}
+			if p.Protocol == "anthropic" && source.Revision != p.APIVersion {
+				return fmt.Errorf("api_version source revision %q does not match profile api_version %q", source.Revision, p.APIVersion)
+			}
+		case "official_sdk":
+			if source.Version == "" || source.Commit == "" {
+				return fmt.Errorf("official_sdk source requires version and commit")
+			}
+			if p.Protocol == "anthropic" && source.Commit != p.SourceCommit {
+				return fmt.Errorf("official_sdk source commit does not match source_commit")
+			}
 		}
 	}
 	if len(p.Modules) > 0 && len(assignedProbes) != len(p.Probes) {

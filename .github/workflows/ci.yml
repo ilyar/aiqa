@@ -21,6 +21,91 @@ jobs:
           python-version: '3.x'
       - run: python3 -m pip install 'jsonschema==4.25.1'
       - run: make check
-      - run: make build VERSION=ci COMMIT=${GITHUB_SHA::12} DATE=ci
+      - run: make build VERSION=ci COMMIT="${GITHUB_SHA::12}" DATE=ci
       - run: ./bin/aiqa --version
       - run: make race
+
+  live-openai:
+    if: vars.AIQA_LIVE_OPENAI == '1'
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27'
+      - run: make build VERSION=ci COMMIT="${GITHUB_SHA::12}" DATE=ci
+      - name: Run bounded OpenAI compatibility probe
+        env:
+          OPENAI_BASE_URL: ${{ secrets.AIQA_OPENAI_BASE_URL }}
+          OPENAI_API_KEY: ${{ secrets.AIQA_OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ vars.AIQA_OPENAI_MODEL }}
+        run: |
+          test -n "$OPENAI_BASE_URL" && test -n "$OPENAI_API_KEY" && test -n "$OPENAI_MODEL"
+          ./bin/aiqa test=compat --openai-model="$OPENAI_MODEL" --external=off --timeout=30 --request-interval=250ms --format=json --name=live-openai
+      - name: Upload sanitized OpenAI report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-openai-report
+          path: live-openai.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  live-anthropic:
+    if: vars.AIQA_LIVE_ANTHROPIC == '1'
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27'
+      - run: make build VERSION=ci COMMIT="${GITHUB_SHA::12}" DATE=ci
+      - name: Run bounded Anthropic compatibility probe
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.AIQA_ANTHROPIC_BASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.AIQA_ANTHROPIC_API_KEY }}
+          ANTHROPIC_MODEL: ${{ vars.AIQA_ANTHROPIC_MODEL }}
+        run: |
+          test -n "$ANTHROPIC_BASE_URL" && test -n "$ANTHROPIC_API_KEY" && test -n "$ANTHROPIC_MODEL"
+          ./bin/aiqa test=compat --anthropic-model="$ANTHROPIC_MODEL" --external=off --timeout=30 --request-interval=250ms --format=json --name=live-anthropic
+      - name: Upload sanitized Anthropic report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-anthropic-report
+          path: live-anthropic.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  live-dual-bifrost:
+    if: vars.AIQA_LIVE_DUAL == '1'
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27'
+      - run: make build VERSION=ci COMMIT="${GITHUB_SHA::12}" DATE=ci
+      - name: Run bounded dual-facade compatibility probe
+        env:
+          OPENAI_BASE_URL: ${{ secrets.AIQA_DUAL_OPENAI_BASE_URL }}
+          OPENAI_API_KEY: ${{ secrets.AIQA_DUAL_OPENAI_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.AIQA_DUAL_ANTHROPIC_BASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.AIQA_DUAL_ANTHROPIC_API_KEY }}
+          OPENAI_MODEL: ${{ vars.AIQA_DUAL_OPENAI_MODEL }}
+          ANTHROPIC_MODEL: ${{ vars.AIQA_DUAL_ANTHROPIC_MODEL }}
+        run: |
+          test -n "$OPENAI_BASE_URL" && test -n "$OPENAI_API_KEY" && test -n "$ANTHROPIC_BASE_URL" && test -n "$ANTHROPIC_API_KEY"
+          test -n "$OPENAI_MODEL" && test -n "$ANTHROPIC_MODEL"
+          ./bin/aiqa test=compat --openai-model="$OPENAI_MODEL" --anthropic-model="$ANTHROPIC_MODEL" --external=off --timeout=30 --request-interval=250ms --format=json --name=live-dual
+      - name: Upload sanitized dual-target report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-dual-bifrost-report
+          path: live-dual.json
+          if-no-files-found: ignore
+          retention-days: 7

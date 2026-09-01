@@ -1,6 +1,39 @@
 # Reports and actionable guidance
 
-An AIQA report states which parts of an OpenAI-compatible API were demonstrated, which evidence remains incomplete, and what to do next. It measures observed behavior against a selected profile; it is not an OpenAI certification, security audit, or model-quality benchmark.
+An AIQA report states which parts of an OpenAI or Anthropic API facade were demonstrated, which evidence remains incomplete, and what to do next. It measures observed behavior against a selected profile; it is not a provider certification, security audit, or model-quality benchmark.
+
+## Report contracts
+
+`aiqa.report.v1` represents one OpenAI target. OpenAI-only runs use it by default during the migration cycle. `aiqa.report.v2` represents one or more protocol targets and is automatic for Anthropic-only and combined runs.
+
+Each v2 target owns these fields:
+
+- target ID and protocol;
+- profile and source revision;
+- discovery inventory and selected models;
+- canonical requirements and target verdict;
+- findings, recommendations, usage, and rate-limit telemetry.
+
+Model verdicts in v2 are derived from that model's canonical requirements, including applicable profile probes that were planned but not executed. A missing probe therefore cannot leave a model labelled `PASS`.
+
+Requirement subjects and evidence IDs include the target ID. The same model name on OpenAI and Anthropic targets remains two separate subjects. The root contains a run verdict and target counts, but no weighted score or cross-protocol percentage. The hardest target outcome wins in this order: `FAIL`, `INCONCLUSIVE`, `PARTIAL`, `PASS-WITH-GAPS`, and `PASS`.
+
+`--report-schema=v1` is valid only with one OpenAI target. `--report-schema=v2` can represent OpenAI-only, Anthropic-only, or combined execution. API keys are absent from both contracts.
+
+For an OpenAI-only migration, the main JSON Pointer mapping is:
+
+| v1 | v2 |
+|---|---|
+| `/profile` | `/targets/0/profile` |
+| `/config/base_url` | `/config/targets/0/base_url` |
+| `/discovery` | `/targets/0/discovery` |
+| `/models` | `/targets/0/models` |
+| `/requirements` | `/targets/0/requirements` |
+| `/guidance` | `/targets/0/guidance` |
+| `/rate_limit` | `/targets/0/rate_limit` |
+| `/summary` | `/targets/0/summary` |
+
+The v2 `/summary` is a run-level verdict and must not replace `/targets/0/summary` in a consumer that needs target conformance details.
 
 ## Result model
 
@@ -86,20 +119,13 @@ Guidance levels describe specificity:
 
 Finding, attribution, and recommendation confidence are recorded separately as `high`, `medium`, or `low`. A projected verdict is conditional: it assumes only the affected requirements change to `pass` and nothing else regresses. Conflicting or inconclusive findings always use `projected_verdict: null`.
 
-Verification entries currently identify only the affected requirement IDs and Official SDK suite IDs. AIQA does not emit shell commands: a full `test=compat` rerun does not verify one finding in isolation and would misrepresent its cost and scope. Targeted execution and opt-in command rendering are tracked in the [backlog](../tasks/backlog.md).
+Verification entries identify the affected target, protocol, requirement IDs, and Official SDK suite IDs. AIQA does not emit shell commands: a full `test=compat` rerun does not verify one finding in isolation and would misrepresent its cost and scope. Targeted execution and opt-in command rendering are tracked in the [backlog](../tasks/backlog.md).
 
 ## Markdown layout
 
 Markdown is rendered from the same report object serialized as JSON. Its order is:
 
-1. run metadata and executive summary;
-2. global rate-limit and successful-request latency telemetry;
-3. **Fix first**, compatibility improvements, investigations, and capability gaps;
-4. model and module details;
-5. collapsed passing checks;
-6. deduplicated raw evidence;
-7. methodology and limitations;
-8. observed API token usage.
+For v1, Markdown shows run metadata, the executive summary, global telemetry, prioritized actions, model detail, collapsed passing checks, raw evidence, limitations, and usage. For v2, it shows the target comparison table, the run verdict, per-target telemetry, separate target sections, and protocol-labelled usage. When a target evaluates more than one model, its model section also shows separate rate-limit and latency observations for each model. Percentages remain target-local.
 
 External checker logs are redacted, truncated, stored once in `guidance.artifacts`, and linked by content-addressed `artifact_ref` values. API keys, bearer tokens, cookies, signed query strings, tool arguments, and long base64 payloads are removed before rendering.
 
@@ -131,6 +157,6 @@ Exit `2` remains reserved for configuration, orchestration, or report-writing fa
 
 ## Current scope and future work
 
-The `aiqa.report.v1` contract contains canonical requirements, the authoritative assessment, and `aiqa.guidance.v1`; it does not contain a deprecated overall score. Profiles still store flat probe definitions, and AIQA derives the requirement layer from stable requirement IDs. A future v2 profile may represent nested requirements and probes directly.
+The v1 and v2 report contracts contain canonical requirements and authoritative target assessments; neither contains a deprecated overall score. `aiqa.profile.v2` adds protocol, API version, base-URL semantics, and multiple provenance sources while keeping probes as a normative manifest rather than an HTTP request DSL.
 
 Baseline comparison, offline `aiqa explain`, targeted `aiqa verify`, opt-in verification commands, Russian guidance, HTML, SARIF, and generated explanations are not implemented. They remain separate future work and must not be inferred from the v1 guidance contract.

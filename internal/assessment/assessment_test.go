@@ -126,6 +126,21 @@ func TestNonApplicableModuleDoesNotEnterMeasures(t *testing.T) {
 	}
 }
 
+func TestTargetModelVerdictIncludesMaterializedProfileGaps(t *testing.T) {
+	p, err := profile.LoadFile("anthropic-messages-compat-2026-09.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := result.Report{Config: result.PublicConfig{BaseURL: "https://example.test"}, Models: []result.ModelReport{{
+		ID: "model-a", Assessment: result.ModelAssessment{Verdict: "pass"},
+		Modules: []result.ModuleAssessment{{ID: "anthropic.messages", Applicability: result.ApplicabilityApplicable, Execution: result.ExecutionExecuted}},
+	}}}
+	ApplyTarget(&r, p, "anthropic", "anthropic")
+	if r.Models[0].Assessment.Verdict != "inconclusive" {
+		t.Fatalf("model verdict ignored missing executed-module evidence: model=%+v requirements=%+v", r.Models[0].Assessment, r.Requirements)
+	}
+}
+
 func reportWithTest(test result.TestResult) result.Report {
 	return result.Report{
 		Config:    result.PublicConfig{BaseURL: "https://example.test/v1"},

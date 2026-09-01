@@ -3,6 +3,8 @@ package profile
 import (
 	"strings"
 	"testing"
+
+	profiledata "github.com/ilyar/aiqa/profile"
 )
 
 func TestEmbeddedProfileIsValid(t *testing.T) {
@@ -20,16 +22,49 @@ func TestEmbeddedProfileIsValid(t *testing.T) {
 	}
 }
 
+func TestAnthropicProfileV2RejectsMissingVersionAndUnqualifiedCapability(t *testing.T) {
+	data, err := profiledata.Files.ReadFile("anthropic-messages-compat-2026-09.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	withoutVersion := strings.Replace(string(data), `  "api_version": "2023-06-01",`+"\n", "", 1)
+	if _, err := parse([]byte(withoutVersion)); err == nil || !strings.Contains(err.Error(), "api_version") {
+		t.Fatalf("missing Anthropic API version was accepted: %v", err)
+	}
+	unqualified := strings.Replace(string(data), `"anthropic.messages.text"`, `"chat.completions.text"`, 1)
+	if _, err := parse([]byte(unqualified)); err == nil || !strings.Contains(err.Error(), "protocol-qualified") {
+		t.Fatalf("unqualified Anthropic capability was accepted: %v", err)
+	}
+}
+
+func TestAnthropicProfileV2RejectsDuplicateModules(t *testing.T) {
+	data, err := profiledata.Files.ReadFile("anthropic-messages-compat-2026-09.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	duplicate := strings.Replace(string(data), `"id": "anthropic.messages"`, `"id": "anthropic.discovery"`, 1)
+	if _, err := parse([]byte(duplicate)); err == nil || !strings.Contains(err.Error(), "duplicate module") {
+		t.Fatalf("duplicate Anthropic module was accepted: %v", err)
+	}
+}
+
 func TestEmbeddedProfileFilesCanBeListedAndLoaded(t *testing.T) {
 	files, err := AvailableFiles()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(files) != 2 || files[0] != "openai-compat-2026-08.json" || files[1] != DefaultFile {
+	if len(files) != 3 || files[0] != "anthropic-messages-compat-2026-09.json" || files[1] != "openai-compat-2026-08.json" || files[2] != DefaultFile {
 		t.Fatalf("unexpected embedded profile files: %#v", files)
 	}
 	if _, err := LoadFile(DefaultFile); err != nil {
 		t.Fatalf("load default profile: %v", err)
+	}
+	anthropic, err := LoadFile("anthropic-messages-compat-2026-09.json")
+	if err != nil {
+		t.Fatalf("load Anthropic profile: %v", err)
+	}
+	if anthropic.Protocol != "anthropic" || anthropic.APIVersion != "2023-06-01" {
+		t.Fatalf("unexpected Anthropic profile: %+v", anthropic)
 	}
 	if _, err := LoadFile("../" + DefaultFile); err == nil {
 		t.Fatal("expected invalid profile filename to be rejected")

@@ -18,6 +18,12 @@ func TestEmbeddedCatalogAndPackValidate(t *testing.T) {
 	if _, _, err := LoadPack("generic"); err != nil {
 		t.Fatalf("LoadPack: %v", err)
 	}
+	if _, ok := catalog.Entry("anthropic.stream.sequence_invalid"); !ok {
+		t.Fatal("Anthropic guidance catalog was not merged")
+	}
+	if pack, _, err := LoadPack("generic-anthropic-facade"); err != nil || pack.ID != "generic-anthropic-facade" {
+		t.Fatalf("Anthropic advice pack is invalid: pack=%+v err=%v", pack, err)
+	}
 }
 
 func TestPackCannotDeclareNormativeFields(t *testing.T) {

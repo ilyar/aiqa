@@ -45,3 +45,16 @@ func TestRoutingUsesModulesDeclaredByProfile(t *testing.T) {
 		t.Fatalf("profile module was not used by router: %+v", modules)
 	}
 }
+
+func TestAnthropicThinkingRequiresCapabilityAndHighTokenAuthorization(t *testing.T) {
+	definitions := []profile.Module{{ID: "anthropic.thinking", Subject: "model", DefaultEnabled: false, CostClass: "high-token", Capabilities: []string{AnthropicThinkingManual}}}
+	classification := fromValues("claude", []string{AnthropicThinkingManual}, "test", "test", "high", "declared")
+	withoutBudget := AssessModules(classification, definitions, RoutingOptions{Modules: []string{"anthropic.thinking"}})
+	if got := Module(withoutBudget, "anthropic.thinking"); got == nil || got.Execution != result.ExecutionSkipped {
+		t.Fatalf("thinking ran without high-token authorization: %+v", got)
+	}
+	withBudget := AssessModules(classification, definitions, RoutingOptions{Modules: []string{"anthropic.thinking"}, AllowHighTokenProbes: true})
+	if got := Module(withBudget, "anthropic.thinking"); got == nil || got.Execution != result.ExecutionExecuted {
+		t.Fatalf("authorized applicable thinking did not run: %+v", got)
+	}
+}

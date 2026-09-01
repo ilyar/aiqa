@@ -1,0 +1,207 @@
+{
+  "schema_version": "aiqa.profile.v2",
+  "id": "anthropic-messages-compat",
+  "protocol": "anthropic",
+  "revision": "2026-09-01",
+  "api_version": "2023-06-01",
+  "base_url_semantics": "prefix_before_v1",
+  "source": "https://github.com/anthropics/anthropic-sdk-go",
+  "source_commit": "d19dea9ed85bbb5fdb2d6f20fb6f903920ed23fa",
+  "source_ref_revision": "sdk:v1.68.0; anthropic-version:2023-06-01",
+  "scope": "GET /v1/models, GET /v1/models/{model_id}, POST /v1/messages, POST /v1/messages/count_tokens",
+  "sources": [
+    {
+      "kind": "api_version",
+      "url": "https://platform.claude.com/docs/en/api/versioning",
+      "revision": "2023-06-01",
+      "reviewed_at": "2026-09-01"
+    },
+    {
+      "kind": "official_sdk",
+      "url": "https://github.com/anthropics/anthropic-sdk-go",
+      "version": "v1.68.0",
+      "commit": "d19dea9ed85bbb5fdb2d6f20fb6f903920ed23fa"
+    }
+  ],
+  "modules": [
+    {
+      "id": "anthropic.discovery",
+      "subject": "provider",
+      "always_applicable": true,
+      "default_enabled": true,
+      "cost_class": "none",
+      "probe_ids": [
+        "anthropic.models.list.http",
+        "anthropic.models.list.schema",
+        "anthropic.models.list.pagination"
+      ]
+    },
+    {
+      "id": "anthropic.messages",
+      "subject": "model",
+      "default_enabled": true,
+      "cost_class": "token",
+      "capabilities": ["anthropic.messages.text"],
+      "probe_ids": [
+        "anthropic.models.retrieve",
+        "anthropic.header.version.accepted",
+        "anthropic.header.version.required",
+        "anthropic.header.version.invalid",
+        "anthropic.auth.x_api_key",
+        "anthropic.error.invalid_auth",
+        "anthropic.messages.basic",
+        "anthropic.messages.schema",
+        "anthropic.messages.usage",
+        "anthropic.messages.content.string",
+        "anthropic.messages.content.text_blocks",
+        "anthropic.messages.system.top_level",
+        "anthropic.messages.multi_turn",
+        "anthropic.messages.assistant_prefill",
+        "anthropic.messages.stop_sequences",
+        "anthropic.messages.max_tokens",
+        "anthropic.messages.metadata",
+        "anthropic.error.invalid_model",
+        "anthropic.error.invalid_json",
+        "anthropic.error.invalid_types",
+        "anthropic.error.shape",
+        "anthropic.error.request_id",
+        "anthropic.messages.stream.http",
+        "anthropic.messages.stream.sequence",
+        "anthropic.messages.stream.event_type_match",
+        "anthropic.messages.stream.text",
+        "anthropic.messages.stream.usage",
+        "anthropic.messages.stream.no_done_sentinel"
+      ]
+    },
+    {
+      "id": "anthropic.tools",
+      "subject": "model",
+      "default_enabled": true,
+      "cost_class": "token",
+      "capabilities": ["anthropic.messages.tools"],
+      "probe_ids": [
+        "anthropic.tools.auto",
+        "anthropic.tools.any",
+        "anthropic.tools.specific",
+        "anthropic.tools.none",
+        "anthropic.tools.input_schema",
+        "anthropic.tools.continuation",
+        "anthropic.tools.parallel",
+        "anthropic.tools.stream",
+        "anthropic.tools.strict"
+      ]
+    },
+    {
+      "id": "anthropic.token-counting",
+      "subject": "model",
+      "default_enabled": true,
+      "cost_class": "metadata",
+      "capabilities": ["anthropic.messages.text"],
+      "probe_ids": [
+        "anthropic.tokens.count.basic",
+        "anthropic.tokens.count.schema",
+        "anthropic.tokens.count.system",
+        "anthropic.tokens.count.tools",
+        "anthropic.tokens.count.consistency"
+      ]
+    },
+    {
+      "id": "anthropic.structured-output",
+      "subject": "model",
+      "default_enabled": true,
+      "cost_class": "token",
+      "capabilities": ["anthropic.messages.structured_output"],
+      "probe_ids": [
+        "anthropic.structured.json_schema",
+        "anthropic.structured.stop_reason",
+        "anthropic.tools.strict_schema"
+      ]
+    },
+    {
+      "id": "anthropic.vision",
+      "subject": "model",
+      "default_enabled": true,
+      "cost_class": "token-media-input",
+      "capabilities": ["anthropic.messages.image_input"],
+      "probe_ids": [
+        "anthropic.vision.image_base64",
+        "anthropic.vision.image_schema",
+        "anthropic.vision.usage"
+      ]
+    },
+    {
+      "id": "anthropic.thinking",
+      "subject": "model",
+      "default_enabled": false,
+      "cost_class": "high-token",
+      "capabilities": ["anthropic.messages.thinking.adaptive", "anthropic.messages.thinking.manual"],
+      "probe_ids": [
+        "anthropic.thinking.adaptive",
+        "anthropic.thinking.effort",
+        "anthropic.thinking.manual",
+        "anthropic.thinking.manual.validation",
+        "anthropic.thinking.stream"
+      ]
+    }
+  ],
+  "probes": [
+    {"id":"anthropic.models.list.http","name":"List models: HTTP","category":"discovery","required":true,"description":"GET /v1/models returns successful JSON"},
+    {"id":"anthropic.models.list.schema","name":"List models: schema","category":"schema","required":true,"description":"The Anthropic model-list envelope and entries are valid"},
+    {"id":"anthropic.models.list.pagination","name":"List models: pagination","category":"discovery","required":false,"description":"Cursor pagination returns distinct pages"},
+    {"id":"anthropic.models.retrieve","name":"Retrieve model","category":"discovery","required":false,"description":"GET /v1/models/{id} returns the requested model"},
+    {"id":"anthropic.header.version.accepted","name":"API version accepted","category":"headers","required":true,"description":"anthropic-version 2023-06-01 is accepted"},
+    {"id":"anthropic.header.version.required","name":"API version required","category":"headers","required":false,"description":"A missing version header is rejected"},
+    {"id":"anthropic.header.version.invalid","name":"Invalid API version","category":"headers","required":false,"description":"An invalid version header is rejected"},
+    {"id":"anthropic.auth.x_api_key","name":"x-api-key authentication","category":"authentication","required":true,"description":"The standard Anthropic x-api-key header is accepted"},
+    {"id":"anthropic.error.invalid_auth","name":"Invalid authentication error","category":"errors","required":false,"description":"An invalid key returns an Anthropic error"},
+    {"id":"anthropic.messages.basic","name":"Basic message","category":"core","required":true,"description":"A minimal Messages request succeeds"},
+    {"id":"anthropic.messages.schema","name":"Message schema","category":"schema","required":true,"description":"The response follows the Anthropic Message shape"},
+    {"id":"anthropic.messages.usage","name":"Message usage","category":"usage","required":true,"description":"Input and output token usage is present and valid"},
+    {"id":"anthropic.messages.content.string","name":"String content","category":"messages","required":false,"description":"String user content is accepted"},
+    {"id":"anthropic.messages.content.text_blocks","name":"Text block content","category":"messages","required":false,"description":"Array-form text blocks are accepted"},
+    {"id":"anthropic.messages.system.top_level","name":"Top-level system prompt","category":"messages","required":false,"description":"The top-level system prompt is effective"},
+    {"id":"anthropic.messages.multi_turn","name":"Multi-turn messages","category":"messages","required":false,"description":"User and assistant history is accepted"},
+    {"id":"anthropic.messages.assistant_prefill","name":"Assistant prefill","category":"messages","required":false,"description":"An assistant prefix can be continued"},
+    {"id":"anthropic.messages.stop_sequences","name":"Stop sequences","category":"messages","required":false,"description":"Stop sequences are accepted and reported"},
+    {"id":"anthropic.messages.max_tokens","name":"Maximum output tokens","category":"messages","required":false,"description":"A small output limit has compatible stop semantics"},
+    {"id":"anthropic.messages.metadata","name":"Request metadata","category":"messages","required":false,"description":"Bounded metadata.user_id is accepted"},
+    {"id":"anthropic.error.invalid_model","name":"Invalid model error","category":"errors","required":true,"description":"A missing model returns an Anthropic error"},
+    {"id":"anthropic.error.invalid_json","name":"Malformed JSON errors","category":"errors","required":true,"description":"Multiple malformed JSON variants return client errors"},
+    {"id":"anthropic.error.invalid_types","name":"Invalid request types","category":"errors","required":false,"description":"Wrong field types return client errors"},
+    {"id":"anthropic.error.shape","name":"Error envelope","category":"errors","required":true,"description":"Errors use the Anthropic error envelope"},
+    {"id":"anthropic.error.request_id","name":"Error request ID","category":"errors","required":false,"description":"A provider request ID is exposed when available"},
+    {"id":"anthropic.messages.stream.http","name":"Streaming HTTP","category":"streaming","required":true,"description":"A streaming request returns text/event-stream"},
+    {"id":"anthropic.messages.stream.sequence","name":"Streaming sequence","category":"streaming","required":true,"description":"Named Anthropic events follow a legal sequence"},
+    {"id":"anthropic.messages.stream.event_type_match","name":"Streaming event type","category":"streaming","required":true,"description":"Known SSE event names match JSON types"},
+    {"id":"anthropic.messages.stream.text","name":"Streaming text","category":"streaming","required":true,"description":"Text deltas reconstruct the requested marker"},
+    {"id":"anthropic.messages.stream.usage","name":"Streaming usage","category":"usage","required":false,"description":"Final streaming usage can be reconstructed"},
+    {"id":"anthropic.messages.stream.no_done_sentinel","name":"No OpenAI done sentinel","category":"streaming","required":false,"description":"The stream terminates with message_stop rather than [DONE]"},
+    {"id":"anthropic.tools.auto","name":"Automatic tool choice","category":"tools","required":false,"description":"Automatic tool selection can emit tool_use"},
+    {"id":"anthropic.tools.any","name":"Required tool choice","category":"tools","required":false,"description":"tool_choice any emits a tool_use block"},
+    {"id":"anthropic.tools.specific","name":"Specific tool choice","category":"tools","required":false,"description":"A named tool can be forced"},
+    {"id":"anthropic.tools.none","name":"Disabled tool choice","category":"tools","required":false,"description":"tool_choice none suppresses tool calls"},
+    {"id":"anthropic.tools.input_schema","name":"Tool input schema","category":"tools","required":false,"description":"Tool input conforms to its local schema"},
+    {"id":"anthropic.tools.continuation","name":"Tool result continuation","category":"tools","required":false,"description":"A tool result can be continued into a final answer"},
+    {"id":"anthropic.tools.parallel","name":"Parallel tools","category":"tools","required":false,"description":"Independent tool calls have distinct IDs"},
+    {"id":"anthropic.tools.stream","name":"Streaming tool input","category":"tools","required":false,"description":"Partial JSON deltas reconstruct valid tool input"},
+    {"id":"anthropic.tools.strict","name":"Strict tool schema","category":"tools","required":false,"description":"Strict tool input is schema-conforming"},
+    {"id":"anthropic.tokens.count.basic","name":"Count input tokens","category":"token-counting","required":false,"description":"The token-count endpoint returns a positive count"},
+    {"id":"anthropic.tokens.count.schema","name":"Token-count schema","category":"token-counting","required":false,"description":"The response contains integer input_tokens"},
+    {"id":"anthropic.tokens.count.system","name":"Count system prompt","category":"token-counting","required":false,"description":"System content contributes to a valid count"},
+    {"id":"anthropic.tokens.count.tools","name":"Count tools","category":"token-counting","required":false,"description":"Tool definitions contribute to a valid count"},
+    {"id":"anthropic.tokens.count.consistency","name":"Token-count consistency","category":"token-counting","required":false,"description":"Count and observed usage are compared heuristically"},
+    {"id":"anthropic.structured.json_schema","name":"Structured JSON schema","category":"structured-output","required":false,"description":"Output contains schema-conforming JSON"},
+    {"id":"anthropic.structured.stop_reason","name":"Structured stop reason","category":"structured-output","required":false,"description":"Structured output completes normally"},
+    {"id":"anthropic.tools.strict_schema","name":"Strict tool local schema","category":"structured-output","required":false,"description":"Strict tool input passes local validation"},
+    {"id":"anthropic.vision.image_base64","name":"Base64 image input","category":"vision","required":false,"description":"An embedded PNG is accepted"},
+    {"id":"anthropic.vision.image_schema","name":"Image request schema","category":"vision","required":false,"description":"Image blocks use Anthropic request shape"},
+    {"id":"anthropic.vision.usage","name":"Image usage","category":"vision","required":false,"description":"Vision usage is non-negative"},
+    {"id":"anthropic.thinking.adaptive","name":"Adaptive thinking","category":"thinking","required":false,"description":"Adaptive thinking returns compatible blocks and usage"},
+    {"id":"anthropic.thinking.effort","name":"Thinking effort","category":"thinking","required":false,"description":"Supported effort variants are accepted"},
+    {"id":"anthropic.thinking.manual","name":"Manual thinking budget","category":"thinking","required":false,"description":"Manual thinking accepts an explicit budget"},
+    {"id":"anthropic.thinking.manual.validation","name":"Thinking budget validation","category":"thinking","required":false,"description":"An invalid budget is rejected"},
+    {"id":"anthropic.thinking.stream","name":"Thinking stream","category":"thinking","required":false,"description":"Thinking deltas preserve legal streaming structure"}
+  ],
+  "standard_parameters": [],
+  "vendor_extensions": []
+}

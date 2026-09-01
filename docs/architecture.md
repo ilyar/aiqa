@@ -12,41 +12,33 @@ The native binary uses the Go standard library only. Compatibility profiles, ext
 CLI and environment
         |
         v
-configuration validation -----> embedded compatibility profile
-        |                                  |
-        v                                  v
-OpenAI-compatible client -----> GET /models and retain metadata
-                                           |
-                                           v
-                              capability classification
-                                           |
-                                           v
-                                    module plan
-                                /          |          \
-                               v           v           v
-                    provider probes   model probes   Official SDK suites
-                                \          |          /
-                                           v
-                                typed evidence signals
-                                           |
-                                           v
-                        canonical requirement assessment
-                                           |
-                           +---------------+---------------+
-                           |                               |
-                           v                               v
-                 conformance verdict             findings and guidance
-                           \                               /
-                            +-------------+---------------+
-                                          |
-                                          v
-                              normalized report model
-                                          |
-                                          v
-                           atomic JSON/Markdown writers
+configuration validation
+        |
+        v
+ordered target configs: OpenAI, Anthropic
+        |
+        +----------------------+----------------------+
+        |                                             |
+        v                                             v
+OpenAI profile and client                 Anthropic profile and client
+Bearer + base includes /v1                x-api-key + version + /v1 paths
+        |                                             |
+        v                                             v
+discovery, routing, native probes, and protocol-specific Official SDK suites
+        |                                             |
+        v                                             v
+target-local requirements, verdict, guidance, usage, and telemetry
+        |                                             |
+        +----------------------+----------------------+
+                               |
+                               v
+                 hardest target determines run verdict
+                               |
+                               v
+                  atomic v1 or v2 JSON/Markdown writers
 ```
 
-`internal/app` owns this flow. It discovers models once, preserves their raw metadata in JSON, keeps user-selected model order, executes model work with bounded concurrency, restores deterministic report order, and writes reports before applying the exit policy. Before rendering, it extracts repeated external logs into content-addressed artifacts, derives canonical requirement outcomes, and then runs the guidance engine. A guidance-engine failure is recorded in the report and does not discard conformance evidence.
+`internal/app` owns this flow. It activates a target only from a base URL and its matching key, loads a protocol-matched profile, and keeps OpenAI and Anthropic credentials and telemetry separate. Each target discovers its own model inventory and derives its own authoritative verdict. The v2 root records no cross-protocol score; it selects the hardest target verdict for exit policy. Reports are written before that policy is applied.
 
 ## Packages and assets
 
@@ -54,6 +46,8 @@ OpenAI-compatible client -----> GET /models and retain metadata
 cmd/aiqa             CLI, usage text, build information, and signal handling
 internal/config      environment and flag parsing and validation
 internal/api         HTTP, JSON, SSE, artifact, pacing, and telemetry client
+internal/protocol/anthropic
+                     Anthropic Models, Messages, tools, token counting, and named-event validation
 internal/profile     embedded profile loading and validation
 internal/capability  capability evidence, classification, and module routing
 internal/suites      native compatibility and model-parameter probes
@@ -67,9 +61,21 @@ profile/             embedded compatibility-profile assets
 guidance/            embedded generic catalog and non-normative advice packs
 schema/              machine-readable report contract
 script/              repository maintenance programs, not shipped CLI features
+tools/anthropic-sdk-checker
+                     isolated official Anthropic Go SDK integration
 ```
 
-`profile/embed.go` embeds every JSON profile in `profile/`. `internal/profile` validates profile provenance, unique probe IDs, module ownership, capability names, and required fields. The default profile is `openai-compat-2026-09.json`; the immutable 2026-08 profile remains embedded for reproducibility.
+`profile/embed.go` embeds every JSON profile in `profile/`. `internal/profile` accepts the historical OpenAI profile shape and the protocol-aware `aiqa.profile.v2` shape. It validates provenance, protocol, API version, qualified Anthropic IDs, unique probe IDs, module ownership, and source records. OpenAI defaults to `openai-compat-2026-09.json`. Anthropic uses `anthropic-messages-compat-2026-09.json` and pins the stable API version `2023-06-01`.
+
+## Protocol isolation
+
+OpenAI and Anthropic are separate protocols, even when one gateway exposes both. The OpenAI target uses Bearer authentication, endpoints below its configured `/v1`, OpenAI response envelopes, `[DONE]` streaming termination, and prompt/completion usage names. The Anthropic target uses `x-api-key`, appends `/v1` to a configured prefix, sends `anthropic-version: 2023-06-01`, parses content blocks and named SSE events, and preserves input/output/cache usage names.
+
+Ambient Anthropic auth-token, beta, and custom-header variables do not affect native probes or the Official SDK checker. The SDK checker runs out of process with explicit base URL, key, model, suite list, and zero SDK retries. A malformed JSONL line becomes runner evidence without discarding valid suite entries parsed before or after it.
+
+Target IDs qualify requirement subjects and evidence IDs in report v2. The same model ID may therefore appear under both facades without merging findings or SDK evidence.
+
+The complete Anthropic target contract, including module gates and failure semantics, is documented in [`anthropic-compatibility.md`](anthropic-compatibility.md).
 
 ## Profiles, capabilities, and modules
 
@@ -80,7 +86,7 @@ Model routing has two distinct phases:
 1. Classify the model from evidence.
 2. Compare the resulting capabilities with the profile's module requirements.
 
-Classification collects evidence from these sources in order. Only an explicit override short-circuits the remaining sources; otherwise, compatible evidence can accumulate and conflicting evidence remains visible.
+OpenAI classification collects evidence from these sources in order. Only an explicit override short-circuits the remaining sources; otherwise, compatible evidence can accumulate and conflicting evidence remains visible.
 
 1. `--model-capability` and `--capability-file` overrides. A CLI override for the same model wins because it is applied last.
 2. Structured vendor metadata, including capability, task, type, and output-modality fields. Nested `architecture.output_modalities` is supported.
@@ -90,7 +96,7 @@ Classification collects evidence from these sources in order. Only an explicit o
 
 Conflicting positive evidence produces `unknown` and prevents capability probes. Positive non-text evidence routes the model only to matching modules; it never triggers the text fallback. `input_modalities: ["text"]` alone does not prove Chat Completions support because embedding models can accept the same input modality.
 
-If no capability evidence exists and nothing identifies the model as non-text, the default `--unknown-model=chat` policy assigns `chat.completions.text` with low confidence. `--unknown-model=inventory` keeps such models in the inventory without running model capability probes.
+If no OpenAI capability evidence exists and nothing identifies the model as non-text, the default `--unknown-model=chat` policy assigns `chat.completions.text` with low confidence. `--unknown-model=inventory` keeps such models in the inventory without running model capability probes. Anthropic has a separate classifier and capability namespace. Its default `--anthropic-unknown-model=messages` policy permits Messages text plus safe tools and structured-output probes; `inventory` keeps unclassified Anthropic models inventory-only.
 
 Module assessment records applicability separately from execution:
 
@@ -99,12 +105,12 @@ Module assessment records applicability separately from execution:
 - `unknown` means the evidence conflicts or strict inventory mode has no classification;
 - `executed` and `skipped` record what happened after applicability and cost policy were applied.
 
-The native implementation currently executes Chat Completions and image-generation modules. Other module definitions remain visible to routing and can be added without changing the report model. Image generation requires explicit billable-artifact authorization and an artifact limit.
+The native implementation executes OpenAI Chat Completions and image generation plus Anthropic Messages, tools, Count Tokens, structured output, vision, and opt-in thinking. Other module definitions remain visible to routing and can be added without changing the report model. OpenAI image generation requires explicit billable-artifact authorization and an artifact limit; Anthropic thinking requires explicit module selection and high-token authorization.
 
 ## Probe levels
 
 1. **Transport** — HTTP status, content type, timeout behavior, and SSE framing.
-2. **Shape** — request and response fields follow the selected OpenAI contract.
+2. **Shape** — request and response fields follow the selected protocol contract.
 3. **SDK** — an official SDK can issue and parse a call through the external checker.
 4. **Semantic** — requested behavior is observed; for example, `n=2` yields two choices.
 5. **Validation canary** — deliberately invalid input is rejected instead of silently ignored.
@@ -178,7 +184,7 @@ The report separates declared metadata, a provider-reported server limit, the la
 
 ## Reports, assessment, and exit policy
 
-`internal/result` is the shared contract between native probes, external suites, assessment, guidance, and both writers. JSON preserves complete model metadata, raw outcomes, canonical requirements, findings, recommendations, and referenced artifacts. Markdown leads with the conformance verdict and the global rate-limit and latency telemetry, then groups recommendations by purpose. It shows only non-passing detail by default, places passing checks and raw artifacts in collapsed sections, and moves secondary token-usage totals to the end. Writers create a temporary file, sync it, and atomically replace the destination. [`docs/reports.md`](reports.md) defines the user-facing status, verdict, and guidance semantics.
+`internal/result` is the shared contract between native probes, external suites, assessment, guidance, and both writers. Report v1 represents one OpenAI target. Report v2 contains an ordered `targets[]` array, and every target owns its profile, discovery, models, requirements, summary, guidance, and telemetry. Markdown leads with the target table and per-target rate-limit and latency data. Secondary token usage remains at the end. Writers create a temporary file, sync it, and atomically replace the destination. [`docs/reports.md`](reports.md) defines the user-facing status, verdict, and guidance semantics.
 
 The raw summary keeps status counts and a raw-result status for diagnostics. The authoritative result is `summary.assessment.verdict`. AIQA emits no overall numeric compatibility score because one percentage cannot preserve core gates, optional coverage, and inconclusive evidence at the same time. Comparisons use the canonical verdict first, followed by the separate core, optional, and evidence measures. The design rationale is retained in [`research/scoring.md`](../research/scoring.md).
 

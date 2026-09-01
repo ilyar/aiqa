@@ -58,7 +58,11 @@ func Apply(r *result.Report, p profile.Profile, opts Options) {
 		guidanceError(r, err)
 		return
 	}
-	pack, packInfo, err := LoadPack(opts.Pack)
+	requestedPack := opts.Pack
+	if (requestedPack == "" || requestedPack == "auto") && p.Protocol == "anthropic" {
+		requestedPack = "generic-anthropic-facade"
+	}
+	pack, packInfo, err := LoadPack(requestedPack)
 	if err != nil {
 		guidanceError(r, err)
 		return
@@ -110,6 +114,35 @@ func ExtractArtifacts(r *result.Report) {
 	for modelIndex := range r.Models {
 		for i := range r.Models[modelIndex].External {
 			visit(&r.Models[modelIndex].External[i])
+		}
+	}
+}
+
+// QualifyArtifacts keeps content deduplication target-local in a multi-target
+// report. A byte-identical OpenAI and Anthropic log must still have distinct
+// references because it describes a different protocol target.
+func QualifyArtifacts(r *result.Report, targetID string) {
+	targetID = slug(targetID)
+	if targetID == "" || len(r.Guidance.Artifacts) == 0 {
+		return
+	}
+	rewrite := func(ref string) string {
+		if ref == "" || strings.HasPrefix(ref, "target:") {
+			return ref
+		}
+		return "target:" + targetID + ":" + ref
+	}
+	qualified := make(map[string]result.GuidanceArtifact, len(r.Guidance.Artifacts))
+	for ref, artifact := range r.Guidance.Artifacts {
+		qualified[rewrite(ref)] = artifact
+	}
+	r.Guidance.Artifacts = qualified
+	for index := range r.Discovery.External {
+		r.Discovery.External[index].ArtifactRef = rewrite(r.Discovery.External[index].ArtifactRef)
+	}
+	for modelIndex := range r.Models {
+		for index := range r.Models[modelIndex].External {
+			r.Models[modelIndex].External[index].ArtifactRef = rewrite(r.Models[modelIndex].External[index].ArtifactRef)
 		}
 	}
 }
@@ -298,6 +331,10 @@ func buildRecommendations(r result.Report, p profile.Profile, catalog Catalog, p
 			source = result.RecommendationSource{Kind: "catalog", ID: entry.ID, Revision: entry.Revision}
 		}
 		applyPack(&guidanceLevel, &steps, &workarounds, &caveats, &references, pack, finding.Code)
+		for index := range verification {
+			verification[index].TargetID = finding.Subject.TargetID
+			verification[index].Protocol = finding.Subject.Protocol
+		}
 		if finding.EvidenceState == "conflicting" || finding.EvidenceState == "inconclusive" {
 			caveats = append(caveats, "Do not attribute or implement a provider fix until the linked evidence becomes conclusive.")
 		}
@@ -313,7 +350,7 @@ func buildRecommendations(r result.Report, p profile.Profile, catalog Catalog, p
 			GuidanceLevel:   guidanceLevel,
 			Confidence:      recommendationConfidence(finding, curated),
 			Audiences:       uniqueStrings(audiences),
-			Target:          result.RecommendationTarget{Component: finding.Attribution.Component, Endpoint: finding.ObservedScope.Endpoint},
+			Target:          result.RecommendationTarget{TargetID: finding.Subject.TargetID, Protocol: finding.Subject.Protocol, Component: finding.Attribution.Component, Endpoint: finding.ObservedScope.Endpoint},
 			Why:             why,
 			Observed:        finding.Observed,
 			Steps:           steps,

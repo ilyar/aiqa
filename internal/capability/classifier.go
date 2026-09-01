@@ -70,6 +70,90 @@ func Classify(model string, metadata map[string]any, opts Options) Classificatio
 	return Classification{Model: model, Unknown: true, Reason: "insufficient capability evidence"}
 }
 
+// ClassifyAnthropic uses only target-local overrides and Anthropic model
+// metadata. It deliberately does not reuse OpenAI provider or model-name rules.
+func ClassifyAnthropic(model string, metadata map[string]any, opts Options) Classification {
+	if values := opts.Overrides[model]; len(values) > 0 {
+		return fromValues(model, values, "override", "explicit.anthropic-model-capability", "high", "explicit Anthropic capability override")
+	}
+
+	var evidence []Evidence
+	add := func(capability, rule, confidence, reason string) {
+		evidence = append(evidence, Evidence{Capability: capability, Source: "vendor_metadata", Rule: rule, Confidence: confidence, Reason: reason})
+	}
+	checks := []struct {
+		keys       []string
+		capability string
+	}{
+		{[]string{"text", "messages", "messages_text"}, AnthropicMessagesText},
+		{[]string{"image_input", "vision"}, AnthropicImageInput},
+		{[]string{"tools", "tool_use"}, AnthropicTools},
+		{[]string{"structured_output", "structured_outputs"}, AnthropicStructuredOutput},
+		{[]string{"thinking_adaptive", "adaptive_thinking"}, AnthropicThinkingAdaptive},
+		{[]string{"thinking_manual", "manual_thinking"}, AnthropicThinkingManual},
+		{[]string{"prompt_caching"}, AnthropicPromptCaching},
+	}
+	capabilities, _ := metadata["capabilities"].(map[string]any)
+	for _, check := range checks {
+		for _, key := range check.keys {
+			if capabilitySupported(capabilities[key]) || capabilitySupported(metadata[key]) {
+				add(check.capability, "metadata.capabilities."+key, "high", "Anthropic model metadata declares "+key+" support")
+				break
+			}
+		}
+	}
+	evidence = deduplicate(evidence)
+	if opts.UnknownPolicy == "inventory" && len(evidence) == 0 {
+		return Classification{Model: model, Unknown: true, Reason: "insufficient Anthropic capability evidence"}
+	}
+	if opts.UnknownPolicy != "inventory" {
+		// Models returned by the Anthropic inventory are treated as Messages text
+		// models unless metadata or an override says otherwise. Optional tools and
+		// structured-output modules remain probeable at low confidence so a clean
+		// 4xx becomes UNSUP rather than N/A.
+		defaults := []Evidence{
+			{Capability: AnthropicMessagesText, Source: "default_policy", Rule: "anthropic.unclassified-default.messages", Confidence: "low", Reason: "Anthropic inventory model defaults to Messages text"},
+			{Capability: AnthropicTools, Source: "default_policy", Rule: "anthropic.optional-probe.tools", Confidence: "low", Reason: "tools are safe to probe on a Messages text model"},
+			{Capability: AnthropicStructuredOutput, Source: "default_policy", Rule: "anthropic.optional-probe.structured-output", Confidence: "low", Reason: "structured output is safe to probe on a Messages text model"},
+		}
+		for _, item := range defaults {
+			found := false
+			for _, existing := range evidence {
+				if existing.Capability == item.Capability {
+					found = true
+					break
+				}
+			}
+			if !found {
+				evidence = append(evidence, item)
+			}
+		}
+	}
+	if len(evidence) == 0 {
+		return Classification{Model: model, Unknown: true, Reason: "insufficient Anthropic capability evidence"}
+	}
+	return Classification{Model: model, Capabilities: deduplicate(evidence)}
+}
+
+func capabilitySupported(value any) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		switch strings.ToLower(strings.TrimSpace(typed)) {
+		case "true", "supported", "enabled", "yes":
+			return true
+		}
+	case map[string]any:
+		for _, key := range []string{"supported", "enabled", "available"} {
+			if enabled, ok := typed[key].(bool); ok && enabled {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func fromValues(model string, values []string, source, rule, confidence, reason string) Classification {
 	result := Classification{Model: model}
 	seen := map[string]bool{}
@@ -130,6 +214,11 @@ func normalizeMetadataCapabilityForKey(key, value string) string {
 }
 
 func providerRules(baseURL string, metadata map[string]any) []Evidence {
+	// is_image=true is direct model metadata, not a Vibecode naming
+	// convention. Honor the affirmative declaration for every provider.
+	if isImage, exists := metadata["is_image"].(bool); exists && isImage {
+		return []Evidence{{Capability: ImagesGenerations, Source: "vendor_metadata", Rule: "metadata.is_image.true", Confidence: "high", Reason: "model metadata declares image generation"}}
+	}
 	u, _ := url.Parse(baseURL)
 	if u == nil || !strings.EqualFold(u.Hostname(), "vibecode.moe") {
 		return nil
@@ -139,7 +228,7 @@ func providerRules(baseURL string, metadata map[string]any) []Evidence {
 		return nil
 	}
 	if isImage {
-		return []Evidence{{Capability: ImagesGenerations, Source: "provider_adapter", Rule: "vibecode.is_image.true", Confidence: "high", Reason: "Vibecode metadata is_image=true"}}
+		return nil
 	}
 	pricing, _ := metadata["pricing"].(map[string]any)
 	if pricing != nil && (numberPresent(pricing["input_usd_per_m"]) || numberPresent(pricing["output_usd_per_m"])) {

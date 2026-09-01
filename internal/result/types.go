@@ -14,19 +14,40 @@ const (
 )
 
 type Usage struct {
-	PromptTokens     int64 `json:"prompt_tokens,omitempty"`
-	CompletionTokens int64 `json:"completion_tokens,omitempty"`
-	TotalTokens      int64 `json:"total_tokens,omitempty"`
-	ReasoningTokens  int64 `json:"reasoning_tokens,omitempty"`
+	InputTokens              int64            `json:"input_tokens,omitempty"`
+	OutputTokens             int64            `json:"output_tokens,omitempty"`
+	CacheCreationInputTokens int64            `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     int64            `json:"cache_read_input_tokens,omitempty"`
+	ThinkingTokens           int64            `json:"thinking_tokens,omitempty"`
+	PromptTokens             int64            `json:"prompt_tokens,omitempty"`
+	CompletionTokens         int64            `json:"completion_tokens,omitempty"`
+	TotalTokens              int64            `json:"total_tokens,omitempty"`
+	ReasoningTokens          int64            `json:"reasoning_tokens,omitempty"`
+	ProviderFields           map[string]int64 `json:"provider_fields,omitempty"`
 }
 
 func (u Usage) Add(v Usage) Usage {
-	return Usage{
-		PromptTokens:     u.PromptTokens + v.PromptTokens,
-		CompletionTokens: u.CompletionTokens + v.CompletionTokens,
-		TotalTokens:      u.TotalTokens + v.TotalTokens,
-		ReasoningTokens:  u.ReasoningTokens + v.ReasoningTokens,
+	out := Usage{
+		InputTokens:              u.InputTokens + v.InputTokens,
+		OutputTokens:             u.OutputTokens + v.OutputTokens,
+		CacheCreationInputTokens: u.CacheCreationInputTokens + v.CacheCreationInputTokens,
+		CacheReadInputTokens:     u.CacheReadInputTokens + v.CacheReadInputTokens,
+		ThinkingTokens:           u.ThinkingTokens + v.ThinkingTokens,
+		PromptTokens:             u.PromptTokens + v.PromptTokens,
+		CompletionTokens:         u.CompletionTokens + v.CompletionTokens,
+		TotalTokens:              u.TotalTokens + v.TotalTokens,
+		ReasoningTokens:          u.ReasoningTokens + v.ReasoningTokens,
 	}
+	if len(u.ProviderFields)+len(v.ProviderFields) > 0 {
+		out.ProviderFields = make(map[string]int64, len(u.ProviderFields)+len(v.ProviderFields))
+		for key, value := range u.ProviderFields {
+			out.ProviderFields[key] += value
+		}
+		for key, value := range v.ProviderFields {
+			out.ProviderFields[key] += value
+		}
+	}
+	return out
 }
 
 type HTTPObservation struct {
@@ -45,6 +66,7 @@ type TestResult struct {
 	Suite         string                `json:"suite"`
 	Category      string                `json:"category"`
 	Required      bool                  `json:"required"`
+	Applicability Applicability         `json:"applicability,omitempty"`
 	Status        Status                `json:"status"`
 	DurationMS    int64                 `json:"duration_ms,omitempty"`
 	Summary       string                `json:"summary"`
@@ -201,12 +223,62 @@ type ModelReport struct {
 }
 
 type ProfileInfo struct {
+	SchemaVersion     string `json:"schema_version,omitempty"`
 	ID                string `json:"id"`
+	Protocol          string `json:"protocol,omitempty"`
 	Revision          string `json:"revision"`
+	APIVersion        string `json:"api_version,omitempty"`
+	BaseURLSemantics  string `json:"base_url_semantics,omitempty"`
 	Source            string `json:"source"`
 	SourceCommit      string `json:"source_commit"`
 	SourceRefRevision string `json:"source_ref_revision,omitempty"`
 	Scope             string `json:"scope"`
+}
+
+type TargetPublicConfig struct {
+	ID                string   `json:"id"`
+	Protocol          string   `json:"protocol"`
+	BaseURL           string   `json:"base_url"`
+	BaseURLNormalized bool     `json:"base_url_normalized,omitempty"`
+	RequestedModels   []string `json:"requested_models,omitempty"`
+	APIVersion        string   `json:"api_version,omitempty"`
+}
+
+type PublicConfigV2 struct {
+	Tests    []string             `json:"tests"`
+	Targets  []TargetPublicConfig `json:"targets"`
+	Timeout  string               `json:"timeout"`
+	Formats  []string             `json:"formats"`
+	FailOn   string               `json:"fail_on"`
+	Guidance string               `json:"guidance,omitempty"`
+}
+
+type TargetReport struct {
+	ID           string                  `json:"id"`
+	Protocol     string                  `json:"protocol"`
+	Profile      ProfileInfo             `json:"profile"`
+	Discovery    Discovery               `json:"discovery"`
+	Models       []ModelReport           `json:"models"`
+	Requirements []RequirementAssessment `json:"requirements,omitempty"`
+	Summary      Summary                 `json:"summary"`
+	Guidance     GuidanceReport          `json:"guidance"`
+	RateLimit    RateLimitStats          `json:"rate_limit"`
+}
+
+type RunSummary struct {
+	Verdict         string         `json:"verdict"`
+	VerdictReason   string         `json:"verdict_reason,omitempty"`
+	TargetCounts    map[string]int `json:"target_counts"`
+	BlockingTargets []string       `json:"blocking_targets,omitempty"`
+}
+
+type ReportV2 struct {
+	SchemaVersion string         `json:"schema_version"`
+	GeneratedAt   time.Time      `json:"generated_at"`
+	Tool          ToolInfo       `json:"tool"`
+	Config        PublicConfigV2 `json:"config"`
+	Targets       []TargetReport `json:"targets"`
+	Summary       RunSummary     `json:"summary"`
 }
 
 type ToolInfo struct {

@@ -39,3 +39,15 @@ Report generation must remain command-free by default. A separate `--report-veri
 ### Non-goals
 
 This item does not add automatic remediation, mutate provider configuration, infer credentials, or replace the full compatibility report.
+
+## Additional Anthropic surfaces
+
+Status: planned, not implemented.
+
+- Add `test=model-param` support for Anthropic `max_tokens`, temperature, `top_p`, applicable `top_k`, stop sequences, adaptive effort, manual thinking budget, and context boundaries based on Count Tokens and model metadata.
+- Add prompt caching as a separate module with cache-creation and cache-read evidence.
+- Add PDF/document input, Message Batches, and Files API profiles.
+- Add a Messages-only profile for gateways that intentionally omit the Models API.
+- Keep Claude Code behavior separate from Anthropic API conformance.
+- Add non-scored cross-facade consistency diagnostics.
+- Add multi-target HTML and SARIF renderers after their contracts preserve target identity.

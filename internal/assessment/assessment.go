@@ -21,9 +21,19 @@ type requirementKey struct {
 // evidence. It is intentionally independent from guidance so recommendations
 // cannot influence the conformance result.
 func Apply(r *result.Report, p profile.Profile) {
+	apply(r, p, "", "")
+}
+
+// ApplyTarget derives assessments whose subject and evidence identities remain
+// globally unique in a multi-target report.
+func ApplyTarget(r *result.Report, p profile.Profile, targetID, protocol string) {
+	apply(r, p, targetID, protocol)
+}
+
+func apply(r *result.Report, p profile.Profile, targetID, protocol string) {
 	ensureSignals(r)
 	items := map[requirementKey]*result.RequirementAssessment{}
-	provider := result.SubjectRef{Kind: "provider", ID: normalizedEndpoint(r.Config.BaseURL)}
+	provider := result.SubjectRef{TargetID: targetID, Protocol: protocol, Kind: "provider", ID: normalizedEndpoint(r.Config.BaseURL)}
 
 	for i := range r.Discovery.Tests {
 		addNative(items, provider, &r.Discovery.Tests[i], p)
@@ -36,7 +46,7 @@ func Apply(r *result.Report, p profile.Profile) {
 	}
 	for modelIndex := range r.Models {
 		model := &r.Models[modelIndex]
-		subject := result.SubjectRef{Kind: "model", ID: model.ID}
+		subject := result.SubjectRef{TargetID: targetID, Protocol: protocol, Kind: "model", ID: model.ID}
 		for i := range model.Compatibility {
 			addNative(items, subject, &model.Compatibility[i], p)
 		}
@@ -49,8 +59,9 @@ func Apply(r *result.Report, p profile.Profile) {
 		if model.Context != nil {
 			addContext(items, subject, model.Context)
 		}
-		addNotApplicableModules(items, subject, model.Modules, p)
+		materializeModuleCoverage(items, subject, model.Modules, p)
 	}
+	materializeProviderCoverage(items, provider, p)
 
 	for _, item := range items {
 		finalizeRequirement(item)
@@ -73,6 +84,25 @@ func Apply(r *result.Report, p profile.Profile) {
 	r.Requirements = requirements
 	assessment := summarize(requirements)
 	r.Summary.Assessment = &assessment
+	if targetID != "" {
+		applyModelAssessments(r, requirements)
+	}
+}
+
+func applyModelAssessments(r *result.Report, requirements []result.RequirementAssessment) {
+	byModel := map[string][]result.RequirementAssessment{}
+	for _, requirement := range requirements {
+		if requirement.Subject.Kind == "model" && requirement.Applicability != result.ApplicabilityNotApplicable {
+			byModel[requirement.Subject.ID] = append(byModel[requirement.Subject.ID], requirement)
+		}
+	}
+	for index := range r.Models {
+		modelRequirements := byModel[r.Models[index].ID]
+		if len(modelRequirements) == 0 {
+			continue
+		}
+		r.Models[index].Assessment.Verdict = summarize(modelRequirements).Verdict
+	}
 }
 
 func addNative(items map[requirementKey]*result.RequirementAssessment, subject result.SubjectRef, test *result.TestResult, p profile.Profile) {
@@ -90,6 +120,9 @@ func addNative(items map[requirementKey]*result.RequirementAssessment, subject r
 		level = result.RequirementCore
 	}
 	item := get(items, subject, id, test.Name, test.Expected, level, moduleForProbe(p, id))
+	if test.Applicability != "" {
+		item.Applicability = test.Applicability
+	}
 	item.Evidence = append(item.Evidence, result.EvidenceRef{
 		ID:         evidenceID("native", subject, test.ProbeID),
 		Kind:       "native",
@@ -284,13 +317,17 @@ func finalizeRequirement(item *result.RequirementAssessment) {
 	}
 }
 
-func addNotApplicableModules(items map[requirementKey]*result.RequirementAssessment, subject result.SubjectRef, assessments []result.ModuleAssessment, p profile.Profile) {
+func materializeModuleCoverage(items map[requirementKey]*result.RequirementAssessment, subject result.SubjectRef, assessments []result.ModuleAssessment, p profile.Profile) {
 	modules := make(map[string]profile.Module, len(p.Modules))
 	for _, module := range p.Modules {
 		modules[module.ID] = module
 	}
 	for _, assessment := range assessments {
-		if assessment.Applicability != result.ApplicabilityNotApplicable {
+		// Anthropic profiles require complete materialization so an omitted probe
+		// cannot silently become a pass. Legacy OpenAI modules predate that rule
+		// and may place some evidence at provider scope, but their explicit N/A
+		// state is still safe and useful to materialize.
+		if !strings.HasPrefix(assessment.ID, "anthropic.") && assessment.Applicability != result.ApplicabilityNotApplicable {
 			continue
 		}
 		module, ok := modules[assessment.ID]
@@ -304,10 +341,41 @@ func addNotApplicableModules(items map[requirementKey]*result.RequirementAssessm
 				level = result.RequirementCore
 			}
 			item := get(items, subject, id, spec.Name, spec.Description, level, module.ID)
-			if len(item.Evidence) == 0 {
+			if len(item.Evidence) != 0 {
+				continue
+			}
+			switch assessment.Applicability {
+			case result.ApplicabilityNotApplicable:
 				item.Applicability = result.ApplicabilityNotApplicable
 				item.Status = result.RequirementNotApplicable
+			case result.ApplicabilityUnknown:
+				item.Applicability = result.ApplicabilityUnknown
+				item.Status = result.RequirementSkip
+			default:
+				item.Applicability = result.ApplicabilityApplicable
+				item.Status = result.RequirementSkip
 			}
+		}
+	}
+}
+
+func materializeProviderCoverage(items map[requirementKey]*result.RequirementAssessment, subject result.SubjectRef, p profile.Profile) {
+	for _, module := range p.Modules {
+		if module.Subject != "provider" || !strings.HasPrefix(module.ID, "anthropic.") {
+			continue
+		}
+		for _, id := range module.ProbeIDs {
+			key := requirementKey{subjectKind: subject.Kind, subjectID: subject.ID, id: id}
+			if items[key] != nil {
+				continue
+			}
+			spec := p.Probe(id)
+			level := result.RequirementOptional
+			if spec.Required {
+				level = result.RequirementCore
+			}
+			item := get(items, subject, id, spec.Name, spec.Description, level, module.ID)
+			item.Status = result.RequirementSkip
 		}
 	}
 }
@@ -461,6 +529,9 @@ func moduleForProbe(p profile.Profile, id string) string {
 }
 
 func evidenceID(kind string, subject result.SubjectRef, id string) string {
+	if subject.TargetID != "" {
+		return fmt.Sprintf("%s:%s:%s:%s:%s", kind, normalizedID(subject.TargetID), subject.Kind, normalizedID(subject.ID), normalizedID(id))
+	}
 	return fmt.Sprintf("%s:%s:%s:%s", kind, subject.Kind, normalizedID(subject.ID), normalizedID(id))
 }
 

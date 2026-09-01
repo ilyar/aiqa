@@ -19,6 +19,7 @@ const (
 type RoutingOptions struct {
 	Modules                []string
 	AllowBillableArtifacts bool
+	AllowHighTokenProbes   bool
 }
 
 func AssessModules(classification Classification, definitions []profile.Module, opts RoutingOptions) []result.ModuleAssessment {
@@ -45,12 +46,14 @@ func AssessModules(classification Classification, definitions []profile.Module, 
 		switch {
 		case classification.Unknown:
 			assessment.Applicability = result.ApplicabilityUnknown
+			assessment.Execution = result.ExecutionSkipped
 			assessment.Reason = classification.Reason
 		case matchedCapability != "":
 			assessment.Applicability = result.ApplicabilityApplicable
 			assessment.Reason, assessment.Source, assessment.Confidence = capabilityReason(classification, matchedCapability)
 			moduleEnabled := enabled[definition.ID] || (auto && definition.DefaultEnabled)
 			billable := strings.HasPrefix(definition.CostClass, "billable-")
+			highToken := definition.CostClass == "high-token"
 			switch {
 			case !implementedModule(definition.ID):
 				assessment.Execution = result.ExecutionSkipped
@@ -58,6 +61,9 @@ func AssessModules(classification Classification, definitions []profile.Module, 
 			case billable && !opts.AllowBillableArtifacts && (enabled[definition.ID] || auto):
 				assessment.Execution = result.ExecutionSkipped
 				assessment.Reason = "billable artifact module was not enabled"
+			case highToken && !opts.AllowHighTokenProbes:
+				assessment.Execution = result.ExecutionSkipped
+				assessment.Reason = "high-token probes require explicit authorization"
 			case !moduleEnabled:
 				assessment.Execution = result.ExecutionSkipped
 				assessment.Reason = "module was not enabled"
@@ -83,7 +89,14 @@ func firstMatchedCapability(classification Classification, capabilities []string
 }
 
 func implementedModule(id string) bool {
-	return id == ModuleChat || id == ModuleImages
+	switch id {
+	case ModuleChat, ModuleImages,
+		"anthropic.messages", "anthropic.tools", "anthropic.token-counting",
+		"anthropic.structured-output", "anthropic.vision", "anthropic.thinking":
+		return true
+	default:
+		return false
+	}
 }
 
 func capabilityReason(classification Classification, id string) (reason, source, confidence string) {

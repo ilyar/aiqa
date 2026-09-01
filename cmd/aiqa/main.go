@@ -55,8 +55,20 @@ func printUsage(w io.Writer) {
   aiqa test=compat,model-param [options]
 
 environment:
-  OPENAI_BASE_URL   base URL including /v1
-  OPENAI_API_KEY    bearer token
+  OPENAI_BASE_URL      OpenAI base URL including /v1
+  OPENAI_API_KEY       OpenAI bearer token
+  ANTHROPIC_BASE_URL   Anthropic prefix before /v1
+  ANTHROPIC_API_KEY    Anthropic x-api-key value
+
+targets:
+  --target auto|openai|anthropic|openai,anthropic
+                            select configured targets (default auto)
+  --openai-model ID[,ID]    OpenAI-specific model selection
+  --anthropic-model ID[,ID] Anthropic-specific model selection
+  --openai-profile FILE     embedded OpenAI profile
+  --anthropic-profile FILE  embedded Anthropic profile
+  --report-schema auto|v1|v2
+                            v1 for OpenAI-only auto; v2 for Anthropic/multi-target
 
 selection and output:
   --model ID[,ID]          test selected models; default: discover all
@@ -70,10 +82,18 @@ compatibility:
   --module MODULE[,MODULE]
                             auto or explicit capability modules
   --model-capability MODEL=CAPABILITY[+CAPABILITY]
-                            explicit per-model capability override
+                            OpenAI-only legacy capability override
   --capability-file FILE   JSON file containing model capability overrides
+  --openai-model-capability MODEL=CAPABILITY[+CAPABILITY]
+  --anthropic-model-capability MODEL=CAPABILITY[+CAPABILITY]
+                            target-qualified capability overrides
+  --openai-capability-file FILE
+  --anthropic-capability-file FILE
+                            target-qualified capability override files
   --unknown-model inventory|chat
                             policy for unclassified models (default chat)
+  --anthropic-unknown-model inventory|messages
+                            Anthropic fallback policy (default messages)
   --allow-billable-artifacts
                             permit modules that generate billable media
   --max-artifacts-per-model N
@@ -81,6 +101,10 @@ compatibility:
   --external auto|off|binary|docker
                             optional official-SDK checker integration
   --external-image IMAGE    Docker image or digest for the checker
+  --openai-external MODE    OpenAI checker override
+  --anthropic-external MODE Anthropic checker override
+  --openai-external-image IMAGE
+  --anthropic-external-image IMAGE
   --fail-on core|any|never exit-code policy (default core)
   --guidance full|summary|off
                             actionable guidance output (default full)

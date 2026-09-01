@@ -17,6 +17,7 @@ import (
 	"github.com/ilyar/aiqa/internal/external"
 	"github.com/ilyar/aiqa/internal/guidance"
 	"github.com/ilyar/aiqa/internal/profile"
+	protocolanthropic "github.com/ilyar/aiqa/internal/protocol/anthropic"
 	reportpkg "github.com/ilyar/aiqa/internal/report"
 	"github.com/ilyar/aiqa/internal/result"
 	"github.com/ilyar/aiqa/internal/suites"
@@ -30,11 +31,31 @@ type BuildInfo struct {
 
 type RunResult struct {
 	Report   result.Report
+	ReportV2 *result.ReportV2
 	Paths    []string
 	ExitCode int
 }
 
 func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, error) {
+	if len(cfg.Targets) == 0 && cfg.BaseURL != "" {
+		profileFile := cfg.OpenAIProfile
+		if profileFile == "" {
+			profileFile = profile.DefaultFile
+		}
+		cfg.Targets = []config.TargetConfig{{
+			ID: "openai", Protocol: config.ProtocolOpenAI, BaseURL: cfg.BaseURL, APIKey: cfg.APIKey,
+			Models: append([]string(nil), cfg.Models...), ProfileFile: profileFile, Modules: append([]string(nil), cfg.Modules...),
+			ModelCapabilities: append([]string(nil), cfg.ModelCapabilities...), CapabilityFile: cfg.CapabilityFile, UnknownModel: cfg.UnknownModel,
+			ExternalMode: cfg.ExternalMode, ExternalImage: cfg.ExternalImage, RequestInterval: cfg.RequestInterval,
+		}}
+	}
+	if len(cfg.Targets) == 1 && cfg.Targets[0].Protocol == config.ProtocolOpenAI && cfg.ReportSchema != "v2" {
+		return runOpenAI(ctx, openAIConfig(cfg, cfg.Targets[0]), build)
+	}
+	return runMultiTarget(ctx, cfg, build)
+}
+
+func runOpenAI(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, error) {
 	overrides, err := capability.LoadOverrideFile(cfg.CapabilityFile)
 	if err != nil {
 		return RunResult{}, err
@@ -57,7 +78,7 @@ func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, er
 		}
 		overrides[strings.TrimSpace(parts[0])] = values
 	}
-	p, err := profile.Load()
+	p, err := profile.LoadFile(cfg.OpenAIProfile)
 	if err != nil {
 		return RunResult{}, err
 	}
@@ -76,8 +97,12 @@ func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, er
 			GoVersion: runtime.Version(),
 		},
 		Profile: result.ProfileInfo{
+			SchemaVersion:     p.SchemaVersion,
 			ID:                p.ID,
+			Protocol:          p.Protocol,
 			Revision:          p.Revision,
+			APIVersion:        p.APIVersion,
+			BaseURLSemantics:  p.BaseURLSemantics,
 			Source:            p.Source,
 			SourceCommit:      p.SourceCommit,
 			SourceRefRevision: p.SourceRefRevision,
@@ -209,7 +234,7 @@ func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, er
 				}
 				if len(selected) > 1 {
 					stats := client.PacingStatsForModel(model)
-					mr.RateLimit = &result.RateLimitStats{SuccessfulRequests: stats.SuccessfulRequests, RateLimited: stats.RateLimited, RetriesRecovered: stats.RetriesRecovered, BackoffMS: stats.Backoff.Milliseconds()}
+					mr.RateLimit = &result.RateLimitStats{SuccessfulRequests: stats.SuccessfulRequests, RateLimited: stats.RateLimited, RetriesRecovered: stats.RetriesRecovered, BackoffMS: stats.Backoff.Milliseconds(), SafeRate: stats.SafeRate, SafeConcurrency: stats.SafeConcurrency}
 					addModelLatencyStats(mr.RateLimit, mr)
 				}
 				fmt.Fprintf(os.Stderr, "aiqa: [%s] done\n", model)
@@ -243,6 +268,133 @@ func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, er
 		return RunResult{Report: r, ExitCode: 2}, err
 	}
 	return RunResult{Report: r, Paths: paths, ExitCode: exitCode(cfg, r.Summary)}, nil
+}
+
+func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, error) {
+	r := result.ReportV2{
+		SchemaVersion: "aiqa.report.v2",
+		GeneratedAt:   time.Now().UTC(),
+		Tool:          result.ToolInfo{Name: "aiqa", Version: build.Version, Commit: build.Commit, BuildDate: build.Date, GoVersion: runtime.Version()},
+		Config:        result.PublicConfigV2{Tests: append([]string(nil), cfg.Tests...), Timeout: cfg.Timeout.String(), Formats: append([]string(nil), cfg.Formats...), FailOn: cfg.FailOn, Guidance: cfg.Guidance},
+	}
+	logf := func(format string, args ...any) {
+		if cfg.Verbose {
+			fmt.Fprintf(os.Stderr, "aiqa: "+format+"\n", args...)
+		}
+	}
+	for _, target := range cfg.Targets {
+		r.Config.Targets = append(r.Config.Targets, result.TargetPublicConfig{ID: target.ID, Protocol: string(target.Protocol), BaseURL: target.BaseURL, BaseURLNormalized: target.BaseURLNormalized, RequestedModels: append([]string(nil), target.Models...), APIVersion: target.APIVersion})
+		p, err := profile.LoadFile(target.ProfileFile)
+		if err != nil {
+			return RunResult{ReportV2: &r, ExitCode: 2}, fmt.Errorf("load %s profile: %w", target.ID, err)
+		}
+		if p.Protocol != string(target.Protocol) {
+			return RunResult{ReportV2: &r, ExitCode: 2}, fmt.Errorf("profile %s uses protocol %s, expected %s", target.ProfileFile, p.Protocol, target.Protocol)
+		}
+		switch target.Protocol {
+		case config.ProtocolOpenAI:
+			openCfg := openAIConfig(cfg, target)
+			openCfg.Formats = nil
+			out, runErr := runOpenAI(ctx, openCfg, build)
+			if out.Report.SchemaVersion == "" {
+				return RunResult{ReportV2: &r, ExitCode: 2}, fmt.Errorf("run OpenAI target: %w", runErr)
+			}
+			guidance.QualifyArtifacts(&out.Report, target.ID)
+			assessment.ApplyTarget(&out.Report, p, target.ID, string(target.Protocol))
+			guidance.Apply(&out.Report, p, guidance.Options{Mode: cfg.Guidance, Pack: cfg.GuidancePack, Locale: cfg.GuidanceLocale})
+			r.Targets = append(r.Targets, targetFromV1(target, out.Report))
+		case config.ProtocolAnthropic:
+			targetReport, runErr := protocolanthropic.Run(ctx, protocolanthropic.RunOptions{Target: target, Config: cfg, Profile: p, UserAgent: "aiqa/" + build.Version, Logf: logf})
+			if targetReport.ID == "" {
+				return RunResult{ReportV2: &r, ExitCode: 2}, fmt.Errorf("run Anthropic target: %w", runErr)
+			}
+			tmp := reportFromTarget(targetReport, target.BaseURL)
+			guidance.Apply(&tmp, p, guidance.Options{Mode: cfg.Guidance, Pack: cfg.GuidancePack, Locale: cfg.GuidanceLocale})
+			targetReport.Guidance = tmp.Guidance
+			r.Targets = append(r.Targets, targetReport)
+		default:
+			return RunResult{ReportV2: &r, ExitCode: 2}, fmt.Errorf("unsupported target protocol %s", target.Protocol)
+		}
+	}
+	r.Summary = summarizeRun(r.Targets)
+	paths, err := reportpkg.WriteV2(r, cfg)
+	if err != nil {
+		return RunResult{ReportV2: &r, ExitCode: 2}, err
+	}
+	return RunResult{ReportV2: &r, Paths: paths, ExitCode: multiExitCode(cfg, r.Summary)}, nil
+}
+
+func openAIConfig(cfg config.Config, target config.TargetConfig) config.Config {
+	cfg.BaseURL = target.BaseURL
+	cfg.APIKey = target.APIKey
+	cfg.Models = append([]string(nil), target.Models...)
+	cfg.Modules = append([]string(nil), target.Modules...)
+	cfg.ModelCapabilities = append([]string(nil), target.ModelCapabilities...)
+	cfg.CapabilityFile = target.CapabilityFile
+	cfg.UnknownModel = target.UnknownModel
+	cfg.OpenAIProfile = target.ProfileFile
+	cfg.ExternalMode = target.ExternalMode
+	cfg.ExternalImage = target.ExternalImage
+	return cfg
+}
+
+func targetFromV1(target config.TargetConfig, r result.Report) result.TargetReport {
+	return result.TargetReport{ID: target.ID, Protocol: string(target.Protocol), Profile: r.Profile, Discovery: r.Discovery, Models: r.Models, Requirements: r.Requirements, Summary: r.Summary, Guidance: r.Guidance, RateLimit: r.RateLimit}
+}
+
+func reportFromTarget(target result.TargetReport, baseURL string) result.Report {
+	return result.Report{SchemaVersion: "aiqa.report.v1", Profile: target.Profile, Config: result.PublicConfig{BaseURL: baseURL}, Discovery: target.Discovery, Models: target.Models, Requirements: target.Requirements, Summary: target.Summary, Guidance: target.Guidance, RateLimit: target.RateLimit}
+}
+
+func summarizeRun(targets []result.TargetReport) result.RunSummary {
+	out := result.RunSummary{Verdict: "pass", TargetCounts: map[string]int{"pass": 0, "pass-with-gaps": 0, "partial": 0, "fail": 0, "inconclusive": 0}}
+	rank := map[string]int{"pass": 0, "pass-with-gaps": 1, "partial": 2, "inconclusive": 3, "fail": 4}
+	best := 0
+	for _, target := range targets {
+		verdict := target.Summary.Status
+		if target.Summary.Assessment != nil {
+			verdict = target.Summary.Assessment.Verdict
+		}
+		if verdict == "" {
+			verdict = "inconclusive"
+		}
+		if _, known := rank[verdict]; !known {
+			verdict = "inconclusive"
+		}
+		out.TargetCounts[verdict]++
+		if rank[verdict] > best {
+			best, out.Verdict = rank[verdict], verdict
+		}
+		if verdict == "fail" || verdict == "inconclusive" {
+			out.BlockingTargets = append(out.BlockingTargets, target.ID)
+		}
+	}
+	switch out.Verdict {
+	case "fail":
+		out.VerdictReason = "one_or_more_targets_failed_core_conformance"
+	case "inconclusive":
+		out.VerdictReason = "one_or_more_targets_have_inconclusive_core_evidence"
+	case "partial":
+		out.VerdictReason = "one_or_more_targets_have_partial_conformance"
+	case "pass-with-gaps":
+		out.VerdictReason = "one_or_more_targets_have_optional_gaps"
+	default:
+		out.VerdictReason = "all_targets_passed"
+	}
+	return out
+}
+
+func multiExitCode(cfg config.Config, summary result.RunSummary) int {
+	if cfg.FailOn == "never" {
+		return 0
+	}
+	if cfg.FailOn == "any" && summary.Verdict != "pass" {
+		return 1
+	}
+	if cfg.FailOn == "core" && (summary.Verdict == "fail" || summary.Verdict == "inconclusive") {
+		return 1
+	}
+	return 0
 }
 
 func representativeModel(models []string, plans [][]result.ModuleAssessment, moduleID string) string {

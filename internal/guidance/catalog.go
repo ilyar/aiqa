@@ -58,14 +58,33 @@ type PackOverride struct {
 }
 
 func LoadCatalog() (Catalog, error) {
-	data, err := guidanceassets.Files.ReadFile("catalog/generic.json")
+	entries, err := guidanceassets.Files.ReadDir("catalog")
 	if err != nil {
-		return Catalog{}, fmt.Errorf("read guidance catalog: %w", err)
+		return Catalog{}, fmt.Errorf("list guidance catalogs: %w", err)
 	}
 	var catalog Catalog
-	if err := decodeStrict(data, &catalog); err != nil {
-		return Catalog{}, fmt.Errorf("decode guidance catalog: %w", err)
+	var revisions []string
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		path := "catalog/" + entry.Name()
+		data, err := guidanceassets.Files.ReadFile(path)
+		if err != nil {
+			return Catalog{}, fmt.Errorf("read guidance catalog %q: %w", path, err)
+		}
+		var part Catalog
+		if err := decodeStrict(data, &part); err != nil {
+			return Catalog{}, fmt.Errorf("decode guidance catalog %q: %w", path, err)
+		}
+		if strings.TrimSpace(part.Revision) == "" {
+			return Catalog{}, fmt.Errorf("guidance catalog %q has no revision", path)
+		}
+		revisions = append(revisions, strings.TrimSuffix(entry.Name(), ".json")+"@"+part.Revision)
+		catalog.Entries = append(catalog.Entries, part.Entries...)
 	}
+	sort.Strings(revisions)
+	catalog.Revision = strings.Join(revisions, ",")
 	if err := catalog.validate(); err != nil {
 		return Catalog{}, fmt.Errorf("validate guidance catalog: %w", err)
 	}

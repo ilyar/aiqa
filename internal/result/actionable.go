@@ -20,8 +20,10 @@ const (
 )
 
 type SubjectRef struct {
-	Kind string `json:"kind"`
-	ID   string `json:"id"`
+	TargetID string `json:"target_id,omitempty"`
+	Protocol string `json:"protocol,omitempty"`
+	Kind     string `json:"kind"`
+	ID       string `json:"id"`
 }
 
 type EvidenceSignal struct {
@@ -130,8 +132,10 @@ type RecommendationStep struct {
 }
 
 type Verification struct {
-	Kind string   `json:"kind"`
-	IDs  []string `json:"ids"`
+	TargetID string   `json:"target_id,omitempty"`
+	Protocol string   `json:"protocol,omitempty"`
+	Kind     string   `json:"kind"`
+	IDs      []string `json:"ids"`
 }
 
 type Reference struct {
@@ -141,6 +145,8 @@ type Reference struct {
 }
 
 type RecommendationTarget struct {
+	TargetID  string `json:"target_id,omitempty"`
+	Protocol  string `json:"protocol,omitempty"`
 	Component string `json:"component"`
 	Endpoint  string `json:"endpoint,omitempty"`
 }

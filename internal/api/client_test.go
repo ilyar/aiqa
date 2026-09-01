@@ -36,3 +36,36 @@ func TestDoRawStopsAfterThreeRateLimitedAttempts(t *testing.T) {
 		t.Fatalf("rate-limited stats=%d, want 3", got)
 	}
 }
+
+func TestDoRawRetriesAnthropicOverloadUnlessServerOptsOut(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		optOut    bool
+		wantCalls int32
+	}{{name: "retry", wantCalls: 3}, {name: "x-should-retry-false", optOut: true, wantCalls: 1}} {
+		t.Run(test.name, func(t *testing.T) {
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				if test.optOut {
+					w.Header().Set("x-should-retry", "false")
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(529)
+				_, _ = w.Write([]byte(`{"type":"error","error":{"type":"overloaded_error","message":"busy"}}`))
+			}))
+			defer server.Close()
+			client, err := NewClientWithHeaders(server.URL, "aiqa-test", time.Millisecond, http.Header{"x-api-key": []string{"key"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, err := client.DoJSON(context.Background(), http.MethodPost, "v1/messages", map[string]any{"model": "m"})
+			if err != nil || resp.StatusCode != 529 {
+				t.Fatalf("status=%d err=%v", resp.StatusCode, err)
+			}
+			if got := calls.Load(); got != test.wantCalls {
+				t.Fatalf("calls=%d, want %d", got, test.wantCalls)
+			}
+		})
+	}
+}

@@ -186,7 +186,7 @@ func TestGuidanceEmitsTargetsWithoutBroadCommands(t *testing.T) {
 		Summary: result.Summary{Assessment: &result.ConformanceAssessment{Verdict: "partial"}},
 		Requirements: []result.RequirementAssessment{{
 			ID: "chat.logprobs", Name: "logprobs", Level: result.RequirementOptional,
-			Subject: result.SubjectRef{Kind: "model", ID: "exact-model-id"}, Applicability: result.ApplicabilityApplicable, Status: result.RequirementFail,
+			Subject: result.SubjectRef{TargetID: "anthropic", Protocol: "anthropic", Kind: "model", ID: "exact-model-id"}, Applicability: result.ApplicabilityApplicable, Status: result.RequirementFail,
 			Evidence: []result.EvidenceRef{{ID: "native", Kind: "native", Status: result.StatusFail, Signals: []result.EvidenceSignal{{Code: "behavior.chat.logprobs.accepted_but_missing"}}}},
 		}},
 	}
@@ -202,6 +202,22 @@ func TestGuidanceEmitsTargetsWithoutBroadCommands(t *testing.T) {
 		if target.Kind == "command" {
 			t.Fatalf("broad command leaked into guidance: %+v", target)
 		}
+		if target.TargetID != "anthropic" || target.Protocol != "anthropic" {
+			t.Fatalf("verification target lost protocol identity: %+v", target)
+		}
+	}
+}
+
+func TestArtifactReferencesAreQualifiedPerTarget(t *testing.T) {
+	r := result.Report{Discovery: result.Discovery{External: []result.ExternalResult{{Output: "same output"}}}}
+	ExtractArtifacts(&r)
+	QualifyArtifacts(&r, "Anthropic Main")
+	ref := r.Discovery.External[0].ArtifactRef
+	if !strings.HasPrefix(ref, "target:anthropic-main:sha256:") {
+		t.Fatalf("artifact ref=%q, want target-qualified digest", ref)
+	}
+	if _, ok := r.Guidance.Artifacts[ref]; !ok {
+		t.Fatalf("qualified artifact key %q missing: %+v", ref, r.Guidance.Artifacts)
 	}
 }
 
@@ -245,6 +261,15 @@ func TestFindingFingerprintIgnoresVolatileCounts(t *testing.T) {
 	b := findingFingerprint(p, "contract.models.list.entry.created_missing", subject, map[string]any{"json_pointer": "/data/*/created", "missing_entries": 30, "total_entries": 31})
 	if a != b {
 		t.Fatalf("volatile counts changed fingerprint: %s != %s", a, b)
+	}
+}
+
+func TestFindingFingerprintIncludesTargetIdentity(t *testing.T) {
+	p, _ := profile.Load()
+	a := findingFingerprint(p, "contract.test", result.SubjectRef{TargetID: "openai", Protocol: "openai", Kind: "model", ID: "same"}, nil)
+	b := findingFingerprint(p, "contract.test", result.SubjectRef{TargetID: "anthropic", Protocol: "anthropic", Kind: "model", ID: "same"}, nil)
+	if a == b {
+		t.Fatal("the same model ID on different targets produced one fingerprint")
 	}
 }
 

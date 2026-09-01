@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -110,5 +111,122 @@ func TestParseHelpWithoutCredentials(t *testing.T) {
 	}
 	if !cfg.HelpOnly {
 		t.Fatal("help flag was not preserved")
+	}
+}
+
+func TestParseDualTargetsInDeterministicOrder(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "http://127.0.0.1:8080/openai/v1")
+	t.Setenv("OPENAI_API_KEY", "openai-secret")
+	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:8080/anthropic/v1")
+	t.Setenv("ANTHROPIC_API_KEY", "anthropic-secret")
+	cfg, err := Parse([]string{"test=compat", "--openai-model=o", "--anthropic-model=a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Targets) != 2 || cfg.Targets[0].Protocol != ProtocolOpenAI || cfg.Targets[1].Protocol != ProtocolAnthropic {
+		t.Fatalf("unexpected targets: %+v", cfg.Targets)
+	}
+	if cfg.Targets[1].BaseURL != "http://127.0.0.1:8080/anthropic" || cfg.Targets[1].APIVersion != "2023-06-01" {
+		t.Fatalf("unexpected Anthropic target: %+v", cfg.Targets[1])
+	}
+	if cfg.Targets[0].APIKey == cfg.Targets[1].APIKey {
+		t.Fatal("target credentials were conflated")
+	}
+}
+
+func TestParsePreservesExplicitTargetOrder(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "http://127.0.0.1:8080/openai/v1")
+	t.Setenv("OPENAI_API_KEY", "openai-secret")
+	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:8080/anthropic")
+	t.Setenv("ANTHROPIC_API_KEY", "anthropic-secret")
+	cfg, err := Parse([]string{"test=compat", "--target=anthropic,openai", "--openai-model=o", "--anthropic-model=a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Targets) != 2 || cfg.Targets[0].Protocol != ProtocolAnthropic || cfg.Targets[1].Protocol != ProtocolOpenAI {
+		t.Fatalf("explicit target order was not preserved: %+v", cfg.Targets)
+	}
+}
+
+func TestParseActivatesTargetsIndependently(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "")
+	t.Setenv("OPENAI_API_KEY", "unused-key")
+	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:8080/anthropic/v1/")
+	t.Setenv("ANTHROPIC_API_KEY", "anthropic-secret")
+	cfg, err := Parse([]string{"test=compat", "--anthropic-model=a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Targets) != 1 || cfg.Targets[0].Protocol != ProtocolAnthropic || cfg.Targets[0].BaseURL != "http://127.0.0.1:8080/anthropic" || !cfg.Targets[0].BaseURLNormalized {
+		t.Fatalf("unexpected Anthropic-only target: %+v", cfg.Targets)
+	}
+}
+
+func TestParseKeyWithoutBaseDoesNotActivateTarget(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "http://127.0.0.1:8080/v1")
+	t.Setenv("OPENAI_API_KEY", "openai-secret")
+	t.Setenv("ANTHROPIC_BASE_URL", "")
+	t.Setenv("ANTHROPIC_API_KEY", "unused-anthropic-key")
+	cfg, err := Parse([]string{"test=compat"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Targets) != 1 || cfg.Targets[0].Protocol != ProtocolOpenAI {
+		t.Fatalf("API key without base URL activated a target: %+v", cfg.Targets)
+	}
+}
+
+func TestParseTargetQualifiedAnthropicCapabilityControls(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:8080/anthropic")
+	t.Setenv("ANTHROPIC_API_KEY", "anthropic-secret")
+	cfg, err := Parse([]string{"test=compat", "--anthropic-model=a", "--anthropic-model-capability=a=anthropic.messages.text+anthropic.messages.tools", "--anthropic-capability-file=anthropic.json", "--anthropic-unknown-model=inventory"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := cfg.Targets[0]
+	if target.UnknownModel != "inventory" || target.CapabilityFile != "anthropic.json" || len(target.ModelCapabilities) != 1 {
+		t.Fatalf("Anthropic capability controls were not target-qualified: %+v", target)
+	}
+}
+
+func TestParseRejectsUnqualifiedCapabilityControlsForMultipleTargets(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "http://127.0.0.1:8080/openai/v1")
+	t.Setenv("OPENAI_API_KEY", "openai-secret")
+	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:8080/anthropic")
+	t.Setenv("ANTHROPIC_API_KEY", "anthropic-secret")
+	if _, err := Parse([]string{"test=compat", "--model-capability=same=chat.completions.text"}); err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("expected ambiguous capability override error, got %v", err)
+	}
+}
+
+func TestParseRejectsAmbiguousModelWithDualTargets(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "http://127.0.0.1:8080/openai/v1")
+	t.Setenv("OPENAI_API_KEY", "openai-secret")
+	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:8080/anthropic")
+	t.Setenv("ANTHROPIC_API_KEY", "anthropic-secret")
+	if _, err := Parse([]string{"test=compat", "--model=ambiguous"}); err == nil {
+		t.Fatal("expected ambiguous --model to fail")
+	}
+}
+
+func TestParseRejectsActiveTargetWithoutKey(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:8080/anthropic")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	if _, err := Parse([]string{"test=compat"}); err == nil || !strings.Contains(err.Error(), "ANTHROPIC_API_KEY") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestParseRejectsCredentialsEmbeddedInBaseURL(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "https://user:secret@example.test/v1")
+	t.Setenv("OPENAI_API_KEY", "openai-secret")
+	t.Setenv("ANTHROPIC_BASE_URL", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	if _, err := Parse([]string{"test=compat"}); err == nil || !strings.Contains(err.Error(), "must not contain user information") {
+		t.Fatalf("unexpected embedded-credential validation: %v", err)
 	}
 }

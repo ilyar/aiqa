@@ -24,9 +24,20 @@ type Client struct {
 	http      *http.Client
 	userAgent string
 	pacer     *pacer
+	headers   http.Header
 }
 
 func NewClient(baseURL, apiKey, userAgent string, initialInterval time.Duration) (*Client, error) {
+	return newClient(baseURL, apiKey, userAgent, initialInterval, nil)
+}
+
+// NewClientWithHeaders creates a client for a non-Bearer protocol. Headers are
+// copied and cannot be changed through ambient process environment variables.
+func NewClientWithHeaders(baseURL, userAgent string, initialInterval time.Duration, headers http.Header) (*Client, error) {
+	return newClient(baseURL, "", userAgent, initialInterval, headers)
+}
+
+func newClient(baseURL, apiKey, userAgent string, initialInterval time.Duration, headers http.Header) (*Client, error) {
 	u, err := url.Parse(strings.TrimRight(baseURL, "/"))
 	if err != nil {
 		return nil, fmt.Errorf("parse base URL: %w", err)
@@ -42,6 +53,7 @@ func NewClient(baseURL, apiKey, userAgent string, initialInterval time.Duration)
 		http:      &http.Client{Transport: transport},
 		userAgent: userAgent,
 		pacer:     newPacer(initialInterval),
+		headers:   headers.Clone(),
 	}, nil
 }
 
@@ -131,7 +143,13 @@ func (c *Client) DoRaw(ctx context.Context, method, path string, body []byte, co
 
 func (c *Client) doRaw(ctx context.Context, method, path string, body []byte, contentType, model string) (Response, error) {
 	u := *c.baseURL
-	u.Path = joinURLPath(c.baseURL.Path, path)
+	rel, err := url.Parse(path)
+	if err != nil {
+		return Response{}, fmt.Errorf("parse request path: %w", err)
+	}
+	u.Path = joinURLPath(c.baseURL.Path, rel.Path)
+	u.RawPath = joinURLPath(c.baseURL.EscapedPath(), rel.EscapedPath())
+	u.RawQuery = rel.RawQuery
 	return c.doRawURL(ctx, method, u.String(), body, contentType, model)
 }
 
@@ -142,7 +160,7 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 		}
 		resp, err := c.doRawURLOnce(ctx, method, endpoint, body, contentType)
 		c.pacer.release()
-		if resp.StatusCode != http.StatusTooManyRequests {
+		if !shouldRetry(resp, err) {
 			if resp.Is2xx() {
 				c.pacer.success(model)
 				if attempt > 0 {
@@ -151,9 +169,19 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 			}
 			return resp, err
 		}
-		c.pacer.limited(model, retryAfter(resp.Header))
+		delay := retryDelay(resp, attempt)
+		if resp.StatusCode == http.StatusTooManyRequests {
+			c.pacer.limited(model, delay)
+		}
 		if attempt == 2 {
 			return resp, err
+		}
+		if resp.StatusCode != http.StatusTooManyRequests {
+			select {
+			case <-ctx.Done():
+				return resp, ctx.Err()
+			case <-time.After(delay):
+			}
 		}
 	}
 	panic("unreachable")
@@ -224,18 +252,27 @@ func retryAfter(header http.Header) time.Duration {
 }
 
 func (c *Client) ChatStream(ctx context.Context, body map[string]any) (StreamResponse, error) {
-	model := modelFromBody(body)
 	body = cloneMap(body)
 	body["stream"] = true
+	return c.StreamJSON(ctx, "chat/completions", body)
+}
+
+// StreamJSON sends a JSON request and returns parsed SSE events without
+// requiring OpenAI-specific event framing. OpenAI fields are still accumulated
+// when present for backwards compatibility with ChatStream.
+func (c *Client) StreamJSON(ctx context.Context, path string, body map[string]any) (StreamResponse, error) {
+	model := modelFromBody(body)
 	raw, err := json.Marshal(body)
 	if err != nil {
 		return StreamResponse{}, fmt.Errorf("marshal stream request: %w", err)
 	}
 	u := *c.baseURL
-	u.Path = joinURLPath(c.baseURL.Path, "chat/completions")
+	u.Path = joinURLPath(c.baseURL.Path, path)
 	var httpResp *http.Response
 	var started time.Time
+	attempts := 0
 	for attempt := 0; attempt < 3; attempt++ {
+		attempts = attempt
 		if err := c.pacer.wait(ctx); err != nil {
 			return StreamResponse{}, err
 		}
@@ -245,23 +282,46 @@ func (c *Client) ChatStream(ctx context.Context, body map[string]any) (StreamRes
 			return StreamResponse{}, err
 		}
 		c.applyHeaders(req, "application/json")
+		req.Header.Set("Accept", "text/event-stream")
 		httpResp, err = c.http.Do(req)
 		if err != nil {
 			c.pacer.release()
-			return StreamResponse{Duration: time.Since(started)}, err
+			if attempt == 2 {
+				return StreamResponse{Duration: time.Since(started)}, err
+			}
+			delay := time.Duration(1<<attempt) * 100 * time.Millisecond
+			select {
+			case <-ctx.Done():
+				return StreamResponse{Duration: time.Since(started)}, ctx.Err()
+			case <-time.After(delay):
+			}
+			continue
 		}
-		if httpResp.StatusCode != http.StatusTooManyRequests {
+		if !shouldRetryStatus(httpResp.StatusCode, httpResp.Header) {
 			break
 		}
 		delay := retryAfter(httpResp.Header)
+		if delay <= 0 {
+			delay = time.Duration(1<<attempt) * 100 * time.Millisecond
+		}
 		if attempt == 2 {
-			c.pacer.limited(model, delay)
+			if httpResp.StatusCode == http.StatusTooManyRequests {
+				c.pacer.limited(model, delay)
+			}
 			break
 		}
 		_, _ = io.Copy(io.Discard, io.LimitReader(httpResp.Body, 32<<10))
 		httpResp.Body.Close()
 		c.pacer.release()
-		c.pacer.limited(model, delay)
+		if httpResp.StatusCode == http.StatusTooManyRequests {
+			c.pacer.limited(model, delay)
+		} else {
+			select {
+			case <-ctx.Done():
+				return StreamResponse{Duration: time.Since(started)}, ctx.Err()
+			case <-time.After(delay):
+			}
+		}
 	}
 	defer c.pacer.release()
 	defer httpResp.Body.Close()
@@ -278,8 +338,12 @@ func (c *Client) ChatStream(ctx context.Context, body map[string]any) (StreamRes
 		return result, fmt.Errorf("stream request returned HTTP %d", httpResp.StatusCode)
 	}
 	c.pacer.success(model)
+	if attempts > 0 {
+		c.pacer.recovered(model)
+	}
 
-	reader := bufio.NewReaderSize(httpResp.Body, 64*1024)
+	limitedBody := &io.LimitedReader{R: httpResp.Body, N: maxResponseBody + 1}
+	reader := bufio.NewReaderSize(limitedBody, 64*1024)
 	var event SSEEvent
 	var dataLines []string
 	var snippet strings.Builder
@@ -334,6 +398,11 @@ func (c *Client) ChatStream(ctx context.Context, body map[string]any) (StreamRes
 		if readErr != nil {
 			if errors.Is(readErr, io.EOF) {
 				flush()
+				if limitedBody.N <= 0 {
+					result.Duration = time.Since(started)
+					result.RawSnippet = snippet.String()
+					return result, fmt.Errorf("stream response exceeds %d bytes", maxResponseBody)
+				}
 				break
 			}
 			result.Duration = time.Since(started)
@@ -344,6 +413,31 @@ func (c *Client) ChatStream(ctx context.Context, body map[string]any) (StreamRes
 	result.Duration = time.Since(started)
 	result.RawSnippet = snippet.String()
 	return result, nil
+}
+
+func shouldRetry(resp Response, err error) bool {
+	if err != nil && resp.StatusCode == 0 {
+		return true
+	}
+	return shouldRetryStatus(resp.StatusCode, http.Header(resp.Header))
+}
+
+func shouldRetryStatus(status int, headers http.Header) bool {
+	if strings.EqualFold(strings.TrimSpace(headers.Get("x-should-retry")), "false") {
+		return false
+	}
+	switch status {
+	case 408, 429, 500, 502, 503, 504, 529:
+		return true
+	}
+	return false
+}
+
+func retryDelay(resp Response, attempt int) time.Duration {
+	if delay := retryAfter(http.Header(resp.Header)); delay > 0 {
+		return delay
+	}
+	return time.Duration(1<<attempt) * 100 * time.Millisecond
 }
 
 func modelFromBody(body any) string {
@@ -362,6 +456,11 @@ func (c *Client) applyHeaders(req *http.Request, contentType string) {
 	if c.apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
+	for name, values := range c.headers {
+		for _, value := range values {
+			req.Header.Add(name, value)
+		}
+	}
 	if c.userAgent != "" {
 		req.Header.Set("User-Agent", c.userAgent)
 	}
@@ -372,7 +471,7 @@ func joinURLPath(base, path string) string {
 }
 
 func requestID(h http.Header) string {
-	for _, name := range []string{"x-request-id", "openai-request-id", "x-correlation-id", "cf-ray"} {
+	for _, name := range []string{"request-id", "x-request-id", "openai-request-id", "x-correlation-id", "cf-ray"} {
 		if value := h.Get(name); value != "" {
 			return value
 		}

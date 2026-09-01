@@ -11,6 +11,7 @@ import (
 )
 
 func Write(r result.Report, cfg config.Config) ([]string, error) {
+	result.RedactSecrets(&r, reportSecrets(cfg)...)
 	var paths []string
 	for _, format := range cfg.Formats {
 		var data []byte
@@ -37,6 +38,14 @@ func Write(r result.Report, cfg config.Config) ([]string, error) {
 		paths = append(paths, path)
 	}
 	return paths, nil
+}
+
+func reportSecrets(cfg config.Config) []string {
+	out := []string{cfg.APIKey}
+	for _, target := range cfg.Targets {
+		out = append(out, target.APIKey)
+	}
+	return out
 }
 
 func atomicWrite(path string, data []byte, mode os.FileMode) error {

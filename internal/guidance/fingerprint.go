@@ -21,7 +21,7 @@ func findingFingerprint(p profile.Profile, code string, subject result.SubjectRe
 		ProfileID:      p.ID,
 		ProfileMajor:   profileMajor(p.Revision),
 		Code:           code,
-		Subject:        result.SubjectRef{Kind: subject.Kind, ID: strings.ToLower(strings.TrimSpace(subject.ID))},
+		Subject:        result.SubjectRef{TargetID: strings.ToLower(strings.TrimSpace(subject.TargetID)), Protocol: strings.ToLower(strings.TrimSpace(subject.Protocol)), Kind: subject.Kind, ID: strings.ToLower(strings.TrimSpace(subject.ID))},
 		RootParameters: stableDetails(details),
 	}
 	data, _ := json.Marshal(payload)

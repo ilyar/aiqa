@@ -1,0 +1,113 @@
+{
+  "revision": "2026-09-01.1",
+  "entries": [
+    {
+      "id": "anthropic.version.rejected",
+      "revision": "1",
+      "finding_code": "anthropic.header.version.rejected",
+      "finding_title": "The facade rejects the stable Anthropic API version",
+      "recommendation_title": "Accept the pinned Anthropic API version",
+      "default_priority": "p0",
+      "action_kind": "fix",
+      "guidance_level": 3,
+      "audiences": ["gateway_maintainer"],
+      "why": "The stable profile requires anthropic-version: 2023-06-01 on every positive Anthropic request.",
+      "attribution": {"component": "provider_gateway", "confidence": "high", "basis": "API-version validation belongs to the Anthropic facade."},
+      "steps": [
+        {"id": "accept-version", "text": "Accept anthropic-version: 2023-06-01 and route the request under that stable contract."},
+        {"id": "keep-protocol-separate", "text": "Do not translate this header into OpenAI request-version semantics."}
+      ],
+      "verification": [{"kind": "requirement", "ids": ["anthropic.header.version.accepted"]}],
+      "references": [{"title": "Anthropic API versioning", "url": "https://platform.claude.com/docs/en/api/versioning", "source_kind": "official"}]
+    },
+    {
+      "id": "anthropic.auth.x-api-key",
+      "revision": "1",
+      "finding_code": "anthropic.auth.x_api_key.rejected",
+      "finding_title": "The facade rejects standard x-api-key authentication",
+      "recommendation_title": "Authenticate Anthropic requests with x-api-key",
+      "default_priority": "p0",
+      "action_kind": "fix",
+      "guidance_level": 3,
+      "audiences": ["gateway_maintainer"],
+      "why": "The stable Anthropic profile intentionally tests x-api-key rather than OpenAI Bearer authentication.",
+      "attribution": {"component": "provider_gateway", "confidence": "high", "basis": "Authentication header handling belongs to the facade boundary."},
+      "steps": [{"id": "accept-x-api-key", "text": "Read the credential from x-api-key and keep it isolated from OpenAI Authorization handling."}],
+      "verification": [{"kind": "requirement", "ids": ["anthropic.auth.x_api_key"]}],
+      "references": [{"title": "Anthropic Messages API", "url": "https://platform.claude.com/docs/en/api/messages/create", "source_kind": "official"}]
+    },
+    {
+      "id": "anthropic.message.invalid-envelope",
+      "revision": "1",
+      "finding_code": "anthropic.message.invalid_envelope",
+      "finding_title": "The endpoint does not return an Anthropic Message envelope",
+      "recommendation_title": "Return native Anthropic Message objects",
+      "default_priority": "p0",
+      "action_kind": "fix",
+      "guidance_level": 3,
+      "audiences": ["gateway_maintainer", "model_integrator"],
+      "why": "Anthropic clients require type=message, role=assistant, content blocks, stop fields, and Anthropic usage rather than OpenAI choices.",
+      "attribution": {"component": "provider_gateway", "confidence": "high", "basis": "Response translation is visible at the Anthropic HTTP boundary."},
+      "steps": [
+        {"id": "translate-envelope", "text": "Translate the upstream response into an Anthropic Message with content[] blocks and stop_reason."},
+        {"id": "preserve-usage", "text": "Return input_tokens and output_tokens without renaming them to OpenAI usage fields."}
+      ],
+      "verification": [{"kind": "requirements", "ids": ["anthropic.messages.schema", "anthropic.messages.usage"]}],
+      "references": [{"title": "Create a Message", "url": "https://platform.claude.com/docs/en/api/messages/create", "source_kind": "official"}]
+    },
+    {
+      "id": "anthropic.stream.sequence",
+      "revision": "1",
+      "finding_code": "anthropic.stream.sequence_invalid",
+      "finding_title": "The stream violates Anthropic event ordering",
+      "recommendation_title": "Emit a legal named Anthropic SSE sequence",
+      "default_priority": "p0",
+      "action_kind": "fix",
+      "guidance_level": 3,
+      "audiences": ["gateway_maintainer", "model_integrator"],
+      "why": "Official Anthropic clients accumulate named message and content-block events and do not use the OpenAI [DONE] contract.",
+      "attribution": {"component": "provider_gateway", "confidence": "high", "basis": "SSE framing and event translation are emitted by the Anthropic facade."},
+      "steps": [
+        {"id": "emit-named-events", "text": "Emit message_start, ordered content-block events, message_delta, and message_stop with matching JSON types."},
+        {"id": "remove-done", "text": "Finish with message_stop and do not rely on an OpenAI [DONE] sentinel."}
+      ],
+      "verification": [{"kind": "requirements", "ids": ["anthropic.messages.stream.sequence", "anthropic.messages.stream.event_type_match", "anthropic.messages.stream.no_done_sentinel"]}],
+      "references": [{"title": "Anthropic streaming Messages", "url": "https://platform.claude.com/docs/en/build-with-claude/streaming", "source_kind": "official"}]
+    },
+    {
+      "id": "anthropic.tokens.endpoint-missing",
+      "revision": "1",
+      "finding_code": "anthropic.tokens.endpoint_missing",
+      "finding_title": "The Count Tokens endpoint is unavailable",
+      "recommendation_title": "Implement or explicitly document Count Tokens support",
+      "default_priority": "p2",
+      "action_kind": "fix",
+      "guidance_level": 2,
+      "audiences": ["gateway_maintainer", "model_integrator"],
+      "why": "Clients use POST /v1/messages/count_tokens to budget Messages requests before execution.",
+      "attribution": {"component": "provider_gateway", "confidence": "medium", "basis": "The endpoint may require both facade routing and tokenizer integration."},
+      "steps": [
+        {"id": "add-route", "text": "Expose POST /v1/messages/count_tokens with a positive integer input_tokens response."},
+        {"id": "document-estimation", "text": "If exact tokenizer parity is unavailable, document the estimation policy without changing the response shape."}
+      ],
+      "verification": [{"kind": "requirement", "ids": ["anthropic.tokens.count.basic"]}],
+      "references": [{"title": "Count Message tokens", "url": "https://platform.claude.com/docs/en/api/messages/count_tokens", "source_kind": "official"}]
+    },
+    {
+      "id": "anthropic.thinking.unsupported",
+      "revision": "1",
+      "finding_code": "anthropic.thinking.unsupported",
+      "finding_title": "The selected model does not support the requested thinking mode",
+      "recommendation_title": "Advertise thinking capability accurately",
+      "default_priority": "p2",
+      "action_kind": "document",
+      "guidance_level": 2,
+      "audiences": ["model_integrator", "qa_operator"],
+      "why": "Thinking is model-specific and opt-in; its rejection must not be attributed to the entire gateway without capability evidence.",
+      "attribution": {"component": "upstream_model", "confidence": "medium", "basis": "Thinking modes vary by model and require explicit routing evidence."},
+      "steps": [{"id": "correct-capability", "text": "Remove the unsupported thinking capability or route the probe only to a model that declares the requested mode."}],
+      "verification": [{"kind": "requirements", "ids": ["anthropic.thinking.adaptive", "anthropic.thinking.manual"]}],
+      "references": [{"title": "Anthropic extended thinking", "url": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking", "source_kind": "official"}]
+    }
+  ]
+}

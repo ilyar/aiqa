@@ -124,3 +124,27 @@ func TestLoadOverrideFileValidatesCapabilityIDs(t *testing.T) {
 		t.Fatal("unknown capability in override file was accepted")
 	}
 }
+
+func TestAnthropicClassificationUsesOnlyTargetMetadata(t *testing.T) {
+	got := ClassifyAnthropic("image-looking-openai-name", map[string]any{
+		"capabilities": map[string]any{
+			"image_input":     map[string]any{"supported": true},
+			"thinking_manual": map[string]any{"supported": true},
+		},
+	}, Options{UnknownPolicy: "messages"})
+	for _, wanted := range []string{AnthropicMessagesText, AnthropicImageInput, AnthropicTools, AnthropicStructuredOutput, AnthropicThinkingManual} {
+		if !got.Has(wanted) {
+			t.Fatalf("missing Anthropic capability %q: %+v", wanted, got)
+		}
+	}
+	if got.Has(ImagesGenerations) || got.Has(ChatText) {
+		t.Fatalf("OpenAI capability leaked into Anthropic classification: %+v", got)
+	}
+}
+
+func TestAnthropicInventoryPolicyDoesNotAssumeMessages(t *testing.T) {
+	got := ClassifyAnthropic("opaque", map[string]any{"id": "opaque"}, Options{UnknownPolicy: "inventory"})
+	if !got.Unknown || len(got.Capabilities) != 0 {
+		t.Fatalf("inventory-only policy was ignored: %+v", got)
+	}
+}
