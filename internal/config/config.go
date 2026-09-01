@@ -236,7 +236,7 @@ func Parse(args []string) (Config, error) {
 	fs.Var(durationValue{&cfg.RequestInterval}, "request-interval", "initial adaptive request interval, e.g. 2s")
 	fs.StringVar(&formats, "format", formats, "comma-separated report formats: markdown,json")
 	fs.StringVar(&cfg.Name, "name", cfg.Name, "output basename without extension")
-	fs.IntVar(&cfg.Concurrency, "concurrency", cfg.Concurrency, "number of models tested concurrently")
+	fs.IntVar(&cfg.Concurrency, "concurrency", cfg.Concurrency, "maximum number of native probes executed concurrently")
 	fs.StringVar(&cfg.ExternalMode, "external", cfg.ExternalMode, "external checker: auto,off,binary,docker")
 	fs.StringVar(&cfg.ExternalImage, "external-image", cfg.ExternalImage, "container image for --external=docker")
 	fs.StringVar(&cfg.OpenAIExternalMode, "openai-external", "", "OpenAI external checker override")

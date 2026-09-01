@@ -63,8 +63,15 @@ func (c *Client) CloneWithKey(apiKey string) *Client {
 	return &clone
 }
 
+func (c *Client) CloneWithHeaders(headers http.Header) *Client {
+	clone := *c
+	clone.headers = headers.Clone()
+	return &clone
+}
+
 func (c *Client) BaseURL() string          { return c.baseURL.String() }
 func (c *Client) PacingStats() PacingStats { return c.pacer.snapshot() }
+func (c *Client) SetConcurrency(limit int) { c.pacer.setConcurrency(limit) }
 func (c *Client) PacingStatsForModel(model string) PacingStats {
 	return c.pacer.snapshotForModel(model)
 }
@@ -155,11 +162,10 @@ func (c *Client) doRaw(ctx context.Context, method, path string, body []byte, co
 
 func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []byte, contentType, model string) (Response, error) {
 	for attempt := 0; attempt < 3; attempt++ {
-		if err := c.pacer.wait(ctx); err != nil {
+		if err := c.pacer.wait(ctx, model); err != nil {
 			return Response{}, err
 		}
 		resp, err := c.doRawURLOnce(ctx, method, endpoint, body, contentType)
-		c.pacer.release()
 		if !shouldRetry(resp, err) {
 			if resp.Is2xx() {
 				c.pacer.success(model)
@@ -167,8 +173,10 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 					c.pacer.recovered(model)
 				}
 			}
+			c.pacer.release(model)
 			return resp, err
 		}
+		c.pacer.release(model)
 		delay := retryDelay(resp, attempt)
 		if resp.StatusCode == http.StatusTooManyRequests {
 			c.pacer.limited(model, delay)
@@ -273,7 +281,7 @@ func (c *Client) StreamJSON(ctx context.Context, path string, body map[string]an
 	attempts := 0
 	for attempt := 0; attempt < 3; attempt++ {
 		attempts = attempt
-		if err := c.pacer.wait(ctx); err != nil {
+		if err := c.pacer.wait(ctx, model); err != nil {
 			return StreamResponse{}, err
 		}
 		started = time.Now()
@@ -285,7 +293,7 @@ func (c *Client) StreamJSON(ctx context.Context, path string, body map[string]an
 		req.Header.Set("Accept", "text/event-stream")
 		httpResp, err = c.http.Do(req)
 		if err != nil {
-			c.pacer.release()
+			c.pacer.release(model)
 			if attempt == 2 {
 				return StreamResponse{Duration: time.Since(started)}, err
 			}
@@ -312,7 +320,7 @@ func (c *Client) StreamJSON(ctx context.Context, path string, body map[string]an
 		}
 		_, _ = io.Copy(io.Discard, io.LimitReader(httpResp.Body, 32<<10))
 		httpResp.Body.Close()
-		c.pacer.release()
+		c.pacer.release(model)
 		if httpResp.StatusCode == http.StatusTooManyRequests {
 			c.pacer.limited(model, delay)
 		} else {
@@ -323,7 +331,7 @@ func (c *Client) StreamJSON(ctx context.Context, path string, body map[string]an
 			}
 		}
 	}
-	defer c.pacer.release()
+	defer c.pacer.release(model)
 	defer httpResp.Body.Close()
 	result := StreamResponse{
 		StatusCode:  httpResp.StatusCode,

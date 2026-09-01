@@ -16,3 +16,4 @@
 - Native Anthropic Models, Messages, error-envelope, named-event streaming, tool-use, Count Tokens, structured-output, vision, and opt-in thinking probes.
 - `aiqa.report.v2` with target-local requirements, verdicts, guidance, usage, per-target/model rate-limit telemetry, strict schema validation, and output-boundary secret redaction; no cross-protocol percentage.
 - Separate JSONL Anthropic Official SDK checker with explicit credentials, disabled retries, Docker packaging, and partial-output recovery.
+- Run independent OpenAI and Anthropic native probes concurrently under one `--concurrency` ceiling, with deterministic result ordering and adaptive reduction after rate limits.

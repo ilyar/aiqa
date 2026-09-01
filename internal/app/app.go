@@ -16,6 +16,7 @@ import (
 	"github.com/ilyar/aiqa/internal/config"
 	"github.com/ilyar/aiqa/internal/external"
 	"github.com/ilyar/aiqa/internal/guidance"
+	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/profile"
 	protocolanthropic "github.com/ilyar/aiqa/internal/protocol/anthropic"
 	reportpkg "github.com/ilyar/aiqa/internal/report"
@@ -86,6 +87,8 @@ func runOpenAI(ctx context.Context, cfg config.Config, build BuildInfo) (RunResu
 	if err != nil {
 		return RunResult{}, err
 	}
+	client.SetConcurrency(cfg.Concurrency)
+	probeExecutor := probe.NewExecutor(cfg.Concurrency)
 	r := result.Report{
 		SchemaVersion: "aiqa.report.v1",
 		GeneratedAt:   time.Now().UTC(),
@@ -135,7 +138,7 @@ func runOpenAI(ctx context.Context, cfg config.Config, build BuildInfo) (RunResu
 			fmt.Fprintf(os.Stderr, "aiqa: "+format+"\n", args...)
 		}
 	}
-	env := suites.Environment{Client: client, Config: cfg, Profile: p, Logf: logf}
+	env := suites.Environment{Client: client, Config: cfg, Profile: p, Logf: logf, Probes: probeExecutor}
 
 	listCtx, cancel := context.WithTimeout(ctx, cfg.Timeout)
 	models, listResp, listErr := client.ListModels(listCtx)

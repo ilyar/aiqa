@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/ilyar/aiqa/internal/api"
+	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/result"
 )
 
@@ -26,6 +27,15 @@ const maxImageArtifactBytes = 20 << 20
 
 func RunImageCompat(parent context.Context, env Environment, model string) []result.TestResult {
 	env.logf("[%s] compat: image generation", model)
+	groups := probe.Map(env.Probes,
+		func() []result.TestResult { return probeImageGeneration(parent, env, model) },
+		func() []result.TestResult { return []result.TestResult{probeInvalidImageModel(parent, env)} },
+		func() []result.TestResult { return []result.TestResult{probeInvalidImageJSON(parent, env)} },
+	)
+	return flattenTests(groups)
+}
+
+func probeImageGeneration(parent context.Context, env Environment, model string) []result.TestResult {
 	ctx, cancel := env.probeContext(parent)
 	resp, err := env.Client.ImagesGenerate(ctx, map[string]any{
 		"model":  model,
@@ -91,9 +101,7 @@ func RunImageCompat(parent context.Context, env Environment, model string) []res
 		usage.Status, usage.Summary = result.StatusWarn, "image generation succeeded without token usage metadata"
 	}
 
-	invalidModel := probeInvalidImageModel(parent, env)
-	invalidJSON := probeInvalidImageJSON(parent, env)
-	return []result.TestResult{basic, schema, artifact, usage, invalidModel, invalidJSON}
+	return []result.TestResult{basic, schema, artifact, usage}
 }
 
 func probeInvalidImageModel(parent context.Context, env Environment) result.TestResult {

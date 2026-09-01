@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ilyar/aiqa/internal/api"
@@ -18,6 +19,7 @@ import (
 	"github.com/ilyar/aiqa/internal/config"
 	"github.com/ilyar/aiqa/internal/external"
 	"github.com/ilyar/aiqa/internal/guidance"
+	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/profile"
 	reportpkg "github.com/ilyar/aiqa/internal/report"
 	"github.com/ilyar/aiqa/internal/result"
@@ -65,6 +67,8 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	if err != nil {
 		return result.TargetReport{}, err
 	}
+	client.SetConcurrency(cfg.Concurrency)
+	probeExecutor := probe.NewExecutor(cfg.Concurrency)
 	tmp := result.Report{SchemaVersion: "aiqa.report.v1", Profile: profileInfo(p), Config: result.PublicConfig{BaseURL: target.BaseURL, Tests: cfg.Tests, RequestedModels: target.Models, Timeout: cfg.Timeout.String(), Formats: cfg.Formats, ExternalMode: target.ExternalMode, FailOn: cfg.FailOn, Guidance: cfg.Guidance, GuidancePack: cfg.GuidancePack, GuidanceLocale: cfg.GuidanceLocale}}
 
 	listCtx, cancel := context.WithTimeout(ctx, cfg.Timeout)
@@ -93,32 +97,60 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 			options.Logf("[%s] high-token thinking probes are enabled and may consume at least 4096 output-token budget per model", target.ID)
 		}
 	}
-	for _, model := range selected {
-		if options.Logf != nil {
-			options.Logf("[%s/%s] start", target.ID, model)
+	type modelItem struct {
+		index  int
+		report result.ModelReport
+	}
+	jobs := make(chan int)
+	modelResults := make(chan modelItem, len(selected))
+	workers := cfg.Concurrency
+	if workers > len(selected) {
+		workers = len(selected)
+	}
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for index := range jobs {
+				model := selected[index]
+				if options.Logf != nil {
+					options.Logf("[%s/%s] start", target.ID, model)
+				}
+				classification := capability.ClassifyAnthropic(model, metadata[model], capability.Options{BaseURL: target.BaseURL, Overrides: overrides, UnknownPolicy: target.UnknownModel})
+				modules := capability.AssessModules(classification, p.Modules, capability.RoutingOptions{Modules: target.Modules, AllowBillableArtifacts: cfg.AllowBillableArtifacts, AllowHighTokenProbes: cfg.AllowHighTokenProbes})
+				mr := result.ModelReport{ID: model, Metadata: cloneMap(metadata[model]), Modules: modules}
+				for _, evidence := range classification.Capabilities {
+					mr.Capabilities = append(mr.Capabilities, result.CapabilityAssessment{ID: evidence.Capability, Source: evidence.Source, Rule: evidence.Rule, Confidence: evidence.Confidence, Reason: evidence.Reason})
+				}
+				if cfg.HasTest("compat") {
+					mr.Compatibility = runModel(ctx, client, cfg, p, model, modules, probeExecutor)
+					mr.External = external.RunAnthropic(ctx, target, cfg.Timeout, model, externalSuitesForModules(modules))
+				}
+				sort.Slice(mr.Compatibility, func(i, j int) bool { return mr.Compatibility[i].ID < mr.Compatibility[j].ID })
+				if len(selected) > 1 {
+					stats := client.PacingStatsForModel(model)
+					mr.RateLimit = &result.RateLimitStats{SuccessfulRequests: stats.SuccessfulRequests, RateLimited: stats.RateLimited, RetriesRecovered: stats.RetriesRecovered, BackoffMS: stats.Backoff.Milliseconds(), SafeRate: stats.SafeRate, SafeConcurrency: stats.SafeConcurrency}
+					addModelLatency(mr.RateLimit, mr)
+				}
+				if options.Logf != nil {
+					options.Logf("[%s/%s] done", target.ID, model)
+				}
+				modelResults <- modelItem{index: index, report: mr}
+			}
+		}()
+	}
+	go func() {
+		for index := range selected {
+			jobs <- index
 		}
-		classification := capability.ClassifyAnthropic(model, metadata[model], capability.Options{BaseURL: target.BaseURL, Overrides: overrides, UnknownPolicy: target.UnknownModel})
-		modules := capability.AssessModules(classification, p.Modules, capability.RoutingOptions{Modules: target.Modules, AllowBillableArtifacts: cfg.AllowBillableArtifacts, AllowHighTokenProbes: cfg.AllowHighTokenProbes})
-		mr := result.ModelReport{ID: model, Metadata: cloneMap(metadata[model]), Modules: modules}
-		for _, evidence := range classification.Capabilities {
-			mr.Capabilities = append(mr.Capabilities, result.CapabilityAssessment{ID: evidence.Capability, Source: evidence.Source, Rule: evidence.Rule, Confidence: evidence.Confidence, Reason: evidence.Reason})
-		}
-		if cfg.HasTest("compat") {
-			mr.Compatibility = runModel(ctx, client, cfg, p, model, modules)
-		}
-		if cfg.HasTest("compat") {
-			mr.External = external.RunAnthropic(ctx, target, cfg.Timeout, model, externalSuitesForModules(modules))
-		}
-		sort.Slice(mr.Compatibility, func(i, j int) bool { return mr.Compatibility[i].ID < mr.Compatibility[j].ID })
-		if len(selected) > 1 {
-			stats := client.PacingStatsForModel(model)
-			mr.RateLimit = &result.RateLimitStats{SuccessfulRequests: stats.SuccessfulRequests, RateLimited: stats.RateLimited, RetriesRecovered: stats.RetriesRecovered, BackoffMS: stats.Backoff.Milliseconds(), SafeRate: stats.SafeRate, SafeConcurrency: stats.SafeConcurrency}
-			addModelLatency(mr.RateLimit, mr)
-		}
-		tmp.Models = append(tmp.Models, mr)
-		if options.Logf != nil {
-			options.Logf("[%s/%s] done", target.ID, model)
-		}
+		close(jobs)
+		wg.Wait()
+		close(modelResults)
+	}()
+	tmp.Models = make([]result.ModelReport, len(selected))
+	for item := range modelResults {
+		tmp.Models[item.index] = item.report
 	}
 	stats := client.PacingStats()
 	tmp.RateLimit = result.RateLimitStats{SuccessfulRequests: stats.SuccessfulRequests, RateLimited: stats.RateLimited, RetriesRecovered: stats.RetriesRecovered, BackoffMS: stats.Backoff.Milliseconds(), SafeRate: stats.SafeRate, SafeConcurrency: stats.SafeConcurrency}
@@ -205,38 +237,49 @@ func paginationResult(parent context.Context, client *Client, timeout time.Durat
 	return test
 }
 
-func runModel(parent context.Context, client *Client, cfg config.Config, p profile.Profile, model string, modules []result.ModuleAssessment) []result.TestResult {
+func runModel(parent context.Context, client *Client, cfg config.Config, p profile.Profile, model string, modules []result.ModuleAssessment, executor *probe.Executor) []result.TestResult {
 	timeout := cfg.Timeout
 	var out []result.TestResult
-	retrieveResp, retrieveErr := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.RetrieveModel(ctx, model) })
-	retrieve := testBase(p, "anthropic.models.retrieve")
-	retrieve.DurationMS, retrieve.HTTP = retrieveResp.Duration.Milliseconds(), observation(retrieveResp)
-	setHTTPStatus(&retrieve, retrieveResp, retrieveErr, true)
-	if retrieve.Status == result.StatusPass && stringValue(retrieveResp.JSON["id"]) != model {
-		retrieve.Status, retrieve.Summary = result.StatusFail, "Retrieved model ID does not match the request"
-	} else if retrieve.Status == result.StatusPass {
-		retrieve.Summary = "Retrieved model ID matches the request"
-	}
+	retrieve := probe.Map(executor, func() result.TestResult {
+		retrieveResp, retrieveErr := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.RetrieveModel(ctx, model) })
+		test := testBase(p, "anthropic.models.retrieve")
+		test.DurationMS, test.HTTP = retrieveResp.Duration.Milliseconds(), observation(retrieveResp)
+		setHTTPStatus(&test, retrieveResp, retrieveErr, true)
+		if test.Status == result.StatusPass && stringValue(retrieveResp.JSON["id"]) != model {
+			test.Status, test.Summary = result.StatusFail, "Retrieved model ID does not match the request"
+		} else if test.Status == result.StatusPass {
+			test.Summary = "Retrieved model ID matches the request"
+		}
+		return test
+	})[0]
 	out = append(out, retrieve)
 	if !moduleExecuted(modules, "anthropic.messages") {
-		return appendOptionalModelModules(parent, client, cfg, p, model, modules, out, 0)
+		return append(out, flattenProbeGroups(probe.Map(executor, optionalModelTasks(parent, client, cfg, p, model, modules, 0)...))...)
 	}
 	body := basicBody(model)
-	resp, err := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, body) })
-	basic := testBase(p, "anthropic.messages.basic")
-	basic.DurationMS = resp.Duration.Milliseconds()
-	basic.HTTP = observation(resp)
-	basic.Usage = ParseUsage(resp.JSON)
-	setHTTPStatus(&basic, resp, err, false)
-	if basic.Status == result.StatusPass {
-		if strings.Contains(Text(resp.JSON), "AIQA_OK") {
-			basic.Summary = "Minimal Anthropic Message returned the requested marker"
-		} else {
-			basic.Status = result.StatusFail
-			basic.Summary = "Message succeeded but did not return AIQA_OK"
-			basic.Observation = truncate(Text(resp.JSON), 200)
-		}
+	type basicPhase struct {
+		response api.Response
+		test     result.TestResult
 	}
+	phase := probe.Map(executor, func() basicPhase {
+		resp, err := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, body) })
+		basic := testBase(p, "anthropic.messages.basic")
+		basic.DurationMS = resp.Duration.Milliseconds()
+		basic.HTTP = observation(resp)
+		basic.Usage = ParseUsage(resp.JSON)
+		setHTTPStatus(&basic, resp, err, false)
+		if basic.Status == result.StatusPass {
+			if strings.Contains(Text(resp.JSON), "AIQA_OK") {
+				basic.Summary = "Minimal Anthropic Message returned the requested marker"
+			} else {
+				basic.Status = result.StatusFail
+				basic.Summary = "Message succeeded but did not return AIQA_OK"
+				basic.Observation = truncate(Text(resp.JSON), 200)
+			}
+		}
+		return basicPhase{response: resp, test: basic}
+	})[0]
+	resp, basic := phase.response, phase.test
 	out = append(out, basic)
 	schema := derived(p, "anthropic.messages.schema", basic)
 	if basic.Status == result.StatusPass {
@@ -276,104 +319,144 @@ func runModel(parent context.Context, client *Client, cfg config.Config, p profi
 		auth.Signals = []result.EvidenceSignal{{Code: "anthropic.auth.x_api_key.rejected"}}
 	}
 	out = append(out, auth)
-	versionRequired := credentialProbe(parent, client, timeout, p, "anthropic.header.version.required", body, client.apiKey, "")
-	if versionRequired.Status != result.StatusPass {
-		versionRequired.Signals = []result.EvidenceSignal{{Code: "anthropic.header.version.missing"}}
-	}
-	versionInvalid := credentialProbe(parent, client, timeout, p, "anthropic.header.version.invalid", body, client.apiKey, "1900-01-01")
-	invalidAuth := credentialProbe(parent, client, timeout, p, "anthropic.error.invalid_auth", body, "aiqa-invalid-key", StableAPIVersion)
-	out = append(out, versionRequired, versionInvalid, invalidAuth)
 	stringContent := derived(p, "anthropic.messages.content.string", basic)
 	stringContent.Summary = "String-form message content is accepted"
 	out = append(out, stringContent)
 
-	// Text-block content is a distinct wire shape.
-	blocksBody := basicBody(model)
-	blocksBody["messages"] = []any{map[string]any{"role": "user", "content": []any{map[string]any{"type": "text", "text": "Reply with exactly AIQA_OK."}}}}
-	out = append(out, simpleMarkerProbe(parent, client, timeout, p, "anthropic.messages.content.text_blocks", blocksBody))
-
-	// A small set of semantic message variations covers the major stable request fields.
-	systemBody := basicBody(model)
-	systemBody["system"] = "Always answer with exactly AIQA_OK."
-	out = append(out, simpleMarkerProbe(parent, client, timeout, p, "anthropic.messages.system.top_level", systemBody))
-	multiBody := basicBody(model)
-	multiBody["messages"] = []any{map[string]any{"role": "user", "content": "Remember AIQA_OK."}, map[string]any{"role": "assistant", "content": "I will remember it."}, map[string]any{"role": "user", "content": "Reply with only the remembered marker."}}
-	out = append(out, simpleMarkerProbe(parent, client, timeout, p, "anthropic.messages.multi_turn", multiBody))
-	prefillBody := basicBody(model)
-	prefillBody["messages"] = []any{map[string]any{"role": "user", "content": "Complete the marker AIQA_OK."}, map[string]any{"role": "assistant", "content": "AIQA_"}}
-	prefillResp, prefillErr := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, prefillBody) })
-	prefill := testBase(p, "anthropic.messages.assistant_prefill")
-	prefill.DurationMS, prefill.HTTP = prefillResp.Duration.Milliseconds(), observation(prefillResp)
-	setHTTPStatus(&prefill, prefillResp, prefillErr, true)
-	if prefill.Status == result.StatusPass && strings.TrimSpace(Text(prefillResp.JSON)) == "" {
-		prefill.Status = result.StatusFail
-		prefill.Summary = "Assistant prefill returned no continuation"
-	} else if prefill.Status == result.StatusPass {
-		prefill.Summary = "Assistant prefill returned a non-empty continuation"
+	tasks := []func() []result.TestResult{
+		func() []result.TestResult {
+			test := credentialProbe(parent, client, timeout, p, "anthropic.header.version.required", body, client.apiKey, "")
+			if test.Status != result.StatusPass {
+				test.Signals = []result.EvidenceSignal{{Code: "anthropic.header.version.missing"}}
+			}
+			return []result.TestResult{test}
+		},
+		func() []result.TestResult {
+			return []result.TestResult{credentialProbe(parent, client, timeout, p, "anthropic.header.version.invalid", body, client.apiKey, "1900-01-01")}
+		},
+		func() []result.TestResult {
+			return []result.TestResult{credentialProbe(parent, client, timeout, p, "anthropic.error.invalid_auth", body, "aiqa-invalid-key", StableAPIVersion)}
+		},
+		func() []result.TestResult {
+			blocksBody := basicBody(model)
+			blocksBody["messages"] = []any{map[string]any{"role": "user", "content": []any{map[string]any{"type": "text", "text": "Reply with exactly AIQA_OK."}}}}
+			return []result.TestResult{simpleMarkerProbe(parent, client, timeout, p, "anthropic.messages.content.text_blocks", blocksBody)}
+		},
+		func() []result.TestResult {
+			systemBody := basicBody(model)
+			systemBody["system"] = "Always answer with exactly AIQA_OK."
+			return []result.TestResult{simpleMarkerProbe(parent, client, timeout, p, "anthropic.messages.system.top_level", systemBody)}
+		},
+		func() []result.TestResult {
+			multiBody := basicBody(model)
+			multiBody["messages"] = []any{map[string]any{"role": "user", "content": "Remember AIQA_OK."}, map[string]any{"role": "assistant", "content": "I will remember it."}, map[string]any{"role": "user", "content": "Reply with only the remembered marker."}}
+			return []result.TestResult{simpleMarkerProbe(parent, client, timeout, p, "anthropic.messages.multi_turn", multiBody)}
+		},
+		func() []result.TestResult {
+			return []result.TestResult{runAssistantPrefill(parent, client, timeout, p, model)}
+		},
+		func() []result.TestResult {
+			return []result.TestResult{runStopSequence(parent, client, timeout, p, model)}
+		},
+		func() []result.TestResult {
+			return []result.TestResult{runMaxTokens(parent, client, timeout, p, model)}
+		},
+		func() []result.TestResult {
+			metadataBody := basicBody(model)
+			metadataBody["metadata"] = map[string]any{"user_id": "aiqa-compat-probe"}
+			return []result.TestResult{simpleMarkerProbe(parent, client, timeout, p, "anthropic.messages.metadata", metadataBody)}
+		},
+		func() []result.TestResult { return runErrors(parent, client, timeout, p, model) },
+		func() []result.TestResult { return runStream(parent, client, timeout, p, model) },
 	}
-	out = append(out, prefill)
-
-	stopMarker := "AIQA_STOP_7f3a"
-	stopBody := basicBody(model)
-	stopBody["stop_sequences"] = []any{stopMarker}
-	stopBody["messages"] = []any{map[string]any{"role": "user", "content": "Reply with AIQA_OK, then " + stopMarker + ", then ignored text."}}
-	stopResp, stopErr := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, stopBody) })
-	stopProbe := testBase(p, "anthropic.messages.stop_sequences")
-	stopProbe.DurationMS, stopProbe.HTTP = stopResp.Duration.Milliseconds(), observation(stopResp)
-	setHTTPStatus(&stopProbe, stopResp, stopErr, true)
-	if stopProbe.Status == result.StatusPass {
-		if stringValue(stopResp.JSON["stop_reason"]) != "stop_sequence" || stringValue(stopResp.JSON["stop_sequence"]) != stopMarker {
-			stopProbe.Status = result.StatusWarn
-			stopProbe.Summary = "Stop sequence was accepted but matching stop fields were not demonstrated"
-		} else {
-			stopProbe.Summary = "Unique stop sequence produced matching stop fields"
-		}
-	}
-	out = append(out, stopProbe)
-
-	maxBody := basicBody(model)
-	maxBody["max_tokens"] = 1
-	maxBody["messages"] = []any{map[string]any{"role": "user", "content": "Write a long explanation of AIQA compatibility."}}
-	maxResp, maxErr := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, maxBody) })
-	maxProbe := testBase(p, "anthropic.messages.max_tokens")
-	maxProbe.DurationMS, maxProbe.HTTP = maxResp.Duration.Milliseconds(), observation(maxResp)
-	setHTTPStatus(&maxProbe, maxResp, maxErr, true)
-	if maxProbe.Status == result.StatusPass {
-		reason := stringValue(maxResp.JSON["stop_reason"])
-		if reason == "" {
-			maxProbe.Status = result.StatusFail
-			maxProbe.Summary = "Small max_tokens response omitted stop_reason"
-		} else {
-			maxProbe.Summary = "Small max_tokens request returned compatible stop semantics (" + reason + ")"
-		}
-	}
-	out = append(out, maxProbe)
-	metadataBody := basicBody(model)
-	metadataBody["metadata"] = map[string]any{"user_id": "aiqa-compat-probe"}
-	out = append(out, simpleMarkerProbe(parent, client, timeout, p, "anthropic.messages.metadata", metadataBody))
-
-	out = append(out, runErrors(parent, client, timeout, p, model)...)
-	out = append(out, runStream(parent, client, timeout, p, model)...)
-	return appendOptionalModelModules(parent, client, cfg, p, model, modules, out, basic.Usage.InputTokens)
+	tasks = append(tasks, optionalModelTasks(parent, client, cfg, p, model, modules, basic.Usage.InputTokens)...)
+	return append(out, flattenProbeGroups(probe.Map(executor, tasks...))...)
 }
 
-func appendOptionalModelModules(parent context.Context, client *Client, cfg config.Config, p profile.Profile, model string, modules []result.ModuleAssessment, out []result.TestResult, observedInputTokens int64) []result.TestResult {
+func optionalModelTasks(parent context.Context, client *Client, cfg config.Config, p profile.Profile, model string, modules []result.ModuleAssessment, observedInputTokens int64) []func() []result.TestResult {
+	var tasks []func() []result.TestResult
 	if moduleExecuted(modules, "anthropic.tools") {
-		out = append(out, runTools(parent, client, cfg.Timeout, p, model)...)
+		tasks = append(tasks, func() []result.TestResult { return runTools(parent, client, cfg.Timeout, p, model) })
 	}
 	if moduleExecuted(modules, "anthropic.token-counting") {
-		out = append(out, runCountTokens(parent, client, cfg.Timeout, p, model, observedInputTokens)...)
+		tasks = append(tasks, func() []result.TestResult {
+			return runCountTokens(parent, client, cfg.Timeout, p, model, observedInputTokens)
+		})
 	}
 	if moduleExecuted(modules, "anthropic.structured-output") {
-		out = append(out, runStructured(parent, client, cfg.Timeout, p, model)...)
+		tasks = append(tasks, func() []result.TestResult { return runStructured(parent, client, cfg.Timeout, p, model) })
 	}
 	if moduleExecuted(modules, "anthropic.vision") {
-		out = append(out, runVision(parent, client, cfg.Timeout, p, model)...)
+		tasks = append(tasks, func() []result.TestResult { return runVision(parent, client, cfg.Timeout, p, model) })
 	}
 	if moduleExecuted(modules, "anthropic.thinking") && cfg.AllowHighTokenProbes {
-		out = append(out, runThinking(parent, client, cfg.Timeout, p, model)...)
+		tasks = append(tasks, func() []result.TestResult { return runThinking(parent, client, cfg.Timeout, p, model) })
+	}
+	return tasks
+}
+
+func flattenProbeGroups(groups [][]result.TestResult) []result.TestResult {
+	var out []result.TestResult
+	for _, group := range groups {
+		out = append(out, group...)
 	}
 	return out
+}
+
+func runAssistantPrefill(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string) result.TestResult {
+	body := basicBody(model)
+	body["messages"] = []any{map[string]any{"role": "user", "content": "Complete the marker AIQA_OK."}, map[string]any{"role": "assistant", "content": "AIQA_"}}
+	resp, err := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, body) })
+	test := testBase(p, "anthropic.messages.assistant_prefill")
+	test.DurationMS, test.HTTP = resp.Duration.Milliseconds(), observation(resp)
+	setHTTPStatus(&test, resp, err, true)
+	if test.Status == result.StatusPass && strings.TrimSpace(Text(resp.JSON)) == "" {
+		test.Status = result.StatusFail
+		test.Summary = "Assistant prefill returned no continuation"
+	} else if test.Status == result.StatusPass {
+		test.Summary = "Assistant prefill returned a non-empty continuation"
+	}
+	return test
+}
+
+func runStopSequence(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string) result.TestResult {
+	marker := "AIQA_STOP_7f3a"
+	body := basicBody(model)
+	body["stop_sequences"] = []any{marker}
+	body["messages"] = []any{map[string]any{"role": "user", "content": "Reply with AIQA_OK, then " + marker + ", then ignored text."}}
+	resp, err := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, body) })
+	test := testBase(p, "anthropic.messages.stop_sequences")
+	test.DurationMS, test.HTTP = resp.Duration.Milliseconds(), observation(resp)
+	setHTTPStatus(&test, resp, err, true)
+	if test.Status == result.StatusPass {
+		if stringValue(resp.JSON["stop_reason"]) != "stop_sequence" || stringValue(resp.JSON["stop_sequence"]) != marker {
+			test.Status = result.StatusWarn
+			test.Summary = "Stop sequence was accepted but matching stop fields were not demonstrated"
+		} else {
+			test.Summary = "Unique stop sequence produced matching stop fields"
+		}
+	}
+	return test
+}
+
+func runMaxTokens(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string) result.TestResult {
+	body := basicBody(model)
+	body["max_tokens"] = 1
+	body["messages"] = []any{map[string]any{"role": "user", "content": "Write a long explanation of AIQA compatibility."}}
+	resp, err := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, body) })
+	test := testBase(p, "anthropic.messages.max_tokens")
+	test.DurationMS, test.HTTP = resp.Duration.Milliseconds(), observation(resp)
+	setHTTPStatus(&test, resp, err, true)
+	if test.Status == result.StatusPass {
+		reason := stringValue(resp.JSON["stop_reason"])
+		if reason == "" {
+			test.Status = result.StatusFail
+			test.Summary = "Small max_tokens response omitted stop_reason"
+		} else {
+			test.Summary = "Small max_tokens request returned compatible stop semantics (" + reason + ")"
+		}
+	}
+	return test
 }
 
 func runErrors(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string) []result.TestResult {

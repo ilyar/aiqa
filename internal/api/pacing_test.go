@@ -36,15 +36,43 @@ func TestPacerWaitHonorsBackoffAfterReservation(t *testing.T) {
 	// A caller reaching the scheduler while a 429 backoff is active must not
 	// start until that backoff expires.
 	p.mu.Lock()
-	p.next = time.Now()
+	p.laneNext[0] = time.Now()
 	p.mu.Unlock()
 	p.limited("", 40*time.Millisecond)
 	started := time.Now()
-	if err := p.wait(context.Background()); err != nil {
+	if err := p.wait(context.Background(), ""); err != nil {
 		t.Fatalf("wait: %v", err)
 	}
-	defer p.release()
+	defer p.release("")
 	if elapsed := time.Since(started); elapsed < 30*time.Millisecond {
 		t.Fatalf("wait returned after %s; backoff was bypassed", elapsed)
+	}
+}
+
+func TestPacerConfiguredConcurrencyStartsRequestsInParallel(t *testing.T) {
+	p := newPacer(100 * time.Millisecond)
+	p.setConcurrency(3)
+	started := make(chan time.Time, 3)
+	release := make(chan struct{})
+	for range 3 {
+		go func() {
+			if err := p.wait(context.Background(), ""); err != nil {
+				return
+			}
+			started <- time.Now()
+			<-release
+			p.release("")
+		}()
+	}
+	first := <-started
+	last := first
+	for range 2 {
+		if next := <-started; next.After(last) {
+			last = next
+		}
+	}
+	close(release)
+	if spread := last.Sub(first); spread >= 50*time.Millisecond {
+		t.Fatalf("three configured lanes started %s apart; want parallel starts", spread)
 	}
 }

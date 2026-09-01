@@ -20,13 +20,15 @@ type PacingStats struct {
 type pacer struct {
 	mu                    sync.Mutex
 	interval              time.Duration
-	next                  time.Time
+	laneNext              []time.Time
 	blockedUntil          time.Time
 	successStreak         int
 	quietWindows          int
 	inflight              int
 	limit                 int
+	maxLimit              int
 	maxSuccessfulInFlight int
+	inflightByModel       map[string]int
 	changed               chan struct{}
 	stats                 PacingStats
 	byModel               map[string]PacingStats
@@ -36,17 +38,45 @@ func newPacer(initial time.Duration) *pacer {
 	if initial <= 0 {
 		initial = 2 * time.Second
 	}
-	return &pacer{interval: initial, limit: 1, changed: make(chan struct{}), byModel: map[string]PacingStats{}}
+	return &pacer{interval: initial, limit: 1, maxLimit: 4, laneNext: make([]time.Time, 4), changed: make(chan struct{}), inflightByModel: map[string]int{}, byModel: map[string]PacingStats{}}
 }
 
-func (p *pacer) wait(ctx context.Context) error {
+func (p *pacer) setConcurrency(limit int) {
+	if limit < 1 {
+		limit = 1
+	}
+	p.mu.Lock()
+	p.limit = limit
+	p.maxLimit = limit
+	if len(p.laneNext) < limit {
+		p.laneNext = append(p.laneNext, make([]time.Time, limit-len(p.laneNext))...)
+	}
+	close(p.changed)
+	p.changed = make(chan struct{})
+	p.mu.Unlock()
+}
+
+func (p *pacer) wait(ctx context.Context, model string) error {
 	p.mu.Lock()
 	now := time.Now()
-	if p.next.Before(now) {
-		p.next = now
+	lanes := p.limit
+	if lanes < 1 {
+		lanes = 1
 	}
-	start := p.next
-	p.next = start.Add(p.interval)
+	if len(p.laneNext) < lanes {
+		p.laneNext = append(p.laneNext, make([]time.Time, lanes-len(p.laneNext))...)
+	}
+	lane := 0
+	for index := 1; index < lanes; index++ {
+		if p.laneNext[index].Before(p.laneNext[lane]) {
+			lane = index
+		}
+	}
+	if p.laneNext[lane].Before(now) {
+		p.laneNext[lane] = now
+	}
+	start := p.laneNext[lane]
+	p.laneNext[lane] = start.Add(p.interval)
 	p.mu.Unlock()
 	if delay := time.Until(start); delay > 0 {
 		if err := waitDuration(ctx, delay); err != nil {
@@ -80,6 +110,9 @@ func (p *pacer) wait(ctx context.Context) error {
 		}
 		if p.inflight < p.limit {
 			p.inflight++
+			if model != "" {
+				p.inflightByModel[model]++
+			}
 			p.mu.Unlock()
 			return nil
 		}
@@ -104,10 +137,13 @@ func waitDuration(ctx context.Context, delay time.Duration) error {
 	}
 }
 
-func (p *pacer) release() {
+func (p *pacer) release(model string) {
 	p.mu.Lock()
 	if p.inflight > 0 {
 		p.inflight--
+	}
+	if model != "" && p.inflightByModel[model] > 0 {
+		p.inflightByModel[model]--
 	}
 	close(p.changed)
 	p.changed = make(chan struct{})
@@ -121,6 +157,9 @@ func (p *pacer) success(model string) {
 	if model != "" {
 		s := p.byModel[model]
 		s.SuccessfulRequests++
+		if p.inflightByModel[model] > s.SafeConcurrency {
+			s.SafeConcurrency = p.inflightByModel[model]
+		}
 		p.byModel[model] = s
 	}
 	if p.inflight > p.maxSuccessfulInFlight {
@@ -132,7 +171,7 @@ func (p *pacer) success(model string) {
 		p.interval -= 100 * time.Millisecond
 		p.successStreak = 0
 		p.quietWindows++
-		if p.quietWindows >= 2 && p.limit < 4 {
+		if p.quietWindows >= 2 && p.limit < p.maxLimit {
 			p.limit++
 			p.quietWindows = 0
 		}
@@ -168,8 +207,10 @@ func (p *pacer) limited(model string, retryAfter time.Duration) time.Duration {
 	if until := time.Now().Add(delay); until.After(p.blockedUntil) {
 		p.blockedUntil = until
 	}
-	if until := p.blockedUntil; until.After(p.next) {
-		p.next = until
+	for index := range p.laneNext {
+		if p.blockedUntil.After(p.laneNext[index]) {
+			p.laneNext[index] = p.blockedUntil
+		}
 	}
 	return delay
 }
@@ -189,7 +230,11 @@ func (p *pacer) snapshot() PacingStats {
 	defer p.mu.Unlock()
 	out := p.stats
 	if p.interval > 0 {
-		out.SafeRate = 1 / p.interval.Seconds()
+		concurrency := p.maxSuccessfulInFlight
+		if concurrency < 1 {
+			concurrency = 1
+		}
+		out.SafeRate = float64(concurrency) / p.interval.Seconds()
 	}
 	out.SafeConcurrency = p.maxSuccessfulInFlight
 	return out
@@ -200,8 +245,11 @@ func (p *pacer) snapshotForModel(model string) PacingStats {
 	defer p.mu.Unlock()
 	out := p.byModel[model]
 	if p.interval > 0 {
-		out.SafeRate = 1 / p.interval.Seconds()
+		concurrency := out.SafeConcurrency
+		if concurrency < 1 {
+			concurrency = 1
+		}
+		out.SafeRate = float64(concurrency) / p.interval.Seconds()
 	}
-	out.SafeConcurrency = p.maxSuccessfulInFlight
 	return out
 }

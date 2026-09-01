@@ -11,6 +11,7 @@ import (
 
 	"github.com/ilyar/aiqa/internal/api"
 	"github.com/ilyar/aiqa/internal/config"
+	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/profile"
 	"github.com/ilyar/aiqa/internal/result"
 )
@@ -20,6 +21,7 @@ type Environment struct {
 	Config  config.Config
 	Profile profile.Profile
 	Logf    func(format string, args ...any)
+	Probes  *probe.Executor
 }
 
 func (e Environment) logf(format string, args ...any) {

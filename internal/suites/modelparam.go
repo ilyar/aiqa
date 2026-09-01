@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ilyar/aiqa/internal/api"
+	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/result"
 )
 
@@ -34,8 +35,13 @@ func RunModelParameters(ctx context.Context, env Environment, model string, meta
 
 	env.logf("[%s] model-param: output limits", model)
 	baseline := runParamChat(ctx, env, model, map[string]any{}, longOutputPrompt(), 0)
-	maxCompletion := probeOutputLimit(ctx, env, model, "max_completion_tokens", baseline)
-	maxTokens := probeOutputLimit(ctx, env, model, "max_tokens", baseline)
+	outputLimits := probe.Map(env.Probes,
+		func() result.ParameterResult {
+			return probeOutputLimit(ctx, env, model, "max_completion_tokens", baseline)
+		},
+		func() result.ParameterResult { return probeOutputLimit(ctx, env, model, "max_tokens", baseline) },
+	)
+	maxCompletion, maxTokens := outputLimits[0], outputLimits[1]
 	// Count the shared unlimited baseline exactly once in aggregate usage.
 	maxCompletion.Usage = maxCompletion.Usage.Add(baseline.Usage)
 	maxCompletion.DurationMS += baseline.Resp.Duration.Milliseconds()
@@ -43,28 +49,52 @@ func RunModelParameters(ctx context.Context, env Environment, model string, meta
 	out = append(out, maxCompletion, maxTokens)
 	limit := chooseOutputLimit(maxCompletion, maxTokens)
 
-	env.logf("[%s] model-param: context window", model)
-	contextResult := ProbeContextWindow(ctx, env, model, metadata, limit.Parameter)
-
-	env.logf("[%s] model-param: reasoning controls", model)
-	out = append(out, probeReasoningControls(ctx, env, model, limit.Parameter)...)
-
-	env.logf("[%s] model-param: verbosity", model)
-	out = append(out, probeVerbosity(ctx, env, model, limit.Parameter))
-	env.logf("[%s] model-param: temperature", model)
-	out = append(out, probeTemperature(ctx, env, model, limit.Parameter))
-	env.logf("[%s] model-param: top_p", model)
-	out = append(out, probeTopP(ctx, env, model, limit.Parameter))
-	env.logf("[%s] model-param: seed", model)
-	out = append(out, probeSeed(ctx, env, model, limit.Parameter))
-	env.logf("[%s] model-param: stop, n, and parallel tools", model)
-	out = append(out, probeStop(ctx, env, model, limit.Parameter))
-	out = append(out, probeN(ctx, env, model, limit.Parameter))
-	out = append(out, probeParallelToolCalls(ctx, env, model, limit.Parameter))
-	env.logf("[%s] model-param: penalties and logprobs", model)
-	out = append(out, probeSimpleValidatedParameter(ctx, env, model, limit.Parameter, "presence_penalty", 0.5, 3.0))
-	out = append(out, probeSimpleValidatedParameter(ctx, env, model, limit.Parameter, "frequency_penalty", 0.5, 3.0))
-	out = append(out, probeLogprobsParameter(ctx, env, model, limit.Parameter))
+	env.logf("[%s] model-param: scheduling independent probes", model)
+	type group struct {
+		parameters []result.ParameterResult
+		context    *result.ContextProbeResult
+	}
+	groups := probe.Map(env.Probes,
+		func() group { return group{context: ProbeContextWindow(ctx, env, model, metadata, limit.Parameter)} },
+		func() group { return group{parameters: probeReasoningControls(ctx, env, model, limit.Parameter)} },
+		func() group {
+			return group{parameters: []result.ParameterResult{probeVerbosity(ctx, env, model, limit.Parameter)}}
+		},
+		func() group {
+			return group{parameters: []result.ParameterResult{probeTemperature(ctx, env, model, limit.Parameter)}}
+		},
+		func() group {
+			return group{parameters: []result.ParameterResult{probeTopP(ctx, env, model, limit.Parameter)}}
+		},
+		func() group {
+			return group{parameters: []result.ParameterResult{probeSeed(ctx, env, model, limit.Parameter)}}
+		},
+		func() group {
+			return group{parameters: []result.ParameterResult{probeStop(ctx, env, model, limit.Parameter)}}
+		},
+		func() group {
+			return group{parameters: []result.ParameterResult{probeN(ctx, env, model, limit.Parameter)}}
+		},
+		func() group {
+			return group{parameters: []result.ParameterResult{probeParallelToolCalls(ctx, env, model, limit.Parameter)}}
+		},
+		func() group {
+			return group{parameters: []result.ParameterResult{probeSimpleValidatedParameter(ctx, env, model, limit.Parameter, "presence_penalty", 0.5, 3.0)}}
+		},
+		func() group {
+			return group{parameters: []result.ParameterResult{probeSimpleValidatedParameter(ctx, env, model, limit.Parameter, "frequency_penalty", 0.5, 3.0)}}
+		},
+		func() group {
+			return group{parameters: []result.ParameterResult{probeLogprobsParameter(ctx, env, model, limit.Parameter)}}
+		},
+	)
+	var contextResult *result.ContextProbeResult
+	for _, group := range groups {
+		out = append(out, group.parameters...)
+		if group.context != nil {
+			contextResult = group.context
+		}
+	}
 
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Name == out[j].Name {

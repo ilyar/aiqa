@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -159,7 +160,50 @@ func TestAnthropicThinkingRequiresOptInAndRedactsPrivateContent(t *testing.T) {
 	}
 }
 
+func TestAnthropicConcurrencyAppliesToProbes(t *testing.T) {
+	var active atomic.Int32
+	var maximum atomic.Int32
+	server := newMockAnthropicWithMiddleware(t, func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			current := active.Add(1)
+			for {
+				seen := maximum.Load()
+				if current <= seen || maximum.CompareAndSwap(seen, current) {
+					break
+				}
+			}
+			time.Sleep(20 * time.Millisecond)
+			next.ServeHTTP(w, r)
+			active.Add(-1)
+		})
+	})
+	defer server.Close()
+	withTempWorkingDirectory(t)
+	t.Setenv("OPENAI_BASE_URL", "")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("ANTHROPIC_BASE_URL", server.URL+"/anthropic")
+	t.Setenv("ANTHROPIC_API_KEY", "anthropic-test-key")
+	cfg, err := config.Parse([]string{"test=compat", "--timeout=5", "--request-interval=1ms", "--concurrency=4", "--external=off", "--format=json", "--name=anthropic-parallel"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := Run(context.Background(), cfg, BuildInfo{Version: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.ReportV2 == nil || out.ExitCode != 0 {
+		t.Fatalf("parallel run changed compatibility results: %+v", out.ReportV2)
+	}
+	if got := maximum.Load(); got < 2 || got > 4 {
+		t.Fatalf("maximum concurrent HTTP requests=%d, want 2..4", got)
+	}
+}
+
 func newMockAnthropic(t *testing.T) *httptest.Server {
+	return newMockAnthropicWithMiddleware(t, nil)
+}
+
+func newMockAnthropicWithMiddleware(t *testing.T, middleware func(http.Handler) http.Handler) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
 	check := func(w http.ResponseWriter, r *http.Request) bool {
@@ -273,7 +317,11 @@ func newMockAnthropic(t *testing.T) *httptest.Server {
 		}
 		writeJSON(w, 200, map[string]any{"id": "msg_mock", "type": "message", "role": "assistant", "model": "claude-mock", "content": content, "stop_reason": stop, "stop_sequence": stopSequence, "usage": map[string]any{"input_tokens": 12, "output_tokens": 3}})
 	})
-	return httptest.NewServer(mux)
+	var handler http.Handler = mux
+	if middleware != nil {
+		handler = middleware(handler)
+	}
+	return httptest.NewServer(handler)
 }
 
 func anthropicModel() map[string]any {

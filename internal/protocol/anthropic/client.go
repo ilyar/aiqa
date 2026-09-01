@@ -19,6 +19,7 @@ type Client struct {
 	apiVersion      string
 	userAgent       string
 	requestInterval time.Duration
+	concurrency     int
 	inner           *api.Client
 }
 
@@ -45,6 +46,15 @@ func NormalizeBaseURL(raw string) string {
 }
 
 func (c *Client) client(key, version string) (*api.Client, error) {
+	headers := credentialHeaders(key, version)
+	client, err := api.NewClientWithHeaders(c.baseURL+"/v1", c.userAgent, c.requestInterval, headers)
+	if err == nil && c.concurrency > 0 {
+		client.SetConcurrency(c.concurrency)
+	}
+	return client, err
+}
+
+func credentialHeaders(key, version string) http.Header {
 	headers := make(http.Header)
 	if key != "" {
 		headers.Set("x-api-key", key)
@@ -52,7 +62,12 @@ func (c *Client) client(key, version string) (*api.Client, error) {
 	if version != "" {
 		headers.Set("anthropic-version", version)
 	}
-	return api.NewClientWithHeaders(c.baseURL+"/v1", c.userAgent, c.requestInterval, headers)
+	return headers
+}
+
+func (c *Client) SetConcurrency(limit int) {
+	c.concurrency = limit
+	c.inner.SetConcurrency(limit)
 }
 
 func (c *Client) ListModels(ctx context.Context) ([]api.Model, api.Response, error) {
@@ -110,10 +125,7 @@ func (c *Client) CountTokens(ctx context.Context, body map[string]any) (api.Resp
 }
 
 func (c *Client) MessageWithCredentials(ctx context.Context, body map[string]any, key, version string) (api.Response, error) {
-	client, err := c.client(key, version)
-	if err != nil {
-		return api.Response{}, err
-	}
+	client := c.inner.CloneWithHeaders(credentialHeaders(key, version))
 	return client.DoJSON(ctx, http.MethodPost, "messages", body)
 }
 

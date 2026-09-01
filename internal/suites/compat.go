@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ilyar/aiqa/internal/api"
+	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/profile"
 	"github.com/ilyar/aiqa/internal/result"
 )
@@ -106,52 +107,56 @@ func DiscoveryTests(p profile.Profile, resp api.Response, models []api.Model, li
 }
 
 func RunEndpointCompat(ctx context.Context, env Environment, validModel string) []result.TestResult {
-	var out []result.TestResult
-	out = append(out, probeInvalidModel(ctx, env))
-	out = append(out, probeInvalidAuth(ctx, env, validModel))
-	out = append(out, probeInvalidJSON(ctx, env))
-	out = append(out, probeInvalidTypes(ctx, env, validModel))
-	return out
+	groups := probe.Map(env.Probes,
+		func() []result.TestResult { return []result.TestResult{probeInvalidModel(ctx, env)} },
+		func() []result.TestResult { return []result.TestResult{probeInvalidAuth(ctx, env, validModel)} },
+		func() []result.TestResult { return []result.TestResult{probeInvalidJSON(ctx, env)} },
+		func() []result.TestResult { return []result.TestResult{probeInvalidTypes(ctx, env, validModel)} },
+	)
+	return flattenTests(groups)
 }
 
 func RunModelCompat(ctx context.Context, env Environment, model string) []result.TestResult {
-	env.logf("[%s] compat: model metadata", model)
-	out := []result.TestResult{probeRetrieveModel(ctx, env, model)}
-
-	env.logf("[%s] compat: basic completion", model)
-	basicResp, basicErr := callChat(ctx, env, map[string]any{
-		"model": model,
-		"messages": []any{
-			map[string]any{"role": "user", "content": "Reply with exactly AIQA_OK and nothing else."},
+	env.logf("[%s] compat: scheduling independent probes", model)
+	groups := probe.Map(env.Probes,
+		func() []result.TestResult { return []result.TestResult{probeRetrieveModel(ctx, env, model)} },
+		func() []result.TestResult {
+			basicResp, basicErr := callChat(ctx, env, map[string]any{
+				"model":    model,
+				"messages": []any{map[string]any{"role": "user", "content": "Reply with exactly AIQA_OK and nothing else."}},
+			})
+			return []result.TestResult{
+				evaluateBasic(env.Profile, basicResp, basicErr),
+				evaluateChatSchema(env.Profile, basicResp, basicErr),
+				evaluateUsage(env.Profile, basicResp, basicErr),
+			}
 		},
-	})
-	out = append(out, evaluateBasic(env.Profile, basicResp, basicErr))
-	out = append(out, evaluateChatSchema(env.Profile, basicResp, basicErr))
-	out = append(out, evaluateUsage(env.Profile, basicResp, basicErr))
+		func() []result.TestResult { return []result.TestResult{probeRole(ctx, env, model, "system")} },
+		func() []result.TestResult { return []result.TestResult{probeRole(ctx, env, model, "developer")} },
+		func() []result.TestResult { return []result.TestResult{probeTextContentParts(ctx, env, model)} },
+		func() []result.TestResult { return []result.TestResult{probeMultiTurn(ctx, env, model)} },
+		func() []result.TestResult { return []result.TestResult{probeStreaming(ctx, env, model, false)} },
+		func() []result.TestResult { return []result.TestResult{probeStreaming(ctx, env, model, true)} },
+		func() []result.TestResult { return []result.TestResult{probeToolChoice(ctx, env, model, "none")} },
+		func() []result.TestResult { return []result.TestResult{probeToolChoice(ctx, env, model, "auto")} },
+		func() []result.TestResult { return []result.TestResult{probeToolChoice(ctx, env, model, "required")} },
+		func() []result.TestResult {
+			toolResult, assistantMessage := probeForcedTool(ctx, env, model)
+			return []result.TestResult{toolResult, probeToolContinuation(ctx, env, model, toolResult, assistantMessage)}
+		},
+		func() []result.TestResult { return []result.TestResult{probeStreamingTool(ctx, env, model)} },
+		func() []result.TestResult { return []result.TestResult{probeJSONObject(ctx, env, model)} },
+		func() []result.TestResult { return []result.TestResult{probeJSONSchema(ctx, env, model)} },
+		func() []result.TestResult { return []result.TestResult{probeLogprobs(ctx, env, model)} },
+	)
+	return flattenTests(groups)
+}
 
-	env.logf("[%s] compat: message roles", model)
-	out = append(out, probeRole(ctx, env, model, "system"))
-	out = append(out, probeRole(ctx, env, model, "developer"))
-	out = append(out, probeTextContentParts(ctx, env, model))
-	out = append(out, probeMultiTurn(ctx, env, model))
-
-	env.logf("[%s] compat: streaming", model)
-	out = append(out, probeStreaming(ctx, env, model, false))
-	out = append(out, probeStreaming(ctx, env, model, true))
-
-	env.logf("[%s] compat: tool calling", model)
-	out = append(out, probeToolChoice(ctx, env, model, "none"))
-	out = append(out, probeToolChoice(ctx, env, model, "auto"))
-	out = append(out, probeToolChoice(ctx, env, model, "required"))
-	toolResult, assistantMessage := probeForcedTool(ctx, env, model)
-	out = append(out, toolResult)
-	out = append(out, probeStreamingTool(ctx, env, model))
-	out = append(out, probeToolContinuation(ctx, env, model, toolResult, assistantMessage))
-
-	env.logf("[%s] compat: structured output", model)
-	out = append(out, probeJSONObject(ctx, env, model))
-	out = append(out, probeJSONSchema(ctx, env, model))
-	out = append(out, probeLogprobs(ctx, env, model))
+func flattenTests(groups [][]result.TestResult) []result.TestResult {
+	var out []result.TestResult
+	for _, group := range groups {
+		out = append(out, group...)
+	}
 	return out
 }
 

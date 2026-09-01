@@ -335,6 +335,8 @@ Main additional options:
 --guidance-locale en
 ```
 
+`--concurrency` limits concurrently executing native probes across all model workers. Independent checks run in parallel, while checks with data dependencies remain ordered. The adaptive pacer may temporarily reduce the active request count after rate-limit responses.
+
 Plain HTTP is automatically allowed only for loopback, any other address requires explicit `--allow-http`
 
 ## Development

@@ -154,7 +154,9 @@ External checker output is sanitized, truncated, hashed, and stored once in `gui
 
 ## Request pacing and telemetry
 
-All native HTTP calls share an adaptive pacer. It begins with the configured request interval and one in-flight request. After quiet success windows, it reduces the interval and can raise concurrency. A 429 response resets concurrency to one, increases the interval, honors `Retry-After` when present, and retries the request up to three times.
+Independent native probes are submitted to one bounded executor shared by all model workers. `--concurrency` is therefore a run-wide ceiling for native probes, not merely the number of models tested at once. Results are collected in canonical order, so scheduling does not make reports nondeterministic. Probes with a real data dependency remain sequential, including tool continuation after a forced tool call and parameter checks that require a baseline.
+
+All native HTTP calls also share an adaptive pacer. It starts with up to `--concurrency` request lanes; `--request-interval` is the initial interval within each lane. After quiet success windows, it reduces the interval. A 429 response resets active concurrency to one, increases the interval, honors `Retry-After` when present, and retries the request up to three times. After the service remains stable, concurrency can recover up to the configured ceiling.
 
 The report keeps rate-limit observations separate from compatibility results:
 

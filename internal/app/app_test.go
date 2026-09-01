@@ -83,6 +83,39 @@ func TestRunCompatibilityWritesReports(t *testing.T) {
 	}
 }
 
+func TestRunCompatibilityAppliesConcurrencyToProbes(t *testing.T) {
+	var active atomic.Int32
+	var maximum atomic.Int32
+	server := newMockOpenAIWithMiddleware(t, func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			current := active.Add(1)
+			for {
+				seen := maximum.Load()
+				if current <= seen || maximum.CompareAndSwap(seen, current) {
+					break
+				}
+			}
+			time.Sleep(20 * time.Millisecond)
+			next.ServeHTTP(w, r)
+			active.Add(-1)
+		})
+	})
+	defer server.Close()
+	withTempWorkingDirectory(t)
+	cfg := testConfig(server.URL+"/v1", []string{"compat"})
+	cfg.Concurrency = 4
+	out, err := Run(context.Background(), cfg, BuildInfo{Version: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Report.Summary.Fail != 0 || out.Report.Summary.Error != 0 {
+		t.Fatalf("parallel run changed compatibility results: %+v", out.Report.Summary)
+	}
+	if got := maximum.Load(); got < 2 || got > 4 {
+		t.Fatalf("maximum concurrent HTTP requests=%d, want 2..4", got)
+	}
+}
+
 func TestGenerateExampleReports(t *testing.T) {
 	dir := os.Getenv("AIQA_EXAMPLE_DIR")
 	if dir == "" {
@@ -317,6 +350,10 @@ func withTempWorkingDirectory(t *testing.T) {
 }
 
 func newMockOpenAI(t *testing.T) *httptest.Server {
+	return newMockOpenAIWithMiddleware(t, nil)
+}
+
+func newMockOpenAIWithMiddleware(t *testing.T, middleware func(http.Handler) http.Handler) *httptest.Server {
 	t.Helper()
 	var sequence atomic.Int64
 	mux := http.NewServeMux()
@@ -550,7 +587,11 @@ func newMockOpenAI(t *testing.T) *httptest.Server {
 		}
 		writeJSON(w, 200, root)
 	})
-	return httptest.NewServer(mux)
+	var handler http.Handler = mux
+	if middleware != nil {
+		handler = middleware(handler)
+	}
+	return httptest.NewServer(handler)
 }
 
 func authorize(w http.ResponseWriter, r *http.Request) bool {
