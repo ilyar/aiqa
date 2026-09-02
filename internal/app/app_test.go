@@ -254,7 +254,7 @@ func TestGenerateExampleReports(t *testing.T) {
 	cfg.ContextBudget = 50_000
 	cfg.ContextMaxBytes = 16 * 1024
 	out, err := Run(context.Background(), cfg, BuildInfo{
-		Version: "1.0.0-alpha.2-example",
+		Version: "1.0.0-alpha.3-example",
 		Commit:  "example",
 		Date:    "2026-08-30T00:00:00Z",
 	})

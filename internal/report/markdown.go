@@ -2,6 +2,7 @@ package report
 
 import (
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -20,7 +21,9 @@ func Markdown(r result.Report) string {
 		fmt.Fprintf(&b, " (`%s`, built `%s`)", escapeInline(r.Tool.Commit), escapeInline(r.Tool.BuildDate))
 	}
 	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "- **Endpoint:** `%s`\n", escapeInline(r.Config.BaseURL))
+	if service := serviceLink(r.Config.BaseURL); service != "" {
+		fmt.Fprintf(&b, "- **Service:** %s\n", service)
+	}
 	fmt.Fprintf(&b, "- **Suites:** `%s`\n", strings.Join(r.Config.Tests, ","))
 	fmt.Fprintf(&b, "- **Timeout:** `%s` per request\n", r.Config.Timeout)
 	fmt.Fprintf(&b, "- **Profile:** `%s@%s` (`%s`) – %s\n", r.Profile.ID, r.Profile.Revision, shortSHA(r.Profile.SourceCommit), r.Profile.Scope)
@@ -419,6 +422,17 @@ func escapeCell(s string) string {
 
 func escapeInline(s string) string {
 	return strings.ReplaceAll(s, "`", "\\`")
+}
+
+// serviceLink renders only the origin's host so Markdown identifies the
+// provider without exposing API paths, query parameters, or credentials.
+func serviceLink(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme == "" || u.Host == "" || u.User != nil {
+		return ""
+	}
+	origin := (&url.URL{Scheme: u.Scheme, Host: u.Host}).String()
+	return fmt.Sprintf("[%s](%s)", escapeInline(u.Host), origin)
 }
 
 func codeList(values []string) string {

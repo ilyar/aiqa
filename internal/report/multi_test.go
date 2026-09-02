@@ -12,7 +12,7 @@ func TestMarkdownV3RendersTargetActionsAndPerModelTelemetry(t *testing.T) {
 	report := result.ReportV3{
 		SchemaVersion: "aiqa.report.v3",
 		Config: result.PublicConfigV3{Timeout: "1s", Targets: []result.TargetPublicConfig{{
-			ID: "anthropic", Protocol: "anthropic", BaseURLNormalized: true,
+			ID: "anthropic", Protocol: "anthropic", BaseURL: "https://gate.joingonka.ai/v1", BaseURLNormalized: true,
 		}}},
 		Summary: result.RunSummary{Verdict: "pass-with-gaps"},
 		Targets: []result.TargetReport{{
@@ -31,10 +31,23 @@ func TestMarkdownV3RendersTargetActionsAndPerModelTelemetry(t *testing.T) {
 		}},
 	}
 	markdown := MarkdownV3(report)
-	for _, want := range []string{"| PRI | Recommendation", "**Change or investigate:**", "Requirements: `anthropic.messages.schema`", "#### Per-model rate-limit and latency", "| `model-a` | 2 |", "normalized by removing one trailing `/v1`", "| Target | Input | Output | Cache creation | Cache read | Thinking/reasoning | Total |", "| `anthropic` | 15 | 28 | 0 | 144 | 0 | **187** |"} {
+	for _, want := range []string{"| PRI | Recommendation", "**Change or investigate:**", "Requirements: `anthropic.messages.schema`", "#### Per-model rate-limit and latency", "| `model-a` | 2 |", "normalized by removing one trailing `/v1`", "**Service:** [gate.joingonka.ai](https://gate.joingonka.ai)", "| Target | Input | Output | Cache creation | Cache read | Thinking/reasoning | Total |", "| `anthropic` | 15 | 28 | 0 | 144 | 0 | **187** |"} {
 		if !strings.Contains(markdown, want) {
 			t.Fatalf("markdown missing %q:\n%s", want, markdown)
 		}
+	}
+}
+
+func TestMarkdownV3RendersServiceOriginWithoutAPIPath(t *testing.T) {
+	report := result.ReportV3{Config: result.PublicConfigV3{Targets: []result.TargetPublicConfig{
+		{ID: "openai", Protocol: "openai", BaseURL: "https://gate.joingonka.ai/v1"},
+	}}, Targets: []result.TargetReport{{ID: "openai", Protocol: "openai"}}}
+	markdown := MarkdownV3(report)
+	if !strings.Contains(markdown, "- **Service:** [gate.joingonka.ai](https://gate.joingonka.ai)") {
+		t.Fatalf("service origin missing from Markdown:\n%s", markdown)
+	}
+	if strings.Contains(markdown, "gate.joingonka.ai/v1") {
+		t.Fatalf("API path leaked into service link:\n%s", markdown)
 	}
 }
 

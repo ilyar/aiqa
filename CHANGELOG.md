@@ -10,8 +10,9 @@
 - Introduce `aiqa.profile.v3` extension bindings and grouped `aiqa.report.v3` provenance, runner, and suite results. Unbound extension evidence is supplementary and cannot affect conformance.
 - Remove legacy external-checker flags, Docker assets, human-output parsing, report fields, schemas, and the separate Anthropic checker module.
 - Document the extension author contract and publish a reusable conformance fixture under `test/fixtures/ext-suite`.
+- Show a host-only linked `Service` in Markdown reports without exposing API paths, query parameters, or credentials.
 
-## 1.0.0-alpha.2 – 2026-08-30
+## 1.0.0-alpha.3 – 2026-09-02
 
 - Initial `compat` suite for OpenAI Models and Chat Completions APIs.
 - SSE chunk validation, streaming usage, tool-choice modes, streamed tools, tool continuation, structured outputs, logprobs, and error-shape probes.

@@ -3,7 +3,8 @@
 _Measures observed API behavior; a passing report is not a security audit or an official certification._
 
 - **Generated:** 2026-09-01 05:28:14Z
-- **Tool:** `aiqa 1.0.0-alpha.2-example`
+- **Tool:** `aiqa 1.0.0-alpha.3-example`
+- **Service:** [127.0.0.1:34631](http://127.0.0.1:34631)
 - **Suites:** `compat,model-param`
 - **Timeout:** `5s` per request
 - **External checks:** not setup

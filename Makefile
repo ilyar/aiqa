@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-VERSION ?= 1.0.0-alpha.2
+VERSION ?= 1.0.0-alpha.3
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || printf unknown)
 DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)

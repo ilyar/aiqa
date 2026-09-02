@@ -3,6 +3,7 @@ package report
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 
@@ -47,6 +48,7 @@ func MarkdownV3(r result.ReportV3) string {
 	fmt.Fprintln(&b)
 	fmt.Fprintf(&b, "- **Generated:** %s\n", r.GeneratedAt.Format("2006-01-02 15:04:05Z07:00"))
 	fmt.Fprintf(&b, "- **Tool:** `aiqa %s`\n", escapeInline(r.Tool.Version))
+	fmt.Fprintf(&b, "- **Service:** %s\n", servicesLink(r.Config.Targets))
 	fmt.Fprintf(&b, "- **Suites:** `%s`\n", strings.Join(r.Config.Tests, ","))
 	fmt.Fprintf(&b, "- **Timeout:** `%s` per request\n", r.Config.Timeout)
 	fmt.Fprintf(&b, "- **External checks:** %s\n\n", runExternalChecks(r.Targets))
@@ -107,6 +109,32 @@ func MarkdownV3(r result.ReportV3) string {
 		fmt.Fprintf(&b, "| **All targets** | **%d** | **%d** | **%d** | **%d** | **%d** | **%d** |\n", combined.input, combined.output, combined.cacheCreation, combined.cacheRead, combined.reasoning, combined.total)
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func servicesLink(targets []result.TargetPublicConfig) string {
+	byOrigin := make(map[string]string)
+	for _, target := range targets {
+		if link := serviceLink(target.BaseURL); link != "" {
+			u, err := url.Parse(strings.TrimSpace(target.BaseURL))
+			if err == nil {
+				origin := (&url.URL{Scheme: u.Scheme, Host: u.Host}).String()
+				byOrigin[origin] = link
+			}
+		}
+	}
+	if len(byOrigin) == 0 {
+		return "not specified"
+	}
+	origins := make([]string, 0, len(byOrigin))
+	for origin := range byOrigin {
+		origins = append(origins, origin)
+	}
+	sort.Strings(origins)
+	links := make([]string, 0, len(origins))
+	for _, origin := range origins {
+		links = append(links, byOrigin[origin])
+	}
+	return strings.Join(links, ", ")
 }
 
 type observedUsage struct {
