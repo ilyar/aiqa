@@ -4,7 +4,7 @@
 
 # Вердикт
 
-Диагноз верный: нынешний `openai-compat-2026-08` — это **профиль OpenAI Chat Completions**, а не профиль всей OpenAI API. Он содержит только discovery, `GET /models/{id}` и текстовые `POST /chat/completions` probes; ни image generation, ни embeddings, ни audio, ни Responses API в нём нет.
+Диагноз верный: нынешний `openai-compat-2026-08` – это **профиль OpenAI Chat Completions**, а не профиль всей OpenAI API. Он содержит только discovery, `GET /models/{id}` и текстовые `POST /chat/completions` probes; ни image generation, ни embeddings, ни audio, ни Responses API в нём нет.
 
 Проблема возникает в orchestration:
 
@@ -13,16 +13,16 @@
 * `model-param` тоже безусловно запускается для каждой модели;
 * внешний checker получает один и тот же жёстко заданный список chat suites независимо от типа модели.
 
-То есть image-модель сейчас не «проваливает OpenAI compatibility» — AIQA задаёт ей экзамен по санскриту, хотя она пришла рисовать банан.
+То есть image-модель сейчас не «проваливает OpenAI compatibility» – AIQA задаёт ей экзамен по санскриту, хотя она пришла рисовать банан.
 
 Есть, однако, важное уточнение к предложенной классификации:
 
-> `is_image: true → image_generation` — хороший provider-specific сигнал.
-> `is_image: false → chat` — **небезопасное общее правило**.
+> `is_image: true → image_generation` – хороший provider-specific сигнал.
+> `is_image: false → chat` – **небезопасное общее правило**.
 
 `false` может также обозначать embeddings, ASR, TTS, video, realtime или иной тип. Для Vibecode это можно трактовать через отдельный adapter, потому что metadata и pricing действительно отчётливо разделяют token-модели и image-модели. Но в общем классификаторе отсутствие image capability не доказывает наличие chat capability.
 
-Кроме того, официальный объект OpenAI `Model` содержит только базовые поля вроде `id`, `created`, `object`, `owned_by` и не публикует стандартного списка capabilities. Следовательно, универсально и безошибочно классифицировать модели только по стандартному `/models` невозможно — состояние `unknown` необходимо. ([OpenAI Platform][1])
+Кроме того, официальный объект OpenAI `Model` содержит только базовые поля вроде `id`, `created`, `object`, `owned_by` и не публикует стандартного списка capabilities. Следовательно, универсально и безошибочно классифицировать модели только по стандартному `/models` невозможно – состояние `unknown` необходимо. ([OpenAI Platform][1])
 
 ---
 
@@ -334,7 +334,7 @@ embeddings.error.invalid_model
 embeddings.error.invalid_json
 ```
 
-`error.invalid_model` не является абстрактным свойством вселенной — он всегда проверяет конкретный endpoint.
+`error.invalid_model` не является абстрактным свойством вселенной – он всегда проверяет конкретный endpoint.
 
 ---
 
@@ -432,7 +432,7 @@ POST /images/generations
 | Probe                           | Required | Проверка                                                          |
 | ------------------------------- | -------: | ----------------------------------------------------------------- |
 | `images.generate.basic`         |       да | `{model, prompt}` принят и вернул 2xx JSON                        |
-| `images.generate.schema`        |       да | `data` — непустой массив                                          |
+| `images.generate.schema`        |       да | `data` – непустой массив                                          |
 | `images.generate.artifact`      |       да | Есть `b64_json` или `url`, данные являются настоящим изображением |
 | `images.generate.invalid_model` |       да | Неизвестная модель даёт OpenAI-shaped client error                |
 | `images.generate.invalid_json`  |       да | Сломанный JSON не приводит к 5xx                                  |
@@ -502,12 +502,12 @@ PNG, 1024×1024, 1.8 MiB, sha256:7c0f…
 Поэтому:
 
 * PNG/JPEG/GIF можно проверять через `image.DecodeConfig`;
-* WebP — небольшим собственным RIFF/VP8/VP8L/VP8X header parser;
+* WebP – небольшим собственным RIFF/VP8/VP8L/VP8X header parser;
 * необязательно добавлять тяжёлую image dependency только ради dimensions.
 
 ---
 
-# 6. Image input — отдельный module
+# 6. Image input – отдельный module
 
 Нельзя смешивать:
 
@@ -556,8 +556,8 @@ chat.content_parts.image_url
 
 У него два уровня:
 
-* transport/shape — image part принят;
-* semantic — модель действительно интерпретировала изображение.
+* transport/shape – image part принят;
+* semantic – модель действительно интерпретировала изображение.
 
 Semantic failure здесь разумнее давать как `WARN`, если транспортный контракт выполнен, но ответ недостаточно однозначен.
 
@@ -667,7 +667,7 @@ var externalModules = map[string]ExternalModule{
 
 # 8. Что делать с billable suites
 
-Автоматически создать по картинке на каждой image-модели — хороший способ получить идеальный отчёт и неидеальный счёт от провайдера.
+Автоматически создать по картинке на каждой image-модели – хороший способ получить идеальный отчёт и неидеальный счёт от провайдера.
 
 В документации AIQA уже записано:
 
@@ -906,7 +906,7 @@ model-param для non-chat модели → N/A
 
 # 13. Разбивка на PR
 
-## PR 1 — capability routing, без image generation
+## PR 1 – capability routing, без image generation
 
 Цель: немедленно убрать ложные chat failures.
 
@@ -923,11 +923,11 @@ model-param для non-chat модели → N/A
 
 ```text
 Chat Completions: N/A
-Images Generations: SKIP — suite not implemented/enabled
+Images Generations: SKIP – suite not implemented/enabled
 Model assessment: NOT-EVALUATED
 ```
 
-## PR 2 — native images generation module
+## PR 2 – native images generation module
 
 * `/images/generations`;
 * schema validation;
@@ -937,14 +937,14 @@ Model assessment: NOT-EVALUATED
 * optional official-SDK `images_generations`;
 * billable opt-in.
 
-## PR 3 — embeddings, vision input и Responses
+## PR 3 – embeddings, vision input и Responses
 
 * embeddings;
 * `chat.content_parts.image_url`;
 * Responses text/image input;
 * module-specific external checks.
 
-## PR 4 — audio и video
+## PR 4 – audio и video
 
 * transcription;
 * speech;
@@ -970,7 +970,7 @@ Model assessment: NOT-EVALUATED
 13. `model-param` не запускает chat parameters для image/audio/embedding models.
 14. Provider-level discovery failures не смешиваются с model capability failures.
 
-И отдельная тонкость: исправление routing не отменяет настоящий provider-level дефект Vibecode — в приложенном отчёте `/models` не содержит обязательного `created` во всех 30 entries. Это самостоятельный inventory conformance failure и после capability routing должно остаться в отчёте.
+И отдельная тонкость: исправление routing не отменяет настоящий provider-level дефект Vibecode – в приложенном отчёте `/models` не содержит обязательного `created` во всех 30 entries. Это самостоятельный inventory conformance failure и после capability routing должно остаться в отчёте.
 
 Итоговая конструкция:
 

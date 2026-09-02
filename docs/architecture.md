@@ -107,12 +107,12 @@ The native implementation executes OpenAI Chat Completions and image generation 
 
 ## Probe levels
 
-1. **Transport** — HTTP status, content type, timeout behavior, and SSE framing.
-2. **Shape** — request and response fields follow the selected protocol contract.
-3. **SDK** — an official SDK can issue and parse a call through a built-in extension suite.
-4. **Semantic** — requested behavior is observed; for example, `n=2` yields two choices.
-5. **Validation canary** — deliberately invalid input is rejected instead of silently ignored.
-6. **Statistical evidence** — repeated generations compare observed distributions without presenting a small sample as certainty.
+1. **Transport** – HTTP status, content type, timeout behavior, and SSE framing.
+2. **Shape** – request and response fields follow the selected protocol contract.
+3. **SDK** – an official SDK can issue and parse a call through a built-in extension suite.
+4. **Semantic** – requested behavior is observed; for example, `n=2` yields two choices.
+5. **Validation canary** – deliberately invalid input is rejected instead of silently ignored.
+6. **Statistical evidence** – repeated generations compare observed distributions without presenting a small sample as certainty.
 
 Raw native and Official SDK evidence distinguishes `pass`, `warn`, `unsupported`, `fail`, `error`, and `skip`. Optional capabilities rejected with an appropriate 400, 404, or 422 response are `unsupported`. Timeouts, exhausted 429 responses, 5xx responses, and runner failures are `error` because the compatibility conclusion is incomplete. The requirement layer additionally uses `not_applicable`; this is distinct from a skipped applicable check.
 
@@ -190,9 +190,9 @@ The raw summary keeps status counts and a raw-result status for diagnostics. The
 
 Exit codes are applied after the report is written:
 
-- `0` — the selected `--fail-on` policy accepted the canonical verdict;
-- `1` — the canonical verdict violated that policy;
-- `2` — configuration, orchestration, or report writing failed.
+- `0` – the selected `--fail-on` policy accepted the canonical verdict;
+- `1` – the canonical verdict violated that policy;
+- `2` – configuration, orchestration, or report writing failed.
 
 With `--fail-on=core`, `fail` and `inconclusive` return `1`; optional-only gaps do not. With `--fail-on=any`, every verdict except `pass` returns `1`. `--fail-on=never` always returns `0` after a report is written. Guidance status never changes these decisions.
 

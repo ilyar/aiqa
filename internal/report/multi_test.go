@@ -74,13 +74,13 @@ func TestMarkdownV3GroupsExtensionSuitesWithoutExecutablePath(t *testing.T) {
 	report := result.ReportV3{Config: result.PublicConfigV3{Timeout: "1s"}, Summary: result.RunSummary{Verdict: "pass"}, Targets: []result.TargetReport{{
 		ID: "openai", Protocol: "openai", Profile: result.ProfileInfo{ID: "openai-compat", Revision: "2026-09-01"},
 		Extensions: []result.ExtensionRun{{
-			Provenance: result.ExtensionProvenance{ID: "official-sdk.openai", Name: "Official SDK — OpenAI Go", Version: "v3.54.0", Source: "executable", Path: "/private/bin/aiqa-openai-ext-suite"},
+			Provenance: result.ExtensionProvenance{ID: "official-sdk.openai", Name: "Official SDK – OpenAI Go", Version: "v3.54.0", Source: "executable", Path: "/private/bin/aiqa-openai-ext-suite"},
 			Subject:    result.SubjectRef{Kind: "model", ID: "model-a"}, Runner: result.ExtensionRunnerResult{Status: result.StatusPass},
 			Suites: []result.ExtensionSuiteResult{{SuiteID: "chat.stream", Subject: result.SubjectRef{Kind: "model", ID: "model-a"}, Status: result.StatusPass, DurationMS: 12, Summary: "SDK parsed the stream"}},
 		}},
 	}}}
 	markdown := MarkdownV3(report)
-	for _, want := range []string{"**External checks:** [Official SDK — OpenAI Go v3.54.0]", "#### Official SDK — OpenAI Go v3.54.0", "| Suite | Subject | Status | Duration | Summary |", "| `chat.stream` | `model:model-a` | PASS | 12ms |"} {
+	for _, want := range []string{"**External checks:** [Official SDK – OpenAI Go v3.54.0]", "#### Official SDK – OpenAI Go v3.54.0", "| Suite | Subject | Status | Duration | Summary |", "| `chat.stream` | `model:model-a` | PASS | 12ms |"} {
 		if !strings.Contains(markdown, want) {
 			t.Fatalf("markdown missing %q:\n%s", want, markdown)
 		}

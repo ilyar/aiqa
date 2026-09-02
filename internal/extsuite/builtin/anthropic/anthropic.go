@@ -32,7 +32,7 @@ func (e *Extension) Manifest() extsuite.Manifest {
 	return extsuite.Manifest{
 		SchemaVersion:    extsuite.ProtocolVersion,
 		Type:             "manifest",
-		Extension:        extsuite.ExtensionInfo{ID: extensionID, Name: "Official SDK — Anthropic Go", Version: sdkVersion},
+		Extension:        extsuite.ExtensionInfo{ID: extensionID, Name: "Official SDK – Anthropic Go", Version: sdkVersion},
 		ReportContracts:  []string{"aiqa.report.v3"},
 		ProfileContracts: []string{"aiqa.profile.v3"},
 		Protocols:        []string{"anthropic"},

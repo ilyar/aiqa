@@ -263,7 +263,7 @@ func writePassedChecks(b *strings.Builder, r result.Report) {
 			fmt.Fprintln(b)
 		}
 		if model.Context != nil && model.Context.Status == result.StatusPass {
-			fmt.Fprintf(b, "Context window: **PASS** — %s\n\n", escapeCell(model.Context.Summary))
+			fmt.Fprintf(b, "Context window: **PASS** – %s\n\n", escapeCell(model.Context.Summary))
 		}
 	}
 	fmt.Fprintln(b, "</details>")

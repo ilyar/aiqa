@@ -2,11 +2,11 @@
 
 ## Решение
 
-**AIQA не следует показывать один общий процент как равноправный спутник итогового verdict.** Для conformance-отчёта основной результат — категориальный вердикт, а числа должны описывать разные измерения:
+**AIQA не следует показывать один общий процент как равноправный спутник итогового verdict.** Для conformance-отчёта основной результат – категориальный вердикт, а числа должны описывать разные измерения:
 
-1. **Core conformance** — насколько выполнен минимальный обязательный профиль.
-2. **Optional capability coverage** — какая доля дополнительных возможностей подтверждена.
-3. **Evidence coverage** — для какой доли требований вообще получен однозначный результат.
+1. **Core conformance** – насколько выполнен минимальный обязательный профиль.
+2. **Optional capability coverage** – какая доля дополнительных возможностей подтверждена.
+3. **Evidence coverage** – для какой доли требований вообще получен однозначный результат.
 
 Итоговое решение от 2026-09-01: удалить `Score` из Markdown, JSON и schema без переходного legacy-поля. Проект находится в alpha, и поддержка потребителей старого процентного поля не требуется.
 
@@ -15,7 +15,7 @@
 * Qwen: `PARTIAL`, `76.5%`, при этом обязательные проверки пройдены `8/8`; результат состоит из 26 pass, 1 fail, 7 unsupported и 1 skip.
 * Vibecode: `FAIL`, `77.1%`, потому что обязательные проверки пройдены только `7/8`; результат состоит из 27 pass, 6 fail и 2 unsupported.
 
-Число `77.1%` визуально обещает превосходство над `76.5%`, хотя категорический вывод говорит обратное. Процент здесь попросту измеряет другую ось, но притворяется общим качеством — маленькая метафизическая диверсия в одной колонке.
+Число `77.1%` визуально обещает превосходство над `76.5%`, хотя категорический вывод говорит обратное. Процент здесь попросту измеряет другую ось, но притворяется общим качеством – маленькая метафизическая диверсия в одной колонке.
 
 До реализации canonical assessment прежняя реализация:
 
@@ -25,7 +25,7 @@
 * следовательно, required `error` превращается в `FAIL`, а required `skip` может вообще не помешать `PASS`;
 * добавляет результаты внешнего checker в те же счётчики, что и нативные проверки, поэтому добавление ещё одного инструмента само по себе меняет score.
 
-Это расходится с заданной семантикой: `ERROR` должен означать неопределённость, а `SKIP` — отсутствие проверки, но никак не доказательство совместимости.
+Это расходится с заданной семантикой: `ERROR` должен означать неопределённость, а `SKIP` – отсутствие проверки, но никак не доказательство совместимости.
 
 ---
 
@@ -35,16 +35,16 @@
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | [TAP 14](https://testanything.org/tap-version-14-specification.html)                                                                                                                   | `ok` / `not ok`; отдельные `SKIP` и `TODO`. Failing SKIP/TODO не считается обычным failure                                             | Harness может показать pass rate, но verdict остаётся `FAILED`; спецификация буквально приводит `FAILED … 50.00% okay` | Процент является диагностикой, а не заменой verdict; skip нельзя смешивать с fail | TAP не определяет required/optional compatibility profiles ([testanything.org][1])                                                   |
 | [JUnit Platform](https://docs.junit.org/6.1.1/api/org.junit.platform.engine/org/junit/platform/engine/TestExecutionResult.html) и [xUnit XML v2](https://xunit.net/docs/format-xml-v2) | JUnit разделяет `successful`, `failed`, `aborted`; xUnit отдельно считает test failure, skipped/not-run и environment error            | Обычно показываются counts, а не единый score; запуск завершается ошибкой при failed tests                             | `ERROR`/aborted следует отделить от доказанного incompatibility                   | Это test-runner conventions, не стандарт API conformance ([docs.junit.org][2])                                                       |
-| [W3C EARL](https://www.w3.org/TR/EARL10-Schema/)                                                                                                                                       | `passed`, `failed`, `cantTell`, `inapplicable`, `untested`                                                                             | Универсальный процент не предписан                                                                                     | Почти прямое соответствие: pass, fail, inconclusive, N/A, skip                    | EARL — словарь результатов, а не методика агрегирования API-профиля ([W3C][3])                                                       |
-| [W3C WCAG conformance](https://www.w3.org/WAI/WCAG22/Understanding/conformance)                                                                                                        | Уровень conformance достигается только при выполнении **всех** критериев уровня; прогресс по более высоким уровням сообщается отдельно | Не усредняет обязательные и дополнительные критерии в одну оценку                                                      | Лучший прецедент для `Core conformance` отдельно от optional progress             | Предметная область — accessibility, а не API, но структура профиля подходит очень хорошо ([W3C][4])                                  |
-| [OpenID Foundation Conformance Suite](https://openid.net/certification/connect_rp_testing/)                                                                                            | Certification определяется статусами полного профиля; `FAILED` и `INTERRUPTED` блокируют сертификацию                                  | Сертификационного score нет                                                                                            | Профиль — hard gate; counts и warnings остаются доказательной частью              | Допустимость `WARNING`/`SKIPPED` определяется именно политикой OpenID, её нельзя буквально перенести в AIQA ([OpenID Foundation][5]) |
+| [W3C EARL](https://www.w3.org/TR/EARL10-Schema/)                                                                                                                                       | `passed`, `failed`, `cantTell`, `inapplicable`, `untested`                                                                             | Универсальный процент не предписан                                                                                     | Почти прямое соответствие: pass, fail, inconclusive, N/A, skip                    | EARL – словарь результатов, а не методика агрегирования API-профиля ([W3C][3])                                                       |
+| [W3C WCAG conformance](https://www.w3.org/WAI/WCAG22/Understanding/conformance)                                                                                                        | Уровень conformance достигается только при выполнении **всех** критериев уровня; прогресс по более высоким уровням сообщается отдельно | Не усредняет обязательные и дополнительные критерии в одну оценку                                                      | Лучший прецедент для `Core conformance` отдельно от optional progress             | Предметная область – accessibility, а не API, но структура профиля подходит очень хорошо ([W3C][4])                                  |
+| [OpenID Foundation Conformance Suite](https://openid.net/certification/connect_rp_testing/)                                                                                            | Certification определяется статусами полного профиля; `FAILED` и `INTERRUPTED` блокируют сертификацию                                  | Сертификационного score нет                                                                                            | Профиль – hard gate; counts и warnings остаются доказательной частью              | Допустимость `WARNING`/`SKIPPED` определяется именно политикой OpenID, её нельзя буквально перенести в AIQA ([OpenID Foundation][5]) |
 | [MDN Browser Compat Data](https://github.com/mdn/browser-compat-data/blob/main/docs/data-guidelines/README.md)                                                                         | Feature-by-feature matrix; есть отдельный `partial_implementation`                                                                     | Нет одного «browser compatibility score»                                                                               | Optional-возможности естественнее показывать как capability matrix                | Нет единого verdict всего browser/runtime ([GitHub][6])                                                                              |
 | [Schemathesis](https://schemathesis.readthedocs.io/en/latest/reference/cli/) и [Postman](https://learning.postman.com/docs/monitoring-your-api/viewing-monitor-results)                | Schemathesis разделяет failed check и aborted run; Postman отделяет failed assertion от network/TLS/runtime error                      | Counts и exit status; единой conformance-оценки нет                                                                    | `ERROR` не должен доказывать отсутствие или несовместимость capability            | Не определяют required/optional и модельную applicability ([schemathesis.readthedocs.io][7])                                         |
-| [OpenTelemetry trace status](https://opentelemetry.io/docs/specs/otel/trace/api/)                                                                                                      | Status хранится отдельно от метрик и событий                                                                                           | Метрики агрегируются независимо от status                                                                              | Полезный архитектурный принцип: verdict и количественные сигналы — разные поля    | Это observability convention, не conformance standard ([OpenTelemetry][8])                                                           |
+| [OpenTelemetry trace status](https://opentelemetry.io/docs/specs/otel/trace/api/)                                                                                                      | Status хранится отдельно от метрик и событий                                                                                           | Метрики агрегируются независимо от status                                                                              | Полезный архитектурный принцип: verdict и количественные сигналы – разные поля    | Это observability convention, не conformance standard ([OpenTelemetry][8])                                                           |
 
-Для определения самих уровней требований подходит терминология [IETF BCP 14 / RFC 2119](https://www.rfc-editor.org/rfc/rfc2119): обязательное `MUST/REQUIRED` и действительно необязательное `MAY/OPTIONAL`. Но RFC 2119 не задаёт scoring — оно только помогает строго сформировать профиль. ([RFC Editor][9])
+Для определения самих уровней требований подходит терминология [IETF BCP 14 / RFC 2119](https://www.rfc-editor.org/rfc/rfc2119): обязательное `MUST/REQUIRED` и действительно необязательное `MAY/OPTIONAL`. Но RFC 2119 не задаёт scoring – оно только помогает строго сформировать профиль. ([RFC Editor][9])
 
-**Вывод обзора:** ни один из рассмотренных первичных источников не предлагает универсальную формулу weighted conformance score. Повторяющийся паттерн — **hard-gated verdict + раздельные counts/coverage**. TAP допускает процент рядом с verdict, но прямо демонстрирует, что `50% okay` всё равно является `FAILED`. ([testanything.org][1])
+**Вывод обзора:** ни один из рассмотренных первичных источников не предлагает универсальную формулу weighted conformance score. Повторяющийся паттерн – **hard-gated verdict + раздельные counts/coverage**. TAP допускает процент рядом с verdict, но прямо демонстрирует, что `50% okay` всё равно является `FAILED`. ([testanything.org][1])
 
 ---
 
@@ -54,9 +54,9 @@
 
 Сейчас нативные проверки и проверки official SDK попадают в общий score как самостоятельные равновесные единицы. Это делает показатель нестабильным:
 
-* добавили новый checker — изменился score;
-* разбили один тест на три — изменился score;
-* сделали retry отдельным result — изменился score;
+* добавили новый checker – изменился score;
+* разбили один тест на три – изменился score;
+* сделали retry отдельным result – изменился score;
 * сама совместимость endpoint при этом могла вообще не измениться.
 
 Правильная структура:
@@ -311,7 +311,7 @@ PASS            rank 3
 (verdict_rank, core_conformance, optional_coverage, evidence_coverage)
 ```
 
-Сначала сравнивается verdict, и лишь внутри одной категории — числовые измерения.
+Сначала сравнивается verdict, и лишь внутри одной категории – числовые измерения.
 
 Текущая JSON Schema не содержит `score`, `score_method` или `score_deprecated`. Вложенный `assessment` является авторитетным результатом, а raw `status` и counts остаются диагностикой.
 
@@ -492,7 +492,7 @@ O = optional_coverage / 100
 q = 0.8 × C + 0.2 × O
 ```
 
-Core имеет 80% веса, optional — 20%. Эти веса не являются стандартом; это явная AIQA policy, которую необходимо закрепить в версии профиля.
+Core имеет 80% веса, optional – 20%. Эти веса не являются стандартом; это явная AIQA policy, которую необходимо закрепить в версии профиля.
 
 Затем `q` помещается в непересекающийся verdict band:
 
@@ -539,11 +539,11 @@ FAIL index =
 Недостатки banded index:
 
 * `73.2` не означает «73.2% требований выполнено»;
-* границы диапазонов и веса — политика AIQA, а не стандарт;
+* границы диапазонов и веса – политика AIQA, а не стандарт;
 * одинаковая разница в 5 пунктов имеет разный смысл в разных bands;
 * `INCONCLUSIVE` всё равно нельзя честно ранжировать.
 
-Поэтому рекомендованный публичный интерфейс — **verdict + отдельные measures**. Banded index пригоден только для внутреннего dashboard, сортировки или трендов.
+Поэтому рекомендованный публичный интерфейс – **verdict + отдельные measures**. Banded index пригоден только для внутреннего dashboard, сортировки или трендов.
 
 Обычный weighted score **без verdict bands** проблему не решает: при другом количестве core/optional требований endpoint с core failure снова может обогнать endpoint с пройденным core.
 
