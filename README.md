@@ -170,7 +170,10 @@ Official SDK checks are compiled into AIQA and use the same extension contract a
 aiqa test=ext-suite
 aiqa test=compat,ext-suite
 aiqa test=ext-suite --ext-suite=official-sdk.openai
+aiqa test=compat,ext-suite --ext-suite=official-sdk
 ```
+
+The aggregate `official-sdk` selector expands to the OpenAI and/or Anthropic SDK according to the configured target environment. It does not add an SDK whose matching base URL and API key are absent.
 
 The binary pins the official OpenAI Go SDK `v3.54.0` and Anthropic Go SDK `v1.68.0`. SDK retries are disabled, and requests share AIQA's global concurrency and adaptive pacing policy. Each suite contributes separately through an explicit `aiqa.profile.v3` binding.
 

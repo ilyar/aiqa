@@ -255,6 +255,7 @@ func runOpenAI(ctx context.Context, cfg config.Config, build BuildInfo) (RunResu
 }
 
 func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, error) {
+	cfg.ExtSuites = config.ResolveExtSuiteSelection(cfg.ExtSuites, cfg.Targets)
 	r := result.ReportV3{
 		SchemaVersion: "aiqa.report.v3",
 		GeneratedAt:   time.Now().UTC(),

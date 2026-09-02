@@ -214,7 +214,7 @@ func Parse(args []string) (Config, error) {
 	fs.StringVar(&formats, "format", formats, "comma-separated report formats: markdown,json")
 	fs.StringVar(&cfg.Name, "name", cfg.Name, "output basename without extension")
 	fs.IntVar(&cfg.Concurrency, "concurrency", cfg.Concurrency, "global ceiling for concurrent native and extension probe work")
-	fs.Var(&extSuiteValues, "ext-suite", "extension IDs to run; repeatable or comma-separated; default: all applicable extensions")
+	fs.Var(&extSuiteValues, "ext-suite", "extension IDs to run; repeatable or comma-separated; official-sdk selects configured Official SDKs; default: all applicable extensions")
 	fs.Var(&extSuitePaths, "ext-suite-path", "absolute extension executable path; may be repeated")
 	fs.BoolVar(&cfg.AllowHighTokenProbes, "allow-high-token-probes", false, "allow opt-in high-token probes")
 	fs.StringVar(&modules, "module", modules, "capability modules: auto, chat-completions, images-generations, or anthropic.*")
@@ -632,4 +632,27 @@ func (c Config) HasTest(name string) bool {
 		}
 	}
 	return false
+}
+
+// ResolveExtSuiteSelection expands the user-facing Official SDK aggregate
+// after targets have been configured. Target configuration is the source of
+// truth here: an unset or inactive protocol never adds its SDK extension.
+func ResolveExtSuiteSelection(selected []string, targets []TargetConfig) []string {
+	const aggregate = "official-sdk"
+	var resolved []string
+	for _, id := range selected {
+		if id != aggregate {
+			resolved = append(resolved, id)
+			continue
+		}
+		for _, target := range targets {
+			switch target.Protocol {
+			case ProtocolOpenAI:
+				resolved = append(resolved, "official-sdk.openai")
+			case ProtocolAnthropic:
+				resolved = append(resolved, "official-sdk.anthropic")
+			}
+		}
+	}
+	return uniqueStrings(resolved)
 }

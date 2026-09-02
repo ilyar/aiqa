@@ -171,7 +171,7 @@ func TestCombinedNativeAndExtensionRunProducesOneAssessment(t *testing.T) {
 	defer server.Close()
 	t.Setenv("PATH", t.TempDir())
 	cfg := testConfig(server.URL+"/v1", []string{"compat", "ext-suite"})
-	cfg.ExtSuites = []string{"official-sdk.openai"}
+	cfg.ExtSuites = []string{"official-sdk"}
 	cfg.Concurrency = 3
 	cfg.Formats = nil
 	out, err := Run(context.Background(), cfg, BuildInfo{Version: "test"})

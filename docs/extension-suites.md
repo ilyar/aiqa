@@ -17,6 +17,8 @@ aiqa test=ext-suite \
 
 `test=ext-suite` runs every applicable built-in and discovered extension. Repeat `--ext-suite` or pass comma-separated IDs to select exact extensions. Selecting an unavailable ID is a configuration error. A `compat`-only run neither scans `PATH` nor executes extensions.
 
+The aggregate selector `--ext-suite=official-sdk` expands to `official-sdk.openai` and/or `official-sdk.anthropic` according to the configured targets. A target is configured only when its matching base URL and API key are present (and selected by `--target`), so an absent protocol environment pair does not add that SDK.
+
 AIQA includes two built-ins:
 
 | Extension ID | Implementation | Embedded version | License |

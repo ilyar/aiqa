@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+## 1.0.0-alpha.3 – 2026-09-02
 - Replace Docker and checker-specific Official SDK transports with the explicit `test=ext-suite` architecture.
 - Embed OpenAI Go SDK `v3.54.0` and Anthropic Go SDK `v1.68.0`, disable SDK retries, and route built-in requests through AIQA concurrency and pacing controls.
 - Preserve the retained Models, chat/Messages, streaming, structured-output, tools, error, token-counting, and image SDK cases as independently bound suites; omit obsolete OpenAI checker labels that had no selectable profile module.
@@ -11,9 +12,7 @@
 - Remove legacy external-checker flags, Docker assets, human-output parsing, report fields, schemas, and the separate Anthropic checker module.
 - Document the extension author contract and publish a reusable conformance fixture under `test/fixtures/ext-suite`.
 - Show a host-only linked `Service` in Markdown reports without exposing API paths, query parameters, or credentials.
-
-## 1.0.0-alpha.3 – 2026-09-02
-
+- Allow `--ext-suite=official-sdk` to select the configured OpenAI and/or Anthropic Official SDK suites automatically.
 - Initial `compat` suite for OpenAI Models and Chat Completions APIs.
 - SSE chunk validation, streaming usage, tool-choice modes, streamed tools, tool continuation, structured outputs, logprobs, and error-shape probes.
 - Initial `model-param` suite with context-boundary search, reasoning controls, sampling controls, output limits, penalties, verbosity, and parallel tools.

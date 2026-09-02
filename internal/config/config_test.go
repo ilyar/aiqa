@@ -23,6 +23,34 @@ func TestParseExtensionSelectionAndPaths(t *testing.T) {
 	}
 }
 
+func TestResolveOfficialSDKSelectionUsesConfiguredTargets(t *testing.T) {
+	tests := []struct {
+		name    string
+		targets []TargetConfig
+		want    string
+	}{
+		{name: "openai only", targets: []TargetConfig{{Protocol: ProtocolOpenAI}}, want: "official-sdk.openai"},
+		{name: "anthropic only", targets: []TargetConfig{{Protocol: ProtocolAnthropic}}, want: "official-sdk.anthropic"},
+		{name: "both", targets: []TargetConfig{{Protocol: ProtocolOpenAI}, {Protocol: ProtocolAnthropic}}, want: "official-sdk.openai,official-sdk.anthropic"},
+		{name: "no target", want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ResolveExtSuiteSelection([]string{"official-sdk"}, tt.targets)
+			if strings.Join(got, ",") != tt.want {
+				t.Fatalf("resolved selection=%v, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveOfficialSDKSelectionDeduplicatesExplicitIDs(t *testing.T) {
+	got := ResolveExtSuiteSelection([]string{"official-sdk", "official-sdk.openai", "acme.gateway"}, []TargetConfig{{Protocol: ProtocolOpenAI}})
+	if want := "official-sdk.openai,acme.gateway"; strings.Join(got, ",") != want {
+		t.Fatalf("resolved selection=%v, want %q", got, want)
+	}
+}
+
 func TestParseRejectsExtensionFilterWithoutExtensionTest(t *testing.T) {
 	t.Setenv("OPENAI_BASE_URL", "https://example.test/v1")
 	t.Setenv("OPENAI_API_KEY", "secret")

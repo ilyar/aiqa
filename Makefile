@@ -12,8 +12,8 @@ CYCLONEDX_GOMOD_VERSION := v1.12.0
 all: check build
 
 build:
-	mkdir -p bin
-	CGO_ENABLED=0 go build -trimpath -ldflags '$(LDFLAGS)' -o bin/aiqa ./cmd/aiqa
+	@mkdir -p bin
+	@CGO_ENABLED=0 go build -trimpath -ldflags '$(LDFLAGS)' -o bin/aiqa ./cmd/aiqa
 
 test:
 	go test ./...
@@ -67,8 +67,8 @@ profile-upstream-check:
 check: fmt-check profiles-check schemas-check dependency-check vet test
 
 install: build
-	install -Dm755 bin/aiqa "$${HOME}/.local/bin/aiqa"
-
+	@install -Dm755 bin/aiqa "$${HOME}/.local/bin/aiqa"
+	@aiqa --version
 dist: check
 	rm -rf dist
 	mkdir -p dist
