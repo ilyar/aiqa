@@ -2,7 +2,7 @@
 
 _measures observed API behavior, a passing report is not a security audit or an official certification_
 
-- **Generated:** 2026-09-03 17:04:47Z
+- **Generated:** 2026-09-03 17:27:13Z
 - **Tool:** `aiqa 1.0.0-alpha.3`
 - **Service:** [127.0.0.1:8080](http://127.0.0.1:8080)
 - **Suites:** `compat,ext-suite`
@@ -25,9 +25,9 @@ Targets are assessed independently. Percentages are not combined into a cross-pr
 
 | Target | Successful | 429 | Retries | Backoff | Safe req/s | Safe concurrency | Mean | P50 | P95 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| `anthropic` | 24 | 0 | 0 | 0ms | 8.12 | 13 | 516ms | 438ms | 1520ms |
-| `google-genai` | 6 | 0 | 0 | 0ms | 2.11 | 4 | 146ms | 53ms | 762ms |
-| `openai` | 20 | 0 | 0 | 0ms | 5.62 | 9 | 805ms | 779ms | 2303ms |
+| `anthropic` | 24 | 0 | 0 | 0ms | 7.50 | 12 | 421ms | 282ms | 1296ms |
+| `google-genai` | 6 | 0 | 0 | 0ms | 3.16 | 6 | 142ms | 52ms | 733ms |
+| `openai` | 20 | 0 | 0 | 0ms | 5.62 | 9 | 855ms | 1026ms | 2085ms |
 
 ## Target: Anthropic
 
@@ -64,23 +64,23 @@ Built-in extension transport counts are separate from native latency percentiles
 
 | Successful | 429 | Recovered retries | Backoff | Safe req/s | Safe concurrency |
 |---:|---:|---:|---:|---:|---:|
-| 11 | 0 | 0 | 0ms | 10.00 | 13 |
+| 11 | 0 | 0 | 0ms | 9.23 | 12 |
 
 #### Official SDK – Anthropic Go v1.68.0
 
 | Suite | Subject | Status | Duration | Summary |
 |---|---|---:|---:|---|
-| `count-tokens` | `model:Ternary-Bonsai-1.7B` | PASS | 1ms | Official Anthropic Go SDK sent and parsed the suite |
-| `error.responses` | `model:Ternary-Bonsai-1.7B` | PASS | 2ms | Official Anthropic Go SDK sent and parsed the suite |
-| `messages` | `model:Ternary-Bonsai-1.7B` | PASS | 64ms | Official Anthropic Go SDK sent and parsed the suite |
-| `messages.multi-turn` | `model:Ternary-Bonsai-1.7B` | PASS | 267ms | Official Anthropic Go SDK sent and parsed the suite |
-| `messages.stream` | `model:Ternary-Bonsai-1.7B` | PASS | 308ms | Official Anthropic Go SDK sent and parsed the suite |
-| `messages.system` | `model:Ternary-Bonsai-1.7B` | PASS | 717ms | Official Anthropic Go SDK sent and parsed the suite |
-| `models.get` | `model:Ternary-Bonsai-1.7B` | PASS | 1ms | Official Anthropic Go SDK sent and parsed the suite |
-| `structured-output` | `model:Ternary-Bonsai-1.7B` | PASS | 591ms | Official Anthropic Go SDK sent and parsed the suite |
-| `tools` | `model:Ternary-Bonsai-1.7B` | PASS | 1589ms | Official Anthropic Go SDK sent and parsed the suite |
-| `tools.stream` | `model:Ternary-Bonsai-1.7B` | PASS | 1109ms | Official Anthropic Go SDK sent and parsed the suite |
-| `models.list` | `provider:http://127.0.0.1:8080/anthropic` | PASS | 1ms | Official Anthropic Go SDK sent and parsed the suite |
+| `count-tokens` | `model:Ternary-Bonsai-1.7B` | PASS | 5ms | Official Anthropic Go SDK sent and parsed the suite |
+| `error.responses` | `model:Ternary-Bonsai-1.7B` | PASS | 6ms | Official Anthropic Go SDK sent and parsed the suite |
+| `messages` | `model:Ternary-Bonsai-1.7B` | PASS | 69ms | Official Anthropic Go SDK sent and parsed the suite |
+| `messages.multi-turn` | `model:Ternary-Bonsai-1.7B` | PASS | 1044ms | Official Anthropic Go SDK sent and parsed the suite |
+| `messages.stream` | `model:Ternary-Bonsai-1.7B` | PASS | 493ms | Official Anthropic Go SDK sent and parsed the suite |
+| `messages.system` | `model:Ternary-Bonsai-1.7B` | PASS | 612ms | Official Anthropic Go SDK sent and parsed the suite |
+| `models.get` | `model:Ternary-Bonsai-1.7B` | PASS | 2ms | Official Anthropic Go SDK sent and parsed the suite |
+| `structured-output` | `model:Ternary-Bonsai-1.7B` | PASS | 833ms | Official Anthropic Go SDK sent and parsed the suite |
+| `tools` | `model:Ternary-Bonsai-1.7B` | PASS | 1527ms | Official Anthropic Go SDK sent and parsed the suite |
+| `tools.stream` | `model:Ternary-Bonsai-1.7B` | PASS | 452ms | Official Anthropic Go SDK sent and parsed the suite |
+| `models.list` | `provider:http://127.0.0.1:8080/anthropic` | PASS | 3ms | Official Anthropic Go SDK sent and parsed the suite |
 
 ## Target: Google GenAI
 
@@ -127,18 +127,18 @@ Built-in extension transport counts are separate from native latency percentiles
 
 | Successful | 429 | Recovered retries | Backoff | Safe req/s | Safe concurrency |
 |---:|---:|---:|---:|---:|---:|
-| 6 | 0 | 0 | 0ms | 2.22 | 4 |
+| 6 | 0 | 0 | 0ms | 3.33 | 6 |
 
 #### Official SDK – Google Gen AI Go v1.71.0
 
 | Suite | Subject | Status | Duration | Summary |
 |---|---|---:|---:|---|
-| `generate-content` | `model:Ternary-Bonsai-1.7B` | PASS | 512ms | Official Google Gen AI Go SDK sent and parsed the suite |
-| `generate-content-stream` | `model:Ternary-Bonsai-1.7B` | PASS | 50ms | Official Google Gen AI Go SDK sent and parsed the suite |
-| `models.get` | `model:Ternary-Bonsai-1.7B` | PASS | 1ms | Official Google Gen AI Go SDK sent and parsed the suite |
-| `structured-output` | `model:Ternary-Bonsai-1.7B` | PASS | 239ms | Official Google Gen AI Go SDK sent and parsed the suite |
-| `tools` | `model:Ternary-Bonsai-1.7B` | PASS | 473ms | Official Google Gen AI Go SDK sent and parsed the suite |
-| `models.list` | `provider:http://127.0.0.1:8080/genai` | PASS | 1ms | Official Google Gen AI Go SDK sent and parsed the suite |
+| `generate-content` | `model:Ternary-Bonsai-1.7B` | PASS | 265ms | Official Google Gen AI Go SDK sent and parsed the suite |
+| `generate-content-stream` | `model:Ternary-Bonsai-1.7B` | PASS | 233ms | Official Google Gen AI Go SDK sent and parsed the suite |
+| `models.get` | `model:Ternary-Bonsai-1.7B` | PASS | 2ms | Official Google Gen AI Go SDK sent and parsed the suite |
+| `structured-output` | `model:Ternary-Bonsai-1.7B` | PASS | 199ms | Official Google Gen AI Go SDK sent and parsed the suite |
+| `tools` | `model:Ternary-Bonsai-1.7B` | PASS | 490ms | Official Google Gen AI Go SDK sent and parsed the suite |
+| `models.list` | `provider:http://127.0.0.1:8080/genai` | PASS | 2ms | Official Google Gen AI Go SDK sent and parsed the suite |
 
 ## Target: OpenAI
 
@@ -176,16 +176,16 @@ Built-in extension transport counts are separate from native latency percentiles
 
 | Suite | Subject | Status | Duration | Summary |
 |---|---|---:|---:|---|
-| `chat.completions` | `model:prism-ml/Ternary-Bonsai-1.7B` | PASS | 270ms | Official OpenAI Go SDK sent and parsed the suite |
-| `chat.json` | `model:prism-ml/Ternary-Bonsai-1.7B` | PASS | 234ms | Official OpenAI Go SDK sent and parsed the suite |
-| `chat.multi-turn` | `model:prism-ml/Ternary-Bonsai-1.7B` | PASS | 1117ms | Official OpenAI Go SDK sent and parsed the suite |
-| `chat.stream` | `model:prism-ml/Ternary-Bonsai-1.7B` | PASS | 301ms | Official OpenAI Go SDK sent and parsed the suite |
-| `chat.stream.usage` | `model:prism-ml/Ternary-Bonsai-1.7B` | PASS | 93ms | Official OpenAI Go SDK sent and parsed the suite |
-| `chat.tools` | `model:prism-ml/Ternary-Bonsai-1.7B` | PASS | 1214ms | Official OpenAI Go SDK sent and parsed the suite |
-| `chat.tools.stream` | `model:prism-ml/Ternary-Bonsai-1.7B` | PASS | 747ms | Official OpenAI Go SDK sent and parsed the suite |
-| `error.responses` | `model:prism-ml/Ternary-Bonsai-1.7B` | PASS | 1ms | Official OpenAI Go SDK sent and parsed the suite |
+| `chat.completions` | `model:prism-ml/Ternary-Bonsai-1.7B` | PASS | 316ms | Official OpenAI Go SDK sent and parsed the suite |
+| `chat.json` | `model:prism-ml/Ternary-Bonsai-1.7B` | PASS | 249ms | Official OpenAI Go SDK sent and parsed the suite |
+| `chat.multi-turn` | `model:prism-ml/Ternary-Bonsai-1.7B` | PASS | 910ms | Official OpenAI Go SDK sent and parsed the suite |
+| `chat.stream` | `model:prism-ml/Ternary-Bonsai-1.7B` | PASS | 110ms | Official OpenAI Go SDK sent and parsed the suite |
+| `chat.stream.usage` | `model:prism-ml/Ternary-Bonsai-1.7B` | PASS | 283ms | Official OpenAI Go SDK sent and parsed the suite |
+| `chat.tools` | `model:prism-ml/Ternary-Bonsai-1.7B` | PASS | 1478ms | Official OpenAI Go SDK sent and parsed the suite |
+| `chat.tools.stream` | `model:prism-ml/Ternary-Bonsai-1.7B` | PASS | 1096ms | Official OpenAI Go SDK sent and parsed the suite |
+| `error.responses` | `model:prism-ml/Ternary-Bonsai-1.7B` | PASS | 232ms | Official OpenAI Go SDK sent and parsed the suite |
 | `models.get` | `model:prism-ml/Ternary-Bonsai-1.7B` | PASS | 0ms | Official OpenAI Go SDK sent and parsed the suite |
-| `models.list` | `provider:http://127.0.0.1:8080/openai/v1` | PASS | 1ms | Official OpenAI Go SDK sent and parsed the suite |
+| `models.list` | `provider:http://127.0.0.1:8080/openai/v1` | PASS | 0ms | Official OpenAI Go SDK sent and parsed the suite |
 
 ## Observed API usage
 
@@ -193,7 +193,7 @@ Provider-reported token usage is normalized to common input and output columns. 
 
 | Target | Input | Output | Cache creation | Cache read | Thinking/reasoning | Total |
 |---|---:|---:|---:|---:|---:|---:|
-| `anthropic` | 2000 | 399 | 0 | 294 | 0 | **2693** |
-| `google-genai` | 474 | 108 | 0 | 341 | 0 | **582** |
-| `openai` | 1629 | 192 | 0 | 0 | 0 | **1821** |
-| **All targets** | **4103** | **699** | **0** | **635** | **0** | **5096** |
+| `anthropic` | 2000 | 407 | 0 | 294 | 0 | **2701** |
+| `google-genai` | 474 | 112 | 0 | 341 | 0 | **586** |
+| `openai` | 1629 | 190 | 0 | 0 | 0 | **1819** |
+| **All targets** | **4103** | **709** | **0** | **635** | **0** | **5106** |

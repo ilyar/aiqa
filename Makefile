@@ -17,12 +17,15 @@ build:
 
 test:
 	go test ./...
+	go test ./script/example.go ./script/example_test.go
 
 race:
 	go test -race ./...
+	go test -race ./script/example.go ./script/example_test.go
 
 vet:
 	go vet ./...
+	go vet ./script/example.go
 
 fmt-check:
 	@test -z "$$(gofmt -l $$(find . -name '*.go' -type f))" || \
@@ -82,7 +85,7 @@ install: build
 	@aiqa --version
 
 example: build
-	@PATH="$(CURDIR)/bin:$$PATH" bash script/example.sh
+	@PATH="$(CURDIR)/bin:$$PATH" go run ./script/example.go
 
 dist: check
 	rm -rf dist
