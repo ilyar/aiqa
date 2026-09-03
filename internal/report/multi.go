@@ -67,7 +67,7 @@ func MarkdownV3(r result.ReportV3) string {
 
 	fmt.Fprintln(&b, "## Rate-limit and latency")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "| Target | Successful | 429 | Retries | Backoff | Safe req/s | Safe concurrency | Mean | P50 | P95 |")
+	fmt.Fprintln(&b, "| Target | Successful | 429 | Retries | Backoff | Safe req/s | Concurrency | Mean | P50 | P95 |")
 	fmt.Fprintln(&b, "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
 	for _, target := range r.Targets {
 		s := target.RateLimit
@@ -345,7 +345,7 @@ func writeTargetModels(b *strings.Builder, target result.TargetReport) {
 	if len(target.Models) > 1 {
 		fmt.Fprintln(b, "#### Per-model rate-limit and latency")
 		fmt.Fprintln(b)
-		fmt.Fprintln(b, "| Model | Successful | 429 | Recovered retries | Safe req/s | Mean | P50 | P95 |")
+		fmt.Fprintln(b, "| Model | Successful | 429 | Retries | Safe req/s | Mean | P50 | P95 |")
 		fmt.Fprintln(b, "|---|---:|---:|---:|---:|---:|---:|---:|")
 		for _, model := range target.Models {
 			if model.RateLimit == nil {
@@ -398,7 +398,7 @@ func writeTargetExtensions(b *strings.Builder, runs []result.ExtensionRun, rateL
 	if rateLimit != nil {
 		fmt.Fprintln(b, "Built-in extension transport counts are separate from native latency percentiles. Safe rate and concurrency show the target pacer's state after extension execution; executable extensions report only validated suite evidence.")
 		fmt.Fprintln(b)
-		fmt.Fprintln(b, "| Successful | 429 | Recovered retries | Backoff | Safe req/s | Safe concurrency |")
+		fmt.Fprintln(b, "| Successful | 429 | Retries | Backoff | Safe req/s | Concurrency |")
 		fmt.Fprintln(b, "|---:|---:|---:|---:|---:|---:|")
 		fmt.Fprintf(b, "| %d | %d | %d | %dms | %.2f | %d |\n\n", rateLimit.SuccessfulRequests, rateLimit.RateLimited, rateLimit.RetriesRecovered, rateLimit.BackoffMS, rateLimit.SafeRate, rateLimit.SafeConcurrency)
 	}

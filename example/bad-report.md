@@ -2,9 +2,9 @@
 
 _measures observed API behavior, a passing report is not a security audit or an official certification_
 
-- **Generated:** 2026-09-03 17:27:28Z
+- **Generated:** 2026-09-03 22:36:42Z
 - **Tool:** `aiqa 1.0.0-alpha.3`
-- **Service:** [127.0.0.1:32775](http://127.0.0.1:32775)
+- **Service:** [127.0.0.1:32776](http://127.0.0.1:32776)
 - **Suites:** `compat,ext-suite`
 - **Timeout:** `1m0s` per request
 - **External checks:** [Official SDK – Anthropic Go v1.68.0](https://github.com/anthropics/anthropic-sdk-go/releases/tag/v1.68.0), [Official SDK – Google Gen AI Go v1.71.0](https://github.com/googleapis/go-genai/releases/tag/v1.71.0), [Official SDK – OpenAI Go v3.54.0](https://github.com/openai/openai-go/releases/tag/v3.54.0)
@@ -23,10 +23,10 @@ Targets are assessed independently. Percentages are not combined into a cross-pr
 
 ## Rate-limit and latency
 
-| Target | Successful | 429 | Retries | Backoff | Safe req/s | Safe concurrency | Mean | P50 | P95 |
+| Target | Successful | 429 | Retries | Backoff | Safe req/s | Concurrency | Mean | P50 | P95 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| `anthropic` | 1 | 0 | 0 | 0ms | 0.50 | 1 | 28ms | 28ms | 28ms |
-| `google-genai` | 1 | 0 | 0 | 0ms | 0.50 | 1 | 3ms | 3ms | 3ms |
+| `anthropic` | 1 | 0 | 0 | 0ms | 0.50 | 1 | 29ms | 29ms | 29ms |
+| `google-genai` | 1 | 0 | 0 | 0ms | 0.50 | 1 | 2ms | 2ms | 2ms |
 | `openai` | 1 | 0 | 0 | 0ms | 0.50 | 1 | 2ms | 2ms | 2ms |
 
 ## Target: Anthropic
@@ -509,7 +509,7 @@ Targets are assessed independently. Percentages are not combined into a cross-pr
 
 **Why this matters:** The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.
 
-**Observed:** POST "http://127.0.0.1:32775/anthropic/v1/messages/count_tokens": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}
+**Observed:** POST "http://127.0.0.1:32776/anthropic/v1/messages/count_tokens": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}
 
 **Change or investigate:**
 
@@ -524,7 +524,7 @@ Targets are assessed independently. Percentages are not combined into a cross-pr
 
 **Why this matters:** The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.
 
-**Observed:** invalid model returned unexpected HTTP 503: POST "http://127.0.0.1:32775/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}
+**Observed:** invalid model returned unexpected HTTP 503: POST "http://127.0.0.1:32776/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}
 
 **Change or investigate:**
 
@@ -539,7 +539,7 @@ Targets are assessed independently. Percentages are not combined into a cross-pr
 
 **Why this matters:** The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.
 
-**Observed:** POST "http://127.0.0.1:32775/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}
+**Observed:** POST "http://127.0.0.1:32776/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}
 
 **Change or investigate:**
 
@@ -554,7 +554,7 @@ Targets are assessed independently. Percentages are not combined into a cross-pr
 
 **Why this matters:** The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.
 
-**Observed:** POST "http://127.0.0.1:32775/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}
+**Observed:** POST "http://127.0.0.1:32776/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}
 
 **Change or investigate:**
 
@@ -569,7 +569,7 @@ Targets are assessed independently. Percentages are not combined into a cross-pr
 
 **Why this matters:** The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.
 
-**Observed:** POST "http://127.0.0.1:32775/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}
+**Observed:** POST "http://127.0.0.1:32776/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}
 
 **Change or investigate:**
 
@@ -584,7 +584,7 @@ Targets are assessed independently. Percentages are not combined into a cross-pr
 
 **Why this matters:** The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.
 
-**Observed:** POST "http://127.0.0.1:32775/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}
+**Observed:** POST "http://127.0.0.1:32776/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}
 
 **Change or investigate:**
 
@@ -599,7 +599,7 @@ Targets are assessed independently. Percentages are not combined into a cross-pr
 
 **Why this matters:** The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.
 
-**Observed:** Get "http://127.0.0.1:32775/anthropic/v1/models/wiremock-broken-model": cannot retry SDK request with a non-replayable body
+**Observed:** Get "http://127.0.0.1:32776/anthropic/v1/models/wiremock-broken-model": cannot retry SDK request with a non-replayable body
 
 **Change or investigate:**
 
@@ -614,7 +614,7 @@ Targets are assessed independently. Percentages are not combined into a cross-pr
 
 **Why this matters:** The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.
 
-**Observed:** POST "http://127.0.0.1:32775/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}
+**Observed:** POST "http://127.0.0.1:32776/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}
 
 **Change or investigate:**
 
@@ -629,7 +629,7 @@ Targets are assessed independently. Percentages are not combined into a cross-pr
 
 **Why this matters:** The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.
 
-**Observed:** POST "http://127.0.0.1:32775/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}
+**Observed:** POST "http://127.0.0.1:32776/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}
 
 **Change or investigate:**
 
@@ -644,7 +644,7 @@ Targets are assessed independently. Percentages are not combined into a cross-pr
 
 **Why this matters:** The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.
 
-**Observed:** POST "http://127.0.0.1:32775/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}
+**Observed:** POST "http://127.0.0.1:32776/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}
 
 **Change or investigate:**
 
@@ -972,25 +972,25 @@ Targets are assessed independently. Percentages are not combined into a cross-pr
 
 Built-in extension transport counts are separate from native latency percentiles. Safe rate and concurrency show the target pacer's state after extension execution; executable extensions report only validated suite evidence.
 
-| Successful | 429 | Recovered retries | Backoff | Safe req/s | Safe concurrency |
+| Successful | 429 | Retries | Backoff | Safe req/s | Concurrency |
 |---:|---:|---:|---:|---:|---:|
-| 1 | 0 | 0 | 0ms | 0.50 | 1 |
+| 1 | 0 | 0 | 0ms | 2.00 | 4 |
 
 #### Official SDK – Anthropic Go v1.68.0
 
 | Suite | Subject | Status | Duration | Summary |
 |---|---|---:|---:|---|
-| `count-tokens` | `model:wiremock-broken-model` | ERROR | 2863ms | POST "http://127.0.0.1:32775/anthropic/v1/messages/count_tokens": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}} |
-| `error.responses` | `model:wiremock-broken-model` | ERROR | 3689ms | invalid model returned unexpected HTTP 503: POST "http://127.0.0.1:32775/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}} |
-| `messages` | `model:wiremock-broken-model` | ERROR | 3172ms | POST "http://127.0.0.1:32775/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}} |
-| `messages.multi-turn` | `model:wiremock-broken-model` | ERROR | 2833ms | POST "http://127.0.0.1:32775/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}} |
-| `messages.stream` | `model:wiremock-broken-model` | ERROR | 3377ms | POST "http://127.0.0.1:32775/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}} |
-| `messages.system` | `model:wiremock-broken-model` | ERROR | 3485ms | POST "http://127.0.0.1:32775/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}} |
-| `models.get` | `model:wiremock-broken-model` | ERROR | 1687ms | Get "http://127.0.0.1:32775/anthropic/v1/models/wiremock-broken-model": cannot retry SDK request with a non-replayable body |
-| `structured-output` | `model:wiremock-broken-model` | ERROR | 3692ms | POST "http://127.0.0.1:32775/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}} |
-| `tools` | `model:wiremock-broken-model` | ERROR | 3375ms | POST "http://127.0.0.1:32775/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}} |
-| `tools.stream` | `model:wiremock-broken-model` | ERROR | 2967ms | POST "http://127.0.0.1:32775/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}} |
-| `models.list` | `provider:http://127.0.0.1:32775/anthropic` | PASS | 4ms | Official Anthropic Go SDK sent and parsed the suite |
+| `count-tokens` | `model:wiremock-broken-model` | ERROR | 2966ms | POST "http://127.0.0.1:32776/anthropic/v1/messages/count_tokens": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}} |
+| `error.responses` | `model:wiremock-broken-model` | ERROR | 2831ms | invalid model returned unexpected HTTP 503: POST "http://127.0.0.1:32776/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}} |
+| `messages` | `model:wiremock-broken-model` | ERROR | 2862ms | POST "http://127.0.0.1:32776/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}} |
+| `messages.multi-turn` | `model:wiremock-broken-model` | ERROR | 3171ms | POST "http://127.0.0.1:32776/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}} |
+| `messages.stream` | `model:wiremock-broken-model` | ERROR | 3174ms | POST "http://127.0.0.1:32776/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}} |
+| `messages.system` | `model:wiremock-broken-model` | ERROR | 3484ms | POST "http://127.0.0.1:32776/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}} |
+| `models.get` | `model:wiremock-broken-model` | ERROR | 1482ms | Get "http://127.0.0.1:32776/anthropic/v1/models/wiremock-broken-model": cannot retry SDK request with a non-replayable body |
+| `structured-output` | `model:wiremock-broken-model` | ERROR | 3690ms | POST "http://127.0.0.1:32776/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}} |
+| `tools` | `model:wiremock-broken-model` | ERROR | 3280ms | POST "http://127.0.0.1:32776/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}} |
+| `tools.stream` | `model:wiremock-broken-model` | ERROR | 3688ms | POST "http://127.0.0.1:32776/anthropic/v1/messages": 503 Service Unavailable {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}} |
+| `models.list` | `provider:http://127.0.0.1:32776/anthropic` | PASS | 3ms | Official Anthropic Go SDK sent and parsed the suite |
 
 ## Target: Google GenAI
 
@@ -1794,7 +1794,7 @@ Built-in extension transport counts are separate from native latency percentiles
 
 Built-in extension transport counts are separate from native latency percentiles. Safe rate and concurrency show the target pacer's state after extension execution; executable extensions report only validated suite evidence.
 
-| Successful | 429 | Recovered retries | Backoff | Safe req/s | Safe concurrency |
+| Successful | 429 | Retries | Backoff | Safe req/s | Concurrency |
 |---:|---:|---:|---:|---:|---:|
 | 1 | 0 | 0 | 0ms | 0.50 | 1 |
 
@@ -1802,14 +1802,14 @@ Built-in extension transport counts are separate from native latency percentiles
 
 | Suite | Subject | Status | Duration | Summary |
 |---|---|---:|---:|---|
-| `count-tokens` | `model:wiremock-broken-model` | ERROR | 3384ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
-| `embeddings` | `model:wiremock-broken-model` | ERROR | 1999ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
-| `generate-content` | `model:wiremock-broken-model` | ERROR | 2001ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
+| `count-tokens` | `model:wiremock-broken-model` | ERROR | 2002ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
+| `embeddings` | `model:wiremock-broken-model` | ERROR | 3383ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
+| `generate-content` | `model:wiremock-broken-model` | ERROR | 3381ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
 | `generate-content-stream` | `model:wiremock-broken-model` | ERROR | 3382ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
-| `models.get` | `model:wiremock-broken-model` | ERROR | 2001ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
-| `structured-output` | `model:wiremock-broken-model` | ERROR | 3384ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
-| `tools` | `model:wiremock-broken-model` | ERROR | 3384ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
-| `models.list` | `provider:http://127.0.0.1:32775/google` | PASS | 2ms | Official Google Gen AI Go SDK sent and parsed the suite |
+| `models.get` | `model:wiremock-broken-model` | ERROR | 1997ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
+| `structured-output` | `model:wiremock-broken-model` | ERROR | 2002ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
+| `tools` | `model:wiremock-broken-model` | ERROR | 3383ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
+| `models.list` | `provider:http://127.0.0.1:32776/google` | PASS | 3ms | Official Google Gen AI Go SDK sent and parsed the suite |
 
 ## Target: OpenAI
 
@@ -2203,7 +2203,7 @@ Built-in extension transport counts are separate from native latency percentiles
 
 **Why this matters:** The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.
 
-**Observed:** POST "http://127.0.0.1:32775/openai/v1/chat/completions": 503 Service Unavailable {"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}
+**Observed:** POST "http://127.0.0.1:32776/openai/v1/chat/completions": 503 Service Unavailable {"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}
 
 **Change or investigate:**
 
@@ -2218,7 +2218,7 @@ Built-in extension transport counts are separate from native latency percentiles
 
 **Why this matters:** The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.
 
-**Observed:** POST "http://127.0.0.1:32775/openai/v1/chat/completions": 503 Service Unavailable {"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}
+**Observed:** POST "http://127.0.0.1:32776/openai/v1/chat/completions": 503 Service Unavailable {"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}
 
 **Change or investigate:**
 
@@ -2233,7 +2233,7 @@ Built-in extension transport counts are separate from native latency percentiles
 
 **Why this matters:** The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.
 
-**Observed:** POST "http://127.0.0.1:32775/openai/v1/chat/completions": 503 Service Unavailable {"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}
+**Observed:** POST "http://127.0.0.1:32776/openai/v1/chat/completions": 503 Service Unavailable {"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}
 
 **Change or investigate:**
 
@@ -2248,7 +2248,7 @@ Built-in extension transport counts are separate from native latency percentiles
 
 **Why this matters:** The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.
 
-**Observed:** POST "http://127.0.0.1:32775/openai/v1/chat/completions": 503 Service Unavailable {"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}
+**Observed:** POST "http://127.0.0.1:32776/openai/v1/chat/completions": 503 Service Unavailable {"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}
 
 **Change or investigate:**
 
@@ -2263,7 +2263,7 @@ Built-in extension transport counts are separate from native latency percentiles
 
 **Why this matters:** The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.
 
-**Observed:** POST "http://127.0.0.1:32775/openai/v1/chat/completions": 503 Service Unavailable {"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}
+**Observed:** POST "http://127.0.0.1:32776/openai/v1/chat/completions": 503 Service Unavailable {"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}
 
 **Change or investigate:**
 
@@ -2278,7 +2278,7 @@ Built-in extension transport counts are separate from native latency percentiles
 
 **Why this matters:** The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.
 
-**Observed:** POST "http://127.0.0.1:32775/openai/v1/chat/completions": 503 Service Unavailable {"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}
+**Observed:** POST "http://127.0.0.1:32776/openai/v1/chat/completions": 503 Service Unavailable {"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}
 
 **Change or investigate:**
 
@@ -2293,7 +2293,7 @@ Built-in extension transport counts are separate from native latency percentiles
 
 **Why this matters:** The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.
 
-**Observed:** POST "http://127.0.0.1:32775/openai/v1/chat/completions": 503 Service Unavailable {"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}
+**Observed:** POST "http://127.0.0.1:32776/openai/v1/chat/completions": 503 Service Unavailable {"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}
 
 **Change or investigate:**
 
@@ -2308,7 +2308,7 @@ Built-in extension transport counts are separate from native latency percentiles
 
 **Why this matters:** The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.
 
-**Observed:** Get "http://127.0.0.1:32775/openai/v1/models/wiremock-broken-model": cannot retry SDK request with a non-replayable body
+**Observed:** Get "http://127.0.0.1:32776/openai/v1/models/wiremock-broken-model": cannot retry SDK request with a non-replayable body
 
 **Change or investigate:**
 
@@ -2351,10 +2351,10 @@ Built-in extension transport counts are separate from native latency percentiles
 | ERROR | OPTIONAL | `model:wiremock-broken-model` | `official-sdk.openai.chat.tools.stream` | 1 |  |
 | FAIL | OPTIONAL | `model:wiremock-broken-model` | `official-sdk.openai.error.responses` | 1 |  |
 | ERROR | OPTIONAL | `model:wiremock-broken-model` | `official-sdk.openai.models.get` | 1 |  |
-| ERROR | OPTIONAL | `provider:http://127.0.0.1:32775/openai/v1` | `chat.error.invalid_auth` | 1 |  |
-| ERROR | CORE | `provider:http://127.0.0.1:32775/openai/v1` | `chat.error.invalid_json` | 1 |  |
-| ERROR | CORE | `provider:http://127.0.0.1:32775/openai/v1` | `chat.error.invalid_model` | 1 |  |
-| ERROR | OPTIONAL | `provider:http://127.0.0.1:32775/openai/v1` | `chat.error.invalid_types` | 1 |  |
+| ERROR | OPTIONAL | `provider:http://127.0.0.1:32776/openai/v1` | `chat.error.invalid_auth` | 1 |  |
+| ERROR | CORE | `provider:http://127.0.0.1:32776/openai/v1` | `chat.error.invalid_json` | 1 |  |
+| ERROR | CORE | `provider:http://127.0.0.1:32776/openai/v1` | `chat.error.invalid_model` | 1 |  |
+| ERROR | OPTIONAL | `provider:http://127.0.0.1:32776/openai/v1` | `chat.error.invalid_types` | 1 |  |
 
 ### Models
 
@@ -2373,24 +2373,24 @@ Built-in extension transport counts are separate from native latency percentiles
 
 Built-in extension transport counts are separate from native latency percentiles. Safe rate and concurrency show the target pacer's state after extension execution; executable extensions report only validated suite evidence.
 
-| Successful | 429 | Recovered retries | Backoff | Safe req/s | Safe concurrency |
+| Successful | 429 | Retries | Backoff | Safe req/s | Concurrency |
 |---:|---:|---:|---:|---:|---:|
-| 1 | 0 | 0 | 0ms | 1.50 | 3 |
+| 1 | 0 | 0 | 0ms | 3.00 | 6 |
 
 #### Official SDK – OpenAI Go v3.54.0
 
 | Suite | Subject | Status | Duration | Summary |
 |---|---|---:|---:|---|
-| `chat.completions` | `model:wiremock-broken-model` | ERROR | 2002ms | POST "http://127.0.0.1:32775/openai/v1/chat/completions": 503 Service Unavailable {"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"} |
-| `chat.json` | `model:wiremock-broken-model` | ERROR | 2198ms | POST "http://127.0.0.1:32775/openai/v1/chat/completions": 503 Service Unavailable {"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"} |
-| `chat.multi-turn` | `model:wiremock-broken-model` | ERROR | 2002ms | POST "http://127.0.0.1:32775/openai/v1/chat/completions": 503 Service Unavailable {"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"} |
-| `chat.stream` | `model:wiremock-broken-model` | ERROR | 2204ms | POST "http://127.0.0.1:32775/openai/v1/chat/completions": 503 Service Unavailable {"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"} |
-| `chat.stream.usage` | `model:wiremock-broken-model` | ERROR | 2204ms | POST "http://127.0.0.1:32775/openai/v1/chat/completions": 503 Service Unavailable {"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"} |
-| `chat.tools` | `model:wiremock-broken-model` | ERROR | 2002ms | POST "http://127.0.0.1:32775/openai/v1/chat/completions": 503 Service Unavailable {"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"} |
-| `chat.tools.stream` | `model:wiremock-broken-model` | ERROR | 2002ms | POST "http://127.0.0.1:32775/openai/v1/chat/completions": 503 Service Unavailable {"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"} |
+| `chat.completions` | `model:wiremock-broken-model` | ERROR | 2003ms | POST "http://127.0.0.1:32776/openai/v1/chat/completions": 503 Service Unavailable {"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"} |
+| `chat.json` | `model:wiremock-broken-model` | ERROR | 2003ms | POST "http://127.0.0.1:32776/openai/v1/chat/completions": 503 Service Unavailable {"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"} |
+| `chat.multi-turn` | `model:wiremock-broken-model` | ERROR | 2204ms | POST "http://127.0.0.1:32776/openai/v1/chat/completions": 503 Service Unavailable {"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"} |
+| `chat.stream` | `model:wiremock-broken-model` | ERROR | 2204ms | POST "http://127.0.0.1:32776/openai/v1/chat/completions": 503 Service Unavailable {"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"} |
+| `chat.stream.usage` | `model:wiremock-broken-model` | ERROR | 2205ms | POST "http://127.0.0.1:32776/openai/v1/chat/completions": 503 Service Unavailable {"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"} |
+| `chat.tools` | `model:wiremock-broken-model` | ERROR | 2199ms | POST "http://127.0.0.1:32776/openai/v1/chat/completions": 503 Service Unavailable {"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"} |
+| `chat.tools.stream` | `model:wiremock-broken-model` | ERROR | 2002ms | POST "http://127.0.0.1:32776/openai/v1/chat/completions": 503 Service Unavailable {"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"} |
 | `error.responses` | `model:wiremock-broken-model` | FAIL | 2002ms | invalid model returned unexpected HTTP 503 |
-| `models.get` | `model:wiremock-broken-model` | ERROR | 2000ms | Get "http://127.0.0.1:32775/openai/v1/models/wiremock-broken-model": cannot retry SDK request with a non-replayable body |
-| `models.list` | `provider:http://127.0.0.1:32775/openai/v1` | PASS | 4ms | Official OpenAI Go SDK sent and parsed the suite |
+| `models.get` | `model:wiremock-broken-model` | ERROR | 305ms | Get "http://127.0.0.1:32776/openai/v1/models/wiremock-broken-model": cannot retry SDK request with a non-replayable body |
+| `models.list` | `provider:http://127.0.0.1:32776/openai/v1` | PASS | 4ms | Official OpenAI Go SDK sent and parsed the suite |
 
 ## Observed API usage
 

@@ -1,11 +1,11 @@
 {
   "schema_version": "aiqa.report.v3",
-  "generated_at": "2026-09-03T17:27:28.520461227Z",
+  "generated_at": "2026-09-03T22:36:42.710576353Z",
   "tool": {
     "name": "aiqa",
     "version": "1.0.0-alpha.3",
-    "commit": "f12a938",
-    "build_date": "2026-09-03T17:26:57Z",
+    "commit": "9cf721d",
+    "build_date": "2026-09-03T22:36:22Z",
     "go_version": "go1.27.0"
   },
   "config": {
@@ -17,13 +17,13 @@
       {
         "id": "anthropic",
         "protocol": "anthropic",
-        "base_url": "http://127.0.0.1:32775/anthropic",
+        "base_url": "http://127.0.0.1:32776/anthropic",
         "api_version": "2023-06-01"
       },
       {
         "id": "google-genai",
         "protocol": "google-genai",
-        "base_url": "http://127.0.0.1:32775/google",
+        "base_url": "http://127.0.0.1:32776/google",
         "requested_models": [
           "wiremock-broken-model"
         ],
@@ -32,7 +32,7 @@
       {
         "id": "openai",
         "protocol": "openai",
-        "base_url": "http://127.0.0.1:32775/openai/v1"
+        "base_url": "http://127.0.0.1:32776/openai/v1"
       }
     ],
     "timeout": "1m0s",
@@ -83,7 +83,7 @@
             "category": "discovery",
             "required": true,
             "status": "pass",
-            "duration_ms": 28,
+            "duration_ms": 29,
             "summary": "Anthropic Models endpoint returned JSON",
             "expected": "GET /v1/models returns successful JSON",
             "http": {
@@ -102,7 +102,7 @@
             "category": "schema",
             "required": true,
             "status": "pass",
-            "duration_ms": 28,
+            "duration_ms": 29,
             "summary": "Anthropic model-list schema is valid (1 models)",
             "expected": "The Anthropic model-list envelope and entries are valid",
             "http": {
@@ -157,7 +157,7 @@
               "category": "authentication",
               "required": true,
               "status": "error",
-              "duration_ms": 4,
+              "duration_ms": 3,
               "summary": "x-api-key authentication was accepted",
               "expected": "The standard Anthropic x-api-key header is accepted",
               "http": {
@@ -181,7 +181,7 @@
               "category": "errors",
               "required": false,
               "status": "error",
-              "duration_ms": 3,
+              "duration_ms": 4,
               "summary": "Provider/runtime error makes the negative probe inconclusive",
               "expected": "An invalid key returns an Anthropic error",
               "http": {
@@ -208,7 +208,7 @@
               "category": "errors",
               "required": true,
               "status": "error",
-              "duration_ms": 5,
+              "duration_ms": 7,
               "summary": "Malformed JSON handling is not consistently client-side",
               "expected": "Multiple malformed JSON variants return client errors",
               "observation": "variant 1: HTTP 503; variant 2: HTTP 503; variant 3: HTTP 503",
@@ -236,7 +236,7 @@
               "category": "errors",
               "required": true,
               "status": "error",
-              "duration_ms": 6,
+              "duration_ms": 3,
               "summary": "Provider/runtime error makes the negative probe inconclusive",
               "expected": "A missing model returns an Anthropic error",
               "http": {
@@ -290,7 +290,7 @@
               "category": "errors",
               "required": false,
               "status": "error",
-              "duration_ms": 6,
+              "duration_ms": 3,
               "summary": "",
               "expected": "A provider request ID is exposed when available",
               "http": {
@@ -317,7 +317,7 @@
               "category": "errors",
               "required": true,
               "status": "error",
-              "duration_ms": 6,
+              "duration_ms": 3,
               "summary": "",
               "expected": "Errors use the Anthropic error envelope",
               "http": {
@@ -344,7 +344,7 @@
               "category": "headers",
               "required": true,
               "status": "error",
-              "duration_ms": 4,
+              "duration_ms": 3,
               "summary": "anthropic-version 2023-06-01 was accepted",
               "expected": "anthropic-version 2023-06-01 is accepted",
               "http": {
@@ -395,7 +395,7 @@
               "category": "headers",
               "required": false,
               "status": "error",
-              "duration_ms": 6,
+              "duration_ms": 3,
               "summary": "Provider/runtime error makes the negative probe inconclusive",
               "expected": "A missing version header is rejected",
               "http": {
@@ -419,7 +419,7 @@
               "category": "messages",
               "required": false,
               "status": "error",
-              "duration_ms": 3,
+              "duration_ms": 4,
               "summary": "Provider/runtime error HTTP 503 makes compatibility inconclusive",
               "expected": "An assistant prefix can be continued",
               "http": {
@@ -446,7 +446,7 @@
               "category": "core",
               "required": true,
               "status": "error",
-              "duration_ms": 4,
+              "duration_ms": 3,
               "summary": "Provider/runtime error HTTP 503 makes compatibility inconclusive",
               "expected": "A minimal Messages request succeeds",
               "http": {
@@ -473,7 +473,7 @@
               "category": "messages",
               "required": false,
               "status": "error",
-              "duration_ms": 4,
+              "duration_ms": 3,
               "summary": "String-form message content is accepted",
               "expected": "String user content is accepted",
               "http": {
@@ -527,7 +527,7 @@
               "category": "messages",
               "required": false,
               "status": "error",
-              "duration_ms": 3,
+              "duration_ms": 2,
               "summary": "Provider/runtime error HTTP 503 makes compatibility inconclusive",
               "expected": "A small output limit has compatible stop semantics",
               "http": {
@@ -554,7 +554,7 @@
               "category": "messages",
               "required": false,
               "status": "error",
-              "duration_ms": 4,
+              "duration_ms": 2,
               "summary": "Provider/runtime error HTTP 503 makes compatibility inconclusive",
               "expected": "Bounded metadata.user_id is accepted",
               "http": {
@@ -608,7 +608,7 @@
               "category": "schema",
               "required": true,
               "status": "error",
-              "duration_ms": 4,
+              "duration_ms": 3,
               "summary": "",
               "expected": "The response follows the Anthropic Message shape",
               "http": {
@@ -635,7 +635,7 @@
               "category": "messages",
               "required": false,
               "status": "error",
-              "duration_ms": 2,
+              "duration_ms": 3,
               "summary": "Provider/runtime error HTTP 503 makes compatibility inconclusive",
               "expected": "Stop sequences are accepted and reported",
               "http": {
@@ -662,7 +662,7 @@
               "category": "streaming",
               "required": true,
               "status": "error",
-              "duration_ms": 6,
+              "duration_ms": 3,
               "summary": "Known SSE event names match JSON event types",
               "expected": "Known SSE event names match JSON types",
               "http": {
@@ -690,7 +690,7 @@
               "category": "streaming",
               "required": true,
               "status": "error",
-              "duration_ms": 6,
+              "duration_ms": 3,
               "summary": "Anthropic stream could not be evaluated",
               "expected": "A streaming request returns text/event-stream",
               "http": {
@@ -718,7 +718,7 @@
               "category": "streaming",
               "required": false,
               "status": "error",
-              "duration_ms": 6,
+              "duration_ms": 3,
               "summary": "Stream ended with message_stop and no [DONE] sentinel",
               "expected": "The stream terminates with message_stop rather than [DONE]",
               "http": {
@@ -746,7 +746,7 @@
               "category": "streaming",
               "required": true,
               "status": "error",
-              "duration_ms": 6,
+              "duration_ms": 3,
               "summary": "",
               "expected": "Named Anthropic events follow a legal sequence",
               "http": {
@@ -774,7 +774,7 @@
               "category": "streaming",
               "required": true,
               "status": "error",
-              "duration_ms": 6,
+              "duration_ms": 3,
               "summary": "Streamed text reconstructed the requested marker",
               "expected": "Text deltas reconstruct the requested marker",
               "http": {
@@ -802,7 +802,7 @@
               "category": "usage",
               "required": false,
               "status": "error",
-              "duration_ms": 6,
+              "duration_ms": 3,
               "summary": "Streaming usage was reconstructed",
               "expected": "Final streaming usage can be reconstructed",
               "http": {
@@ -830,7 +830,7 @@
               "category": "messages",
               "required": false,
               "status": "error",
-              "duration_ms": 9,
+              "duration_ms": 3,
               "summary": "Provider/runtime error HTTP 503 makes compatibility inconclusive",
               "expected": "The top-level system prompt is effective",
               "http": {
@@ -857,7 +857,7 @@
               "category": "usage",
               "required": true,
               "status": "error",
-              "duration_ms": 4,
+              "duration_ms": 3,
               "summary": "",
               "expected": "Input and output token usage is present and valid",
               "http": {
@@ -884,7 +884,7 @@
               "category": "discovery",
               "required": false,
               "status": "error",
-              "duration_ms": 3,
+              "duration_ms": 5,
               "summary": "Provider/runtime error HTTP 503 makes compatibility inconclusive",
               "expected": "GET /v1/models/{id} returns the requested model",
               "http": {
@@ -911,7 +911,7 @@
               "category": "structured-output",
               "required": false,
               "status": "error",
-              "duration_ms": 3,
+              "duration_ms": 4,
               "summary": "Provider/runtime error HTTP 503 makes compatibility inconclusive",
               "expected": "Output contains schema-conforming JSON",
               "http": {
@@ -938,7 +938,7 @@
               "category": "structured-output",
               "required": false,
               "status": "error",
-              "duration_ms": 3,
+              "duration_ms": 4,
               "summary": "Structured output completed with compatible stop semantics",
               "expected": "Structured output completes normally",
               "http": {
@@ -965,7 +965,7 @@
               "category": "token-counting",
               "required": false,
               "status": "error",
-              "duration_ms": 6,
+              "duration_ms": 2,
               "summary": "Provider/runtime error HTTP 503 makes compatibility inconclusive",
               "expected": "The token-count endpoint returns a positive count",
               "http": {
@@ -992,7 +992,7 @@
               "category": "token-counting",
               "required": false,
               "status": "error",
-              "duration_ms": 6,
+              "duration_ms": 2,
               "summary": "",
               "expected": "Count and observed usage are compared heuristically",
               "http": {
@@ -1019,7 +1019,7 @@
               "category": "token-counting",
               "required": false,
               "status": "error",
-              "duration_ms": 6,
+              "duration_ms": 2,
               "summary": "Count Tokens response has a positive integer input_tokens",
               "expected": "The response contains integer input_tokens",
               "http": {
@@ -1046,7 +1046,7 @@
               "category": "token-counting",
               "required": false,
               "status": "error",
-              "duration_ms": 4,
+              "duration_ms": 2,
               "summary": "Provider/runtime error HTTP 503 makes compatibility inconclusive",
               "expected": "System content contributes to a valid count",
               "http": {
@@ -1130,7 +1130,7 @@
               "category": "tools",
               "required": false,
               "status": "error",
-              "duration_ms": 9,
+              "duration_ms": 3,
               "summary": "Provider/runtime error HTTP 503 makes compatibility inconclusive",
               "expected": "Automatic tool selection can emit tool_use",
               "http": {
@@ -1182,7 +1182,7 @@
               "category": "tools",
               "required": false,
               "status": "error",
-              "duration_ms": 2,
+              "duration_ms": 3,
               "summary": "",
               "expected": "Tool input conforms to its local schema",
               "http": {
@@ -1239,7 +1239,7 @@
               "category": "tools",
               "required": false,
               "status": "error",
-              "duration_ms": 2,
+              "duration_ms": 3,
               "summary": "Provider/runtime error HTTP 503 makes compatibility inconclusive",
               "expected": "Independent tool calls have distinct IDs",
               "http": {
@@ -1266,7 +1266,7 @@
               "category": "tools",
               "required": false,
               "status": "error",
-              "duration_ms": 2,
+              "duration_ms": 3,
               "summary": "Provider/runtime error HTTP 503 makes compatibility inconclusive",
               "expected": "A named tool can be forced",
               "http": {
@@ -2495,7 +2495,7 @@
               "kind": "extension",
               "suite": "count-tokens",
               "status": "error",
-              "summary": "POST \"http://127.0.0.1:32775/anthropic/v1/messages/count_tokens\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+              "summary": "POST \"http://127.0.0.1:32776/anthropic/v1/messages/count_tokens\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
               "http_status": 503,
               "related_requirement_ids": [
                 "anthropic.tokens.count.basic",
@@ -2529,7 +2529,7 @@
               "kind": "extension",
               "suite": "error.responses",
               "status": "error",
-              "summary": "invalid model returned unexpected HTTP 503: POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+              "summary": "invalid model returned unexpected HTTP 503: POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
               "http_status": 503,
               "related_requirement_ids": [
                 "anthropic.error.invalid_model",
@@ -2563,7 +2563,7 @@
               "kind": "extension",
               "suite": "messages",
               "status": "error",
-              "summary": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+              "summary": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
               "http_status": 503,
               "related_requirement_ids": [
                 "anthropic.messages.basic",
@@ -2598,7 +2598,7 @@
               "kind": "extension",
               "suite": "messages.multi-turn",
               "status": "error",
-              "summary": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+              "summary": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
               "http_status": 503,
               "related_requirement_ids": [
                 "anthropic.messages.multi_turn"
@@ -2631,7 +2631,7 @@
               "kind": "extension",
               "suite": "messages.stream",
               "status": "error",
-              "summary": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+              "summary": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
               "http_status": 503,
               "related_requirement_ids": [
                 "anthropic.messages.stream.http",
@@ -2666,7 +2666,7 @@
               "kind": "extension",
               "suite": "messages.system",
               "status": "error",
-              "summary": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+              "summary": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
               "http_status": 503,
               "related_requirement_ids": [
                 "anthropic.messages.system.top_level"
@@ -2699,7 +2699,7 @@
               "kind": "extension",
               "suite": "models.get",
               "status": "error",
-              "summary": "Get \"http://127.0.0.1:32775/anthropic/v1/models/wiremock-broken-model\": cannot retry SDK request with a non-replayable body",
+              "summary": "Get \"http://127.0.0.1:32776/anthropic/v1/models/wiremock-broken-model\": cannot retry SDK request with a non-replayable body",
               "related_requirement_ids": [
                 "anthropic.models.retrieve"
               ],
@@ -2731,7 +2731,7 @@
               "kind": "extension",
               "suite": "structured-output",
               "status": "error",
-              "summary": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+              "summary": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
               "http_status": 503,
               "related_requirement_ids": [
                 "anthropic.structured.json_schema"
@@ -2764,7 +2764,7 @@
               "kind": "extension",
               "suite": "tools",
               "status": "error",
-              "summary": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+              "summary": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
               "http_status": 503,
               "related_requirement_ids": [
                 "anthropic.tools.specific",
@@ -2798,7 +2798,7 @@
               "kind": "extension",
               "suite": "tools.stream",
               "status": "error",
-              "summary": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+              "summary": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
               "http_status": 503,
               "related_requirement_ids": [
                 "anthropic.tools.stream"
@@ -3501,14 +3501,14 @@
             "target_id": "anthropic",
             "protocol": "anthropic",
             "kind": "provider",
-            "id": "http://127.0.0.1:32775/anthropic"
+            "id": "http://127.0.0.1:32776/anthropic"
           },
           "module": "anthropic.discovery",
           "applicability": "applicable",
           "status": "pass",
           "evidence": [
             {
-              "id": "native:anthropic:provider:http.127.0.0.1.32775.anthropic:aiqa.native.anthropic.models.list.http",
+              "id": "native:anthropic:provider:http.127.0.0.1.32776.anthropic:aiqa.native.anthropic.models.list.http",
               "kind": "native",
               "probe_id": "aiqa.native.anthropic.models.list.http",
               "status": "pass",
@@ -3526,14 +3526,14 @@
             "target_id": "anthropic",
             "protocol": "anthropic",
             "kind": "provider",
-            "id": "http://127.0.0.1:32775/anthropic"
+            "id": "http://127.0.0.1:32776/anthropic"
           },
           "module": "anthropic.discovery",
           "applicability": "not_applicable",
           "status": "not_applicable",
           "evidence": [
             {
-              "id": "native:anthropic:provider:http.127.0.0.1.32775.anthropic:aiqa.native.anthropic.models.list.pagination",
+              "id": "native:anthropic:provider:http.127.0.0.1.32776.anthropic:aiqa.native.anthropic.models.list.pagination",
               "kind": "native",
               "probe_id": "aiqa.native.anthropic.models.list.pagination",
               "status": "skip",
@@ -3558,14 +3558,14 @@
             "target_id": "anthropic",
             "protocol": "anthropic",
             "kind": "provider",
-            "id": "http://127.0.0.1:32775/anthropic"
+            "id": "http://127.0.0.1:32776/anthropic"
           },
           "module": "anthropic.discovery",
           "applicability": "applicable",
           "status": "pass",
           "evidence": [
             {
-              "id": "native:anthropic:provider:http.127.0.0.1.32775.anthropic:aiqa.native.anthropic.models.list.schema",
+              "id": "native:anthropic:provider:http.127.0.0.1.32776.anthropic:aiqa.native.anthropic.models.list.schema",
               "kind": "native",
               "probe_id": "aiqa.native.anthropic.models.list.schema",
               "status": "pass",
@@ -3583,14 +3583,14 @@
             "target_id": "anthropic",
             "protocol": "anthropic",
             "kind": "provider",
-            "id": "http://127.0.0.1:32775/anthropic"
+            "id": "http://127.0.0.1:32776/anthropic"
           },
           "module": "anthropic.discovery",
           "applicability": "applicable",
           "status": "pass",
           "evidence": [
             {
-              "id": "extension:anthropic:provider:http.127.0.0.1.32775.anthropic:official.sdk.anthropic.models.list",
+              "id": "extension:anthropic:provider:http.127.0.0.1.32776.anthropic:official.sdk.anthropic.models.list",
               "kind": "extension",
               "suite": "models.list",
               "status": "pass",
@@ -4693,7 +4693,7 @@
               "extension:anthropic:model:wiremock.broken.model:official.sdk.anthropic.count.tokens"
             ],
             "expected": "The official Anthropic Go SDK counts input tokens",
-            "observed": "POST \"http://127.0.0.1:32775/anthropic/v1/messages/count_tokens\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+            "observed": "POST \"http://127.0.0.1:32776/anthropic/v1/messages/count_tokens\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
             "attribution": {
               "component": "network_or_runtime",
               "confidence": "low",
@@ -4727,7 +4727,7 @@
               "extension:anthropic:model:wiremock.broken.model:official.sdk.anthropic.error.responses"
             ],
             "expected": "The official Anthropic Go SDK parses API errors",
-            "observed": "invalid model returned unexpected HTTP 503: POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+            "observed": "invalid model returned unexpected HTTP 503: POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
             "attribution": {
               "component": "network_or_runtime",
               "confidence": "low",
@@ -4761,7 +4761,7 @@
               "extension:anthropic:model:wiremock.broken.model:official.sdk.anthropic.messages"
             ],
             "expected": "The official Anthropic Go SDK sends and parses a message",
-            "observed": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+            "observed": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
             "attribution": {
               "component": "network_or_runtime",
               "confidence": "low",
@@ -4795,7 +4795,7 @@
               "extension:anthropic:model:wiremock.broken.model:official.sdk.anthropic.messages.multi.turn"
             ],
             "expected": "The official Anthropic Go SDK sends multi-turn messages",
-            "observed": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+            "observed": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
             "attribution": {
               "component": "network_or_runtime",
               "confidence": "low",
@@ -4829,7 +4829,7 @@
               "extension:anthropic:model:wiremock.broken.model:official.sdk.anthropic.messages.stream"
             ],
             "expected": "The official Anthropic Go SDK consumes a message stream",
-            "observed": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+            "observed": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
             "attribution": {
               "component": "network_or_runtime",
               "confidence": "low",
@@ -4863,7 +4863,7 @@
               "extension:anthropic:model:wiremock.broken.model:official.sdk.anthropic.messages.system"
             ],
             "expected": "The official Anthropic Go SDK sends a system prompt",
-            "observed": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+            "observed": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
             "attribution": {
               "component": "network_or_runtime",
               "confidence": "low",
@@ -4897,7 +4897,7 @@
               "extension:anthropic:model:wiremock.broken.model:official.sdk.anthropic.models.get"
             ],
             "expected": "The official Anthropic Go SDK retrieves the selected model",
-            "observed": "Get \"http://127.0.0.1:32775/anthropic/v1/models/wiremock-broken-model\": cannot retry SDK request with a non-replayable body",
+            "observed": "Get \"http://127.0.0.1:32776/anthropic/v1/models/wiremock-broken-model\": cannot retry SDK request with a non-replayable body",
             "attribution": {
               "component": "network_or_runtime",
               "confidence": "low",
@@ -4931,7 +4931,7 @@
               "extension:anthropic:model:wiremock.broken.model:official.sdk.anthropic.structured.output"
             ],
             "expected": "The official Anthropic Go SDK parses structured JSON output",
-            "observed": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+            "observed": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
             "attribution": {
               "component": "network_or_runtime",
               "confidence": "low",
@@ -4965,7 +4965,7 @@
               "extension:anthropic:model:wiremock.broken.model:official.sdk.anthropic.tools"
             ],
             "expected": "The official Anthropic Go SDK parses and continues tool calls",
-            "observed": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+            "observed": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
             "attribution": {
               "component": "network_or_runtime",
               "confidence": "low",
@@ -4999,7 +4999,7 @@
               "extension:anthropic:model:wiremock.broken.model:official.sdk.anthropic.tools.stream"
             ],
             "expected": "The official Anthropic Go SDK reconstructs streamed tool input",
-            "observed": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+            "observed": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
             "attribution": {
               "component": "network_or_runtime",
               "confidence": "low",
@@ -7428,7 +7428,7 @@
               "component": "network_or_runtime"
             },
             "why": "The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.",
-            "observed": "POST \"http://127.0.0.1:32775/anthropic/v1/messages/count_tokens\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+            "observed": "POST \"http://127.0.0.1:32776/anthropic/v1/messages/count_tokens\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
             "steps": [
               {
                 "id": "restore-execution",
@@ -7493,7 +7493,7 @@
               "component": "network_or_runtime"
             },
             "why": "The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.",
-            "observed": "invalid model returned unexpected HTTP 503: POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+            "observed": "invalid model returned unexpected HTTP 503: POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
             "steps": [
               {
                 "id": "restore-execution",
@@ -7558,7 +7558,7 @@
               "component": "network_or_runtime"
             },
             "why": "The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.",
-            "observed": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+            "observed": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
             "steps": [
               {
                 "id": "restore-execution",
@@ -7623,7 +7623,7 @@
               "component": "network_or_runtime"
             },
             "why": "The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.",
-            "observed": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+            "observed": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
             "steps": [
               {
                 "id": "restore-execution",
@@ -7688,7 +7688,7 @@
               "component": "network_or_runtime"
             },
             "why": "The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.",
-            "observed": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+            "observed": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
             "steps": [
               {
                 "id": "restore-execution",
@@ -7753,7 +7753,7 @@
               "component": "network_or_runtime"
             },
             "why": "The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.",
-            "observed": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+            "observed": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
             "steps": [
               {
                 "id": "restore-execution",
@@ -7818,7 +7818,7 @@
               "component": "network_or_runtime"
             },
             "why": "The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.",
-            "observed": "Get \"http://127.0.0.1:32775/anthropic/v1/models/wiremock-broken-model\": cannot retry SDK request with a non-replayable body",
+            "observed": "Get \"http://127.0.0.1:32776/anthropic/v1/models/wiremock-broken-model\": cannot retry SDK request with a non-replayable body",
             "steps": [
               {
                 "id": "restore-execution",
@@ -7883,7 +7883,7 @@
               "component": "network_or_runtime"
             },
             "why": "The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.",
-            "observed": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+            "observed": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
             "steps": [
               {
                 "id": "restore-execution",
@@ -7948,7 +7948,7 @@
               "component": "network_or_runtime"
             },
             "why": "The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.",
-            "observed": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+            "observed": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
             "steps": [
               {
                 "id": "restore-execution",
@@ -8013,7 +8013,7 @@
               "component": "network_or_runtime"
             },
             "why": "The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.",
-            "observed": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+            "observed": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
             "steps": [
               {
                 "id": "restore-execution",
@@ -9108,17 +9108,17 @@
         "observed_safe_requests_per_second": 0.5,
         "observed_safe_concurrency": 1,
         "latency_samples": 2,
-        "mean_latency_ms": 28,
-        "p50_latency_ms": 28,
-        "p95_latency_ms": 28
+        "mean_latency_ms": 29,
+        "p50_latency_ms": 29,
+        "p95_latency_ms": 29
       },
       "extension_rate_limit": {
         "successful_requests": 1,
         "rate_limited_responses": 0,
         "retries_recovered": 0,
         "backoff_ms": 0,
-        "observed_safe_requests_per_second": 0.5,
-        "observed_safe_concurrency": 1,
+        "observed_safe_requests_per_second": 2,
+        "observed_safe_concurrency": 4,
         "latency_samples": 0,
         "mean_latency_ms": 0,
         "p50_latency_ms": 0,
@@ -9143,7 +9143,7 @@
           "runner": {
             "status": "pass",
             "startup_duration_ms": 0,
-            "total_duration_ms": 3693,
+            "total_duration_ms": 3691,
             "exit_code": 0,
             "pacing_compliance": "host_enforced",
             "summary": "Extension runner completed"
@@ -9160,8 +9160,8 @@
               },
               "outcome": "request_rejected",
               "status": "error",
-              "duration_ms": 2863,
-              "summary": "POST \"http://127.0.0.1:32775/anthropic/v1/messages/count_tokens\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+              "duration_ms": 2966,
+              "summary": "POST \"http://127.0.0.1:32776/anthropic/v1/messages/count_tokens\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
               "http": {
                 "status_code": 503
               },
@@ -9177,7 +9177,7 @@
                 "anthropic.tokens.count.schema"
               ],
               "bound": true,
-              "error": "POST \"http://127.0.0.1:32775/anthropic/v1/messages/count_tokens\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}"
+              "error": "POST \"http://127.0.0.1:32776/anthropic/v1/messages/count_tokens\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}"
             },
             {
               "extension_id": "official-sdk.anthropic",
@@ -9190,8 +9190,8 @@
               },
               "outcome": "request_rejected",
               "status": "error",
-              "duration_ms": 3689,
-              "summary": "invalid model returned unexpected HTTP 503: POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+              "duration_ms": 2831,
+              "summary": "invalid model returned unexpected HTTP 503: POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
               "http": {
                 "status_code": 503
               },
@@ -9207,7 +9207,7 @@
                 "anthropic.error.shape"
               ],
               "bound": true,
-              "error": "invalid model returned unexpected HTTP 503: POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}"
+              "error": "invalid model returned unexpected HTTP 503: POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}"
             },
             {
               "extension_id": "official-sdk.anthropic",
@@ -9220,8 +9220,8 @@
               },
               "outcome": "request_rejected",
               "status": "error",
-              "duration_ms": 3172,
-              "summary": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+              "duration_ms": 2862,
+              "summary": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
               "http": {
                 "status_code": 503
               },
@@ -9238,7 +9238,7 @@
                 "anthropic.messages.usage"
               ],
               "bound": true,
-              "error": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}"
+              "error": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}"
             },
             {
               "extension_id": "official-sdk.anthropic",
@@ -9251,8 +9251,8 @@
               },
               "outcome": "request_rejected",
               "status": "error",
-              "duration_ms": 2833,
-              "summary": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+              "duration_ms": 3171,
+              "summary": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
               "http": {
                 "status_code": 503
               },
@@ -9267,7 +9267,7 @@
                 "anthropic.messages.multi_turn"
               ],
               "bound": true,
-              "error": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}"
+              "error": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}"
             },
             {
               "extension_id": "official-sdk.anthropic",
@@ -9280,8 +9280,8 @@
               },
               "outcome": "request_rejected",
               "status": "error",
-              "duration_ms": 3377,
-              "summary": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+              "duration_ms": 3174,
+              "summary": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
               "http": {
                 "status_code": 503
               },
@@ -9298,7 +9298,7 @@
                 "anthropic.messages.stream.text"
               ],
               "bound": true,
-              "error": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}"
+              "error": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}"
             },
             {
               "extension_id": "official-sdk.anthropic",
@@ -9311,8 +9311,8 @@
               },
               "outcome": "request_rejected",
               "status": "error",
-              "duration_ms": 3485,
-              "summary": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+              "duration_ms": 3484,
+              "summary": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
               "http": {
                 "status_code": 503
               },
@@ -9327,7 +9327,7 @@
                 "anthropic.messages.system.top_level"
               ],
               "bound": true,
-              "error": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}"
+              "error": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}"
             },
             {
               "extension_id": "official-sdk.anthropic",
@@ -9340,8 +9340,8 @@
               },
               "outcome": "execution_error",
               "status": "error",
-              "duration_ms": 1687,
-              "summary": "Get \"http://127.0.0.1:32775/anthropic/v1/models/wiremock-broken-model\": cannot retry SDK request with a non-replayable body",
+              "duration_ms": 1482,
+              "summary": "Get \"http://127.0.0.1:32776/anthropic/v1/models/wiremock-broken-model\": cannot retry SDK request with a non-replayable body",
               "http": {},
               "usage": {},
               "signals": [
@@ -9354,7 +9354,7 @@
                 "anthropic.models.retrieve"
               ],
               "bound": true,
-              "error": "Get \"http://127.0.0.1:32775/anthropic/v1/models/wiremock-broken-model\": cannot retry SDK request with a non-replayable body"
+              "error": "Get \"http://127.0.0.1:32776/anthropic/v1/models/wiremock-broken-model\": cannot retry SDK request with a non-replayable body"
             },
             {
               "extension_id": "official-sdk.anthropic",
@@ -9367,8 +9367,8 @@
               },
               "outcome": "request_rejected",
               "status": "error",
-              "duration_ms": 3692,
-              "summary": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+              "duration_ms": 3690,
+              "summary": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
               "http": {
                 "status_code": 503
               },
@@ -9383,7 +9383,7 @@
                 "anthropic.structured.json_schema"
               ],
               "bound": true,
-              "error": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}"
+              "error": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}"
             },
             {
               "extension_id": "official-sdk.anthropic",
@@ -9396,8 +9396,8 @@
               },
               "outcome": "request_rejected",
               "status": "error",
-              "duration_ms": 3375,
-              "summary": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+              "duration_ms": 3280,
+              "summary": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
               "http": {
                 "status_code": 503
               },
@@ -9413,7 +9413,7 @@
                 "anthropic.tools.continuation"
               ],
               "bound": true,
-              "error": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}"
+              "error": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}"
             },
             {
               "extension_id": "official-sdk.anthropic",
@@ -9426,8 +9426,8 @@
               },
               "outcome": "request_rejected",
               "status": "error",
-              "duration_ms": 2967,
-              "summary": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
+              "duration_ms": 3688,
+              "summary": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}",
               "http": {
                 "status_code": 503
               },
@@ -9442,7 +9442,7 @@
                 "anthropic.tools.stream"
               ],
               "bound": true,
-              "error": "POST \"http://127.0.0.1:32775/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}"
+              "error": "POST \"http://127.0.0.1:32776/anthropic/v1/messages\": 503 Service Unavailable {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}"
             }
           ]
         },
@@ -9459,12 +9459,12 @@
             "target_id": "anthropic",
             "protocol": "anthropic",
             "kind": "provider",
-            "id": "http://127.0.0.1:32775/anthropic"
+            "id": "http://127.0.0.1:32776/anthropic"
           },
           "runner": {
             "status": "pass",
             "startup_duration_ms": 0,
-            "total_duration_ms": 4,
+            "total_duration_ms": 3,
             "exit_code": 0,
             "pacing_compliance": "host_enforced",
             "summary": "Extension runner completed"
@@ -9477,11 +9477,11 @@
                 "target_id": "anthropic",
                 "protocol": "anthropic",
                 "kind": "provider",
-                "id": "http://127.0.0.1:32775/anthropic"
+                "id": "http://127.0.0.1:32776/anthropic"
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 4,
+              "duration_ms": 3,
               "summary": "Official Anthropic Go SDK sent and parsed the suite",
               "http": {},
               "usage": {},
@@ -9538,7 +9538,7 @@
             "category": "discovery",
             "required": true,
             "status": "pass",
-            "duration_ms": 3,
+            "duration_ms": 2,
             "summary": "Google Models endpoint returned JSON",
             "expected": "GET /models returns a successful Google JSON response",
             "http": {
@@ -9556,7 +9556,7 @@
             "category": "schema",
             "required": true,
             "status": "pass",
-            "duration_ms": 3,
+            "duration_ms": 2,
             "summary": "Google model-list schema is valid (1 models)",
             "expected": "The Google models envelope and names are valid",
             "http": {
@@ -9574,7 +9574,7 @@
             "category": "schema",
             "required": true,
             "status": "pass",
-            "duration_ms": 3,
+            "duration_ms": 2,
             "summary": "Google model names are unique after removing models/ prefix",
             "expected": "Model names are unique after normalizing the models/ prefix",
             "http": {
@@ -9592,7 +9592,7 @@
             "category": "auth",
             "required": true,
             "status": "pass",
-            "duration_ms": 3,
+            "duration_ms": 2,
             "summary": "x-goog-api-key authentication was accepted",
             "expected": "The x-goog-api-key header is accepted",
             "http": {
@@ -9668,7 +9668,7 @@
               "category": "embeddings",
               "required": false,
               "status": "error",
-              "duration_ms": 2,
+              "duration_ms": 1,
               "summary": "Provider/runtime error HTTP 503 makes compatibility inconclusive",
               "expected": "embedContent returns finite vector elements",
               "http": {
@@ -9694,7 +9694,7 @@
               "category": "errors",
               "required": true,
               "status": "error",
-              "duration_ms": 4,
+              "duration_ms": 5,
               "summary": "Malformed JSON handling is not consistently client-side",
               "expected": "Multiple malformed JSON variants are rejected as client errors",
               "observation": "variant 1: HTTP 503; variant 2: HTTP 503; variant 3: HTTP 503",
@@ -10013,7 +10013,7 @@
               "category": "structured-output",
               "required": false,
               "status": "error",
-              "duration_ms": 1,
+              "duration_ms": 2,
               "summary": "Provider/runtime error HTTP 503 makes compatibility inconclusive",
               "expected": "Legacy JSON output conforms to a local schema",
               "http": {
@@ -10039,7 +10039,7 @@
               "category": "tools",
               "required": false,
               "status": "error",
-              "duration_ms": 1,
+              "duration_ms": 2,
               "summary": "Provider/runtime error HTTP 503 makes compatibility inconclusive",
               "expected": "Legacy function declarations are accepted",
               "http": {
@@ -10515,7 +10515,7 @@
               "category": "discovery",
               "required": false,
               "status": "error",
-              "duration_ms": 2,
+              "duration_ms": 1,
               "summary": "Provider/runtime error HTTP 503 makes compatibility inconclusive",
               "expected": "GET /models/{id} returns metadata for the selected model",
               "http": {
@@ -10541,7 +10541,7 @@
               "category": "discovery",
               "required": false,
               "status": "skip",
-              "duration_ms": 2,
+              "duration_ms": 1,
               "summary": "Model metadata was unavailable",
               "expected": "Advertised token limits are non-negative and coherent",
               "http": {
@@ -10567,7 +10567,7 @@
               "category": "discovery",
               "required": false,
               "status": "skip",
-              "duration_ms": 2,
+              "duration_ms": 1,
               "summary": "Model metadata was unavailable",
               "expected": "supportedGenerationMethods is a string array when advertised",
               "http": {
@@ -10593,7 +10593,7 @@
               "category": "discovery",
               "required": false,
               "status": "skip",
-              "duration_ms": 2,
+              "duration_ms": 1,
               "summary": "Model metadata was unavailable",
               "expected": "The thinking metadata flag is boolean when advertised",
               "http": {
@@ -12562,14 +12562,14 @@
             "target_id": "google-genai",
             "protocol": "google-genai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32775/google"
+            "id": "http://127.0.0.1:32776/google"
           },
           "module": "google-genai.discovery",
           "applicability": "applicable",
           "status": "pass",
           "evidence": [
             {
-              "id": "native:google.genai:provider:http.127.0.0.1.32775.google:aiqa.native.google.auth.x.goog.api.key",
+              "id": "native:google.genai:provider:http.127.0.0.1.32776.google:aiqa.native.google.auth.x.goog.api.key",
               "kind": "native",
               "probe_id": "aiqa.native.google.auth.x_goog_api_key",
               "status": "pass",
@@ -12587,14 +12587,14 @@
             "target_id": "google-genai",
             "protocol": "google-genai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32775/google"
+            "id": "http://127.0.0.1:32776/google"
           },
           "module": "google-genai.discovery",
           "applicability": "applicable",
           "status": "pass",
           "evidence": [
             {
-              "id": "native:google.genai:provider:http.127.0.0.1.32775.google:aiqa.native.google.interactions.model.selection",
+              "id": "native:google.genai:provider:http.127.0.0.1.32776.google:aiqa.native.google.interactions.model.selection",
               "kind": "native",
               "probe_id": "aiqa.native.google.interactions.model_selection",
               "status": "pass",
@@ -12611,14 +12611,14 @@
             "target_id": "google-genai",
             "protocol": "google-genai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32775/google"
+            "id": "http://127.0.0.1:32776/google"
           },
           "module": "google-genai.discovery",
           "applicability": "applicable",
           "status": "pass",
           "evidence": [
             {
-              "id": "native:google.genai:provider:http.127.0.0.1.32775.google:aiqa.native.google.models.list.http",
+              "id": "native:google.genai:provider:http.127.0.0.1.32776.google:aiqa.native.google.models.list.http",
               "kind": "native",
               "probe_id": "aiqa.native.google.models.list.http",
               "status": "pass",
@@ -12636,14 +12636,14 @@
             "target_id": "google-genai",
             "protocol": "google-genai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32775/google"
+            "id": "http://127.0.0.1:32776/google"
           },
           "module": "google-genai.discovery",
           "applicability": "not_applicable",
           "status": "not_applicable",
           "evidence": [
             {
-              "id": "native:google.genai:provider:http.127.0.0.1.32775.google:aiqa.native.google.models.list.pagination",
+              "id": "native:google.genai:provider:http.127.0.0.1.32776.google:aiqa.native.google.models.list.pagination",
               "kind": "native",
               "probe_id": "aiqa.native.google.models.list.pagination",
               "status": "skip",
@@ -12668,14 +12668,14 @@
             "target_id": "google-genai",
             "protocol": "google-genai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32775/google"
+            "id": "http://127.0.0.1:32776/google"
           },
           "module": "google-genai.discovery",
           "applicability": "applicable",
           "status": "pass",
           "evidence": [
             {
-              "id": "native:google.genai:provider:http.127.0.0.1.32775.google:aiqa.native.google.models.list.schema",
+              "id": "native:google.genai:provider:http.127.0.0.1.32776.google:aiqa.native.google.models.list.schema",
               "kind": "native",
               "probe_id": "aiqa.native.google.models.list.schema",
               "status": "pass",
@@ -12693,14 +12693,14 @@
             "target_id": "google-genai",
             "protocol": "google-genai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32775/google"
+            "id": "http://127.0.0.1:32776/google"
           },
           "module": "google-genai.discovery",
           "applicability": "applicable",
           "status": "pass",
           "evidence": [
             {
-              "id": "native:google.genai:provider:http.127.0.0.1.32775.google:aiqa.native.google.models.list.unique.names",
+              "id": "native:google.genai:provider:http.127.0.0.1.32776.google:aiqa.native.google.models.list.unique.names",
               "kind": "native",
               "probe_id": "aiqa.native.google.models.list.unique_names",
               "status": "pass",
@@ -12718,14 +12718,14 @@
             "target_id": "google-genai",
             "protocol": "google-genai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32775/google"
+            "id": "http://127.0.0.1:32776/google"
           },
           "module": "google-genai.discovery",
           "applicability": "applicable",
           "status": "pass",
           "evidence": [
             {
-              "id": "extension:google.genai:provider:http.127.0.0.1.32775.google:official.sdk.google.genai.models.list",
+              "id": "extension:google.genai:provider:http.127.0.0.1.32776.google:official.sdk.google.genai.models.list",
               "kind": "extension",
               "suite": "models.list",
               "status": "pass",
@@ -17343,9 +17343,9 @@
         "observed_safe_requests_per_second": 0.5,
         "observed_safe_concurrency": 1,
         "latency_samples": 4,
-        "mean_latency_ms": 3,
-        "p50_latency_ms": 3,
-        "p95_latency_ms": 3
+        "mean_latency_ms": 2,
+        "p50_latency_ms": 2,
+        "p95_latency_ms": 2
       },
       "extension_rate_limit": {
         "successful_requests": 1,
@@ -17378,7 +17378,7 @@
           "runner": {
             "status": "pass",
             "startup_duration_ms": 0,
-            "total_duration_ms": 3385,
+            "total_duration_ms": 3384,
             "exit_code": 0,
             "pacing_compliance": "host_enforced",
             "summary": "Extension runner completed"
@@ -17395,7 +17395,7 @@
               },
               "outcome": "request_rejected",
               "status": "error",
-              "duration_ms": 3384,
+              "duration_ms": 2002,
               "summary": "Error 503, Message: {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}, Status: 503 Service Unavailable, Details: []",
               "http": {
                 "status_code": 503
@@ -17424,7 +17424,7 @@
               },
               "outcome": "request_rejected",
               "status": "error",
-              "duration_ms": 1999,
+              "duration_ms": 3383,
               "summary": "Error 503, Message: {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}, Status: 503 Service Unavailable, Details: []",
               "http": {
                 "status_code": 503
@@ -17453,7 +17453,7 @@
               },
               "outcome": "request_rejected",
               "status": "error",
-              "duration_ms": 2001,
+              "duration_ms": 3381,
               "summary": "Error 503, Message: {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}, Status: 503 Service Unavailable, Details: []",
               "http": {
                 "status_code": 503
@@ -17513,7 +17513,7 @@
               },
               "outcome": "request_rejected",
               "status": "error",
-              "duration_ms": 2001,
+              "duration_ms": 1997,
               "summary": "Error 503, Message: {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}, Status: 503 Service Unavailable, Details: []",
               "http": {
                 "status_code": 503
@@ -17539,7 +17539,7 @@
               },
               "outcome": "request_rejected",
               "status": "error",
-              "duration_ms": 3384,
+              "duration_ms": 2002,
               "summary": "Error 503, Message: {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}, Status: 503 Service Unavailable, Details: []",
               "http": {
                 "status_code": 503
@@ -17568,7 +17568,7 @@
               },
               "outcome": "request_rejected",
               "status": "error",
-              "duration_ms": 3384,
+              "duration_ms": 3383,
               "summary": "Error 503, Message: {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}, Status: 503 Service Unavailable, Details: []",
               "http": {
                 "status_code": 503
@@ -17601,12 +17601,12 @@
             "target_id": "google-genai",
             "protocol": "google-genai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32775/google"
+            "id": "http://127.0.0.1:32776/google"
           },
           "runner": {
             "status": "pass",
             "startup_duration_ms": 0,
-            "total_duration_ms": 2,
+            "total_duration_ms": 3,
             "exit_code": 0,
             "pacing_compliance": "host_enforced",
             "summary": "Extension runner completed"
@@ -17619,11 +17619,11 @@
                 "target_id": "google-genai",
                 "protocol": "google-genai",
                 "kind": "provider",
-                "id": "http://127.0.0.1:32775/google"
+                "id": "http://127.0.0.1:32776/google"
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 2,
+              "duration_ms": 3,
               "summary": "Official Google Gen AI Go SDK sent and parsed the suite",
               "http": {},
               "usage": {},
@@ -17857,7 +17857,7 @@
               "category": "core",
               "required": true,
               "status": "error",
-              "duration_ms": 2,
+              "duration_ms": 1,
               "summary": "minimal chat completion returned provider HTTP 503; compatibility outcome is inconclusive",
               "expected": "A minimal chat completion succeeds",
               "http": {
@@ -17884,7 +17884,7 @@
               "category": "messages",
               "required": false,
               "status": "error",
-              "duration_ms": 2,
+              "duration_ms": 1,
               "summary": "text content-parts support could not be evaluated",
               "expected": "Array-form text content parts are accepted",
               "http": {
@@ -17992,7 +17992,7 @@
               "category": "messages",
               "required": false,
               "status": "error",
-              "duration_ms": 2,
+              "duration_ms": 1,
               "summary": "system role could not be evaluated",
               "expected": "System messages are accepted",
               "http": {
@@ -18019,7 +18019,7 @@
               "category": "schema",
               "required": true,
               "status": "skip",
-              "duration_ms": 2,
+              "duration_ms": 1,
               "summary": "response schema was not checked because basic chat failed",
               "expected": "The response contains OpenAI-compatible completion fields",
               "http": {
@@ -18046,7 +18046,7 @@
               "category": "streaming",
               "required": true,
               "status": "error",
-              "duration_ms": 1,
+              "duration_ms": 2,
               "summary": "stream returned provider HTTP 503; compatibility outcome is inconclusive",
               "expected": "SSE chunks are valid and terminate with [DONE]",
               "http": {
@@ -18205,7 +18205,7 @@
               "category": "tools",
               "required": false,
               "status": "error",
-              "duration_ms": 2,
+              "duration_ms": 1,
               "summary": "forced tool call could not be evaluated",
               "expected": "A forced function tool call has valid OpenAI shape",
               "http": {
@@ -18232,7 +18232,7 @@
               "category": "tools",
               "required": false,
               "status": "error",
-              "duration_ms": 2,
+              "duration_ms": 1,
               "summary": "tool_choice=none could not be evaluated",
               "expected": "Tool calls can be explicitly disabled",
               "http": {
@@ -18259,7 +18259,7 @@
               "category": "tools",
               "required": false,
               "status": "error",
-              "duration_ms": 2,
+              "duration_ms": 1,
               "summary": "tool_choice=required could not be evaluated",
               "expected": "At least one tool call is emitted when required",
               "http": {
@@ -18286,7 +18286,7 @@
               "category": "tools",
               "required": false,
               "status": "error",
-              "duration_ms": 1,
+              "duration_ms": 2,
               "summary": "streaming tool call returned provider HTTP 503; compatibility outcome is inconclusive",
               "expected": "Streamed tool-call deltas reconstruct into a valid function call",
               "http": {
@@ -18314,7 +18314,7 @@
               "category": "usage",
               "required": true,
               "status": "skip",
-              "duration_ms": 2,
+              "duration_ms": 1,
               "summary": "usage was not checked because basic chat failed",
               "expected": "Token usage is present and internally consistent",
               "http": {
@@ -19176,7 +19176,7 @@
               "kind": "extension",
               "suite": "chat.completions",
               "status": "error",
-              "summary": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
+              "summary": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
               "http_status": 503,
               "related_requirement_ids": [
                 "chat.basic",
@@ -19211,7 +19211,7 @@
               "kind": "extension",
               "suite": "chat.json",
               "status": "error",
-              "summary": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
+              "summary": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
               "http_status": 503,
               "related_requirement_ids": [
                 "chat.structured.json_object"
@@ -19244,7 +19244,7 @@
               "kind": "extension",
               "suite": "chat.multi-turn",
               "status": "error",
-              "summary": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
+              "summary": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
               "http_status": 503,
               "related_requirement_ids": [
                 "chat.multi_turn"
@@ -19277,7 +19277,7 @@
               "kind": "extension",
               "suite": "chat.stream",
               "status": "error",
-              "summary": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
+              "summary": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
               "http_status": 503,
               "related_requirement_ids": [
                 "chat.stream.sse"
@@ -19310,7 +19310,7 @@
               "kind": "extension",
               "suite": "chat.stream.usage",
               "status": "error",
-              "summary": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
+              "summary": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
               "http_status": 503,
               "related_requirement_ids": [
                 "chat.stream.usage"
@@ -19343,7 +19343,7 @@
               "kind": "extension",
               "suite": "chat.tools",
               "status": "error",
-              "summary": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
+              "summary": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
               "http_status": 503,
               "related_requirement_ids": [
                 "chat.tools.forced",
@@ -19377,7 +19377,7 @@
               "kind": "extension",
               "suite": "chat.tools.stream",
               "status": "error",
-              "summary": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
+              "summary": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
               "http_status": 503,
               "related_requirement_ids": [
                 "chat.tools.stream"
@@ -19442,7 +19442,7 @@
               "kind": "extension",
               "suite": "models.get",
               "status": "error",
-              "summary": "Get \"http://127.0.0.1:32775/openai/v1/models/wiremock-broken-model\": cannot retry SDK request with a non-replayable body",
+              "summary": "Get \"http://127.0.0.1:32776/openai/v1/models/wiremock-broken-model\": cannot retry SDK request with a non-replayable body",
               "related_requirement_ids": [
                 "models.retrieve"
               ],
@@ -19463,14 +19463,14 @@
             "target_id": "openai",
             "protocol": "openai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32775/openai/v1"
+            "id": "http://127.0.0.1:32776/openai/v1"
           },
           "module": "chat-completions",
           "applicability": "applicable",
           "status": "error",
           "evidence": [
             {
-              "id": "native:openai:provider:http.127.0.0.1.32775.openai.v1:aiqa.native.chat.error.invalid.auth",
+              "id": "native:openai:provider:http.127.0.0.1.32776.openai.v1:aiqa.native.chat.error.invalid.auth",
               "kind": "native",
               "probe_id": "aiqa.native.chat.error.invalid_auth",
               "status": "error",
@@ -19496,14 +19496,14 @@
             "target_id": "openai",
             "protocol": "openai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32775/openai/v1"
+            "id": "http://127.0.0.1:32776/openai/v1"
           },
           "module": "chat-completions",
           "applicability": "applicable",
           "status": "error",
           "evidence": [
             {
-              "id": "native:openai:provider:http.127.0.0.1.32775.openai.v1:aiqa.native.chat.error.invalid.json",
+              "id": "native:openai:provider:http.127.0.0.1.32776.openai.v1:aiqa.native.chat.error.invalid.json",
               "kind": "native",
               "probe_id": "aiqa.native.chat.error.invalid_json",
               "status": "error",
@@ -19529,14 +19529,14 @@
             "target_id": "openai",
             "protocol": "openai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32775/openai/v1"
+            "id": "http://127.0.0.1:32776/openai/v1"
           },
           "module": "chat-completions",
           "applicability": "applicable",
           "status": "error",
           "evidence": [
             {
-              "id": "native:openai:provider:http.127.0.0.1.32775.openai.v1:aiqa.native.chat.error.invalid.model",
+              "id": "native:openai:provider:http.127.0.0.1.32776.openai.v1:aiqa.native.chat.error.invalid.model",
               "kind": "native",
               "probe_id": "aiqa.native.chat.error.invalid_model",
               "status": "error",
@@ -19562,14 +19562,14 @@
             "target_id": "openai",
             "protocol": "openai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32775/openai/v1"
+            "id": "http://127.0.0.1:32776/openai/v1"
           },
           "module": "chat-completions",
           "applicability": "applicable",
           "status": "error",
           "evidence": [
             {
-              "id": "native:openai:provider:http.127.0.0.1.32775.openai.v1:aiqa.native.chat.error.invalid.types",
+              "id": "native:openai:provider:http.127.0.0.1.32776.openai.v1:aiqa.native.chat.error.invalid.types",
               "kind": "native",
               "probe_id": "aiqa.native.chat.error.invalid_types",
               "status": "error",
@@ -19596,14 +19596,14 @@
             "target_id": "openai",
             "protocol": "openai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32775/openai/v1"
+            "id": "http://127.0.0.1:32776/openai/v1"
           },
           "module": "discovery",
           "applicability": "applicable",
           "status": "pass",
           "evidence": [
             {
-              "id": "native:openai:provider:http.127.0.0.1.32775.openai.v1:aiqa.native.models.list.http",
+              "id": "native:openai:provider:http.127.0.0.1.32776.openai.v1:aiqa.native.models.list.http",
               "kind": "native",
               "probe_id": "aiqa.native.models.list.http",
               "status": "pass",
@@ -19621,14 +19621,14 @@
             "target_id": "openai",
             "protocol": "openai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32775/openai/v1"
+            "id": "http://127.0.0.1:32776/openai/v1"
           },
           "module": "discovery",
           "applicability": "applicable",
           "status": "pass",
           "evidence": [
             {
-              "id": "native:openai:provider:http.127.0.0.1.32775.openai.v1:aiqa.native.models.list.schema",
+              "id": "native:openai:provider:http.127.0.0.1.32776.openai.v1:aiqa.native.models.list.schema",
               "kind": "native",
               "probe_id": "aiqa.native.models.list.schema",
               "status": "pass",
@@ -19646,14 +19646,14 @@
             "target_id": "openai",
             "protocol": "openai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32775/openai/v1"
+            "id": "http://127.0.0.1:32776/openai/v1"
           },
           "module": "discovery",
           "applicability": "applicable",
           "status": "pass",
           "evidence": [
             {
-              "id": "extension:openai:provider:http.127.0.0.1.32775.openai.v1:official.sdk.openai.models.list",
+              "id": "extension:openai:provider:http.127.0.0.1.32776.openai.v1:official.sdk.openai.models.list",
               "kind": "extension",
               "suite": "models.list",
               "status": "pass",
@@ -19745,8 +19745,8 @@
         },
         "findings": [
           {
-            "id": "finding:contract-chat-invalid-request-upstream-5xx:0f90ed8028fd",
-            "fingerprint": "sha256:0f90ed8028fd4522679a59b1763b42386f68f33f984ac87592987c05e977ea41",
+            "id": "finding:contract-chat-invalid-request-upstream-5xx:b9578703d8de",
+            "fingerprint": "sha256:b9578703d8defed82dac585ea3c82eb4aeac2dafbac6d7b867cf4c746aa18488",
             "code": "contract.chat.invalid_request.upstream_5xx",
             "class": "contract_violation",
             "evidence_state": "confirmed",
@@ -19756,7 +19756,7 @@
               "target_id": "openai",
               "protocol": "openai",
               "kind": "provider",
-              "id": "http://127.0.0.1:32775/openai/v1"
+              "id": "http://127.0.0.1:32776/openai/v1"
             },
             "observed_scope": {
               "endpoint": "POST /v1/chat/completions"
@@ -19765,7 +19765,7 @@
               "chat.error.invalid_types"
             ],
             "evidence_refs": [
-              "native:openai:provider:http.127.0.0.1.32775.openai.v1:aiqa.native.chat.error.invalid.types"
+              "native:openai:provider:http.127.0.0.1.32776.openai.v1:aiqa.native.chat.error.invalid.types"
             ],
             "expected": "Invalid Chat Completions field types are rejected with a client error",
             "observed": "invalid request field types returned provider HTTP 503; compatibility outcome is inconclusive",
@@ -19852,8 +19852,8 @@
             "baseline_state": "unknown"
           },
           {
-            "id": "finding:execution-chat-error-invalid-auth-error:a932ac96580a",
-            "fingerprint": "sha256:a932ac96580a35014cea04ff9a9450506e6b4f5e7952f14f5f00f50fbf6aaf69",
+            "id": "finding:execution-chat-error-invalid-auth-error:601317eaaf5e",
+            "fingerprint": "sha256:601317eaaf5e8e2205fea3da32415e54ded3e1ac7cb1dd562eea26729350222b",
             "code": "execution.chat.error.invalid_auth.error",
             "class": "execution_failure",
             "evidence_state": "inconclusive",
@@ -19863,14 +19863,14 @@
               "target_id": "openai",
               "protocol": "openai",
               "kind": "provider",
-              "id": "http://127.0.0.1:32775/openai/v1"
+              "id": "http://127.0.0.1:32776/openai/v1"
             },
             "observed_scope": {},
             "requirement_ids": [
               "chat.error.invalid_auth"
             ],
             "evidence_refs": [
-              "native:openai:provider:http.127.0.0.1.32775.openai.v1:aiqa.native.chat.error.invalid.auth"
+              "native:openai:provider:http.127.0.0.1.32776.openai.v1:aiqa.native.chat.error.invalid.auth"
             ],
             "expected": "An invalid API key on Chat Completions returns 401/403 and an OpenAI-shaped error",
             "observed": "invalid authentication returned provider HTTP 503; compatibility outcome is inconclusive",
@@ -19882,8 +19882,8 @@
             "baseline_state": "unknown"
           },
           {
-            "id": "finding:execution-chat-error-invalid-json-error:dcd47507825f",
-            "fingerprint": "sha256:dcd47507825fe8b9de3972358b2fbb33108daf4f5d3084eaf190797cb060530d",
+            "id": "finding:execution-chat-error-invalid-json-error:91d1f21e2649",
+            "fingerprint": "sha256:91d1f21e264917525349e000af7fbb39c20e5a50bcf8ddb36b475b193209e322",
             "code": "execution.chat.error.invalid_json.error",
             "class": "execution_failure",
             "evidence_state": "inconclusive",
@@ -19893,14 +19893,14 @@
               "target_id": "openai",
               "protocol": "openai",
               "kind": "provider",
-              "id": "http://127.0.0.1:32775/openai/v1"
+              "id": "http://127.0.0.1:32776/openai/v1"
             },
             "observed_scope": {},
             "requirement_ids": [
               "chat.error.invalid_json"
             ],
             "evidence_refs": [
-              "native:openai:provider:http.127.0.0.1.32775.openai.v1:aiqa.native.chat.error.invalid.json"
+              "native:openai:provider:http.127.0.0.1.32776.openai.v1:aiqa.native.chat.error.invalid.json"
             ],
             "expected": "Malformed Chat Completions JSON returns a client error rather than 5xx",
             "observed": "malformed JSON variants returned provider HTTP 503; compatibility outcome is inconclusive",
@@ -19912,8 +19912,8 @@
             "baseline_state": "unknown"
           },
           {
-            "id": "finding:execution-chat-error-invalid-model-error:972450daaa75",
-            "fingerprint": "sha256:972450daaa754832a79a14c7f6102ac9e3c66d0cbaf8ba57445aa73a04cf9381",
+            "id": "finding:execution-chat-error-invalid-model-error:068c9c674a73",
+            "fingerprint": "sha256:068c9c674a736f745834a373d4f10210085e69fb63679fa060c9344395066e4e",
             "code": "execution.chat.error.invalid_model.error",
             "class": "execution_failure",
             "evidence_state": "inconclusive",
@@ -19923,14 +19923,14 @@
               "target_id": "openai",
               "protocol": "openai",
               "kind": "provider",
-              "id": "http://127.0.0.1:32775/openai/v1"
+              "id": "http://127.0.0.1:32776/openai/v1"
             },
             "observed_scope": {},
             "requirement_ids": [
               "chat.error.invalid_model"
             ],
             "evidence_refs": [
-              "native:openai:provider:http.127.0.0.1.32775.openai.v1:aiqa.native.chat.error.invalid.model"
+              "native:openai:provider:http.127.0.0.1.32776.openai.v1:aiqa.native.chat.error.invalid.model"
             ],
             "expected": "An invalid model on Chat Completions returns a non-2xx OpenAI-shaped error",
             "observed": "invalid model returned provider HTTP 503; compatibility outcome is inconclusive",
@@ -20479,7 +20479,7 @@
               "extension:openai:model:wiremock.broken.model:official.sdk.openai.chat.completions"
             ],
             "expected": "The official OpenAI Go SDK sends and parses a chat completion",
-            "observed": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
+            "observed": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
             "attribution": {
               "component": "network_or_runtime",
               "confidence": "low",
@@ -20513,7 +20513,7 @@
               "extension:openai:model:wiremock.broken.model:official.sdk.openai.chat.json"
             ],
             "expected": "The official OpenAI Go SDK parses JSON mode output",
-            "observed": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
+            "observed": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
             "attribution": {
               "component": "network_or_runtime",
               "confidence": "low",
@@ -20547,7 +20547,7 @@
               "extension:openai:model:wiremock.broken.model:official.sdk.openai.chat.multi.turn"
             ],
             "expected": "The official OpenAI Go SDK sends multi-turn messages",
-            "observed": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
+            "observed": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
             "attribution": {
               "component": "network_or_runtime",
               "confidence": "low",
@@ -20581,7 +20581,7 @@
               "extension:openai:model:wiremock.broken.model:official.sdk.openai.chat.stream"
             ],
             "expected": "The official OpenAI Go SDK consumes a chat stream",
-            "observed": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
+            "observed": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
             "attribution": {
               "component": "network_or_runtime",
               "confidence": "low",
@@ -20615,7 +20615,7 @@
               "extension:openai:model:wiremock.broken.model:official.sdk.openai.chat.stream.usage"
             ],
             "expected": "The official OpenAI Go SDK reconstructs streaming usage",
-            "observed": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
+            "observed": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
             "attribution": {
               "component": "network_or_runtime",
               "confidence": "low",
@@ -20649,7 +20649,7 @@
               "extension:openai:model:wiremock.broken.model:official.sdk.openai.chat.tools"
             ],
             "expected": "The official OpenAI Go SDK parses and continues tool calls",
-            "observed": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
+            "observed": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
             "attribution": {
               "component": "network_or_runtime",
               "confidence": "low",
@@ -20683,7 +20683,7 @@
               "extension:openai:model:wiremock.broken.model:official.sdk.openai.chat.tools.stream"
             ],
             "expected": "The official OpenAI Go SDK reconstructs streamed tool calls",
-            "observed": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
+            "observed": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
             "attribution": {
               "component": "network_or_runtime",
               "confidence": "low",
@@ -20717,7 +20717,7 @@
               "extension:openai:model:wiremock.broken.model:official.sdk.openai.models.get"
             ],
             "expected": "The official OpenAI Go SDK retrieves the selected model",
-            "observed": "Get \"http://127.0.0.1:32775/openai/v1/models/wiremock-broken-model\": cannot retry SDK request with a non-replayable body",
+            "observed": "Get \"http://127.0.0.1:32776/openai/v1/models/wiremock-broken-model\": cannot retry SDK request with a non-replayable body",
             "attribution": {
               "component": "network_or_runtime",
               "confidence": "low",
@@ -20901,10 +20901,10 @@
             }
           },
           {
-            "id": "recommendation:execution-chat-error-invalid-json-error:d8695f042d28",
-            "fingerprint": "sha256:d8695f042d28d3064f736418cd75e194eb7bb75bd8fe280ba3250f1a86625b9a",
+            "id": "recommendation:execution-chat-error-invalid-json-error:1ba0493fb644",
+            "fingerprint": "sha256:1ba0493fb6446e322efac4f5377397740cb8d7e208c7a0caba3fb99b7b78e6e2",
             "finding_ids": [
-              "finding:execution-chat-error-invalid-json-error:dcd47507825f"
+              "finding:execution-chat-error-invalid-json-error:91d1f21e2649"
             ],
             "title": "Rerun the affected requirement after execution recovers",
             "priority": "p0",
@@ -20966,10 +20966,10 @@
             }
           },
           {
-            "id": "recommendation:execution-chat-error-invalid-model-error:1e4cd35e4615",
-            "fingerprint": "sha256:1e4cd35e4615e947118a986cb34338772024c53428138432bcaa2a396c2adad9",
+            "id": "recommendation:execution-chat-error-invalid-model-error:9362567384d5",
+            "fingerprint": "sha256:9362567384d57ca86e1581d9012ef8249bb34fbe63e476bfa6034715ee5d4ba2",
             "finding_ids": [
-              "finding:execution-chat-error-invalid-model-error:972450daaa75"
+              "finding:execution-chat-error-invalid-model-error:068c9c674a73"
             ],
             "title": "Rerun the affected requirement after execution recovers",
             "priority": "p0",
@@ -21226,10 +21226,10 @@
             }
           },
           {
-            "id": "recommendation:contract-chat-invalid-request-upstream-5xx:5801a1da101e",
-            "fingerprint": "sha256:5801a1da101e63fc9c5f739183ab9aaef6c23ab78ce6f65fded415fcebd107a8",
+            "id": "recommendation:contract-chat-invalid-request-upstream-5xx:ec3a77eea0d5",
+            "fingerprint": "sha256:ec3a77eea0d52aa8e615e258e51b141c59a00ecebe4652062c9f3882828b3ba1",
             "finding_ids": [
-              "finding:contract-chat-invalid-request-upstream-5xx:0f90ed8028fd"
+              "finding:contract-chat-invalid-request-upstream-5xx:b9578703d8de"
             ],
             "title": "Reject invalid field types at the gateway boundary",
             "priority": "p1",
@@ -21424,10 +21424,10 @@
             }
           },
           {
-            "id": "recommendation:execution-chat-error-invalid-auth-error:c2edbee11eb2",
-            "fingerprint": "sha256:c2edbee11eb2adea97220fc47929bfc7ee3a03beabec6c8fdd75e0b223e84f5c",
+            "id": "recommendation:execution-chat-error-invalid-auth-error:4b5df191e6d8",
+            "fingerprint": "sha256:4b5df191e6d89b991cbc0a15e530a4db9ff7e5afe0964bc1a668e838c80a9ca6",
             "finding_ids": [
-              "finding:execution-chat-error-invalid-auth-error:a932ac96580a"
+              "finding:execution-chat-error-invalid-auth-error:601317eaaf5e"
             ],
             "title": "Rerun the affected requirement after execution recovers",
             "priority": "p2",
@@ -22353,7 +22353,7 @@
               "component": "network_or_runtime"
             },
             "why": "The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.",
-            "observed": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
+            "observed": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
             "steps": [
               {
                 "id": "restore-execution",
@@ -22418,7 +22418,7 @@
               "component": "network_or_runtime"
             },
             "why": "The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.",
-            "observed": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
+            "observed": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
             "steps": [
               {
                 "id": "restore-execution",
@@ -22483,7 +22483,7 @@
               "component": "network_or_runtime"
             },
             "why": "The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.",
-            "observed": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
+            "observed": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
             "steps": [
               {
                 "id": "restore-execution",
@@ -22548,7 +22548,7 @@
               "component": "network_or_runtime"
             },
             "why": "The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.",
-            "observed": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
+            "observed": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
             "steps": [
               {
                 "id": "restore-execution",
@@ -22613,7 +22613,7 @@
               "component": "network_or_runtime"
             },
             "why": "The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.",
-            "observed": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
+            "observed": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
             "steps": [
               {
                 "id": "restore-execution",
@@ -22678,7 +22678,7 @@
               "component": "network_or_runtime"
             },
             "why": "The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.",
-            "observed": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
+            "observed": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
             "steps": [
               {
                 "id": "restore-execution",
@@ -22743,7 +22743,7 @@
               "component": "network_or_runtime"
             },
             "why": "The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.",
-            "observed": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
+            "observed": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
             "steps": [
               {
                 "id": "restore-execution",
@@ -22808,7 +22808,7 @@
               "component": "network_or_runtime"
             },
             "why": "The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet.",
-            "observed": "Get \"http://127.0.0.1:32775/openai/v1/models/wiremock-broken-model\": cannot retry SDK request with a non-replayable body",
+            "observed": "Get \"http://127.0.0.1:32776/openai/v1/models/wiremock-broken-model\": cannot retry SDK request with a non-replayable body",
             "steps": [
               {
                 "id": "restore-execution",
@@ -22872,8 +22872,8 @@
         "rate_limited_responses": 0,
         "retries_recovered": 0,
         "backoff_ms": 0,
-        "observed_safe_requests_per_second": 1.5,
-        "observed_safe_concurrency": 3,
+        "observed_safe_requests_per_second": 3,
+        "observed_safe_concurrency": 6,
         "latency_samples": 0,
         "mean_latency_ms": 0,
         "p50_latency_ms": 0,
@@ -22898,7 +22898,7 @@
           "runner": {
             "status": "pass",
             "startup_duration_ms": 0,
-            "total_duration_ms": 2205,
+            "total_duration_ms": 2206,
             "exit_code": 0,
             "pacing_compliance": "host_enforced",
             "summary": "Extension runner completed"
@@ -22915,8 +22915,8 @@
               },
               "outcome": "request_rejected",
               "status": "error",
-              "duration_ms": 2002,
-              "summary": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
+              "duration_ms": 2003,
+              "summary": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
               "http": {
                 "status_code": 503
               },
@@ -22933,7 +22933,7 @@
                 "chat.usage"
               ],
               "bound": true,
-              "error": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}"
+              "error": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}"
             },
             {
               "extension_id": "official-sdk.openai",
@@ -22946,8 +22946,8 @@
               },
               "outcome": "request_rejected",
               "status": "error",
-              "duration_ms": 2198,
-              "summary": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
+              "duration_ms": 2003,
+              "summary": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
               "http": {
                 "status_code": 503
               },
@@ -22962,7 +22962,7 @@
                 "chat.structured.json_object"
               ],
               "bound": true,
-              "error": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}"
+              "error": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}"
             },
             {
               "extension_id": "official-sdk.openai",
@@ -22975,8 +22975,8 @@
               },
               "outcome": "request_rejected",
               "status": "error",
-              "duration_ms": 2002,
-              "summary": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
+              "duration_ms": 2204,
+              "summary": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
               "http": {
                 "status_code": 503
               },
@@ -22991,7 +22991,7 @@
                 "chat.multi_turn"
               ],
               "bound": true,
-              "error": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}"
+              "error": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}"
             },
             {
               "extension_id": "official-sdk.openai",
@@ -23005,7 +23005,7 @@
               "outcome": "request_rejected",
               "status": "error",
               "duration_ms": 2204,
-              "summary": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
+              "summary": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
               "http": {
                 "status_code": 503
               },
@@ -23020,7 +23020,7 @@
                 "chat.stream.sse"
               ],
               "bound": true,
-              "error": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}"
+              "error": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}"
             },
             {
               "extension_id": "official-sdk.openai",
@@ -23033,8 +23033,8 @@
               },
               "outcome": "request_rejected",
               "status": "error",
-              "duration_ms": 2204,
-              "summary": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
+              "duration_ms": 2205,
+              "summary": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
               "http": {
                 "status_code": 503
               },
@@ -23049,7 +23049,7 @@
                 "chat.stream.usage"
               ],
               "bound": true,
-              "error": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}"
+              "error": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}"
             },
             {
               "extension_id": "official-sdk.openai",
@@ -23062,8 +23062,8 @@
               },
               "outcome": "request_rejected",
               "status": "error",
-              "duration_ms": 2002,
-              "summary": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
+              "duration_ms": 2199,
+              "summary": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
               "http": {
                 "status_code": 503
               },
@@ -23079,7 +23079,7 @@
                 "chat.tools.continuation"
               ],
               "bound": true,
-              "error": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}"
+              "error": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}"
             },
             {
               "extension_id": "official-sdk.openai",
@@ -23093,7 +23093,7 @@
               "outcome": "request_rejected",
               "status": "error",
               "duration_ms": 2002,
-              "summary": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
+              "summary": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}",
               "http": {
                 "status_code": 503
               },
@@ -23108,7 +23108,7 @@
                 "chat.tools.stream"
               ],
               "bound": true,
-              "error": "POST \"http://127.0.0.1:32775/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}"
+              "error": "POST \"http://127.0.0.1:32776/openai/v1/chat/completions\": 503 Service Unavailable {\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}"
             },
             {
               "extension_id": "official-sdk.openai",
@@ -23148,8 +23148,8 @@
               },
               "outcome": "execution_error",
               "status": "error",
-              "duration_ms": 2000,
-              "summary": "Get \"http://127.0.0.1:32775/openai/v1/models/wiremock-broken-model\": cannot retry SDK request with a non-replayable body",
+              "duration_ms": 305,
+              "summary": "Get \"http://127.0.0.1:32776/openai/v1/models/wiremock-broken-model\": cannot retry SDK request with a non-replayable body",
               "http": {},
               "usage": {},
               "signals": [
@@ -23162,7 +23162,7 @@
                 "models.retrieve"
               ],
               "bound": true,
-              "error": "Get \"http://127.0.0.1:32775/openai/v1/models/wiremock-broken-model\": cannot retry SDK request with a non-replayable body"
+              "error": "Get \"http://127.0.0.1:32776/openai/v1/models/wiremock-broken-model\": cannot retry SDK request with a non-replayable body"
             }
           ]
         },
@@ -23179,7 +23179,7 @@
             "target_id": "openai",
             "protocol": "openai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32775/openai/v1"
+            "id": "http://127.0.0.1:32776/openai/v1"
           },
           "runner": {
             "status": "pass",
@@ -23197,7 +23197,7 @@
                 "target_id": "openai",
                 "protocol": "openai",
                 "kind": "provider",
-                "id": "http://127.0.0.1:32775/openai/v1"
+                "id": "http://127.0.0.1:32776/openai/v1"
               },
               "outcome": "pass",
               "status": "pass",

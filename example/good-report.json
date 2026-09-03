@@ -1,11 +1,11 @@
 {
   "schema_version": "aiqa.report.v3",
-  "generated_at": "2026-09-03T17:27:13.570138073Z",
+  "generated_at": "2026-09-03T22:36:28.410970299Z",
   "tool": {
     "name": "aiqa",
     "version": "1.0.0-alpha.3",
-    "commit": "f12a938",
-    "build_date": "2026-09-03T17:26:57Z",
+    "commit": "9cf721d",
+    "build_date": "2026-09-03T22:36:22Z",
     "go_version": "go1.27.0"
   },
   "config": {
@@ -67,7 +67,7 @@
       "discovery": {
         "models": [
           {
-            "created_at": "2026-09-03T17:27:13Z",
+            "created_at": "2026-09-03T22:36:28Z",
             "display_name": "Ternary-Bonsai-1.7B",
             "id": "Ternary-Bonsai-1.7B",
             "type": "model"
@@ -83,13 +83,12 @@
             "category": "discovery",
             "required": true,
             "status": "pass",
-            "duration_ms": 4,
             "summary": "Anthropic Models endpoint returned JSON",
             "expected": "GET /v1/models returns successful JSON",
             "http": {
               "status_code": 200,
               "content_type": "application/json",
-              "snippet": "{\"data\":[{\"created_at\":\"2026-09-03T17:27:13Z\",\"display_name\":\"Ternary-Bonsai-1.7B\",\"id\":\"Ternary-Bonsai-1.7B\",\"type\":\"model\"}],\"first_id\":\"Ternary-Bonsai-1.7B\",\"has_more\":false,\"last_id\":\"Ternary-Bonsai-1.7B\"}"
+              "snippet": "{\"data\":[{\"created_at\":\"2026-09-03T22:36:28Z\",\"display_name\":\"Ternary-Bonsai-1.7B\",\"id\":\"Ternary-Bonsai-1.7B\",\"type\":\"model\"}],\"first_id\":\"Ternary-Bonsai-1.7B\",\"has_more\":false,\"last_id\":\"Ternary-Bonsai-1.7B\"}"
             },
             "usage": {}
           },
@@ -102,13 +101,12 @@
             "category": "schema",
             "required": true,
             "status": "pass",
-            "duration_ms": 4,
             "summary": "Anthropic model-list schema is valid (1 models)",
             "expected": "The Anthropic model-list envelope and entries are valid",
             "http": {
               "status_code": 200,
               "content_type": "application/json",
-              "snippet": "{\"data\":[{\"created_at\":\"2026-09-03T17:27:13Z\",\"display_name\":\"Ternary-Bonsai-1.7B\",\"id\":\"Ternary-Bonsai-1.7B\",\"type\":\"model\"}],\"first_id\":\"Ternary-Bonsai-1.7B\",\"has_more\":false,\"last_id\":\"Ternary-Bonsai-1.7B\"}"
+              "snippet": "{\"data\":[{\"created_at\":\"2026-09-03T22:36:28Z\",\"display_name\":\"Ternary-Bonsai-1.7B\",\"id\":\"Ternary-Bonsai-1.7B\",\"type\":\"model\"}],\"first_id\":\"Ternary-Bonsai-1.7B\",\"has_more\":false,\"last_id\":\"Ternary-Bonsai-1.7B\"}"
             },
             "usage": {}
           },
@@ -142,7 +140,7 @@
         {
           "id": "Ternary-Bonsai-1.7B",
           "metadata": {
-            "created_at": "2026-09-03T17:27:13Z",
+            "created_at": "2026-09-03T22:36:28Z",
             "display_name": "Ternary-Bonsai-1.7B",
             "id": "Ternary-Bonsai-1.7B",
             "type": "model"
@@ -157,14 +155,14 @@
               "category": "authentication",
               "required": true,
               "status": "pass",
-              "duration_ms": 121,
+              "duration_ms": 127,
               "summary": "x-api-key authentication was accepted",
               "expected": "The standard Anthropic x-api-key header is accepted",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "590c548e-2d79-4cbd-a68e-97cdb30ff2cc",
-                "snippet": "{\"content\":[{\"text\":\"AIQA_OK\",\"type\":\"text\"}],\"id\":\"resp_MsiLjcXeEYicZGoyDvatxoESxGF7xKHN\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":22,\"output_tokens\":4}}"
+                "request_id": "d4e65ef0-f855-4c60-a552-0f659a36557a",
+                "snippet": "{\"content\":[{\"text\":\"AIQA_OK\",\"type\":\"text\"}],\"id\":\"resp_mIdoucmNTC8La9JbkoBgK0mxq1fPxR2X\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":22,\"output_tokens\":4}}"
               },
               "usage": {}
             },
@@ -177,7 +175,6 @@
               "category": "errors",
               "required": false,
               "status": "pass",
-              "duration_ms": 2,
               "summary": "Invalid authentication error returned a compatible client error",
               "expected": "An invalid key returns an Anthropic error",
               "http": {
@@ -202,7 +199,7 @@
               "http": {
                 "status_code": 400,
                 "content_type": "application/json",
-                "request_id": "d53cbf56-5d93-45c2-959e-0ff11b7c4141",
+                "request_id": "651b5bca-548d-4173-8703-bcbbba51eafa",
                 "snippet": "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Invalid JSON\"}}"
               },
               "usage": {}
@@ -216,13 +213,13 @@
               "category": "errors",
               "required": true,
               "status": "pass",
-              "duration_ms": 20,
+              "duration_ms": 2,
               "summary": "Invalid model returned a client-side Anthropic error",
               "expected": "A missing model returns an Anthropic error",
               "http": {
                 "status_code": 400,
                 "content_type": "application/json",
-                "request_id": "973f7be8-d510-4735-8c82-77b73ebfee0d",
+                "request_id": "00874d19-e276-41b7-9957-cfa34892f696",
                 "snippet": "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"could not auto resolve a provider for the request, please specify a provider explicitly\"}}"
               },
               "usage": {}
@@ -236,13 +233,12 @@
               "category": "errors",
               "required": false,
               "status": "pass",
-              "duration_ms": 1,
               "summary": "Invalid field types are rejected with a client error",
               "expected": "Wrong field types return client errors",
               "http": {
                 "status_code": 400,
                 "content_type": "application/json",
-                "request_id": "f46618fa-cc30-4702-8b36-ad545639340a",
+                "request_id": "4c68fc01-5a58-4c67-ad56-20b401f94e65",
                 "snippet": "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Invalid JSON\"}}"
               },
               "usage": {}
@@ -256,13 +252,13 @@
               "category": "errors",
               "required": false,
               "status": "pass",
-              "duration_ms": 20,
+              "duration_ms": 2,
               "summary": "Error exposes a request ID",
               "expected": "A provider request ID is exposed when available",
               "http": {
                 "status_code": 400,
                 "content_type": "application/json",
-                "request_id": "973f7be8-d510-4735-8c82-77b73ebfee0d",
+                "request_id": "00874d19-e276-41b7-9957-cfa34892f696",
                 "snippet": "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"could not auto resolve a provider for the request, please specify a provider explicitly\"}}"
               },
               "usage": {}
@@ -276,13 +272,13 @@
               "category": "errors",
               "required": true,
               "status": "pass",
-              "duration_ms": 20,
+              "duration_ms": 2,
               "summary": "Error envelope is Anthropic-compatible",
               "expected": "Errors use the Anthropic error envelope",
               "http": {
                 "status_code": 400,
                 "content_type": "application/json",
-                "request_id": "973f7be8-d510-4735-8c82-77b73ebfee0d",
+                "request_id": "00874d19-e276-41b7-9957-cfa34892f696",
                 "snippet": "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"could not auto resolve a provider for the request, please specify a provider explicitly\"}}"
               },
               "usage": {}
@@ -296,14 +292,14 @@
               "category": "headers",
               "required": true,
               "status": "pass",
-              "duration_ms": 121,
+              "duration_ms": 127,
               "summary": "anthropic-version 2023-06-01 was accepted",
               "expected": "anthropic-version 2023-06-01 is accepted",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "590c548e-2d79-4cbd-a68e-97cdb30ff2cc",
-                "snippet": "{\"content\":[{\"text\":\"AIQA_OK\",\"type\":\"text\"}],\"id\":\"resp_MsiLjcXeEYicZGoyDvatxoESxGF7xKHN\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":22,\"output_tokens\":4}}"
+                "request_id": "d4e65ef0-f855-4c60-a552-0f659a36557a",
+                "snippet": "{\"content\":[{\"text\":\"AIQA_OK\",\"type\":\"text\"}],\"id\":\"resp_mIdoucmNTC8La9JbkoBgK0mxq1fPxR2X\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":22,\"output_tokens\":4}}"
               },
               "usage": {}
             },
@@ -353,14 +349,14 @@
               "category": "messages",
               "required": false,
               "status": "pass",
-              "duration_ms": 883,
+              "duration_ms": 1054,
               "summary": "Assistant prefill returned a non-empty continuation",
               "expected": "An assistant prefix can be continued",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "33e4a75f-7e12-424a-9a5e-b78149564be3",
-                "snippet": "{\"content\":[{\"text\":\"AIQA_OK is a placeholder used in some QA frameworks or automated testing environments to indicate that the test case has been successfully completed or passed. It is often used in test\",\"type\":\"text\"}],\"id\":\"resp_pbpFatjNZxjv5JO9tZGPfAUmnZRNd4mv\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":22,\"output_tokens\":32}}"
+                "request_id": "9fcb3c8c-a68f-4170-89b5-b5a9c85a255c",
+                "snippet": "{\"content\":[{\"text\":\"AIQA_OK is a marker used in the AI QA (Artificial Intelligence Quality Assurance) process to indicate that the AI system has successfully completed its QA tasks. It is\",\"type\":\"text\"}],\"id\":\"resp_qhcxgzbVFhUMrOrKc3psqoSw3rPItdHG\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":22,\"output_tokens\":32}}"
               },
               "usage": {
                 "input_tokens": 22,
@@ -381,14 +377,14 @@
               "category": "core",
               "required": true,
               "status": "pass",
-              "duration_ms": 121,
+              "duration_ms": 127,
               "summary": "Minimal Anthropic Message returned the requested marker",
               "expected": "A minimal Messages request succeeds",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "590c548e-2d79-4cbd-a68e-97cdb30ff2cc",
-                "snippet": "{\"content\":[{\"text\":\"AIQA_OK\",\"type\":\"text\"}],\"id\":\"resp_MsiLjcXeEYicZGoyDvatxoESxGF7xKHN\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":22,\"output_tokens\":4}}"
+                "request_id": "d4e65ef0-f855-4c60-a552-0f659a36557a",
+                "snippet": "{\"content\":[{\"text\":\"AIQA_OK\",\"type\":\"text\"}],\"id\":\"resp_mIdoucmNTC8La9JbkoBgK0mxq1fPxR2X\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":22,\"output_tokens\":4}}"
               },
               "usage": {}
             },
@@ -401,14 +397,14 @@
               "category": "messages",
               "required": false,
               "status": "pass",
-              "duration_ms": 121,
+              "duration_ms": 127,
               "summary": "String-form message content is accepted",
               "expected": "String user content is accepted",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "590c548e-2d79-4cbd-a68e-97cdb30ff2cc",
-                "snippet": "{\"content\":[{\"text\":\"AIQA_OK\",\"type\":\"text\"}],\"id\":\"resp_MsiLjcXeEYicZGoyDvatxoESxGF7xKHN\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":22,\"output_tokens\":4}}"
+                "request_id": "d4e65ef0-f855-4c60-a552-0f659a36557a",
+                "snippet": "{\"content\":[{\"text\":\"AIQA_OK\",\"type\":\"text\"}],\"id\":\"resp_mIdoucmNTC8La9JbkoBgK0mxq1fPxR2X\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":22,\"output_tokens\":4}}"
               },
               "usage": {}
             },
@@ -421,14 +417,14 @@
               "category": "messages",
               "required": false,
               "status": "pass",
-              "duration_ms": 963,
+              "duration_ms": 1134,
               "summary": "Text block content is supported",
               "expected": "Array-form text blocks are accepted",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "5d771eb8-61e2-40fd-a12e-c65ceadc0080",
-                "snippet": "{\"content\":[{\"text\":\"AIQA_OK\",\"type\":\"text\"}],\"id\":\"resp_awsluRvPVhz8IJD5askPk5AQcEgWMN4o\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":19,\"output_tokens\":4}}"
+                "request_id": "459a82e1-8f20-42af-b333-4add25386836",
+                "snippet": "{\"content\":[{\"text\":\"AIQA_OK\",\"type\":\"text\"}],\"id\":\"resp_04vMKAEIGlqfaZIwqOfSJZkI0fLtEgKf\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":19,\"output_tokens\":4}}"
               },
               "usage": {
                 "input_tokens": 19,
@@ -449,14 +445,14 @@
               "category": "messages",
               "required": false,
               "status": "pass",
-              "duration_ms": 229,
+              "duration_ms": 577,
               "summary": "Small max_tokens request returned compatible stop semantics (end_turn)",
               "expected": "A small output limit has compatible stop semantics",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "cbe260d6-fcd8-499c-87c7-be7fe4868bfa",
-                "snippet": "{\"content\":[{\"text\":\"AIQA compatibility refers to the ability of a software application or system to work with\",\"type\":\"text\"}],\"id\":\"resp_3OhpbboQYXcywU0mmMaQGmwnS3dvVDZC\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":21,\"output_tokens\":16}}"
+                "request_id": "dd72ebf1-542c-4038-a21b-57aa1ab54792",
+                "snippet": "{\"content\":[{\"text\":\"**AIQA Compatibility: Understanding the Interoperability of AI-Driven Quality Assurance\",\"type\":\"text\"}],\"id\":\"resp_xEcExwuKRksHQZToXLFdkMuqLp2PHsyh\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":21,\"output_tokens\":16}}"
               },
               "usage": {
                 "input_tokens": 21,
@@ -477,14 +473,14 @@
               "category": "messages",
               "required": false,
               "status": "pass",
-              "duration_ms": 275,
+              "duration_ms": 257,
               "summary": "Request metadata is supported",
               "expected": "Bounded metadata.user_id is accepted",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "e6cea812-f708-4eec-a435-667f1e4bf840",
-                "snippet": "{\"content\":[{\"text\":\"AIQA_OK\",\"type\":\"text\"}],\"id\":\"resp_xT1nnkUfQTER9oglLNFQrh6z5CJ6UEn4\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":22,\"output_tokens\":4}}"
+                "request_id": "cc66ee53-a21a-496e-bbea-1c83a2d84e2c",
+                "snippet": "{\"content\":[{\"text\":\"AIQA_OK\",\"type\":\"text\"}],\"id\":\"resp_rIk5dkZ7IQoPvBXygh8soWVNn8bYryd2\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":22,\"output_tokens\":4}}"
               },
               "usage": {
                 "input_tokens": 22,
@@ -505,19 +501,19 @@
               "category": "messages",
               "required": false,
               "status": "pass",
-              "duration_ms": 435,
+              "duration_ms": 387,
               "summary": "Multi-turn messages is supported",
               "expected": "User and assistant history is accepted",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "08213189-369e-4aa6-92e9-f6b0552d1742",
-                "snippet": "{\"content\":[{\"text\":\"AIQA_OK\",\"type\":\"text\"}],\"id\":\"resp_EZ7b2mwtTCduTzB1A4CYWo1I6yJznicn\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":39,\"output_tokens\":4}}"
+                "request_id": "d919f4ba-c30f-4585-a300-bf034b825529",
+                "snippet": "{\"content\":[{\"text\":\"AIQA_OK.\",\"type\":\"text\"}],\"id\":\"resp_dRD2uPHjnXJa28rw4VkFNrSiUt1gbN0K\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":39,\"output_tokens\":5}}"
               },
               "usage": {
                 "input_tokens": 39,
-                "output_tokens": 4,
-                "total_tokens": 43,
+                "output_tokens": 5,
+                "total_tokens": 44,
                 "provider_fields": {
                   "cache_creation.ephemeral_1h_input_tokens": 0,
                   "cache_creation.ephemeral_5m_input_tokens": 0
@@ -533,14 +529,14 @@
               "category": "schema",
               "required": true,
               "status": "pass",
-              "duration_ms": 121,
+              "duration_ms": 127,
               "summary": "Anthropic Message schema is valid",
               "expected": "The response follows the Anthropic Message shape",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "590c548e-2d79-4cbd-a68e-97cdb30ff2cc",
-                "snippet": "{\"content\":[{\"text\":\"AIQA_OK\",\"type\":\"text\"}],\"id\":\"resp_MsiLjcXeEYicZGoyDvatxoESxGF7xKHN\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":22,\"output_tokens\":4}}"
+                "request_id": "d4e65ef0-f855-4c60-a552-0f659a36557a",
+                "snippet": "{\"content\":[{\"text\":\"AIQA_OK\",\"type\":\"text\"}],\"id\":\"resp_mIdoucmNTC8La9JbkoBgK0mxq1fPxR2X\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":22,\"output_tokens\":4}}"
               },
               "usage": {}
             },
@@ -553,14 +549,14 @@
               "category": "messages",
               "required": false,
               "status": "pass",
-              "duration_ms": 236,
+              "duration_ms": 250,
               "summary": "Unique stop sequence produced matching stop fields",
               "expected": "Stop sequences are accepted and reported",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "c07c3bdd-7409-48d0-a74a-95bf12609edc",
-                "snippet": "{\"content\":[{\"text\":\"AIQA_OK\",\"type\":\"text\"}],\"id\":\"resp_7uHTEZkwPtrcByE2mVGhArN5Pg5VImXc\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"stop_sequence\",\"stop_sequence\":\"AIQA_STOP_7f3a\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":32,\"output_tokens\":16}}"
+                "request_id": "48339ecb-4455-4ba3-a67c-deec3c114501",
+                "snippet": "{\"content\":[{\"text\":\"AIQA_OK\",\"type\":\"text\"}],\"id\":\"resp_PIhfbAHnUJyYtdEHUmt6G8cKHKWhqJ5f\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"stop_sequence\",\"stop_sequence\":\"AIQA_STOP_7f3a\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":32,\"output_tokens\":16}}"
               },
               "usage": {
                 "input_tokens": 32,
@@ -581,14 +577,14 @@
               "category": "streaming",
               "required": true,
               "status": "pass",
-              "duration_ms": 386,
+              "duration_ms": 817,
               "summary": "Known SSE event names match JSON event types",
               "expected": "Known SSE event names match JSON types",
               "http": {
                 "status_code": 200,
                 "content_type": "text/event-stream",
-                "request_id": "ba48205e-df98-4fd8-8f9f-c7a0e5eb897a",
-                "snippet": "data: {\"type\":\"message_start\",\"message\":{\"id\":\"resp_p8jyuaN3VDh1Fafec0O4ztWSXzVKxlA2\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"Ternary-Bonsai-1.7B\",\"usage\":{\"input_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":0},\"output_tokens\":0}}}\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"AI\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"QA\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"_OK\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_stop\",\"index\":0}\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":\"\"},\"usage\":{\"input_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":21,\"cache_creat…"
+                "request_id": "d83edd89-f430-4474-ad50-c83c21cce0e4",
+                "snippet": "data: {\"type\":\"message_start\",\"message\":{\"id\":\"resp_U6PQGyu0FdKUjUclOaWYo31CHATFOhK8\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"Ternary-Bonsai-1.7B\",\"usage\":{\"input_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":0},\"output_tokens\":0}}}\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"AI\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"QA\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"_OK\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_stop\",\"index\":0}\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":\"\"},\"usage\":{\"input_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":21,\"cache_creat…"
               },
               "usage": {}
             },
@@ -601,14 +597,14 @@
               "category": "streaming",
               "required": true,
               "status": "pass",
-              "duration_ms": 386,
+              "duration_ms": 817,
               "summary": "Streaming response uses SSE",
               "expected": "A streaming request returns text/event-stream",
               "http": {
                 "status_code": 200,
                 "content_type": "text/event-stream",
-                "request_id": "ba48205e-df98-4fd8-8f9f-c7a0e5eb897a",
-                "snippet": "data: {\"type\":\"message_start\",\"message\":{\"id\":\"resp_p8jyuaN3VDh1Fafec0O4ztWSXzVKxlA2\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"Ternary-Bonsai-1.7B\",\"usage\":{\"input_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":0},\"output_tokens\":0}}}\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"AI\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"QA\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"_OK\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_stop\",\"index\":0}\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":\"\"},\"usage\":{\"input_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":21,\"cache_creat…"
+                "request_id": "d83edd89-f430-4474-ad50-c83c21cce0e4",
+                "snippet": "data: {\"type\":\"message_start\",\"message\":{\"id\":\"resp_U6PQGyu0FdKUjUclOaWYo31CHATFOhK8\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"Ternary-Bonsai-1.7B\",\"usage\":{\"input_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":0},\"output_tokens\":0}}}\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"AI\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"QA\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"_OK\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_stop\",\"index\":0}\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":\"\"},\"usage\":{\"input_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":21,\"cache_creat…"
               },
               "usage": {}
             },
@@ -621,14 +617,14 @@
               "category": "streaming",
               "required": false,
               "status": "pass",
-              "duration_ms": 386,
+              "duration_ms": 817,
               "summary": "Stream ended with message_stop and no [DONE] sentinel",
               "expected": "The stream terminates with message_stop rather than [DONE]",
               "http": {
                 "status_code": 200,
                 "content_type": "text/event-stream",
-                "request_id": "ba48205e-df98-4fd8-8f9f-c7a0e5eb897a",
-                "snippet": "data: {\"type\":\"message_start\",\"message\":{\"id\":\"resp_p8jyuaN3VDh1Fafec0O4ztWSXzVKxlA2\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"Ternary-Bonsai-1.7B\",\"usage\":{\"input_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":0},\"output_tokens\":0}}}\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"AI\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"QA\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"_OK\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_stop\",\"index\":0}\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":\"\"},\"usage\":{\"input_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":21,\"cache_creat…"
+                "request_id": "d83edd89-f430-4474-ad50-c83c21cce0e4",
+                "snippet": "data: {\"type\":\"message_start\",\"message\":{\"id\":\"resp_U6PQGyu0FdKUjUclOaWYo31CHATFOhK8\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"Ternary-Bonsai-1.7B\",\"usage\":{\"input_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":0},\"output_tokens\":0}}}\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"AI\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"QA\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"_OK\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_stop\",\"index\":0}\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":\"\"},\"usage\":{\"input_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":21,\"cache_creat…"
               },
               "usage": {}
             },
@@ -641,14 +637,14 @@
               "category": "streaming",
               "required": true,
               "status": "pass",
-              "duration_ms": 386,
+              "duration_ms": 817,
               "summary": "Anthropic named-event sequence is valid",
               "expected": "Named Anthropic events follow a legal sequence",
               "http": {
                 "status_code": 200,
                 "content_type": "text/event-stream",
-                "request_id": "ba48205e-df98-4fd8-8f9f-c7a0e5eb897a",
-                "snippet": "data: {\"type\":\"message_start\",\"message\":{\"id\":\"resp_p8jyuaN3VDh1Fafec0O4ztWSXzVKxlA2\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"Ternary-Bonsai-1.7B\",\"usage\":{\"input_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":0},\"output_tokens\":0}}}\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"AI\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"QA\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"_OK\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_stop\",\"index\":0}\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":\"\"},\"usage\":{\"input_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":21,\"cache_creat…"
+                "request_id": "d83edd89-f430-4474-ad50-c83c21cce0e4",
+                "snippet": "data: {\"type\":\"message_start\",\"message\":{\"id\":\"resp_U6PQGyu0FdKUjUclOaWYo31CHATFOhK8\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"Ternary-Bonsai-1.7B\",\"usage\":{\"input_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":0},\"output_tokens\":0}}}\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"AI\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"QA\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"_OK\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_stop\",\"index\":0}\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":\"\"},\"usage\":{\"input_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":21,\"cache_creat…"
               },
               "usage": {}
             },
@@ -661,14 +657,14 @@
               "category": "streaming",
               "required": true,
               "status": "pass",
-              "duration_ms": 386,
+              "duration_ms": 817,
               "summary": "Streamed text reconstructed the requested marker",
               "expected": "Text deltas reconstruct the requested marker",
               "http": {
                 "status_code": 200,
                 "content_type": "text/event-stream",
-                "request_id": "ba48205e-df98-4fd8-8f9f-c7a0e5eb897a",
-                "snippet": "data: {\"type\":\"message_start\",\"message\":{\"id\":\"resp_p8jyuaN3VDh1Fafec0O4ztWSXzVKxlA2\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"Ternary-Bonsai-1.7B\",\"usage\":{\"input_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":0},\"output_tokens\":0}}}\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"AI\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"QA\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"_OK\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_stop\",\"index\":0}\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":\"\"},\"usage\":{\"input_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":21,\"cache_creat…"
+                "request_id": "d83edd89-f430-4474-ad50-c83c21cce0e4",
+                "snippet": "data: {\"type\":\"message_start\",\"message\":{\"id\":\"resp_U6PQGyu0FdKUjUclOaWYo31CHATFOhK8\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"Ternary-Bonsai-1.7B\",\"usage\":{\"input_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":0},\"output_tokens\":0}}}\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"AI\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"QA\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"_OK\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_stop\",\"index\":0}\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":\"\"},\"usage\":{\"input_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":21,\"cache_creat…"
               },
               "usage": {}
             },
@@ -681,14 +677,14 @@
               "category": "usage",
               "required": false,
               "status": "pass",
-              "duration_ms": 386,
+              "duration_ms": 817,
               "summary": "Streaming usage was reconstructed",
               "expected": "Final streaming usage can be reconstructed",
               "http": {
                 "status_code": 200,
                 "content_type": "text/event-stream",
-                "request_id": "ba48205e-df98-4fd8-8f9f-c7a0e5eb897a",
-                "snippet": "data: {\"type\":\"message_start\",\"message\":{\"id\":\"resp_p8jyuaN3VDh1Fafec0O4ztWSXzVKxlA2\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"Ternary-Bonsai-1.7B\",\"usage\":{\"input_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":0},\"output_tokens\":0}}}\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"AI\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"QA\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"_OK\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_stop\",\"index\":0}\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":\"\"},\"usage\":{\"input_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":21,\"cache_creat…"
+                "request_id": "d83edd89-f430-4474-ad50-c83c21cce0e4",
+                "snippet": "data: {\"type\":\"message_start\",\"message\":{\"id\":\"resp_U6PQGyu0FdKUjUclOaWYo31CHATFOhK8\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"Ternary-Bonsai-1.7B\",\"usage\":{\"input_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":0},\"output_tokens\":0}}}\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"AI\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"QA\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"_OK\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_stop\",\"index\":0}\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":\"\"},\"usage\":{\"input_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":21,\"cache_creat…"
               },
               "usage": {
                 "input_tokens": 1,
@@ -710,14 +706,14 @@
               "category": "messages",
               "required": false,
               "status": "pass",
-              "duration_ms": 564,
+              "duration_ms": 705,
               "summary": "Top-level system prompt is supported",
               "expected": "The top-level system prompt is effective",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "c3401ae0-7afa-4235-af14-f3df1c66c113",
-                "snippet": "{\"content\":[{\"text\":\"AIQA_OK\",\"type\":\"text\"}],\"id\":\"resp_psHObm09ZyRGvLp6gJj5XX3kZLNLRs4n\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":35,\"output_tokens\":4}}"
+                "request_id": "12612f3d-993f-415b-b1ab-924150bc0c86",
+                "snippet": "{\"content\":[{\"text\":\"AIQA_OK\",\"type\":\"text\"}],\"id\":\"resp_5iMEL2Xy5iHIsSKujlcCkOi1DGRGWw50\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":35,\"output_tokens\":4}}"
               },
               "usage": {
                 "input_tokens": 35,
@@ -738,14 +734,14 @@
               "category": "usage",
               "required": true,
               "status": "pass",
-              "duration_ms": 121,
+              "duration_ms": 127,
               "summary": "Anthropic input/output usage is valid",
               "expected": "Input and output token usage is present and valid",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "590c548e-2d79-4cbd-a68e-97cdb30ff2cc",
-                "snippet": "{\"content\":[{\"text\":\"AIQA_OK\",\"type\":\"text\"}],\"id\":\"resp_MsiLjcXeEYicZGoyDvatxoESxGF7xKHN\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":22,\"output_tokens\":4}}"
+                "request_id": "d4e65ef0-f855-4c60-a552-0f659a36557a",
+                "snippet": "{\"content\":[{\"text\":\"AIQA_OK\",\"type\":\"text\"}],\"id\":\"resp_mIdoucmNTC8La9JbkoBgK0mxq1fPxR2X\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":22,\"output_tokens\":4}}"
               },
               "usage": {
                 "input_tokens": 22,
@@ -771,7 +767,7 @@
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "snippet": "{\"created_at\":\"2026-09-03T17:27:13Z\",\"display_name\":\"Ternary-Bonsai-1.7B\",\"id\":\"Ternary-Bonsai-1.7B\",\"type\":\"model\"}"
+                "snippet": "{\"created_at\":\"2026-09-03T22:36:28Z\",\"display_name\":\"Ternary-Bonsai-1.7B\",\"id\":\"Ternary-Bonsai-1.7B\",\"type\":\"model\"}"
               },
               "usage": {}
             },
@@ -784,14 +780,14 @@
               "category": "structured-output",
               "required": false,
               "status": "pass",
-              "duration_ms": 1296,
+              "duration_ms": 1464,
               "summary": "Structured output conforms to the requested JSON schema",
               "expected": "Output contains schema-conforming JSON",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "0fdb8175-66bb-4e5b-a431-14a17a16ab88",
-                "snippet": "{\"content\":[{\"text\":\"{\\\"ok\\\": true, \\\"value\\\": \\\"AIQA_OK\\\"}\",\"type\":\"text\"}],\"id\":\"resp_YWE4q1V3vgaTdXgwb2ldCjyubx6nuuZw\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":94,\"output_tokens\":14}}"
+                "request_id": "f9ccf863-8d2d-4035-a38a-015c63b6def7",
+                "snippet": "{\"content\":[{\"text\":\"{\\\"ok\\\": true, \\\"value\\\": \\\"AIQA_OK\\\"}\",\"type\":\"text\"}],\"id\":\"resp_f7YLyI3QzkGnqU10SzvZhlg0xR0DJP3e\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":94,\"output_tokens\":14}}"
               },
               "usage": {
                 "input_tokens": 94,
@@ -812,14 +808,14 @@
               "category": "structured-output",
               "required": false,
               "status": "pass",
-              "duration_ms": 1296,
+              "duration_ms": 1464,
               "summary": "Structured output completed with compatible stop semantics",
               "expected": "Structured output completes normally",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "0fdb8175-66bb-4e5b-a431-14a17a16ab88",
-                "snippet": "{\"content\":[{\"text\":\"{\\\"ok\\\": true, \\\"value\\\": \\\"AIQA_OK\\\"}\",\"type\":\"text\"}],\"id\":\"resp_YWE4q1V3vgaTdXgwb2ldCjyubx6nuuZw\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":94,\"output_tokens\":14}}"
+                "request_id": "f9ccf863-8d2d-4035-a38a-015c63b6def7",
+                "snippet": "{\"content\":[{\"text\":\"{\\\"ok\\\": true, \\\"value\\\": \\\"AIQA_OK\\\"}\",\"type\":\"text\"}],\"id\":\"resp_f7YLyI3QzkGnqU10SzvZhlg0xR0DJP3e\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":94,\"output_tokens\":14}}"
               },
               "usage": {}
             },
@@ -931,14 +927,14 @@
               "category": "tools",
               "required": false,
               "status": "pass",
-              "duration_ms": 298,
+              "duration_ms": 984,
               "summary": "Required tool choice returned a valid tool_use block",
               "expected": "tool_choice any emits a tool_use block",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "7d737395-2a08-4879-9d26-521644d81fef",
-                "snippet": "{\"content\":[{\"id\":\"call_aBbZMlfeDGGdkKVYjjs4C9QANgYZ20ow\",\"input\":{\"resource_id\":\"resource-alpha\"},\"name\":\"get_status\",\"type\":\"tool_use\"}],\"id\":\"resp_oqdwYzqvky301TgKzYaapnNAYrF8Mxvi\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"tool_use\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":166,\"output_tokens\":22}}"
+                "request_id": "31474372-7c29-40d4-ad41-73d2682eadb5",
+                "snippet": "{\"content\":[{\"id\":\"call_RNQQpw1IPB2F3GrWJV7n0lm4HZJn3iZT\",\"input\":{\"resource_id\":\"resource-alpha\"},\"name\":\"get_status\",\"type\":\"tool_use\"}],\"id\":\"resp_DAmXfF1FlYtvcCBF2kImeeH8qhK2qTMS\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"tool_use\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":166,\"output_tokens\":22}}"
               },
               "usage": {
                 "input_tokens": 166,
@@ -962,14 +958,14 @@
               "category": "tools",
               "required": false,
               "status": "pass",
-              "duration_ms": 1895,
+              "duration_ms": 2040,
               "summary": "Automatic tool choice returned a valid tool_use block",
               "expected": "Automatic tool selection can emit tool_use",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "6a52886f-038e-4819-94cc-5e4e0c579a3d",
-                "snippet": "{\"content\":[{\"id\":\"call_gwz9xVpIcXlkLllUSdbSBh4Safwtr94e\",\"input\":{\"resource_id\":\"resource-alpha\"},\"name\":\"get_status\",\"type\":\"tool_use\"}],\"id\":\"resp_Wf0F91CBOxLqBLcEVe7ymRB7ZuHNhCmE\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"tool_use\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":166,\"output_tokens\":22}}"
+                "request_id": "88707ffc-f455-4cb2-bac9-aea558ea2dc7",
+                "snippet": "{\"content\":[{\"id\":\"call_EJfo5A4OuyaG2Mmzs8AOev4FvJNY0rG6\",\"input\":{\"resource_id\":\"resource-alpha\"},\"name\":\"get_status\",\"type\":\"tool_use\"}],\"id\":\"resp_A9ZTtsFwy4viSo9zBoaVMVXDwVeW0htT\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"tool_use\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":166,\"output_tokens\":22}}"
               },
               "usage": {
                 "input_tokens": 166,
@@ -993,19 +989,19 @@
               "category": "tools",
               "required": false,
               "status": "pass",
-              "duration_ms": 373,
+              "duration_ms": 231,
               "summary": "tool_result was accepted and used in the final answer",
               "expected": "A tool result can be continued into a final answer",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "a206f7e7-0c0a-4b35-8b76-fc02be71fde5",
-                "snippet": "{\"content\":[{\"text\":\"The status of resource-alpha indicates that it is available. If you need further details or assistance, please let me know.\",\"type\":\"text\"}],\"id\":\"resp_nWVyDRjn4DUN5AaDNKRWIX6KCwwsHcUb\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":64,\"output_tokens\":25}}"
+                "request_id": "4ab2661c-f6ec-4c59-a2d1-3bd069e01792",
+                "snippet": "{\"content\":[{\"text\":\"The resource-alpha is available.\",\"type\":\"text\"}],\"id\":\"resp_1GXErlEv8yOjOZO0lLR5I3dWcY8xVvNy\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":65,\"output_tokens\":7}}"
               },
               "usage": {
-                "input_tokens": 64,
-                "output_tokens": 25,
-                "total_tokens": 89,
+                "input_tokens": 65,
+                "output_tokens": 7,
+                "total_tokens": 72,
                 "provider_fields": {
                   "cache_creation.ephemeral_1h_input_tokens": 0,
                   "cache_creation.ephemeral_5m_input_tokens": 0
@@ -1021,14 +1017,14 @@
               "category": "tools",
               "required": false,
               "status": "pass",
-              "duration_ms": 242,
+              "duration_ms": 241,
               "summary": "Tool input conforms to the requested schema",
               "expected": "Tool input conforms to its local schema",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "c09e1903-d3b6-40d9-ac28-270be00f9ff7",
-                "snippet": "{\"content\":[{\"id\":\"call_QhWNKKk8GtyMO4fEAgAQMJeRuWy8jPoL\",\"input\":{\"resource_id\":\"example_resource_id\"},\"name\":\"get_status\",\"type\":\"tool_use\"}],\"id\":\"resp_vEbHUiZzOTLBmjZUavW9ILV8ScGkuxtO\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"tool_use\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":166,\"output_tokens\":23}}"
+                "request_id": "d3dc05f7-23ed-4ffc-b5fe-3fbac7a0eb9a",
+                "snippet": "{\"content\":[{\"id\":\"call_HzdZuYPvpsQsy8TCB9rCzvlwAlz2zFXp\",\"input\":{\"resource_id\":\"your_resource_id_here\"},\"name\":\"get_status\",\"type\":\"tool_use\"}],\"id\":\"resp_ST08VE0HRJ19NOKwMGRn1usFV3kfPbdM\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"tool_use\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":166,\"output_tokens\":24}}"
               },
               "usage": {}
             },
@@ -1041,14 +1037,14 @@
               "category": "tools",
               "required": false,
               "status": "pass",
-              "duration_ms": 686,
+              "duration_ms": 185,
               "summary": "tool_choice=none suppressed tool use",
               "expected": "tool_choice none suppresses tool calls",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "a829268c-4703-4622-823b-b7a47335c8cb",
-                "snippet": "{\"content\":[{\"text\":\"\\u003ctool_call\\u003e\\n{\\\"name\\\": \\\"get_status\\\", \\\"arguments\\\": {\\\"resource_id\\\": \\\"resource-alpha\\\"}}\\n\\u003c/tool_call\\u003e\",\"type\":\"text\"}],\"id\":\"resp_FwXHWjEKhDdhTQymYtWtnt6W2jeBJAHx\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":166,\"output_tokens\":22}}"
+                "request_id": "39541a9c-ba1a-4d6a-b48e-3c5ca71dc437",
+                "snippet": "{\"content\":[{\"text\":\"\\u003ctool_call\\u003e\\n{\\\"name\\\": \\\"get_status\\\", \\\"arguments\\\": {\\\"resource_id\\\": \\\"resource-alpha\\\"}}\\n\\u003c/tool_call\\u003e\",\"type\":\"text\"}],\"id\":\"resp_MUQyYD3wKA9BQhYaf4Jgdb18rFwJvHQ3\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":166,\"output_tokens\":22}}"
               },
               "usage": {
                 "input_tokens": 166,
@@ -1072,14 +1068,14 @@
               "category": "tools",
               "required": false,
               "status": "pass",
-              "duration_ms": 918,
+              "duration_ms": 741,
               "summary": "Parallel tool use returned distinct tool_use IDs",
               "expected": "Independent tool calls have distinct IDs",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "4188c74b-ac61-4ba0-b828-1d60918c3fe2",
-                "snippet": "{\"content\":[{\"id\":\"call_AFSw3SF8LBkmz4F2iPHA42N2wT4JeCoO\",\"input\":{\"resource_id\":\"resource-alpha\"},\"name\":\"get_status\",\"type\":\"tool_use\"},{\"id\":\"call_a6mNC2pOnlszkwTuwYl7s8OBDQWXKGEG\",\"input\":{\"resource_id\":\"resource-alpha\"},\"name\":\"get_owner\",\"type\":\"tool_use\"}],\"id\":\"resp_vELG7mHWt1GFkmMssbU8FlFl13vi4jbg\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"tool_use\",\"type\":\"message\",\"usage\":{\"input_tokens\":133,\"output_tokens\":44}}"
+                "request_id": "55ba3b97-75a9-4361-a49e-d738a5763767",
+                "snippet": "{\"content\":[{\"id\":\"call_Vv9l3NcUC9FqAx8T9e24R32uNK4evcx7\",\"input\":{\"resource_id\":\"resource-alpha\"},\"name\":\"get_status\",\"type\":\"tool_use\"},{\"id\":\"call_6Q4SKaVEDg4FmbsDlxndJhwSdZCR05GB\",\"input\":{\"resource_id\":\"resource-alpha\"},\"name\":\"get_owner\",\"type\":\"tool_use\"}],\"id\":\"resp_CNlYhLn9WjgvrvaCMlUSLq8xshJXlbLx\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"tool_use\",\"type\":\"message\",\"usage\":{\"input_tokens\":133,\"output_tokens\":44}}"
               },
               "usage": {
                 "input_tokens": 133,
@@ -1096,19 +1092,19 @@
               "category": "tools",
               "required": false,
               "status": "pass",
-              "duration_ms": 242,
+              "duration_ms": 241,
               "summary": "Forced named tool returned a valid tool_use block",
               "expected": "A named tool can be forced",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "c09e1903-d3b6-40d9-ac28-270be00f9ff7",
-                "snippet": "{\"content\":[{\"id\":\"call_QhWNKKk8GtyMO4fEAgAQMJeRuWy8jPoL\",\"input\":{\"resource_id\":\"example_resource_id\"},\"name\":\"get_status\",\"type\":\"tool_use\"}],\"id\":\"resp_vEbHUiZzOTLBmjZUavW9ILV8ScGkuxtO\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"tool_use\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":166,\"output_tokens\":23}}"
+                "request_id": "d3dc05f7-23ed-4ffc-b5fe-3fbac7a0eb9a",
+                "snippet": "{\"content\":[{\"id\":\"call_HzdZuYPvpsQsy8TCB9rCzvlwAlz2zFXp\",\"input\":{\"resource_id\":\"your_resource_id_here\"},\"name\":\"get_status\",\"type\":\"tool_use\"}],\"id\":\"resp_ST08VE0HRJ19NOKwMGRn1usFV3kfPbdM\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"tool_use\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":166,\"output_tokens\":24}}"
               },
               "usage": {
                 "input_tokens": 166,
-                "output_tokens": 23,
-                "total_tokens": 189,
+                "output_tokens": 24,
+                "total_tokens": 190,
                 "provider_fields": {
                   "cache_creation.ephemeral_1h_input_tokens": 0,
                   "cache_creation.ephemeral_5m_input_tokens": 0
@@ -1124,14 +1120,14 @@
               "category": "tools",
               "required": false,
               "status": "pass",
-              "duration_ms": 210,
+              "duration_ms": 204,
               "summary": "Streamed tool input reconstructed as valid JSON",
               "expected": "Partial JSON deltas reconstruct valid tool input",
               "http": {
                 "status_code": 200,
                 "content_type": "text/event-stream",
-                "request_id": "ab84fcb9-f06c-43fa-af9c-6f2bd87f16a3",
-                "snippet": "data: {\"type\":\"message_start\",\"message\":{\"id\":\"resp_Z4HvdxbzSOEtaF6bP4eWDTQO8i8JJHKi\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"Ternary-Bonsai-1.7B\",\"usage\":{\"input_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":0},\"output_tokens\":0}}}\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"call_punU0SBh2NKPCGTKZ11imr2aQ3gHMccP\",\"name\":\"get_status\",\"input\":{}}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"resource\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"_id\",\"stop_seque…"
+                "request_id": "5f5ca307-c38f-4846-8e5b-98a84273d7ef",
+                "snippet": "data: {\"type\":\"message_start\",\"message\":{\"id\":\"resp_c3IJ9sDux0Yre7MnzTSM8XVp9bTNiojP\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"Ternary-Bonsai-1.7B\",\"usage\":{\"input_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":0},\"output_tokens\":0}}}\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"call_JS1OpbCjiP3TJnL1e1hvjlZmzaNe1pAj\",\"name\":\"get_status\",\"input\":{}}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"resource\",\"stop_sequence\":null}}\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"_id\",\"stop_seque…"
               },
               "usage": {
                 "input_tokens": 1,
@@ -1153,19 +1149,19 @@
               "category": "tools",
               "required": false,
               "status": "pass",
-              "duration_ms": 282,
+              "duration_ms": 272,
               "summary": "Strict tool choice returned schema-conforming input",
               "expected": "Strict tool input is schema-conforming",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "617c5257-6a04-40ce-8cfb-e609de825a49",
-                "snippet": "{\"content\":[{\"id\":\"call_vy1JGorXlltL7VZ44Aoe1kmsCx0F7ytW\",\"input\":{\"resource_id\":\"example_resource_id\"},\"name\":\"get_status\",\"type\":\"tool_use\"}],\"id\":\"resp_H5vnSCStHX8ROzbDTMTVf7T4tRlby5F2\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"tool_use\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":166,\"output_tokens\":23}}"
+                "request_id": "4b8613fc-b0f3-4ccd-927f-0272bcc028cd",
+                "snippet": "{\"content\":[{\"id\":\"call_viS137rSBBMtuC7BwPBBCD6yewRTKQ7M\",\"input\":{\"resource_id\":\"your_resource_id_here\"},\"name\":\"get_status\",\"type\":\"tool_use\"}],\"id\":\"resp_kjgRbnyUgtxCsENivJfwJnMDfv2F44a8\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"tool_use\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":166,\"output_tokens\":24}}"
               },
               "usage": {
                 "input_tokens": 166,
-                "output_tokens": 23,
-                "total_tokens": 189,
+                "output_tokens": 24,
+                "total_tokens": 190,
                 "provider_fields": {
                   "cache_creation.ephemeral_1h_input_tokens": 0,
                   "cache_creation.ephemeral_5m_input_tokens": 0
@@ -1184,14 +1180,14 @@
               "category": "structured-output",
               "required": false,
               "status": "pass",
-              "duration_ms": 782,
+              "duration_ms": 581,
               "summary": "Strict tool input conforms to the local schema",
               "expected": "Strict tool input passes local validation",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "7add17ab-1fcb-4f57-8152-c2b93feea2e0",
-                "snippet": "{\"content\":[{\"id\":\"call_lPrJyvjj18e3M7s57Dds1fDTKTY04Ptt\",\"input\":{\"resource_id\":\"your_resource_id_here\"},\"name\":\"get_status\",\"type\":\"tool_use\"}],\"id\":\"resp_Lxo6X6ZbiuiUsfoHQtyaAvZlShQaTnSJ\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"tool_use\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":163,\"output_tokens\":24}}"
+                "request_id": "7e25dc98-8b63-412c-858d-a610e7c1ea98",
+                "snippet": "{\"content\":[{\"id\":\"call_eb6BPJkcnCvjCmI1dGn71v7EfIlffQLT\",\"input\":{\"resource_id\":\"your_resource_id_here\"},\"name\":\"get_status\",\"type\":\"tool_use\"}],\"id\":\"resp_dc2OgHODQYp6EfBVKZZ7DH8QNdh3LjUq\",\"model\":\"Ternary-Bonsai-1.7B\",\"role\":\"assistant\",\"stop_reason\":\"tool_use\",\"type\":\"message\",\"usage\":{\"cache_creation\":{\"ephemeral_1h_input_tokens\":0,\"ephemeral_5m_input_tokens\":0},\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"input_tokens\":163,\"output_tokens\":24}}"
               },
               "usage": {
                 "input_tokens": 163,
@@ -1281,9 +1277,9 @@
                 "status": "pass",
                 "usage": {
                   "input_tokens": 213,
-                  "output_tokens": 88,
+                  "output_tokens": 89,
                   "cache_read_input_tokens": 21,
-                  "total_tokens": 322,
+                  "total_tokens": 323,
                   "provider_fields": {
                     "cache_creation.ephemeral_1h_input_tokens": 0,
                     "cache_creation.ephemeral_5m_input_tokens": 0
@@ -1321,10 +1317,10 @@
                 "required_fail": 0,
                 "status": "pass",
                 "usage": {
-                  "input_tokens": 1028,
-                  "output_tokens": 204,
+                  "input_tokens": 1029,
+                  "output_tokens": 188,
                   "cache_read_input_tokens": 165,
-                  "total_tokens": 1397,
+                  "total_tokens": 1382,
                   "provider_fields": {
                     "cache_creation.ephemeral_1h_input_tokens": 0,
                     "cache_creation.ephemeral_5m_input_tokens": 0
@@ -1421,10 +1417,10 @@
             "required_fail": 0,
             "status": "pass",
             "usage": {
-              "input_tokens": 2000,
-              "output_tokens": 407,
+              "input_tokens": 2001,
+              "output_tokens": 392,
               "cache_read_input_tokens": 294,
-              "total_tokens": 2701,
+              "total_tokens": 2687,
               "provider_fields": {
                 "cache_creation.ephemeral_1h_input_tokens": 0,
                 "cache_creation.ephemeral_5m_input_tokens": 0
@@ -3112,10 +3108,10 @@
           }
         },
         "usage": {
-          "input_tokens": 2000,
-          "output_tokens": 407,
+          "input_tokens": 2001,
+          "output_tokens": 392,
           "cache_read_input_tokens": 294,
-          "total_tokens": 2701,
+          "total_tokens": 2687,
           "provider_fields": {
             "cache_creation.ephemeral_1h_input_tokens": 0,
             "cache_creation.ephemeral_5m_input_tokens": 0
@@ -3161,10 +3157,10 @@
         "backoff_ms": 0,
         "observed_safe_requests_per_second": 7.5,
         "observed_safe_concurrency": 12,
-        "latency_samples": 36,
-        "mean_latency_ms": 421,
-        "p50_latency_ms": 282,
-        "p95_latency_ms": 1296
+        "latency_samples": 34,
+        "mean_latency_ms": 549,
+        "p50_latency_ms": 272,
+        "p95_latency_ms": 1464
       },
       "extension_rate_limit": {
         "successful_requests": 11,
@@ -3197,7 +3193,7 @@
           "runner": {
             "status": "pass",
             "startup_duration_ms": 0,
-            "total_duration_ms": 1528,
+            "total_duration_ms": 1537,
             "exit_code": 0,
             "pacing_compliance": "host_enforced",
             "summary": "Extension runner completed"
@@ -3214,7 +3210,7 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 5,
+              "duration_ms": 0,
               "summary": "Official Anthropic Go SDK sent and parsed the suite",
               "http": {},
               "usage": {
@@ -3239,7 +3235,7 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 6,
+              "duration_ms": 1,
               "summary": "Official Anthropic Go SDK sent and parsed the suite",
               "http": {},
               "usage": {},
@@ -3261,7 +3257,7 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 69,
+              "duration_ms": 305,
               "summary": "Official Anthropic Go SDK sent and parsed the suite",
               "http": {},
               "usage": {
@@ -3288,7 +3284,7 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 1044,
+              "duration_ms": 1297,
               "summary": "Official Anthropic Go SDK sent and parsed the suite",
               "http": {},
               "usage": {
@@ -3313,7 +3309,7 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 493,
+              "duration_ms": 337,
               "summary": "Official Anthropic Go SDK sent and parsed the suite",
               "http": {},
               "usage": {
@@ -3341,7 +3337,7 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 612,
+              "duration_ms": 1115,
               "summary": "Official Anthropic Go SDK sent and parsed the suite",
               "http": {},
               "usage": {
@@ -3366,7 +3362,7 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 2,
+              "duration_ms": 0,
               "summary": "Official Anthropic Go SDK sent and parsed the suite",
               "http": {},
               "usage": {},
@@ -3387,7 +3383,7 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 833,
+              "duration_ms": 225,
               "summary": "Official Anthropic Go SDK sent and parsed the suite",
               "http": {},
               "usage": {
@@ -3412,7 +3408,7 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 1527,
+              "duration_ms": 1536,
               "summary": "Official Anthropic Go SDK sent and parsed the suite",
               "http": {},
               "usage": {
@@ -3438,7 +3434,7 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 452,
+              "duration_ms": 700,
               "summary": "Official Anthropic Go SDK sent and parsed the suite",
               "http": {},
               "usage": {
@@ -3473,7 +3469,7 @@
           "runner": {
             "status": "pass",
             "startup_duration_ms": 0,
-            "total_duration_ms": 3,
+            "total_duration_ms": 0,
             "exit_code": 0,
             "pacing_compliance": "host_enforced",
             "summary": "Extension runner completed"
@@ -3490,7 +3486,7 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 3,
+              "duration_ms": 0,
               "summary": "Official Anthropic Go SDK sent and parsed the suite",
               "http": {},
               "usage": {},
@@ -3657,14 +3653,14 @@
               "category": "errors",
               "required": true,
               "status": "pass",
-              "duration_ms": 3,
+              "duration_ms": 4,
               "summary": "Three malformed JSON variants returned client errors",
               "expected": "Multiple malformed JSON variants are rejected as client errors",
               "observation": "variant 1: HTTP 400; variant 2: HTTP 400; variant 3: HTTP 400",
               "http": {
                 "status_code": 400,
                 "content_type": "application/json",
-                "request_id": "afc16d82-6795-48eb-89f6-5b226503767c"
+                "request_id": "e86e64b8-4f96-4bad-924f-d1b99a00e02f"
               },
               "usage": {}
             },
@@ -3711,13 +3707,13 @@
               "category": "generate-content",
               "required": true,
               "status": "pass",
-              "duration_ms": 85,
+              "duration_ms": 48,
               "summary": "generateContent returned the requested marker",
               "expected": "Legacy generateContent returns the requested text",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "ad96a656-a034-4791-ae4a-1c9deb1a07cb"
+                "request_id": "a08d1bf4-b17e-4986-bd1a-eee53f0bc693"
               },
               "usage": {
                 "input_tokens": 19,
@@ -3735,13 +3731,13 @@
               "category": "generate-content",
               "required": true,
               "status": "pass",
-              "duration_ms": 85,
+              "duration_ms": 48,
               "summary": "GenerateContent output text was extracted",
               "expected": "Legacy output text can be extracted",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "ad96a656-a034-4791-ae4a-1c9deb1a07cb"
+                "request_id": "a08d1bf4-b17e-4986-bd1a-eee53f0bc693"
               },
               "usage": {}
             },
@@ -3754,13 +3750,13 @@
               "category": "schema",
               "required": true,
               "status": "pass",
-              "duration_ms": 85,
+              "duration_ms": 48,
               "summary": "GenerateContent response schema is valid",
               "expected": "Legacy GenerateContent candidates and parts are valid",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "ad96a656-a034-4791-ae4a-1c9deb1a07cb"
+                "request_id": "a08d1bf4-b17e-4986-bd1a-eee53f0bc693"
               },
               "usage": {}
             },
@@ -3773,13 +3769,13 @@
               "category": "streaming",
               "required": true,
               "status": "pass",
-              "duration_ms": 52,
+              "duration_ms": 79,
               "summary": "GenerateContent stream exposed a finish reason",
               "expected": "Legacy stream exposes a recognized finish reason",
               "http": {
                 "status_code": 200,
                 "content_type": "text/event-stream",
-                "request_id": "0d5fad28-d8c3-4299-9189-f794a2f69a87"
+                "request_id": "d83eeb44-4317-4a9e-b115-1d325ba88ba4"
               },
               "usage": {}
             },
@@ -3792,13 +3788,13 @@
               "category": "streaming",
               "required": true,
               "status": "pass",
-              "duration_ms": 52,
+              "duration_ms": 79,
               "summary": "GenerateContent stream uses SSE",
               "expected": "Legacy streaming returns text/event-stream",
               "http": {
                 "status_code": 200,
                 "content_type": "text/event-stream",
-                "request_id": "0d5fad28-d8c3-4299-9189-f794a2f69a87"
+                "request_id": "d83eeb44-4317-4a9e-b115-1d325ba88ba4"
               },
               "usage": {}
             },
@@ -3811,13 +3807,13 @@
               "category": "streaming",
               "required": true,
               "status": "pass",
-              "duration_ms": 52,
+              "duration_ms": 79,
               "summary": "GenerateContent stream chunks have valid response shapes",
               "expected": "Legacy response chunks have valid GenerateContent shapes",
               "http": {
                 "status_code": 200,
                 "content_type": "text/event-stream",
-                "request_id": "0d5fad28-d8c3-4299-9189-f794a2f69a87"
+                "request_id": "d83eeb44-4317-4a9e-b115-1d325ba88ba4"
               },
               "usage": {}
             },
@@ -3830,13 +3826,13 @@
               "category": "streaming",
               "required": true,
               "status": "pass",
-              "duration_ms": 52,
+              "duration_ms": 79,
               "summary": "GenerateContent stream chunks were parsed to EOF",
               "expected": "Legacy response chunks are parsed independently",
               "http": {
                 "status_code": 200,
                 "content_type": "text/event-stream",
-                "request_id": "0d5fad28-d8c3-4299-9189-f794a2f69a87"
+                "request_id": "d83eeb44-4317-4a9e-b115-1d325ba88ba4"
               },
               "usage": {
                 "input_tokens": 19,
@@ -3854,13 +3850,13 @@
               "category": "streaming",
               "required": true,
               "status": "pass",
-              "duration_ms": 52,
+              "duration_ms": 79,
               "summary": "GenerateContent stream reconstructed response text",
               "expected": "Legacy stream chunks reconstruct the requested text",
               "http": {
                 "status_code": 200,
                 "content_type": "text/event-stream",
-                "request_id": "0d5fad28-d8c3-4299-9189-f794a2f69a87"
+                "request_id": "d83eeb44-4317-4a9e-b115-1d325ba88ba4"
               },
               "usage": {}
             },
@@ -3873,13 +3869,13 @@
               "category": "streaming",
               "required": false,
               "status": "pass",
-              "duration_ms": 52,
+              "duration_ms": 79,
               "summary": "GenerateContent stream exposed valid usage metadata",
               "expected": "Legacy stream exposes valid usage metadata when available",
               "http": {
                 "status_code": 200,
                 "content_type": "text/event-stream",
-                "request_id": "0d5fad28-d8c3-4299-9189-f794a2f69a87"
+                "request_id": "d83eeb44-4317-4a9e-b115-1d325ba88ba4"
               },
               "usage": {
                 "input_tokens": 19,
@@ -3897,13 +3893,13 @@
               "category": "structured-output",
               "required": false,
               "status": "pass",
-              "duration_ms": 320,
+              "duration_ms": 313,
               "summary": "GenerateContent structured output conforms to the local JSON schema",
               "expected": "Legacy JSON output conforms to a local schema",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "1ee9b798-a646-42fe-82dc-5643d907254e"
+                "request_id": "7e06230d-9799-4bcd-84e5-d0c417d97e75"
               },
               "usage": {
                 "input_tokens": 24,
@@ -3921,13 +3917,13 @@
               "category": "tools",
               "required": false,
               "status": "pass",
-              "duration_ms": 733,
+              "duration_ms": 716,
               "summary": "GenerateContent function declaration was accepted and a valid function call was returned",
               "expected": "Legacy function declarations are accepted",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "12bc2b03-96c1-4dd6-9770-65a403e1215e"
+                "request_id": "f4a763a9-6ae8-4458-b58b-1bf1f0ca0603"
               },
               "usage": {
                 "input_tokens": 156,
@@ -3948,13 +3944,13 @@
               "category": "usage",
               "required": true,
               "status": "pass",
-              "duration_ms": 85,
+              "duration_ms": 48,
               "summary": "GenerateContent usage metadata was normalized",
               "expected": "Legacy usageMetadata is normalized",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "ad96a656-a034-4791-ae4a-1c9deb1a07cb"
+                "request_id": "a08d1bf4-b17e-4986-bd1a-eee53f0bc693"
               },
               "usage": {
                 "input_tokens": 19,
@@ -4288,9 +4284,9 @@
             "status": "pass",
             "usage": {
               "input_tokens": 474,
-              "output_tokens": 112,
+              "output_tokens": 108,
               "cache_read_input_tokens": 341,
-              "total_tokens": 586,
+              "total_tokens": 582,
               "provider_fields": {
                 "tool_use_prompt_tokens": 0
               }
@@ -5250,9 +5246,9 @@
         },
         "usage": {
           "input_tokens": 474,
-          "output_tokens": 112,
+          "output_tokens": 108,
           "cache_read_input_tokens": 341,
-          "total_tokens": 586,
+          "total_tokens": 582,
           "provider_fields": {
             "tool_use_prompt_tokens": 0
           }
@@ -5298,9 +5294,9 @@
         "observed_safe_requests_per_second": 3.1578947368421053,
         "observed_safe_concurrency": 6,
         "latency_samples": 12,
-        "mean_latency_ms": 142,
-        "p50_latency_ms": 52,
-        "p95_latency_ms": 733
+        "mean_latency_ms": 141,
+        "p50_latency_ms": 79,
+        "p95_latency_ms": 716
       },
       "extension_rate_limit": {
         "successful_requests": 6,
@@ -5333,7 +5329,7 @@
           "runner": {
             "status": "pass",
             "startup_duration_ms": 0,
-            "total_duration_ms": 490,
+            "total_duration_ms": 445,
             "exit_code": 0,
             "pacing_compliance": "host_enforced",
             "summary": "Extension runner completed"
@@ -5350,7 +5346,7 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 265,
+              "duration_ms": 225,
               "summary": "Official Google Gen AI Go SDK sent and parsed the suite",
               "http": {},
               "usage": {
@@ -5380,7 +5376,7 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 233,
+              "duration_ms": 47,
               "summary": "Official Google Gen AI Go SDK sent and parsed the suite",
               "http": {},
               "usage": {
@@ -5410,7 +5406,7 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 2,
+              "duration_ms": 1,
               "summary": "Official Google Gen AI Go SDK sent and parsed the suite",
               "http": {},
               "usage": {},
@@ -5428,14 +5424,14 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 199,
+              "duration_ms": 191,
               "summary": "Official Google Gen AI Go SDK sent and parsed the suite",
               "http": {},
               "usage": {
                 "input_tokens": 24,
-                "output_tokens": 22,
+                "output_tokens": 18,
                 "cache_read_input_tokens": 23,
-                "total_tokens": 46,
+                "total_tokens": 42,
                 "provider_fields": {
                   "tool_use_prompt_tokens": 0
                 }
@@ -5457,7 +5453,7 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 490,
+              "duration_ms": 445,
               "summary": "Official Google Gen AI Go SDK sent and parsed the suite",
               "http": {},
               "usage": {
@@ -5495,7 +5491,7 @@
           "runner": {
             "status": "pass",
             "startup_duration_ms": 0,
-            "total_duration_ms": 2,
+            "total_duration_ms": 1,
             "exit_code": 0,
             "pacing_compliance": "host_enforced",
             "summary": "Extension runner completed"
@@ -5512,7 +5508,7 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 2,
+              "duration_ms": 1,
               "summary": "Official Google Gen AI Go SDK sent and parsed the suite",
               "http": {},
               "usage": {},
@@ -5547,7 +5543,7 @@
       "discovery": {
         "models": [
           {
-            "created": 1788456441,
+            "created": 1788474996,
             "id": "prism-ml/Ternary-Bonsai-1.7B",
             "object": "model",
             "owned_by": "prism-ml"
@@ -5568,7 +5564,7 @@
             "http": {
               "status_code": 200,
               "content_type": "application/json",
-              "snippet": "{\"data\":[{\"created\":1788456441,\"id\":\"prism-ml/Ternary-Bonsai-1.7B\",\"object\":\"model\",\"owned_by\":\"prism-ml\"}],\"object\":\"list\"}"
+              "snippet": "{\"data\":[{\"created\":1788474996,\"id\":\"prism-ml/Ternary-Bonsai-1.7B\",\"object\":\"model\",\"owned_by\":\"prism-ml\"}],\"object\":\"list\"}"
             },
             "usage": {}
           },
@@ -5586,7 +5582,7 @@
             "http": {
               "status_code": 200,
               "content_type": "application/json",
-              "snippet": "{\"data\":[{\"created\":1788456441,\"id\":\"prism-ml/Ternary-Bonsai-1.7B\",\"object\":\"model\",\"owned_by\":\"prism-ml\"}],\"object\":\"list\"}"
+              "snippet": "{\"data\":[{\"created\":1788474996,\"id\":\"prism-ml/Ternary-Bonsai-1.7B\",\"object\":\"model\",\"owned_by\":\"prism-ml\"}],\"object\":\"list\"}"
             },
             "usage": {}
           }
@@ -5608,7 +5604,7 @@
             "http": {
               "status_code": 401,
               "content_type": "application/json",
-              "request_id": "35bb3dc4-a275-4492-a1ab-bc55fafe5b08",
+              "request_id": "18139dcb-9612-4ccb-9754-53931780e935",
               "headers": {
                 "server": "fasthttp"
               },
@@ -5629,13 +5625,13 @@
             "category": "errors",
             "required": true,
             "status": "pass",
-            "duration_ms": 4,
+            "duration_ms": 3,
             "summary": "all malformed JSON variants returned client errors with OpenAI-shaped bodies",
             "expected": "Malformed Chat Completions JSON returns a client error rather than 5xx",
             "http": {
               "status_code": 400,
               "content_type": "application/json",
-              "request_id": "9978b38d-a02f-4c9f-bb63-1af9e8aceafa",
+              "request_id": "a92a5f98-6821-4e3a-9537-ef478281db64",
               "headers": {
                 "server": "fasthttp"
               },
@@ -5680,11 +5676,11 @@
             "http": {
               "status_code": 400,
               "content_type": "application/json",
-              "request_id": "5b899328-3e97-40d9-a8fa-bead151f33f8",
+              "request_id": "ea6bd495-5915-42de-87e9-4aa1ec4731df",
               "headers": {
                 "server": "fasthttp"
               },
-              "snippet": "{\"error\":{\"message\":\"could not auto resolve a provider for the request, please specify a provider explicitly\"},\"extra_fields\":{\"original_model_requested\":\"__aiqa_missing_model_1788456441488390889__\",\"request_type\":\"chat_completion\",\"resolved_model_used\":\"__aiqa_missing_model_1788456441488390889__\",\"routing_info\":{}},\"is_bifrost_error\":false}"
+              "snippet": "{\"error\":{\"message\":\"could not auto resolve a provider for the request, please specify a provider explicitly\"},\"extra_fields\":{\"original_model_requested\":\"__aiqa_missing_model_1788474996158771364__\",\"request_type\":\"chat_completion\",\"resolved_model_used\":\"__aiqa_missing_model_1788474996158771364__\",\"routing_info\":{}},\"is_bifrost_error\":false}"
             },
             "usage": {},
             "metrics": {
@@ -5701,14 +5697,14 @@
             "category": "errors",
             "required": false,
             "status": "pass",
-            "duration_ms": 4,
+            "duration_ms": 3,
             "summary": "invalid request field types returned HTTP 400 with an OpenAI-shaped error",
             "expected": "Invalid Chat Completions field types are rejected with a client error",
             "observation": "Invalid JSON",
             "http": {
               "status_code": 400,
               "content_type": "application/json",
-              "request_id": "4eb03afd-e8ad-4e92-a7cd-f2e2236724ae",
+              "request_id": "02314055-78ac-4806-a836-e854c31f3fb8",
               "headers": {
                 "server": "fasthttp"
               },
@@ -5727,7 +5723,7 @@
         {
           "id": "prism-ml/Ternary-Bonsai-1.7B",
           "metadata": {
-            "created": 1788456441,
+            "created": 1788474996,
             "id": "prism-ml/Ternary-Bonsai-1.7B",
             "object": "model",
             "owned_by": "prism-ml"
@@ -5742,18 +5738,18 @@
               "category": "core",
               "required": true,
               "status": "pass",
-              "duration_ms": 1325,
+              "duration_ms": 294,
               "summary": "minimal chat completion succeeded",
               "expected": "A minimal chat completion succeeds",
               "observation": "assistant content: AIQA_OK",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "3c4fa599-91ea-493a-b9cc-efd93b718df0",
+                "request_id": "02fe7dcf-42ba-4aa2-b681-53ac0dbf742b",
                 "headers": {
                   "server": "fasthttp"
                 },
-                "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788456444,\"extra_fields\":{\"chunk_index\":0,\"latency\":1320,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"provider_response_headers\":{\"X-Accel-Buffering\":\"no\"},\"request_type\":\"chat_completion\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"},\"upstream_latency\":1320},\"id\":\"chatcmpl-b7FybG5qL4nMeJoe2jIFxDXDpFyj38fM\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion\",\"system_fingerprint\":\"b1-c1d0e7a\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":22,\"prompt_tokens_details\":{\"cache_write_tokens\":0,\"cached_read_tokens\":6,\"cached_tokens\":6},\"total_tokens\":26}}"
+                "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788474998,\"extra_fields\":{\"chunk_index\":0,\"latency\":292,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"provider_response_headers\":{\"X-Accel-Buffering\":\"no\"},\"request_type\":\"chat_completion\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"},\"upstream_latency\":292},\"id\":\"chatcmpl-OSHoe8fwqdrHjrMQgWgehLiPT7oN4gzG\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion\",\"system_fingerprint\":\"b1-c1d0e7a\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":22,\"prompt_tokens_details\":{\"cache_write_tokens\":0,\"cached_read_tokens\":6,\"cached_tokens\":6},\"total_tokens\":26}}"
               },
               "usage": {}
             },
@@ -5766,17 +5762,17 @@
               "category": "messages",
               "required": false,
               "status": "pass",
-              "duration_ms": 1096,
+              "duration_ms": 1194,
               "summary": "array-form text content parts are accepted and interpreted",
               "expected": "Array-form text content parts are accepted",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "daa98b5d-6519-4aff-aabc-6d9554d70020",
+                "request_id": "22c0d8ce-bded-4bf8-8550-56a593d38c96",
                 "headers": {
                   "server": "fasthttp"
                 },
-                "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"PARTS_OK\",\"role\":\"assistant\"}}],\"created\":1788456442,\"extra_fields\":{\"chunk_index\":0,\"latency\":1045,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"provider_response_headers\":{\"X-Accel-Buffering\":\"no\"},\"request_type\":\"chat_completion\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"},\"upstream_latency\":1045},\"id\":\"chatcmpl-YMJ8kNeM9PNsMgDbRC7xnGWImhsw5QsI\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion\",\"system_fingerprint\":\"b1-c1d0e7a\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":19,\"prompt_tokens_details\":{\"cache_write_tokens\":0,\"cached_read_tokens\":6,\"cached_tokens\":6},\"total_tokens\":23}}"
+                "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"PARTS_OK\",\"role\":\"assistant\"}}],\"created\":1788474999,\"extra_fields\":{\"chunk_index\":0,\"latency\":1176,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"provider_response_headers\":{\"X-Accel-Buffering\":\"no\"},\"request_type\":\"chat_completion\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"},\"upstream_latency\":1176},\"id\":\"chatcmpl-rxovH3UVg2giOaJZMzXwHRJdHF1eIOe4\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion\",\"system_fingerprint\":\"b1-c1d0e7a\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":19,\"prompt_tokens_details\":{\"cache_write_tokens\":0,\"cached_read_tokens\":5,\"cached_tokens\":5},\"total_tokens\":23}}"
               },
               "usage": {
                 "prompt_tokens": 19,
@@ -5793,7 +5789,7 @@
               "category": "sampling",
               "required": false,
               "status": "pass",
-              "duration_ms": 158,
+              "duration_ms": 297,
               "summary": "logprobs and top_logprobs are returned",
               "expected": "logprobs/top_logprobs are accepted and returned",
               "http": {
@@ -5802,7 +5798,7 @@
                 "headers": {
                   "server": "llama.cpp"
                 },
-                "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"A.\"},\"logprobs\":{\"content\":[{\"id\":32,\"token\":\"A\",\"bytes\":[65],\"logprob\":-0.000988494954071939,\"top_logprobs\":[{\"id\":32,\"token\":\"A\",\"bytes\":[65],\"logprob\":-0.000988494954071939},{\"id\":33,\"token\":\"B\",\"bytes\":[66],\"logprob\":-7.810286998748779}]},{\"id\":13,\"token\":\".\",\"bytes\":[46],\"logprob\":-0.05596478283405304,\"top_logprobs\":[{\"id\":13,\"token\":\".\",\"bytes\":[46],\"logprob\":-0.05596478283405304},{\"id\":151645,\"token\":\"\",\"bytes\":[],\"logprob\":-2.9162514209747314}]},{\"id\":151645,\"token\":\"\",\"bytes\":[],\"logprob\":-0.0012379199033603072,\"top_logprobs\":[{\"id\":151645,\"token\":\"\",\"bytes\":[],\"logprob\":-0.0012379199033603072},{\"id\":2303,\"token\":\"  \\n\",\"bytes\":[32,32,10],\"logprob\":-7.952966690063477}]}]}}],\"created\":1788456441,\"model\":\"Ternary-Bonsai-1.7B\",\"system_fingerprint\":\"b1-c1d0e7a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":3,\"prompt_tokens\":17,\"total_tokens\":20,\"prompt_tokens_details\":{\"cached_tokens\":5}},\"id\":\"chatcmpl-su7cCZUyDBbVmRw5VJnAwTjsrb2n5zkq\",\"timings\":{\"cache_n\":5,\"prompt_n\":12,\"prompt_ms\":47.155,\"prompt_per_token_ms\":3.9295833333333334,\"prompt_per_second\":254.47990669070086,\"predicted_…"
+                "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"A.\"},\"logprobs\":{\"content\":[{\"id\":32,\"token\":\"A\",\"bytes\":[65],\"logprob\":-0.000988494954071939,\"top_logprobs\":[{\"id\":32,\"token\":\"A\",\"bytes\":[65],\"logprob\":-0.000988494954071939},{\"id\":33,\"token\":\"B\",\"bytes\":[66],\"logprob\":-7.810286998748779}]},{\"id\":13,\"token\":\".\",\"bytes\":[46],\"logprob\":-0.05596478283405304,\"top_logprobs\":[{\"id\":13,\"token\":\".\",\"bytes\":[46],\"logprob\":-0.05596478283405304},{\"id\":151645,\"token\":\"\",\"bytes\":[],\"logprob\":-2.9162514209747314}]},{\"id\":151645,\"token\":\"\",\"bytes\":[],\"logprob\":-0.0012379199033603072,\"top_logprobs\":[{\"id\":151645,\"token\":\"\",\"bytes\":[],\"logprob\":-0.0012379199033603072},{\"id\":2303,\"token\":\"  \\n\",\"bytes\":[32,32,10],\"logprob\":-7.952966690063477}]}]}}],\"created\":1788474996,\"model\":\"Ternary-Bonsai-1.7B\",\"system_fingerprint\":\"b1-c1d0e7a\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":3,\"prompt_tokens\":17,\"total_tokens\":20,\"prompt_tokens_details\":{\"cached_tokens\":1}},\"id\":\"chatcmpl-pxkAlR0lMKrSf5hZxSYGUiQMqmtS2kps\",\"timings\":{\"cache_n\":1,\"prompt_n\":16,\"prompt_ms\":47.183,\"prompt_per_token_ms\":2.9489375,\"prompt_per_second\":339.1051861899413,\"predicted_n\":3,\"pred…"
               },
               "usage": {
                 "prompt_tokens": 17,
@@ -5819,17 +5815,17 @@
               "category": "messages",
               "required": false,
               "status": "pass",
-              "duration_ms": 206,
+              "duration_ms": 215,
               "summary": "assistant history is accepted and used",
               "expected": "User and assistant history is accepted",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "b34a08cf-8256-4f4e-8f45-8030cf8694bb",
+                "request_id": "153b4cf7-701e-4e8b-86b9-faf8540278a3",
                 "headers": {
                   "server": "fasthttp"
                 },
-                "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"ALPHA-731\",\"role\":\"assistant\"}}],\"created\":1788456443,\"extra_fields\":{\"chunk_index\":0,\"latency\":204,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"provider_response_headers\":{\"X-Accel-Buffering\":\"no\"},\"request_type\":\"chat_completion\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"},\"upstream_latency\":204},\"id\":\"chatcmpl-xfc7mhbrffVNXt46vKlRPpQykxAG5niF\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion\",\"system_fingerprint\":\"b1-c1d0e7a\",\"usage\":{\"completion_tokens\":7,\"prompt_tokens\":48,\"prompt_tokens_details\":{\"cache_write_tokens\":0,\"cached_read_tokens\":1,\"cached_tokens\":1},\"total_tokens\":55}}"
+                "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"ALPHA-731\",\"role\":\"assistant\"}}],\"created\":1788474998,\"extra_fields\":{\"chunk_index\":0,\"latency\":213,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"provider_response_headers\":{\"X-Accel-Buffering\":\"no\"},\"request_type\":\"chat_completion\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"},\"upstream_latency\":213},\"id\":\"chatcmpl-ccSWOZOJMAxdsPusvTYKtHIbXW2dAEZT\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion\",\"system_fingerprint\":\"b1-c1d0e7a\",\"usage\":{\"completion_tokens\":7,\"prompt_tokens\":48,\"prompt_tokens_details\":{\"cache_write_tokens\":0,\"cached_read_tokens\":3,\"cached_tokens\":3},\"total_tokens\":55}}"
               },
               "usage": {
                 "prompt_tokens": 48,
@@ -5846,17 +5842,17 @@
               "category": "messages",
               "required": false,
               "status": "pass",
-              "duration_ms": 895,
+              "duration_ms": 137,
               "summary": "developer role is accepted and affects the response",
               "expected": "Developer messages are accepted",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "ea8da717-8a6f-442e-aa72-3c31c374fe1c",
+                "request_id": "9f55a832-835a-4fa0-92c3-497e242ed3f3",
                 "headers": {
                   "server": "fasthttp"
                 },
-                "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"DEVELOPER_OK\",\"role\":\"assistant\"}}],\"created\":1788456444,\"extra_fields\":{\"chunk_index\":0,\"latency\":885,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"provider_response_headers\":{\"X-Accel-Buffering\":\"no\"},\"request_type\":\"chat_completion\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"},\"upstream_latency\":885},\"id\":\"chatcmpl-wI089EPbXahyv4CN1ExMDdqZatT8aPzs\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion\",\"system_fingerprint\":\"b1-c1d0e7a\",\"usage\":{\"completion_tokens\":5,\"prompt_tokens\":28,\"prompt_tokens_details\":{\"cache_write_tokens\":0,\"cached_read_tokens\":3,\"cached_tokens\":3},\"total_tokens\":33}}"
+                "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"DEVELOPER_OK\",\"role\":\"assistant\"}}],\"created\":1788474996,\"extra_fields\":{\"chunk_index\":0,\"latency\":135,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"provider_response_headers\":{\"X-Accel-Buffering\":\"no\"},\"request_type\":\"chat_completion\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"},\"upstream_latency\":135},\"id\":\"chatcmpl-s1bFzj6io1jsnTRexv7tkVtzg6dz2JLL\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion\",\"system_fingerprint\":\"b1-c1d0e7a\",\"usage\":{\"completion_tokens\":5,\"prompt_tokens\":28,\"prompt_tokens_details\":{\"cache_write_tokens\":0,\"cached_read_tokens\":3,\"cached_tokens\":3},\"total_tokens\":33}}"
               },
               "usage": {
                 "prompt_tokens": 28,
@@ -5873,17 +5869,17 @@
               "category": "messages",
               "required": false,
               "status": "pass",
-              "duration_ms": 287,
+              "duration_ms": 224,
               "summary": "system role is accepted and affects the response",
               "expected": "System messages are accepted",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "63691c0c-3dac-4826-9be0-113b8cb91e73",
+                "request_id": "6e2f1839-cd26-4f1d-a8b5-c6ff1eca5f6f",
                 "headers": {
                   "server": "fasthttp"
                 },
-                "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"SYSTEM_OK\",\"role\":\"assistant\"}}],\"created\":1788456441,\"extra_fields\":{\"chunk_index\":0,\"latency\":280,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"provider_response_headers\":{\"X-Accel-Buffering\":\"no\"},\"request_type\":\"chat_completion\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"},\"upstream_latency\":280},\"id\":\"chatcmpl-BC8fXNgUsOXyEONZvaNpSZ3Je0YNDqPQ\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion\",\"system_fingerprint\":\"b1-c1d0e7a\",\"usage\":{\"completion_tokens\":3,\"prompt_tokens\":27,\"prompt_tokens_details\":{\"cache_write_tokens\":0,\"cached_read_tokens\":1,\"cached_tokens\":1},\"total_tokens\":30}}"
+                "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"SYSTEM_OK\",\"role\":\"assistant\"}}],\"created\":1788474996,\"extra_fields\":{\"chunk_index\":0,\"latency\":222,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"provider_response_headers\":{\"X-Accel-Buffering\":\"no\"},\"request_type\":\"chat_completion\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"},\"upstream_latency\":222},\"id\":\"chatcmpl-dOri11OI2eSIFvJHPbATqtAdC1pY0b76\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion\",\"system_fingerprint\":\"b1-c1d0e7a\",\"usage\":{\"completion_tokens\":3,\"prompt_tokens\":27,\"prompt_tokens_details\":{\"cache_write_tokens\":0,\"cached_read_tokens\":6,\"cached_tokens\":6},\"total_tokens\":30}}"
               },
               "usage": {
                 "prompt_tokens": 27,
@@ -5900,17 +5896,17 @@
               "category": "schema",
               "required": true,
               "status": "pass",
-              "duration_ms": 1325,
+              "duration_ms": 294,
               "summary": "chat completion response has the expected OpenAI shape",
               "expected": "The response contains OpenAI-compatible completion fields",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "3c4fa599-91ea-493a-b9cc-efd93b718df0",
+                "request_id": "02fe7dcf-42ba-4aa2-b681-53ac0dbf742b",
                 "headers": {
                   "server": "fasthttp"
                 },
-                "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788456444,\"extra_fields\":{\"chunk_index\":0,\"latency\":1320,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"provider_response_headers\":{\"X-Accel-Buffering\":\"no\"},\"request_type\":\"chat_completion\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"},\"upstream_latency\":1320},\"id\":\"chatcmpl-b7FybG5qL4nMeJoe2jIFxDXDpFyj38fM\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion\",\"system_fingerprint\":\"b1-c1d0e7a\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":22,\"prompt_tokens_details\":{\"cache_write_tokens\":0,\"cached_read_tokens\":6,\"cached_tokens\":6},\"total_tokens\":26}}"
+                "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788474998,\"extra_fields\":{\"chunk_index\":0,\"latency\":292,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"provider_response_headers\":{\"X-Accel-Buffering\":\"no\"},\"request_type\":\"chat_completion\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"},\"upstream_latency\":292},\"id\":\"chatcmpl-OSHoe8fwqdrHjrMQgWgehLiPT7oN4gzG\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion\",\"system_fingerprint\":\"b1-c1d0e7a\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":22,\"prompt_tokens_details\":{\"cache_write_tokens\":0,\"cached_read_tokens\":6,\"cached_tokens\":6},\"total_tokens\":26}}"
               },
               "usage": {}
             },
@@ -5923,14 +5919,14 @@
               "category": "streaming",
               "required": true,
               "status": "pass",
-              "duration_ms": 87,
+              "duration_ms": 370,
               "summary": "valid SSE stream with 4 event(s) and [DONE]",
               "expected": "SSE chunks are valid and terminate with [DONE]",
               "http": {
                 "status_code": 200,
                 "content_type": "text/event-stream",
-                "request_id": "3df57d1b-74f8-4de4-bff4-b0529357ed8b",
-                "snippet": "data: {\"choices\":[{\"delta\":{\"content\":\"STREAM\",\"role\":\"assistant\"},\"finish_reason\":null,\"index\":0}],\"created\":1788456441,\"extra_fields\":{\"chunk_index\":0,\"latency\":78,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"request_type\":\"chat_completion_stream\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"}},\"id\":\"chatcmpl-sX3Mf4hMWiWOtuIgfsavts0H0rkjWuDZ\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion…\ndata: {\"choices\":[{\"delta\":{\"content\":\"_OK\"},\"finish_reason\":null,\"index\":0}],\"created\":1788456441,\"extra_fields\":{\"chunk_index\":1,\"latency\":0,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"request_type\":\"chat_completion_stream\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"}},\"id\":\"chatcmpl-sX3Mf4hMWiWOtuIgfsavts0H0rkjWuDZ\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion.chunk\",\"system_fingerp…\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\",\"index\":0}],\"created\":1788456441,\"extra_fields\":{\"chunk_index\":2,\"latency\":84,\"original_model_requested…"
+                "request_id": "e2417bc9-c004-45b6-bd15-45bc20adccb1",
+                "snippet": "data: {\"choices\":[{\"delta\":{\"content\":\"STREAM\",\"role\":\"assistant\"},\"finish_reason\":null,\"index\":0}],\"created\":1788474996,\"extra_fields\":{\"chunk_index\":0,\"latency\":361,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"request_type\":\"chat_completion_stream\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"}},\"id\":\"chatcmpl-Av475Alt0HhCr7ZLfUAMisJn1KpfZzjE\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completio…\ndata: {\"choices\":[{\"delta\":{\"content\":\"_OK\"},\"finish_reason\":null,\"index\":0}],\"created\":1788474996,\"extra_fields\":{\"chunk_index\":1,\"latency\":0,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"request_type\":\"chat_completion_stream\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"}},\"id\":\"chatcmpl-Av475Alt0HhCr7ZLfUAMisJn1KpfZzjE\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion.chunk\",\"system_fingerp…\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\",\"index\":0}],\"created\":1788474996,\"extra_fields\":{\"chunk_index\":2,\"latency\":361,\"original_model_requeste…"
               },
               "usage": {
                 "prompt_tokens": 18,
@@ -5953,14 +5949,14 @@
               "category": "usage",
               "required": false,
               "status": "pass",
-              "duration_ms": 184,
+              "duration_ms": 41,
               "summary": "stream reported 21 total tokens",
               "expected": "stream_options.include_usage returns token usage",
               "http": {
                 "status_code": 200,
                 "content_type": "text/event-stream",
-                "request_id": "79e662a6-1fe8-4b20-8bd5-68890838ffd8",
-                "snippet": "data: {\"choices\":[{\"delta\":{\"content\":\"STREAM\",\"role\":\"assistant\"},\"finish_reason\":null,\"index\":0}],\"created\":1788456441,\"extra_fields\":{\"chunk_index\":0,\"latency\":163,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"request_type\":\"chat_completion_stream\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"}},\"id\":\"chatcmpl-s2Vihq9LUWxt1iibTwljrmnPhiWL5WWc\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completio…\ndata: {\"choices\":[{\"delta\":{\"content\":\"_OK\"},\"finish_reason\":null,\"index\":0}],\"created\":1788456441,\"extra_fields\":{\"chunk_index\":1,\"latency\":7,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"request_type\":\"chat_completion_stream\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"}},\"id\":\"chatcmpl-s2Vihq9LUWxt1iibTwljrmnPhiWL5WWc\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion.chunk\",\"system_fingerp…\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\",\"index\":0}],\"created\":1788456441,\"extra_fields\":{\"chunk_index\":2,\"latency\":179,\"original_model_requeste…"
+                "request_id": "79fa2370-7d11-45e6-8534-3183786f3965",
+                "snippet": "data: {\"choices\":[{\"delta\":{\"content\":\"STREAM\",\"role\":\"assistant\"},\"finish_reason\":null,\"index\":0}],\"created\":1788474998,\"extra_fields\":{\"chunk_index\":0,\"latency\":22,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"request_type\":\"chat_completion_stream\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"}},\"id\":\"chatcmpl-6sYpzWdTIohd7icg3AQiAaNejUytmqxx\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion…\ndata: {\"choices\":[{\"delta\":{\"content\":\"_OK\"},\"finish_reason\":null,\"index\":0}],\"created\":1788474998,\"extra_fields\":{\"chunk_index\":1,\"latency\":8,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"request_type\":\"chat_completion_stream\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"}},\"id\":\"chatcmpl-6sYpzWdTIohd7icg3AQiAaNejUytmqxx\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion.chunk\",\"system_fingerp…\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\",\"index\":0}],\"created\":1788474998,\"extra_fields\":{\"chunk_index\":2,\"latency\":40,\"original_model_requested…"
               },
               "usage": {
                 "prompt_tokens": 18,
@@ -5977,17 +5973,17 @@
               "category": "structured-output",
               "required": false,
               "status": "pass",
-              "duration_ms": 2085,
+              "duration_ms": 1840,
               "summary": "JSON object mode returned raw JSON in the majority of attempts",
               "expected": "response_format=json_object returns valid JSON",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "58c78b3b-ec9e-4d26-8de4-b545d9d18866",
+                "request_id": "2f8404fd-bb58-49b7-b44b-1b5e2ac61656",
                 "headers": {
                   "server": "fasthttp"
                 },
-                "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"{\\\"ok\\\":true,\\\"value\\\":\\\"AIQA_OK\\\"}\",\"role\":\"assistant\"}}],\"created\":1788456445,\"extra_fields\":{\"chunk_index\":0,\"latency\":744,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"provider_response_headers\":{\"X-Accel-Buffering\":\"no\"},\"request_type\":\"chat_completion\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"},\"upstream_latency\":744},\"id\":\"chatcmpl-k4CutOQabqGwgxGsCHVXizLOaNIDGv0A\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion\",\"system_fingerprint\":\"b1-c1d0e7a\",\"usage\":{\"completion_tokens\":12,\"prompt_tokens\":76,\"prompt_tokens_details\":{\"cache_write_tokens\":0,\"cached_read_tokens\":75,\"cached_tokens\":75},\"total_tokens\":88}}"
+                "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"{\\\"ok\\\":true,\\\"value\\\":\\\"AIQA_OK\\\"}\",\"role\":\"assistant\"}}],\"created\":1788474999,\"extra_fields\":{\"chunk_index\":0,\"latency\":103,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"provider_response_headers\":{\"X-Accel-Buffering\":\"no\"},\"request_type\":\"chat_completion\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"},\"upstream_latency\":103},\"id\":\"chatcmpl-pM1pxI9216Chwv1lHL8Ze2LaEPtiqufU\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion\",\"system_fingerprint\":\"b1-c1d0e7a\",\"usage\":{\"completion_tokens\":12,\"prompt_tokens\":76,\"prompt_tokens_details\":{\"cache_write_tokens\":0,\"cached_read_tokens\":75,\"cached_tokens\":75},\"total_tokens\":88}}"
               },
               "usage": {
                 "prompt_tokens": 228,
@@ -6008,22 +6004,22 @@
               "category": "structured-output",
               "required": false,
               "status": "pass",
-              "duration_ms": 551,
+              "duration_ms": 1121,
               "summary": "strict JSON schema output conforms to the requested schema",
               "expected": "response_format=json_schema returns schema-conforming JSON",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "829179be-fbb8-4cb4-9e7e-210c5397f4fc",
+                "request_id": "f4db04e8-77dd-47dc-9205-62fee2075e0e",
                 "headers": {
                   "server": "fasthttp"
                 },
-                "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"{\\\"ok\\\":true,\\\"value\\\":\\\"AIQA_OK\\\"}\",\"role\":\"assistant\"}}],\"created\":1788456444,\"extra_fields\":{\"chunk_index\":0,\"latency\":546,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"provider_response_headers\":{\"X-Accel-Buffering\":\"no\"},\"request_type\":\"chat_completion\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"},\"upstream_latency\":546},\"id\":\"chatcmpl-ONqQBCNqYVMavL2hd4dLdYRozvRhKMIX\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion\",\"system_fingerprint\":\"b1-c1d0e7a\",\"usage\":{\"completion_tokens\":12,\"prompt_tokens\":115,\"prompt_tokens_details\":{\"cache_write_tokens\":0,\"cached_read_tokens\":31,\"cached_tokens\":31},\"total_tokens\":127}}"
+                "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"{\\\"ok\\\": true, \\\"value\\\": \\\"AIQA_OK\\\"}\",\"role\":\"assistant\"}}],\"created\":1788474999,\"extra_fields\":{\"chunk_index\":0,\"latency\":1118,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"provider_response_headers\":{\"X-Accel-Buffering\":\"no\"},\"request_type\":\"chat_completion\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"},\"upstream_latency\":1118},\"id\":\"chatcmpl-G706JcDMihRvjS0UtzY9gjwfTQhp0ZAr\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion\",\"system_fingerprint\":\"b1-c1d0e7a\",\"usage\":{\"completion_tokens\":14,\"prompt_tokens\":115,\"prompt_tokens_details\":{\"cache_write_tokens\":0,\"cached_read_tokens\":31,\"cached_tokens\":31},\"total_tokens\":129}}"
               },
               "usage": {
                 "prompt_tokens": 115,
-                "completion_tokens": 12,
-                "total_tokens": 127
+                "completion_tokens": 14,
+                "total_tokens": 129
               }
             },
             {
@@ -6035,17 +6031,17 @@
               "category": "tools",
               "required": false,
               "status": "pass",
-              "duration_ms": 1276,
+              "duration_ms": 762,
               "summary": "tool_choice=auto emitted a tool call when requested",
               "expected": "Automatic tool choice can emit a valid function call",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "9fccfc87-b67a-4c5d-8a67-72710ab6a2be",
+                "request_id": "6433ed31-ca5f-44e3-bcee-ed0ee6d53a3c",
                 "headers": {
                   "server": "fasthttp"
                 },
-                "snippet": "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"index\":0,\"message\":{\"content\":\"\",\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"resource_id\\\": \\\"resource-alpha\\\"}\",\"name\":\"get_status\"},\"id\":\"B76tqO4zornVqV1opkvhZSyNnZru6NXD\",\"index\":0,\"type\":\"function\"}]}}],\"created\":1788456442,\"extra_fields\":{\"chunk_index\":0,\"latency\":1229,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"provider_response_headers\":{\"X-Accel-Buffering\":\"no\"},\"request_type\":\"chat_completion\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"},\"upstream_latency\":1229},\"id\":\"chatcmpl-65ixqsDKXnwga1c0UvMwjhgpW88bYgqF\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion\",\"system_fingerprint\":\"b1-c1d0e7a\",\"usage\":{\"completion_tokens\":22,\"prompt_tokens\":167,\"prompt_tokens_details\":{\"cache_write_tokens\":0,\"cached_read_tokens\":166,\"cached_tokens\":166},\"total_tokens\":189}}"
+                "snippet": "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"index\":0,\"message\":{\"content\":\"\",\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"resource_id\\\": \\\"resource-alpha\\\"}\",\"name\":\"get_status\"},\"id\":\"FqLkLrLptlHxdOrlaPcoMcnrSzJkA9kj\",\"index\":0,\"type\":\"function\"}]}}],\"created\":1788474998,\"extra_fields\":{\"chunk_index\":0,\"latency\":760,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"provider_response_headers\":{\"X-Accel-Buffering\":\"no\"},\"request_type\":\"chat_completion\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"},\"upstream_latency\":760},\"id\":\"chatcmpl-i7khioPP2wm1iTTIOhiAsmQHBXN0xynF\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion\",\"system_fingerprint\":\"b1-c1d0e7a\",\"usage\":{\"completion_tokens\":22,\"prompt_tokens\":167,\"prompt_tokens_details\":{\"cache_write_tokens\":0,\"cached_read_tokens\":166,\"cached_tokens\":166},\"total_tokens\":189}}"
               },
               "usage": {
                 "prompt_tokens": 167,
@@ -6065,18 +6061,18 @@
               "category": "tools",
               "required": false,
               "status": "pass",
-              "duration_ms": 690,
+              "duration_ms": 1434,
               "summary": "assistant tool_call and tool result can be continued",
               "expected": "A tool result can be continued into a final assistant message",
               "observation": "assistant content: The status of resource-alpha is **available**.",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "0f365558-c7fd-4056-8527-976532c35567",
+                "request_id": "ef17db1e-696b-41e5-b8a7-22d3a899afb3",
                 "headers": {
                   "server": "fasthttp"
                 },
-                "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"The status of resource-alpha is **available**.\",\"role\":\"assistant\"}}],\"created\":1788456445,\"extra_fields\":{\"chunk_index\":0,\"latency\":684,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"provider_response_headers\":{\"X-Accel-Buffering\":\"no\"},\"request_type\":\"chat_completion\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"},\"upstream_latency\":684},\"id\":\"chatcmpl-mIVNDz3Vl4cvW9zfMmtx2Aex0ydZ4DNB\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion\",\"system_fingerprint\":\"b1-c1d0e7a\",\"usage\":{\"completion_tokens\":11,\"prompt_tokens\":212,\"prompt_tokens_details\":{\"cache_write_tokens\":0,\"cached_read_tokens\":151,\"cached_tokens\":151},\"total_tokens\":223}}"
+                "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"The status of resource-alpha is **available**.\",\"role\":\"assistant\"}}],\"created\":1788474999,\"extra_fields\":{\"chunk_index\":0,\"latency\":1413,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"provider_response_headers\":{\"X-Accel-Buffering\":\"no\"},\"request_type\":\"chat_completion\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"},\"upstream_latency\":1413},\"id\":\"chatcmpl-6840lutsgL9J53wWUtG7FA7gBJl0q3fp\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion\",\"system_fingerprint\":\"b1-c1d0e7a\",\"usage\":{\"completion_tokens\":11,\"prompt_tokens\":212,\"prompt_tokens_details\":{\"cache_write_tokens\":0,\"cached_read_tokens\":163,\"cached_tokens\":163},\"total_tokens\":223}}"
               },
               "usage": {
                 "prompt_tokens": 212,
@@ -6093,17 +6089,17 @@
               "category": "tools",
               "required": false,
               "status": "pass",
-              "duration_ms": 1075,
+              "duration_ms": 1246,
               "summary": "forced function call returned valid JSON arguments",
               "expected": "A forced function tool call has valid OpenAI shape",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "35891997-9ae5-462b-b8f1-f5001a3bbf3c",
+                "request_id": "1f050023-0a38-4313-8ee6-3a5f1a18a03a",
                 "headers": {
                   "server": "fasthttp"
                 },
-                "snippet": "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"index\":0,\"message\":{\"content\":\"\",\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"resource_id\\\": \\\"resource-alpha\\\"}\",\"name\":\"get_status\"},\"id\":\"Wzpdxj7CtGnlvTc9GeVPDL5AXO3c3SA3\",\"index\":0,\"type\":\"function\"}]}}],\"created\":1788456444,\"extra_fields\":{\"chunk_index\":0,\"latency\":1064,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"provider_response_headers\":{\"X-Accel-Buffering\":\"no\"},\"request_type\":\"chat_completion\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"},\"upstream_latency\":1064},\"id\":\"chatcmpl-Pa6jAdLaxsQjIE2KzUoyrJQ4ImLf32wg\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion\",\"system_fingerprint\":\"b1-c1d0e7a\",\"usage\":{\"completion_tokens\":22,\"prompt_tokens\":167,\"prompt_tokens_details\":{\"cache_write_tokens\":0,\"cached_read_tokens\":166,\"cached_tokens\":166},\"total_tokens\":189}}"
+                "snippet": "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"index\":0,\"message\":{\"content\":\"\",\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"resource_id\\\": \\\"resource-alpha\\\"}\",\"name\":\"get_status\"},\"id\":\"vAEJKSnCAsbCBNu27bMXT2B6apcFA0YS\",\"index\":0,\"type\":\"function\"}]}}],\"created\":1788474997,\"extra_fields\":{\"chunk_index\":0,\"latency\":1210,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"provider_response_headers\":{\"X-Accel-Buffering\":\"no\"},\"request_type\":\"chat_completion\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"},\"upstream_latency\":1210},\"id\":\"chatcmpl-lBlwaPZK2tfbFVK4yfi0XrOz9CtcMx5z\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion\",\"system_fingerprint\":\"b1-c1d0e7a\",\"usage\":{\"completion_tokens\":22,\"prompt_tokens\":167,\"prompt_tokens_details\":{\"cache_write_tokens\":0,\"cached_read_tokens\":166,\"cached_tokens\":166},\"total_tokens\":189}}"
               },
               "usage": {
                 "prompt_tokens": 167,
@@ -6115,7 +6111,7 @@
                   "resource_id": "resource-alpha"
                 },
                 "function": "get_status",
-                "tool_call_id": "Wzpdxj7CtGnlvTc9GeVPDL5AXO3c3SA3"
+                "tool_call_id": "vAEJKSnCAsbCBNu27bMXT2B6apcFA0YS"
               }
             },
             {
@@ -6127,17 +6123,17 @@
               "category": "tools",
               "required": false,
               "status": "pass",
-              "duration_ms": 1418,
+              "duration_ms": 683,
               "summary": "tool_choice=none suppressed tool calls",
               "expected": "Tool calls can be explicitly disabled",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "cc662d7f-61d5-403d-b6af-5890a07c74b7",
+                "request_id": "aa312249-1a0c-4f73-9124-d6ad9471eaa0",
                 "headers": {
                   "server": "fasthttp"
                 },
-                "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"NONE_OK\",\"role\":\"assistant\"}}],\"created\":1788456444,\"extra_fields\":{\"chunk_index\":0,\"latency\":1409,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"provider_response_headers\":{\"X-Accel-Buffering\":\"no\"},\"request_type\":\"chat_completion\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"},\"upstream_latency\":1409},\"id\":\"chatcmpl-b8g8Nta0p9xB1n8UMM1L4eLTlpf9MDMy\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion\",\"system_fingerprint\":\"b1-c1d0e7a\",\"usage\":{\"completion_tokens\":3,\"prompt_tokens\":171,\"prompt_tokens_details\":{\"cache_write_tokens\":0,\"cached_read_tokens\":151,\"cached_tokens\":151},\"total_tokens\":174}}"
+                "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"NONE_OK\",\"role\":\"assistant\"}}],\"created\":1788474996,\"extra_fields\":{\"chunk_index\":0,\"latency\":647,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"provider_response_headers\":{\"X-Accel-Buffering\":\"no\"},\"request_type\":\"chat_completion\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"},\"upstream_latency\":647},\"id\":\"chatcmpl-QXpOKJzvlCz9YkJw3MKo9LC683bkJE12\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion\",\"system_fingerprint\":\"b1-c1d0e7a\",\"usage\":{\"completion_tokens\":3,\"prompt_tokens\":171,\"prompt_tokens_details\":{\"cache_write_tokens\":0,\"cached_read_tokens\":58,\"cached_tokens\":58},\"total_tokens\":174}}"
               },
               "usage": {
                 "prompt_tokens": 171,
@@ -6154,17 +6150,17 @@
               "category": "tools",
               "required": false,
               "status": "pass",
-              "duration_ms": 1026,
+              "duration_ms": 907,
               "summary": "tool_choice=required emitted a tool call",
               "expected": "At least one tool call is emitted when required",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "0019857f-e2b4-4101-b2e8-3d838a844ccb",
+                "request_id": "b889764c-9a08-4545-b1b1-3453ced89185",
                 "headers": {
                   "server": "fasthttp"
                 },
-                "snippet": "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"index\":0,\"message\":{\"content\":\"\",\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"resource_id\\\": \\\"resource-alpha\\\"}\",\"name\":\"get_status\"},\"id\":\"8Iz0MtyvMiJcmJJkeDwzxL1JsTNJG2ZZ\",\"index\":0,\"type\":\"function\"}]}}],\"created\":1788456442,\"extra_fields\":{\"chunk_index\":0,\"latency\":983,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"provider_response_headers\":{\"X-Accel-Buffering\":\"no\"},\"request_type\":\"chat_completion\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"},\"upstream_latency\":983},\"id\":\"chatcmpl-BhcRMxfNAKnkkdLP7ICf6lQ8b9U4e29A\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion\",\"system_fingerprint\":\"b1-c1d0e7a\",\"usage\":{\"completion_tokens\":22,\"prompt_tokens\":167,\"prompt_tokens_details\":{\"cache_write_tokens\":0,\"cached_read_tokens\":58,\"cached_tokens\":58},\"total_tokens\":189}}"
+                "snippet": "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"index\":0,\"message\":{\"content\":\"\",\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"resource_id\\\": \\\"resource-alpha\\\"}\",\"name\":\"get_status\"},\"id\":\"8xw790ySEKYPkcaQTXsKdj13TigOBEuo\",\"index\":0,\"type\":\"function\"}]}}],\"created\":1788474997,\"extra_fields\":{\"chunk_index\":0,\"latency\":862,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"provider_response_headers\":{\"X-Accel-Buffering\":\"no\"},\"request_type\":\"chat_completion\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"},\"upstream_latency\":862},\"id\":\"chatcmpl-D4cTX0R7z67Fxzywil5RSWLkH7tcTCRC\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion\",\"system_fingerprint\":\"b1-c1d0e7a\",\"usage\":{\"completion_tokens\":22,\"prompt_tokens\":167,\"prompt_tokens_details\":{\"cache_write_tokens\":0,\"cached_read_tokens\":151,\"cached_tokens\":151},\"total_tokens\":189}}"
               },
               "usage": {
                 "prompt_tokens": 167,
@@ -6184,14 +6180,14 @@
               "category": "tools",
               "required": false,
               "status": "pass",
-              "duration_ms": 1249,
+              "duration_ms": 1072,
               "summary": "streamed tool-call deltas reconstructed into valid JSON arguments",
               "expected": "Streamed tool-call deltas reconstruct into a valid function call",
               "http": {
                 "status_code": 200,
                 "content_type": "text/event-stream",
-                "request_id": "59fc33b7-1ea7-40dd-8100-a3407d59bb5b",
-                "snippet": "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\",\"name\":\"get_status\"},\"id\":\"l51IoNPkzWqeCVieRp6Y5Ny7OKV8W2ao\",\"index\":0,\"type\":\"function\"}]},\"finish_reason\":null,\"index\":0}],\"created\":1788456444,\"extra_fields\":{\"chunk_index\":0,\"latency\":1136,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"request_type\":\"chat_completion_stream\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":…\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\"arguments\":\"\\\"\"},\"index\":0}]},\"finish_reason\":null,\"index\":0}],\"created\":1788456444,\"extra_fields\":{\"chunk_index\":1,\"latency\":31,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"request_type\":\"chat_completion_stream\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"}},\"id\":\"chatcmpl-pgWwf6j0C0Q2o5s0hliSlTTMEli4503O\",\"model\":\"Ternary-Bonsai-1.7B\",\"objec…\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\"arguments\":\"resource\"},\"index\":0}]},\"finish_reason\":null,\"index\":0}],\"created\":1788456444,\"extra_fie…"
+                "request_id": "428c29e9-1b88-4e51-bc55-629144cb9961",
+                "snippet": "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\",\"name\":\"get_status\"},\"id\":\"CbInw80347N9dcW6OevAOcY2kbEkzBF1\",\"index\":0,\"type\":\"function\"}]},\"finish_reason\":null,\"index\":0}],\"created\":1788474997,\"extra_fields\":{\"chunk_index\":0,\"latency\":933,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"request_type\":\"chat_completion_stream\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"…\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\"arguments\":\"\\\"\"},\"index\":0}]},\"finish_reason\":null,\"index\":0}],\"created\":1788474997,\"extra_fields\":{\"chunk_index\":1,\"latency\":31,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"request_type\":\"chat_completion_stream\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"}},\"id\":\"chatcmpl-6SW09nnQat7FznyWvb6VEhQNkpLTX36i\",\"model\":\"Ternary-Bonsai-1.7B\",\"objec…\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\"arguments\":\"resource\"},\"index\":0}]},\"finish_reason\":null,\"index\":0}],\"created\":1788474997,\"extra_fie…"
               },
               "usage": {
                 "prompt_tokens": 167,
@@ -6203,7 +6199,7 @@
                   "resource_id": "resource-alpha"
                 },
                 "function": "get_status",
-                "tool_call_id": "l51IoNPkzWqeCVieRp6Y5Ny7OKV8W2ao"
+                "tool_call_id": "CbInw80347N9dcW6OevAOcY2kbEkzBF1"
               }
             },
             {
@@ -6215,17 +6211,17 @@
               "category": "usage",
               "required": true,
               "status": "pass",
-              "duration_ms": 1325,
+              "duration_ms": 294,
               "summary": "usage reported 22 prompt + 4 completion tokens",
               "expected": "Token usage is present and internally consistent",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "3c4fa599-91ea-493a-b9cc-efd93b718df0",
+                "request_id": "02fe7dcf-42ba-4aa2-b681-53ac0dbf742b",
                 "headers": {
                   "server": "fasthttp"
                 },
-                "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788456444,\"extra_fields\":{\"chunk_index\":0,\"latency\":1320,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"provider_response_headers\":{\"X-Accel-Buffering\":\"no\"},\"request_type\":\"chat_completion\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"},\"upstream_latency\":1320},\"id\":\"chatcmpl-b7FybG5qL4nMeJoe2jIFxDXDpFyj38fM\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion\",\"system_fingerprint\":\"b1-c1d0e7a\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":22,\"prompt_tokens_details\":{\"cache_write_tokens\":0,\"cached_read_tokens\":6,\"cached_tokens\":6},\"total_tokens\":26}}"
+                "snippet": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"content\":\"AIQA_OK\",\"role\":\"assistant\"}}],\"created\":1788474998,\"extra_fields\":{\"chunk_index\":0,\"latency\":292,\"original_model_requested\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\",\"provider_response_headers\":{\"X-Accel-Buffering\":\"no\"},\"request_type\":\"chat_completion\",\"resolved_model_used\":\"Ternary-Bonsai-1.7B\",\"routing_info\":{\"key\":\"llama-upstream\",\"model\":\"Ternary-Bonsai-1.7B\",\"provider\":\"prism-ml\"},\"upstream_latency\":292},\"id\":\"chatcmpl-OSHoe8fwqdrHjrMQgWgehLiPT7oN4gzG\",\"model\":\"Ternary-Bonsai-1.7B\",\"object\":\"chat.completion\",\"system_fingerprint\":\"b1-c1d0e7a\",\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":22,\"prompt_tokens_details\":{\"cache_write_tokens\":0,\"cached_read_tokens\":6,\"cached_tokens\":6},\"total_tokens\":26}}"
               },
               "usage": {
                 "prompt_tokens": 22,
@@ -6242,13 +6238,13 @@
               "category": "discovery",
               "required": false,
               "status": "pass",
-              "duration_ms": 1,
+              "duration_ms": 2,
               "summary": "model metadata can be retrieved by ID",
               "expected": "GET /models/{model} returns the requested model",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "snippet": "{\"created\":1788456441,\"id\":\"prism-ml/Ternary-Bonsai-1.7B\",\"object\":\"model\",\"owned_by\":\"prism-ml\"}"
+                "snippet": "{\"created\":1788474996,\"id\":\"prism-ml/Ternary-Bonsai-1.7B\",\"object\":\"model\",\"owned_by\":\"prism-ml\"}"
               },
               "usage": {}
             }
@@ -6304,8 +6300,8 @@
                 "status": "pass",
                 "usage": {
                   "prompt_tokens": 1591,
-                  "completion_tokens": 182,
-                  "total_tokens": 1773
+                  "completion_tokens": 184,
+                  "total_tokens": 1775
                 }
               }
             },
@@ -6331,8 +6327,8 @@
             "status": "pass",
             "usage": {
               "prompt_tokens": 1629,
-              "completion_tokens": 190,
-              "total_tokens": 1819
+              "completion_tokens": 192,
+              "total_tokens": 1821
             }
           }
         }
@@ -7374,8 +7370,8 @@
         },
         "usage": {
           "prompt_tokens": 1629,
-          "completion_tokens": 190,
-          "total_tokens": 1819
+          "completion_tokens": 192,
+          "total_tokens": 1821
         }
       },
       "guidance": {
@@ -7420,9 +7416,9 @@
         "observed_safe_requests_per_second": 5.625,
         "observed_safe_concurrency": 9,
         "latency_samples": 19,
-        "mean_latency_ms": 855,
-        "p50_latency_ms": 1026,
-        "p95_latency_ms": 2085
+        "mean_latency_ms": 654,
+        "p50_latency_ms": 370,
+        "p95_latency_ms": 1840
       },
       "extension_rate_limit": {
         "successful_requests": 10,
@@ -7455,7 +7451,7 @@
           "runner": {
             "status": "pass",
             "startup_duration_ms": 0,
-            "total_duration_ms": 1480,
+            "total_duration_ms": 1152,
             "exit_code": 0,
             "pacing_compliance": "host_enforced",
             "summary": "Extension runner completed"
@@ -7472,7 +7468,7 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 316,
+              "duration_ms": 883,
               "summary": "Official OpenAI Go SDK sent and parsed the suite",
               "http": {},
               "usage": {
@@ -7499,7 +7495,7 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 249,
+              "duration_ms": 591,
               "summary": "Official OpenAI Go SDK sent and parsed the suite",
               "http": {},
               "usage": {},
@@ -7520,7 +7516,7 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 910,
+              "duration_ms": 1061,
               "summary": "Official OpenAI Go SDK sent and parsed the suite",
               "http": {},
               "usage": {},
@@ -7541,7 +7537,7 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 110,
+              "duration_ms": 914,
               "summary": "Official OpenAI Go SDK sent and parsed the suite",
               "http": {},
               "usage": {},
@@ -7562,7 +7558,7 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 283,
+              "duration_ms": 665,
               "summary": "Official OpenAI Go SDK sent and parsed the suite",
               "http": {},
               "usage": {
@@ -7587,7 +7583,7 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 1478,
+              "duration_ms": 1151,
               "summary": "Official OpenAI Go SDK sent and parsed the suite",
               "http": {},
               "usage": {},
@@ -7609,7 +7605,7 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 1096,
+              "duration_ms": 451,
               "summary": "Official OpenAI Go SDK sent and parsed the suite",
               "http": {},
               "usage": {},
@@ -7630,7 +7626,7 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 232,
+              "duration_ms": 1,
               "summary": "Official OpenAI Go SDK sent and parsed the suite",
               "http": {},
               "usage": {},
@@ -7681,7 +7677,7 @@
           "runner": {
             "status": "pass",
             "startup_duration_ms": 0,
-            "total_duration_ms": 2,
+            "total_duration_ms": 0,
             "exit_code": 0,
             "pacing_compliance": "host_enforced",
             "summary": "Extension runner completed"
