@@ -1,0 +1,24 @@
+{
+  "priority": 1,
+  "request": {
+    "method": "GET",
+    "urlPath": "/openai/v1/models"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "object": "list",
+      "data": [
+        {
+          "id": "wiremock-broken-model",
+          "object": "model",
+          "created": 1,
+          "owned_by": "wiremock"
+        }
+      ]
+    }
+  }
+}

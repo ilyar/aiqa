@@ -7,7 +7,7 @@ LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.dat
 GOVULNCHECK_VERSION := v1.7.0
 CYCLONEDX_GOMOD_VERSION := v1.12.0
 
-.PHONY: all build test race vet fmt-check profiles-check schemas-check dependency-check vuln-check sbom-check security-check profile-upstream-check check install clean dist
+.PHONY: all build test race vet fmt-check profiles-check schemas-check dependency-check vuln-check sbom-check security-check profile-upstream-check check install example clean dist
 
 all: check build
 
@@ -46,7 +46,11 @@ schemas-check:
 	python3 -c 'import json; from jsonschema import Draft202012Validator, FormatChecker; schema=json.load(open("schema/profile-v3.schema.json")); Draft202012Validator.check_schema(schema); validator=Draft202012Validator(schema, format_checker=FormatChecker()); [validator.validate(json.load(open(path))) for path in ("profile/openai-compat-2026-09.json", "profile/anthropic-compat-2026-09.json", "profile/google-genai-compat-2026-09.json", "profile/google-genai-generate-content-compat-2026-09.json")]'
 	python3 -c 'import json; from jsonschema import Draft202012Validator; Draft202012Validator.check_schema(json.load(open("schema/report-v3.schema.json")))'
 	python3 -c 'import json; from jsonschema import Draft202012Validator; Draft202012Validator.check_schema(json.load(open("schema/ext-v1.schema.json")))'
-	python3 -c 'import json; from jsonschema import Draft202012Validator, FormatChecker; schema=json.load(open("schema/report-v3.schema.json")); Draft202012Validator(schema, format_checker=FormatChecker()).validate(json.load(open("examples/mock-report.json")))'
+	python3 -c 'import glob,json; from jsonschema import Draft202012Validator, FormatChecker; schema=json.load(open("schema/report-v3.schema.json")); validator=Draft202012Validator(schema, format_checker=FormatChecker()); paths=glob.glob("example/*.json"); assert paths, "no example report found"; [validator.validate(json.load(open(path))) for path in paths]'
+	python3 -m json.tool test/wiremock/mappings/openai-models.json >/dev/null
+	python3 -m json.tool test/wiremock/mappings/anthropic-models.json >/dev/null
+	python3 -m json.tool test/wiremock/mappings/google-genai-models.json >/dev/null
+	python3 -m json.tool test/wiremock/mappings/unavailable-api.json >/dev/null
 
 dependency-check:
 	go mod verify
@@ -76,6 +80,10 @@ check: fmt-check profiles-check schemas-check dependency-check vet test
 install: build
 	@install -Dm755 bin/aiqa "$${HOME}/.local/bin/aiqa"
 	@aiqa --version
+
+example: build
+	@PATH="$(CURDIR)/bin:$$PATH" bash script/example.sh
+
 dist: check
 	rm -rf dist
 	mkdir -p dist

@@ -1,0 +1,19 @@
+{
+  "priority": 10,
+  "request": {
+    "urlPathPattern": "/(openai|anthropic|google)/.*"
+  },
+  "response": {
+    "status": 503,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "error": {
+        "message": "WireMock intentionally simulates an unavailable API operation",
+        "type": "service_unavailable",
+        "code": "example_failure"
+      }
+    }
+  }
+}

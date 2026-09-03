@@ -1,0 +1,31 @@
+{
+  "priority": 1,
+  "request": {
+    "method": "GET",
+    "urlPath": "/google/v1beta/models"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "models": [
+        {
+          "name": "models/wiremock-broken-model",
+          "displayName": "WireMock broken model",
+          "inputTokenLimit": 4096,
+          "outputTokenLimit": 256,
+          "supportedGenerationMethods": [
+            "generateContent",
+            "countTokens",
+            "embedContent"
+          ],
+          "inputModalities": [
+            "TEXT"
+          ]
+        }
+      ]
+    }
+  }
+}

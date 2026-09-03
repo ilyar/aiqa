@@ -979,6 +979,7 @@ func probeInvalidJSON(parent context.Context, env Environment) result.TestResult
 	statuses := make(map[string]any, len(variants))
 	passed := 0
 	inconclusive := false
+	inconclusiveSummary := "malformed JSON variants could not all be evaluated; compatibility outcome is inconclusive"
 	for _, variant := range variants {
 		ctx, cancel := env.probeContext(parent)
 		resp, err := env.Client.ChatRaw(ctx, []byte(variant.body), "application/json")
@@ -995,6 +996,7 @@ func probeInvalidJSON(parent context.Context, env Environment) result.TestResult
 		}
 		if attempt.Status == result.StatusError {
 			inconclusive = true
+			inconclusiveSummary = strings.Replace(attempt.Summary, "malformed JSON", "malformed JSON variants", 1)
 		}
 		if t.HTTP.StatusCode == 0 {
 			t.HTTP = attempt.HTTP
@@ -1008,7 +1010,7 @@ func probeInvalidJSON(parent context.Context, env Environment) result.TestResult
 		t.Summary = "all malformed JSON variants returned client errors with OpenAI-shaped bodies"
 	} else if inconclusive {
 		t.Status = result.StatusError
-		t.Summary = "malformed JSON variants could not all be evaluated because the endpoint remained rate limited"
+		t.Summary = inconclusiveSummary
 	} else {
 		t.Status = result.StatusFail
 		t.Summary = fmt.Sprintf("%d/%d malformed JSON variants returned the expected client error", passed, len(variants))

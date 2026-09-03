@@ -118,6 +118,18 @@ Go 1.27 or later is required. The main module pins the official OpenAI, Anthropi
 make install
 ```
 
+## Example reports
+
+Generate a successful report against the local model provider and an intentionally failing report against WireMock:
+
+```bash
+make example
+```
+
+The target builds the current AIQA source first. If `model-provider` is not installed, it prints a warning and exits without changing the reports. If the configured provider is stopped, the target starts it with storage `/arch/model` on `0.0.0.0:8080`. It then writes `example/good-report.md` and `example/good-report.json` using the native compatibility and Official SDK suites.
+
+The failure example uses the pinned official WireMock Docker image and the fixtures in `test/wiremock`. Separate OpenAI, Anthropic, and Google GenAI model inventories let discovery complete for every target, while all other API operations return an intentional `503`; the resulting `example/bad-report.md` and `example/bad-report.json` demonstrate execution errors without representing a checker startup failure. Set `AIQA_EXAMPLE_PROVIDER_STORAGE`, `AIQA_EXAMPLE_PROVIDER_LISTEN`, or `AIQA_EXAMPLE_WIREMOCK_IMAGE` to override the defaults.
+
 ## `test=compat`
 
 The native profile checks several levels of compatibility

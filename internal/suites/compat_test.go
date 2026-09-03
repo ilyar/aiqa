@@ -112,6 +112,35 @@ func TestErrorProbeProviderFailuresAreInconclusive(t *testing.T) {
 	}
 }
 
+func TestInvalidJSONProviderFailureSummaryUsesActualStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"error":{"message":"unavailable"}}`))
+	}))
+	defer server.Close()
+
+	p, err := profile.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := api.NewClient(server.URL, "test-key", "aiqa-test", time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := probeInvalidJSON(context.Background(), Environment{
+		Client:  client,
+		Config:  config.Config{Timeout: time.Second},
+		Profile: p,
+	})
+	if got.Status != result.StatusError {
+		t.Fatalf("status=%s, want error/inconclusive: %+v", got.Status, got)
+	}
+	if !strings.Contains(got.Summary, "HTTP 503") || strings.Contains(got.Summary, "rate limited") {
+		t.Fatalf("summary=%q, want actual provider status", got.Summary)
+	}
+}
+
 func TestProvider5xxIsInconclusiveAcrossDiscoveryAndChat(t *testing.T) {
 	p, err := profile.Load()
 	if err != nil {
