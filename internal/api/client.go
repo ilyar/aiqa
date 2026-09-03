@@ -195,6 +195,14 @@ func (c *Client) ImagesRaw(ctx context.Context, raw []byte, contentType string) 
 }
 
 func (c *Client) DoJSON(ctx context.Context, method, path string, body any) (Response, error) {
+	return c.DoJSONForModel(ctx, method, path, body, modelFromBody(body))
+}
+
+// DoJSONForModel is the model-scoped variant of DoJSON.  Protocols whose
+// model identifier lives in the URL (rather than the JSON body), such as
+// Google GenAI, use this method so adaptive pacing and per-model telemetry are
+// attributed to the right model.
+func (c *Client) DoJSONForModel(ctx context.Context, method, path string, body any, model string) (Response, error) {
 	var raw []byte
 	var err error
 	if body != nil {
@@ -203,7 +211,7 @@ func (c *Client) DoJSON(ctx context.Context, method, path string, body any) (Res
 			return Response{}, fmt.Errorf("marshal request: %w", err)
 		}
 	}
-	return c.doRaw(ctx, method, path, raw, "application/json", modelFromBody(body))
+	return c.doRaw(ctx, method, path, raw, "application/json", model)
 }
 
 func (c *Client) doJSON(ctx context.Context, method, path string, body any, model string) (Response, error) {
@@ -215,7 +223,14 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any, mode
 }
 
 func (c *Client) DoRaw(ctx context.Context, method, path string, body []byte, contentType string) (Response, error) {
-	return c.doRaw(ctx, method, path, body, contentType, "")
+	return c.DoRawForModel(ctx, method, path, body, contentType, "")
+}
+
+// DoRawForModel is the model-scoped variant of DoRaw.  It preserves the raw
+// request bytes while still associating pacing, retries, and telemetry with a
+// URL-addressed model.
+func (c *Client) DoRawForModel(ctx context.Context, method, path string, body []byte, contentType, model string) (Response, error) {
+	return c.doRaw(ctx, method, path, body, contentType, model)
 }
 
 func (c *Client) doRaw(ctx context.Context, method, path string, body []byte, contentType, model string) (Response, error) {
@@ -339,13 +354,20 @@ func (c *Client) ChatStream(ctx context.Context, body map[string]any) (StreamRes
 // requiring OpenAI-specific event framing. OpenAI fields are still accumulated
 // when present for backwards compatibility with ChatStream.
 func (c *Client) StreamJSON(ctx context.Context, path string, body map[string]any) (StreamResponse, error) {
-	model := modelFromBody(body)
+	return c.StreamJSONForModel(ctx, path, body, modelFromBody(body))
+}
+
+// StreamJSONForModel is the model-scoped variant of StreamJSON for protocols
+// that put the model in the request path rather than in the body.
+func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[string]any, model string) (StreamResponse, error) {
 	raw, err := json.Marshal(body)
 	if err != nil {
 		return StreamResponse{}, fmt.Errorf("marshal stream request: %w", err)
 	}
 	u := *c.baseURL
-	u.Path = joinURLPath(c.baseURL.Path, path)
+	pathPart, queryPart, _ := strings.Cut(path, "?")
+	u.Path = joinURLPath(c.baseURL.Path, pathPart)
+	u.RawQuery = queryPart
 	var httpResp *http.Response
 	var started time.Time
 	attempts := 0

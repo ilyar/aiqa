@@ -61,15 +61,23 @@ environment:
   OPENAI_API_KEY       OpenAI bearer token
   ANTHROPIC_BASE_URL   Anthropic prefix before /v1
   ANTHROPIC_API_KEY    Anthropic x-api-key value
+  GOOGLE_GENAI_BASE_URL Google Gemini Developer API prefix before v1beta
+  GOOGLE_GENAI_API_KEY Google Gemini API key (x-goog-api-key)
+  GOOGLE_GENAI_MODEL    Google model ID[,ID] (optional)
+  GOOGLE_GENAI_PROFILE  Google profile filename (default modern Interactions)
+  GOOGLE_GENAI_API_VERSION API version (default v1beta)
+  GOOGLE_GEMINI_BASE_URL, GOOGLE_API_KEY, GEMINI_API_KEY are accepted aliases
   AIQA_EXT_SUITE_PATHS OS path-list of trusted extension executables
 
 targets:
-  --target auto|openai|anthropic|openai,anthropic
+  --target auto|openai|anthropic|google-genai|...
                             select configured targets (default auto)
   --openai-model ID[,ID]    OpenAI-specific model selection
   --anthropic-model ID[,ID] Anthropic-specific model selection
+  --google-genai-model ID[,ID] Google GenAI-specific model selection
   --openai-profile FILE     embedded OpenAI profile
   --anthropic-profile FILE  embedded Anthropic profile
+  --google-genai-profile FILE embedded Google GenAI profile
 selection and output:
   --model ID[,ID]          test selected models; default: discover all
   --timeout 120|2m         per-request timeout (default 120s)
@@ -90,12 +98,18 @@ compatibility:
   --openai-capability-file FILE
   --anthropic-capability-file FILE
                             target-qualified capability override files
+  --google-genai-model-capability MODEL=CAPABILITY[+CAPABILITY]
+  --google-genai-capability-file FILE
+  --google-genai-unknown-model inventory|text
+                            Google target-qualified capability controls
   --unknown-model inventory|chat
                             policy for unclassified models (default chat)
   --anthropic-unknown-model inventory|messages
                             Anthropic fallback policy (default messages)
   --allow-billable-artifacts
                             permit modules that generate billable media
+  --allow-persistent-resources
+                            permit stateful Google resources with cleanup
   --max-artifacts-per-model N
                             artifact safety limit per model (default 1)
   --ext-suite ID[,ID]      restrict extension execution to exact IDs

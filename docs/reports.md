@@ -1,10 +1,10 @@
 # Reports and actionable guidance
 
-An AIQA report states which parts of an OpenAI or Anthropic API facade were demonstrated, which evidence remains incomplete, and what to do next. It measures observed behavior against a selected profile; it is not a provider certification, security audit, or model-quality benchmark.
+An AIQA report states which parts of an OpenAI, Anthropic, or Google GenAI API facade were demonstrated, which evidence remains incomplete, and what to do next. It measures observed behavior against a selected profile; it is not a provider certification, security audit, or model-quality benchmark.
 
 ## Report contracts
 
-`aiqa.report.v3` represents one or more OpenAI or Anthropic targets. It is the only public report contract.
+`aiqa.report.v3` represents one or more OpenAI, Anthropic, or Google GenAI targets. It is the only public report contract.
 
 Each target owns these fields:
 
@@ -13,6 +13,7 @@ Each target owns these fields:
 - discovery inventory and selected models;
 - canonical requirements and target verdict;
 - findings, recommendations, usage, rate-limit telemetry, and grouped extension runs.
+- optional notes, such as a pinned SDK surface limitation (Google currently has no public Interactions methods in v1.71.0).
 
 Model verdicts are derived from that model's canonical requirements. A missing planned native or profile-bound extension result cannot leave a model labelled `PASS`.
 
@@ -110,7 +111,7 @@ Verification entries identify the affected target, protocol, requirement IDs, an
 
 Markdown is rendered from the same report object serialized as JSON. Its order is:
 
-Markdown shows the tested service origin (host-only, linked to the service root), target comparison table, run verdict, per-target telemetry, separate target sections, model routing, grouped extension suites, and normalized provider-reported usage. API paths, query parameters, and credentials are not included in the service link. OpenAI `prompt_tokens`/`completion_tokens` and Anthropic `input_tokens`/`output_tokens` share common Input and Output columns. Anthropic cache creation and cache read remain separate input categories; thinking/reasoning is shown as an output subset and is not added twice. The Total column and the multi-target total row show the observed aggregate. When a target evaluates more than one model, its model section also shows separate rate-limit and latency observations for each model. Percentages remain target-local.
+Markdown shows the tested service origin (host-only, linked to the service root), target comparison table, run verdict, per-target telemetry, separate target sections, model routing, grouped extension suites, and normalized provider-reported usage. API paths, query parameters, and credentials are not included in the service link. OpenAI `prompt_tokens`/`completion_tokens`, Anthropic `input_tokens`/`output_tokens`, and Google `promptTokenCount`/`candidatesTokenCount` share common Input and Output columns. Cache creation and cache read remain separate input categories; thinking/reasoning is shown as an output subset and is not added twice. The Total column and the multi-target total row show the observed aggregate. When a target evaluates more than one model, its model section also shows separate rate-limit and latency observations for each model. Percentages remain target-local.
 
 Failed extension-runner diagnostics are redacted, truncated, stored once in `guidance.artifacts`, and linked by content-addressed `artifact_ref` values. API keys, bearer tokens, cookies, signed query strings, tool arguments, and long base64 payloads are removed before rendering.
 

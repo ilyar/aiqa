@@ -1,6 +1,6 @@
 # aiqa
 
-Compatibility and behavior testing for OpenAI and Anthropic API facades.
+Compatibility and behavior testing for OpenAI, Anthropic, and Google GenAI API facades.
 
 ## Quick start
 
@@ -12,6 +12,20 @@ aiqa test=compat \
   --timeout=120 \
   --format=markdown,json \
   --name=compat-report
+```
+
+For a Gemini Developer API target, set the prefix before the API version. The Official SDK is explicit and follows the same target selection:
+
+```bash
+export GOOGLE_GENAI_BASE_URL="https://generativelanguage.googleapis.com"
+export GOOGLE_GENAI_API_KEY="<GEMINI_API_KEY>"
+
+aiqa test=compat,ext-suite \
+  --target=google-genai \
+  --ext-suite=official-sdk \
+  --google-genai-model=gemini-2.5-flash \
+  --format=markdown,json \
+  --name=google-compat-report
 ```
 
 Configure both facades to assess them in one run:
@@ -98,7 +112,7 @@ The native image probe consumes one artifact slot. Set `--max-artifacts-per-mode
 
 ## Installation
 
-Go 1.27 or later is required. The main module pins the official OpenAI and Anthropic Go SDKs.
+Go 1.27 or later is required. The main module pins the official OpenAI, Anthropic, and Google Gen AI Go SDKs.
 
 ```bash
 make install
@@ -162,6 +176,10 @@ The Anthropic compatibility contract is in [`profile/anthropic-compat-2026-09.js
 
 See [`docs/anthropic-compatibility.md`](docs/anthropic-compatibility.md) for the complete activation, routing, module, streaming, Official SDK, report, and maintenance contract.
 
+The Google GenAI compatibility contract has two profiles: [`profile/google-genai-compat-2026-09.json`](profile/google-genai-compat-2026-09.json) tests the modern Interactions surface with optional legacy methods, while [`profile/google-genai-generate-content-compat-2026-09.json`](profile/google-genai-generate-content-compat-2026-09.json) is a strict legacy `generateContent` contract. Google is an independent Gemini Developer API target, defaults to `v1beta`, and authenticates with `x-goog-api-key`. Configure it with `GOOGLE_GENAI_BASE_URL` and `GOOGLE_GENAI_API_KEY`; `GOOGLE_GEMINI_BASE_URL`, `GOOGLE_API_KEY`, and `GEMINI_API_KEY` are compatibility aliases. See [`docs/google-genai-compatibility.md`](docs/google-genai-compatibility.md).
+
+Google routing is metadata-first: `supportedGenerationMethods` enables `generateContent`, `countTokens`, and `embedContent` modules independently. `generateContent` never implies Interactions. The modern profile selects Interactions only for an explicitly selected model or its reviewed allowlist; an unknown or embedding-only model is not sent through that surface. Unclassified Google models remain inventory-only by default (`--google-genai-unknown-model=text` opts into a text fallback).
+
 ## Extension suites and Official SDKs
 
 Official SDK checks are compiled into AIQA and use the same extension contract as installed third-party suites. They run only when `ext-suite` is selected:
@@ -173,9 +191,9 @@ aiqa test=ext-suite --ext-suite=official-sdk.openai
 aiqa test=compat,ext-suite --ext-suite=official-sdk
 ```
 
-The aggregate `official-sdk` selector expands to the OpenAI and/or Anthropic SDK according to the configured target environment. It does not add an SDK whose matching base URL and API key are absent.
+The aggregate `official-sdk` selector expands to the configured OpenAI, Anthropic, and/or Google GenAI SDKs. It does not add an SDK whose matching base URL and API key are absent.
 
-The binary pins the official OpenAI Go SDK `v3.54.0` and Anthropic Go SDK `v1.68.0`. SDK retries are disabled, and requests share AIQA's global concurrency and adaptive pacing policy. Each suite contributes separately through an explicit `aiqa.profile.v3` binding.
+The binary pins the official OpenAI Go SDK `v3.54.0`, Anthropic Go SDK `v1.68.0`, and Google Gen AI Go SDK `v1.71.0`. SDK retries are disabled, and requests share AIQA's global concurrency and adaptive pacing policy. Each suite contributes separately through an explicit `aiqa.profile.v3` binding. The pinned Google SDK has no public Interactions methods, so AIQA does not claim SDK coverage for that surface.
 
 Third-party suites are trusted executables. Supply an absolute path or install a matching `aiqa-*-ext-suite` command:
 
@@ -321,9 +339,11 @@ Main additional options:
 --fail-on core|any|never
 --ext-suite ID[,ID]
 --ext-suite-path /absolute/path
---target auto|openai|anthropic|openai,anthropic
+--target auto|openai|anthropic|google-genai|...
 --openai-model ID[,ID]
 --anthropic-model ID[,ID]
+--google-genai-model ID[,ID]
+--google-genai-profile FILE
 --guidance full|summary|off
 --guidance-pack auto|generic|ID
 --guidance-locale en
@@ -352,10 +372,10 @@ Integration tests run a deterministic mock endpoint and check:
 - built-in and executable extension runners
 - canonical requirement aggregation and actionable guidance
 - Draft 2020-12 report-schema validation and deterministic guidance fixtures
-- dual-facade OpenAI and Anthropic execution, protocol-specific headers, named Anthropic SSE events, and v3 report isolation
-- pinned built-in OpenAI and Anthropic Official SDK suites
+- independent OpenAI, Anthropic, and Google GenAI execution, protocol-specific headers, named SSE events, and v3 report isolation
+- pinned built-in OpenAI, Anthropic, and Google GenAI Official SDK suites
 
-Live CI jobs are disabled unless the repository variables `AIQA_LIVE_OPENAI`, `AIQA_LIVE_ANTHROPIC`, or `AIQA_LIVE_DUAL` equal `1`. They also require matching secret URLs and keys plus an explicit model variable. Live jobs are non-blocking, run one model, omit `ext-suite`, and never scan a production catalog by default.
+Live CI jobs are disabled unless the repository variables `AIQA_LIVE_OPENAI`, `AIQA_LIVE_ANTHROPIC`, `AIQA_LIVE_DUAL`, or `AIQA_LIVE_GOOGLE_GENAI` equal `1`. They also require matching secret URLs and keys plus an explicit model variable. OpenAI and Anthropic jobs are non-blocking, run one model, and omit `ext-suite`; the Google job is equally bounded but exercises the explicitly selected native-plus-Official-SDK path. No job scans a production catalog by default.
 
 See [`docs/adding-tests.md`](docs/adding-tests.md) for how to add a new suite or probe
 

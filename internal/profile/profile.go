@@ -51,6 +51,19 @@ type ExtensionBinding struct {
 	Module                string   `json:"module"`
 }
 
+type ModelSelection struct {
+	InteractionsAllowlist []string              `json:"interactions_allowlist,omitempty"`
+	Interactions          *InteractionSelection `json:"interactions,omitempty"`
+}
+
+// InteractionSelection is the versioned policy for selecting models for the
+// modern Interactions surface.  The legacy flat field remains accepted for
+// backwards-compatible embedded profiles.
+type InteractionSelection struct {
+	Strategy  string   `json:"strategy,omitempty"`
+	Allowlist []string `json:"allowlist,omitempty"`
+}
+
 type Profile struct {
 	SchemaVersion      string             `json:"schema_version,omitempty"`
 	ID                 string             `json:"id"`
@@ -68,6 +81,7 @@ type Profile struct {
 	Modules            []Module           `json:"modules,omitempty"`
 	Sources            []Source           `json:"sources,omitempty"`
 	ExtensionBindings  []ExtensionBinding `json:"extension_bindings,omitempty"`
+	ModelSelection     ModelSelection     `json:"model_selection,omitempty"`
 	byID               map[string]Probe
 	bindingsByKey      map[string]ExtensionBinding
 }
@@ -120,6 +134,31 @@ func (p *Profile) validate() error {
 	p.SourceCommit = strings.TrimSpace(p.SourceCommit)
 	p.SourceRefRevision = strings.TrimSpace(p.SourceRefRevision)
 	p.Scope = strings.TrimSpace(p.Scope)
+	allowlist := p.ModelSelection.InteractionsAllowlist
+	if p.ModelSelection.Interactions != nil {
+		selection := p.ModelSelection.Interactions
+		selection.Strategy = strings.TrimSpace(selection.Strategy)
+		if selection.Strategy != "" && selection.Strategy != "explicit_or_allowlist" {
+			return fmt.Errorf("model_selection.interactions.strategy %q is unsupported", selection.Strategy)
+		}
+		allowlist = append(allowlist, selection.Allowlist...)
+	}
+	seenAllowlist := map[string]bool{}
+	for index, model := range allowlist {
+		model = strings.TrimSpace(model)
+		if model == "" {
+			return fmt.Errorf("model_selection.interactions_allowlist[%d] must not be empty", index)
+		}
+		if seenAllowlist[model] {
+			return fmt.Errorf("model_selection interactions allowlist contains duplicate %q", model)
+		}
+		seenAllowlist[model] = true
+		if index < len(p.ModelSelection.InteractionsAllowlist) {
+			p.ModelSelection.InteractionsAllowlist[index] = model
+		} else if p.ModelSelection.Interactions != nil {
+			p.ModelSelection.Interactions.Allowlist[index-len(p.ModelSelection.InteractionsAllowlist)] = model
+		}
+	}
 	if p.SchemaVersion == "" {
 		p.SchemaVersion = "aiqa.profile.v1"
 	}
@@ -129,18 +168,21 @@ func (p *Profile) validate() error {
 	if p.SchemaVersion != "aiqa.profile.v1" && p.SchemaVersion != "aiqa.profile.v2" && p.SchemaVersion != "aiqa.profile.v3" {
 		return fmt.Errorf("unsupported schema_version %q", p.SchemaVersion)
 	}
-	if p.Protocol != "openai" && p.Protocol != "anthropic" {
+	if p.Protocol != "openai" && p.Protocol != "anthropic" && p.Protocol != "google-genai" {
 		return fmt.Errorf("unsupported protocol %q", p.Protocol)
 	}
 	if p.SchemaVersion == "aiqa.profile.v2" || p.SchemaVersion == "aiqa.profile.v3" {
-		if p.Protocol == "anthropic" && p.APIVersion == "" {
-			return fmt.Errorf("Anthropic profile requires api_version")
+		if (p.Protocol == "anthropic" || p.Protocol == "google-genai") && p.APIVersion == "" {
+			return fmt.Errorf("%s profile requires api_version", p.Protocol)
 		}
 		if p.BaseURLSemantics == "" {
 			return fmt.Errorf("profile v2 or v3 requires base_url_semantics")
 		}
 		if p.Protocol == "anthropic" && p.BaseURLSemantics != "prefix_before_v1" {
 			return fmt.Errorf("Anthropic profile requires base_url_semantics=prefix_before_v1")
+		}
+		if p.Protocol == "google-genai" && p.BaseURLSemantics != "prefix_before_api_version" {
+			return fmt.Errorf("Google GenAI profile requires base_url_semantics=prefix_before_api_version")
 		}
 		if len(p.Sources) == 0 {
 			return fmt.Errorf("profile v2 or v3 requires sources")
@@ -186,6 +228,9 @@ func (p *Profile) validate() error {
 		if p.Protocol == "anthropic" && !strings.HasPrefix(probe.ID, "anthropic.") {
 			return fmt.Errorf("Anthropic probe id %q must be protocol-qualified", probe.ID)
 		}
+		if p.Protocol == "google-genai" && !strings.HasPrefix(probe.ID, "google.") && !strings.HasPrefix(probe.ID, "official-sdk.google-genai.") {
+			return fmt.Errorf("Google GenAI probe id %q must be protocol-qualified", probe.ID)
+		}
 		p.byID[probe.ID] = *probe
 	}
 
@@ -210,6 +255,9 @@ func (p *Profile) validate() error {
 		}
 		if p.Protocol == "anthropic" && !strings.HasPrefix(module.ID, "anthropic.") {
 			return fmt.Errorf("Anthropic module id %q must be protocol-qualified", module.ID)
+		}
+		if p.Protocol == "google-genai" && !strings.HasPrefix(module.ID, "google-genai.") {
+			return fmt.Errorf("Google GenAI module id %q must be protocol-qualified", module.ID)
 		}
 		moduleIDs[module.ID] = struct{}{}
 		moduleSubjects[module.ID] = module.Subject
@@ -236,6 +284,16 @@ func (p *Profile) validate() error {
 				if !strings.HasPrefix(capability, "anthropic.") {
 					return fmt.Errorf("Anthropic capability %q must be protocol-qualified", capability)
 				}
+			}
+		}
+		if p.Protocol == "google-genai" {
+			for _, capability := range module.Capabilities {
+				if !strings.HasPrefix(capability, "google-genai.") {
+					return fmt.Errorf("Google GenAI capability %q must be protocol-qualified", capability)
+				}
+			}
+			if module.CostClass == "persistent-resource" && module.Subject != "model" {
+				return fmt.Errorf("Google GenAI persistent resources must be model-scoped")
 			}
 		}
 	}
@@ -314,14 +372,14 @@ func (p *Profile) validate() error {
 			if _, err := time.Parse("2006-01-02", source.ReviewedAt); err != nil {
 				return fmt.Errorf("api_version source reviewed_at must use YYYY-MM-DD: %w", err)
 			}
-			if p.Protocol == "anthropic" && source.Revision != p.APIVersion {
+			if (p.Protocol == "anthropic" || p.Protocol == "google-genai") && source.Revision != p.APIVersion {
 				return fmt.Errorf("api_version source revision %q does not match profile api_version %q", source.Revision, p.APIVersion)
 			}
 		case "official_sdk":
 			if source.Version == "" || source.Commit == "" {
 				return fmt.Errorf("official_sdk source requires version and commit")
 			}
-			if p.Protocol == "anthropic" && source.Commit != p.SourceCommit {
+			if (p.Protocol == "anthropic" || p.Protocol == "google-genai") && source.Commit != p.SourceCommit {
 				return fmt.Errorf("official_sdk source commit does not match source_commit")
 			}
 		}
@@ -395,6 +453,26 @@ func (p Profile) Module(id string) (Module, bool) {
 		}
 	}
 	return Module{}, false
+}
+
+// InteractionModels returns the normalized profile-maintained Interactions
+// model allowlist.  Explicit target model selection is handled by the runner
+// separately and is intentionally not folded into this policy list.
+func (p Profile) InteractionModels() []string {
+	values := append([]string(nil), p.ModelSelection.InteractionsAllowlist...)
+	if p.ModelSelection.Interactions != nil {
+		values = append(values, p.ModelSelection.Interactions.Allowlist...)
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" && !seen[value] {
+			seen[value] = true
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 func (p Profile) ExtensionBinding(extensionID, suiteID string) (ExtensionBinding, bool) {

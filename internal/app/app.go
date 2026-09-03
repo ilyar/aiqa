@@ -16,11 +16,13 @@ import (
 	"github.com/ilyar/aiqa/internal/config"
 	"github.com/ilyar/aiqa/internal/extsuite"
 	extanthropic "github.com/ilyar/aiqa/internal/extsuite/builtin/anthropic"
+	extgoogle "github.com/ilyar/aiqa/internal/extsuite/builtin/googlegenai"
 	extopenai "github.com/ilyar/aiqa/internal/extsuite/builtin/openai"
 	"github.com/ilyar/aiqa/internal/guidance"
 	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/profile"
 	protocolanthropic "github.com/ilyar/aiqa/internal/protocol/anthropic"
+	protocolgoogle "github.com/ilyar/aiqa/internal/protocol/googlegenai"
 	reportpkg "github.com/ilyar/aiqa/internal/report"
 	"github.com/ilyar/aiqa/internal/result"
 	"github.com/ilyar/aiqa/internal/suites"
@@ -260,9 +262,13 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (Ru
 		SchemaVersion: "aiqa.report.v3",
 		GeneratedAt:   time.Now().UTC(),
 		Tool:          result.ToolInfo{Name: "aiqa", Version: build.Version, Commit: build.Commit, BuildDate: build.Date, GoVersion: runtime.Version()},
-		Config:        result.PublicConfigV3{Tests: append([]string(nil), cfg.Tests...), Timeout: cfg.Timeout.String(), Formats: append([]string(nil), cfg.Formats...), FailOn: cfg.FailOn, Guidance: cfg.Guidance, ExtSuites: append([]string(nil), cfg.ExtSuites...)},
+		Config: result.PublicConfigV3{
+			Tests: append([]string(nil), cfg.Tests...), Timeout: cfg.Timeout.String(), Formats: append([]string(nil), cfg.Formats...),
+			FailOn: cfg.FailOn, Guidance: cfg.Guidance, ExtSuites: append([]string(nil), cfg.ExtSuites...),
+			AllowHighTokenProbes: cfg.AllowHighTokenProbes, AllowPersistentResources: cfg.AllowPersistentResources,
+		},
 	}
-	registry, err := extsuite.NewRegistry(extopenai.New(), extanthropic.New())
+	registry, err := extsuite.NewRegistry(extopenai.New(), extanthropic.New(), extgoogle.New())
 	if err != nil {
 		return RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("register built-in extension suites: %w", err)
 	}
@@ -313,6 +319,21 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (Ru
 			if targetReport.ID == "" {
 				return RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("run Anthropic target: %w", runErr)
 			}
+			tmp := reportFromTarget(targetReport, target.BaseURL)
+			guidance.Apply(&tmp, p, guidance.Options{Mode: cfg.Guidance, Pack: cfg.GuidancePack, Locale: cfg.GuidanceLocale})
+			targetReport.Guidance = tmp.Guidance
+			targetReport, extErr := finishTargetExtensions(ctx, cfg, target, p, targetReport, registry, runtime.Client, runtime.Executor)
+			if extErr != nil {
+				return RunResult{ReportV3: &r, ExitCode: 2}, extErr
+			}
+			r.Targets = append(r.Targets, targetReport)
+		case config.ProtocolGoogleGenAI:
+			runtime := &protocolgoogle.Runtime{}
+			targetReport, runErr := protocolgoogle.Run(ctx, protocolgoogle.RunOptions{Target: target, Config: cfg, Profile: p, UserAgent: "aiqa/" + build.Version, Logf: logf, Runtime: runtime})
+			if targetReport.ID == "" {
+				return RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("run Google GenAI target: %w", runErr)
+			}
+			targetReport.Notes = []string{"Official Google Gen AI Go SDK v1.71.0 does not expose public Interactions API methods; no SDK Interactions suite is claimed."}
 			tmp := reportFromTarget(targetReport, target.BaseURL)
 			guidance.Apply(&tmp, p, guidance.Options{Mode: cfg.Guidance, Pack: cfg.GuidancePack, Locale: cfg.GuidanceLocale})
 			targetReport.Guidance = tmp.Guidance

@@ -135,6 +135,67 @@ func ClassifyAnthropic(model string, metadata map[string]any, opts Options) Clas
 	return Classification{Model: model, Capabilities: deduplicate(evidence)}
 }
 
+// ClassifyGoogleGenAI uses only Google model metadata and explicit target-local
+// overrides. In particular, a generateContent method is not evidence that the
+// model supports the distinct Interactions API.
+func ClassifyGoogleGenAI(model string, metadata map[string]any, opts Options) Classification {
+	if values := opts.Overrides[model]; len(values) > 0 {
+		return fromValues(model, values, "override", "explicit.google-genai-model-capability", "high", "explicit Google GenAI capability override")
+	}
+	var evidence []Evidence
+	methods := stringValues(metadata["supportedGenerationMethods"])
+	has := func(want string) bool {
+		for _, method := range methods {
+			if strings.EqualFold(strings.TrimSpace(method), want) {
+				return true
+			}
+		}
+		return false
+	}
+	if has("generateContent") {
+		evidence = append(evidence,
+			Evidence{Capability: GoogleGenerateText, Source: "vendor_metadata", Rule: "metadata.supportedGenerationMethods.generateContent", Confidence: "high", Reason: "Google metadata declares generateContent support"},
+			Evidence{Capability: GoogleGenerateTools, Source: "vendor_metadata", Rule: "metadata.supportedGenerationMethods.generateContent", Confidence: "medium", Reason: "generateContent is eligible for client-side tool probing"},
+			Evidence{Capability: GoogleGenerateStructured, Source: "vendor_metadata", Rule: "metadata.supportedGenerationMethods.generateContent", Confidence: "medium", Reason: "generateContent is eligible for local structured-output probing"},
+		)
+	}
+	if has("countTokens") {
+		evidence = append(evidence, Evidence{Capability: GoogleCountTokens, Source: "vendor_metadata", Rule: "metadata.supportedGenerationMethods.countTokens", Confidence: "high", Reason: "Google metadata declares countTokens support"})
+	}
+	if has("embedContent") {
+		evidence = append(evidence, Evidence{Capability: GoogleEmbedContent, Source: "vendor_metadata", Rule: "metadata.supportedGenerationMethods.embedContent", Confidence: "high", Reason: "Google metadata declares embedContent support"})
+	}
+	if capabilitySupported(metadata["thinking"]) {
+		evidence = append(evidence,
+			Evidence{Capability: GoogleGenerateThinking, Source: "vendor_metadata", Rule: "metadata.thinking", Confidence: "high", Reason: "Google metadata declares thinking support"},
+			Evidence{Capability: GoogleInteractionsThinking, Source: "vendor_metadata", Rule: "metadata.thinking", Confidence: "medium", Reason: "thinking metadata is eligible for Interactions thinking probes only when the surface is selected"},
+		)
+	}
+	if capabilitySupported(metadata["vision"]) || containsString(stringValues(metadata["inputModalities"]), "image") || containsString(stringValues(metadata["input_modalities"]), "image") {
+		evidence = append(evidence,
+			Evidence{Capability: GoogleGenerateImage, Source: "vendor_metadata", Rule: "metadata.inputModalities.image", Confidence: "high", Reason: "Google metadata declares image input"},
+			Evidence{Capability: GoogleInteractionsImage, Source: "vendor_metadata", Rule: "metadata.inputModalities.image", Confidence: "medium", Reason: "image input is eligible for Interactions vision probes only when the surface is selected"},
+		)
+	}
+	evidence = deduplicate(evidence)
+	if len(evidence) == 0 {
+		if opts.UnknownPolicy == "text" {
+			return fromValues(model, []string{GoogleGenerateText}, "default_policy", "google-genai.unclassified-default.text", "low", "no contrary metadata; treated as a text generation model")
+		}
+		return Classification{Model: model, Unknown: true, Reason: "insufficient Google GenAI capability evidence"}
+	}
+	return Classification{Model: model, Capabilities: evidence}
+}
+
+func containsString(values []string, wanted string) bool {
+	for _, value := range values {
+		if strings.EqualFold(strings.TrimSpace(value), wanted) {
+			return true
+		}
+	}
+	return false
+}
+
 func capabilitySupported(value any) bool {
 	switch typed := value.(type) {
 	case bool:

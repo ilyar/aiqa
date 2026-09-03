@@ -34,7 +34,7 @@ func ValidateManifest(manifest *Manifest) error {
 	}
 	protocols := map[string]bool{}
 	for _, protocol := range manifest.Protocols {
-		if protocol != "openai" && protocol != "anthropic" {
+		if protocol != "openai" && protocol != "anthropic" && protocol != "google-genai" {
 			return fmt.Errorf("extension %s declares unsupported protocol %q", manifest.Extension.ID, protocol)
 		}
 		if protocols[protocol] {

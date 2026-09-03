@@ -4,7 +4,7 @@
 
 `aiqa` separates protocol conformance, observable behavior, capability discovery, vendor extensions, and benchmarking. Accepting a request is not enough to prove that a feature works, and a provider or transport error is not evidence that a capability is incompatible.
 
-The main module pins the official OpenAI and Anthropic Go SDKs for built-in extension suites. Compatibility profiles, extension manifests, guidance catalogs, and report schemas remain separate from probe implementation so each can evolve without hiding changes in test meaning. Guidance is downstream of conformance assessment: it can explain a result, but it cannot change the result or the process exit code.
+The main module pins the official OpenAI, Anthropic, and Google Gen AI Go SDKs for built-in extension suites. Compatibility profiles, extension manifests, guidance catalogs, and report schemas remain separate from probe implementation so each can evolve without hiding changes in test meaning. Guidance is downstream of conformance assessment: it can explain a result, but it cannot change the result or the process exit code.
 
 ## Runtime flow
 
@@ -15,18 +15,19 @@ CLI and environment
 configuration validation
         |
         v
-ordered target configs: OpenAI, Anthropic
+ordered target configs: OpenAI, Anthropic, Google GenAI
         |
-        +----------------------+----------------------+
-        |                                             |
-        v                                             v
-OpenAI profile and client                 Anthropic profile and client
-Bearer + base includes /v1                x-api-key + version + /v1 paths
-        |                                             |
-        v                                             v
+        +----------------------+----------------------+----------------------+
+        |                      |                                             |
+        v                      v                                             v
+OpenAI profile/client  Anthropic profile/client                 Google profile/client
+Bearer + /v1          x-api-key + /v1                           x-goog-api-key + API version
+        |                      |                                             |
+        +----------------------+----------------------+----------------------+
+                               v
 discovery, routing, native probes, and explicitly selected extension suites
-        |                                             |
-        v                                             v
+                               |
+                               v
 target-local requirements, verdict, guidance, usage, and telemetry
         |                                             |
         +----------------------+----------------------+
@@ -38,7 +39,7 @@ target-local requirements, verdict, guidance, usage, and telemetry
                      atomic v3 JSON/Markdown writers
 ```
 
-`internal/app` owns this flow. It activates a target only from a base URL and its matching key, loads a protocol-matched profile, and keeps OpenAI and Anthropic credentials and telemetry separate. Each target discovers its own model inventory and derives its own authoritative verdict. The v3 root records no cross-protocol score; it selects the hardest target verdict for exit policy. Reports are written before that policy is applied.
+`internal/app` owns this flow. It activates a target only from a base URL and its matching key, loads a protocol-matched profile, and keeps OpenAI, Anthropic, and Google credentials and telemetry separate. Each target discovers its own model inventory and derives its own authoritative verdict. The v3 root records no cross-protocol score; it selects the hardest target verdict for exit policy. Reports are written before that policy is applied.
 
 ## Packages and assets
 
@@ -48,6 +49,10 @@ internal/config      environment and flag parsing and validation
 internal/api         HTTP, JSON, SSE, artifact, pacing, and telemetry client
 internal/protocol/anthropic
                      Anthropic Models, Messages, tools, token counting, and named-event validation
+internal/protocol/googlegenai
+                     Google Models, Interactions, GenerateContent, SSE, counting, embeddings, and errors
+internal/protocol/registry.go
+                     protocol-neutral native runner registration contract
 internal/profile     embedded profile loading and validation
 internal/capability  capability evidence, classification, and module routing
 internal/suites      native compatibility and model-parameter probes
@@ -63,17 +68,17 @@ schema/              machine-readable report, profile, and extension protocol co
 script/              repository maintenance programs, not shipped CLI features
 ```
 
-`profile/embed.go` embeds every JSON profile in `profile/`. The current profiles use `aiqa.profile.v3`. `internal/profile` validates provenance, protocol, API version, qualified Anthropic IDs, unique probe IDs, native module ownership, extension requirements, and explicit suite bindings. OpenAI defaults to `openai-compat-2026-09.json`. Anthropic uses `anthropic-compat-2026-09.json` and pins the stable API version `2023-06-01`.
+`profile/embed.go` embeds every JSON profile in `profile/`. The current profiles use `aiqa.profile.v3`. `internal/profile` validates provenance, protocol, API version, qualified vendor IDs, unique probe IDs, native module ownership, extension requirements, and explicit suite bindings. OpenAI defaults to `openai-compat-2026-09.json`; Anthropic uses `anthropic-compat-2026-09.json` and pins `2023-06-01`; Google defaults to `google-genai-compat-2026-09.json` and pins `v1beta` plus the reviewed Official SDK commit.
 
 ## Protocol isolation
 
-OpenAI and Anthropic are separate protocols, even when one gateway exposes both. The OpenAI target uses Bearer authentication, endpoints below its configured `/v1`, OpenAI response envelopes, `[DONE]` streaming termination, and prompt/completion usage names. The Anthropic target uses `x-api-key`, appends `/v1` to a configured prefix, sends `anthropic-version: 2023-06-01`, parses content blocks and named SSE events, and preserves input/output/cache usage names.
+OpenAI, Anthropic, and Google GenAI are separate protocols, even when one gateway exposes more than one facade. The OpenAI target uses Bearer authentication, endpoints below its configured `/v1`, OpenAI response envelopes, `[DONE]` streaming termination, and prompt/completion usage names. The Anthropic target uses `x-api-key`, appends `/v1` to a configured prefix, sends `anthropic-version: 2023-06-01`, parses content blocks and named SSE events, and preserves input/output/cache usage names. The Google target treats its configured URL as a prefix before `v1beta` (or another validated version), sends only `x-goog-api-key`, and keeps Interactions SSE state separate from legacy GenerateContent chunk streaming.
 
 Ambient Anthropic auth-token, beta, and custom-header variables do not affect native probes or the built-in Official SDK extension. The SDK receives explicit target configuration and disables automatic retries. Third-party executables receive credentials only through an `aiqa.ext.v1` stdin request. A malformed JSONL line becomes runner evidence without discarding valid suite entries parsed before or after it.
 
 Target IDs qualify requirement subjects and evidence IDs in report v3. The same model ID may therefore appear under both facades without merging findings or SDK evidence.
 
-The complete Anthropic target contract, including module gates and failure semantics, is documented in [`anthropic-compatibility.md`](anthropic-compatibility.md).
+The complete Anthropic target contract, including module gates and failure semantics, is documented in [`anthropic-compatibility.md`](anthropic-compatibility.md). The Google contract and current/legacy surface distinction are documented in [`google-genai-compatibility.md`](google-genai-compatibility.md).
 
 ## Profiles, capabilities, and modules
 
@@ -84,7 +89,7 @@ Model routing has two distinct phases:
 1. Classify the model from evidence.
 2. Compare the resulting capabilities with the profile's module requirements.
 
-OpenAI classification collects evidence from these sources in order. Only an explicit override short-circuits the remaining sources; otherwise, compatible evidence can accumulate and conflicting evidence remains visible.
+OpenAI classification collects evidence from these sources in order. Only an explicit override short-circuits the remaining sources; otherwise, compatible evidence can accumulate and conflicting evidence remains visible. Google classification is target-local and does not reuse OpenAI naming rules.
 
 1. `--model-capability` and `--capability-file` overrides. A CLI override for the same model wins because it is applied last.
 2. Structured vendor metadata, including capability, task, type, and output-modality fields. Nested `architecture.output_modalities` is supported.
@@ -94,7 +99,7 @@ OpenAI classification collects evidence from these sources in order. Only an exp
 
 Conflicting positive evidence produces `unknown` and prevents capability probes. Positive non-text evidence routes the model only to matching modules; it never triggers the text fallback. `input_modalities: ["text"]` alone does not prove Chat Completions support because embedding models can accept the same input modality.
 
-If no OpenAI capability evidence exists and nothing identifies the model as non-text, the default `--unknown-model=chat` policy assigns `chat.completions.text` with low confidence. `--unknown-model=inventory` keeps such models in the inventory without running model capability probes. Anthropic has a separate classifier and capability namespace. Its default `--anthropic-unknown-model=messages` policy permits Messages text plus safe tools and structured-output probes; `inventory` keeps unclassified Anthropic models inventory-only.
+If no OpenAI capability evidence exists and nothing identifies the model as non-text, the default `--unknown-model=chat` policy assigns `chat.completions.text` with low confidence. `--unknown-model=inventory` keeps such models in the inventory without running model capability probes. Anthropic has a separate classifier and capability namespace. Its default `--anthropic-unknown-model=messages` policy permits Messages text plus safe tools and structured-output probes; `inventory` keeps unclassified Anthropic models inventory-only. Google maps `supportedGenerationMethods` to `google-genai.generate-content.text`, `google-genai.count-tokens`, and `google-genai.embed-content`. It never infers Interactions from `generateContent`; the modern profile uses an explicitly selected model or its reviewed allowlist. `--google-genai-unknown-model=inventory` is conservative by default, while `text` opts into a low-confidence generation fallback.
 
 Module assessment records applicability separately from execution:
 
@@ -103,7 +108,7 @@ Module assessment records applicability separately from execution:
 - `unknown` means the evidence conflicts or strict inventory mode has no classification;
 - `executed` and `skipped` record what happened after applicability and cost policy were applied.
 
-The native implementation executes OpenAI Chat Completions and image generation plus Anthropic Messages, tools, Count Tokens, structured output, vision, and opt-in thinking. Other module definitions remain visible to routing and can be added without changing the report model. OpenAI image generation requires explicit billable-artifact authorization and an artifact limit; Anthropic thinking requires explicit module selection and high-token authorization.
+The native implementation executes OpenAI Chat Completions and image generation, Anthropic Messages and related modules, and Google Models, Interactions, legacy GenerateContent, streams, Count Tokens, embeddings, tools, structured output, vision, and opt-in thinking. Google stateful resources remain disabled unless `--allow-persistent-resources` is explicit. Other module definitions remain visible to routing and can be added without changing the report model. Billable media and high-token probes retain their existing explicit gates.
 
 ## Probe levels
 
@@ -118,7 +123,7 @@ Raw native and Official SDK evidence distinguishes `pass`, `warn`, `unsupported`
 
 ## Native probes and extension suites
 
-Native probes test wire behavior, response shape, validation, and semantic effects. Built-in Official SDK extensions check whether the official OpenAI and Anthropic Go clients can send requests and parse responses through the target.
+Native probes test wire behavior, response shape, validation, and semantic effects. Built-in Official SDK extensions check whether the official OpenAI, Anthropic, and Google Gen AI Go clients can send requests and parse responses through the target. The pinned Google SDK exposes Models/GenerateContent/counting/embedding methods but no public Interactions methods; the report records that limitation instead of advertising a missing suite.
 
 Extension execution requires `test=ext-suite`. The application registers built-ins explicitly and may discover trusted `aiqa-*-ext-suite` executables. Built-ins and executables share manifest, planning, event validation, profile binding, status derivation, and report types. Each suite contributes independently. AIQA normalizes known optional-capability rejections against the active profile and converts provider-side 408, 429, and 5xx failures to `error` rather than compatibility failures.
 
@@ -200,4 +205,4 @@ With `--fail-on=core`, `fail` and `inconclusive` return `1`; optional-only gaps 
 
 The API key is used for requests but is not written to the public configuration in the report. Extension credentials are absent from argv and the child environment; captured diagnostics redact secrets and are size-limited. Native responses are bounded before decoding. Artifact reports store format, media type, size, dimensions, and SHA-256, not image payloads or signed URL query strings. Remote artifact fetching rejects unsafe URL schemes and network targets.
 
-Suites that execute code, create persistent objects, browse external resources, or generate billable media must remain explicit opt-ins. See [`docs/adding-tests.md`](adding-tests.md) for the extension checklist.
+Suites that execute code, create persistent objects, browse external resources, or generate billable media must remain explicit opt-ins. Google defaults Interaction requests to `store:false`, and stateful probes require `--allow-persistent-resources` plus cleanup evidence. See [`docs/adding-tests.md`](adding-tests.md) for the extension checklist.

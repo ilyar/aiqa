@@ -24,6 +24,20 @@ For Anthropic, add the probe to `profile/anthropic-compat-2026-09.json` and use 
 
 Keep new behavior consistent with the target contract in [`anthropic-compatibility.md`](anthropic-compatibility.md).
 
+For Google GenAI, add protocol-qualified native probes to the selected current
+or legacy profile and implement them under
+[`internal/protocol/googlegenai`](../internal/protocol/googlegenai). Keep
+Interactions and legacy `generateContent` request, response, usage, and stream
+contracts separate. Route generation, token counting, and embeddings from
+`supportedGenerationMethods`; never infer Interactions support from
+`generateContent`, and never send generation calls to an embedding-only model.
+Use `x-goog-api-key`, preserve the configured path prefix before the selected
+API version, and add a deterministic fixture test. Stateless Interactions
+must send `store:false`; stateful probes require an explicit persistent-resource
+gate and must verify cleanup. The complete contract, including the pinned
+Official Google Gen AI Go SDK extension, is in
+[`google-genai-compatibility.md`](google-genai-compatibility.md).
+
 ## Add actionable guidance
 
 Add a typed signal and a generic catalog entry under `guidance/catalog/` when AIQA can provide reviewed, cross-provider advice. Every P0/P1 entry needs ordered steps and verification targets. Guidance level 3 always needs verification targets.
@@ -78,4 +92,4 @@ When adding a protocol or report target:
 
 Suites that execute code, browse the web, persist objects, or create billable assets must be opt-in and clearly marked.
 
-`make schemas-check` validates report v3, profile v3, both embedded current profiles, and the extension protocol with JSON Schema Draft 2020-12. The development environment needs Python 3 and a Draft 2020-12-capable `jsonschema` package in addition to Go. The main module intentionally pins both official SDK dependencies.
+`make schemas-check` validates report v3, profile v3, all embedded current profiles, and the extension protocol with JSON Schema Draft 2020-12. The development environment needs Python 3 and a Draft 2020-12-capable `jsonschema` package in addition to Go. The main module intentionally pins the OpenAI, Anthropic, and Google Gen AI official SDK dependencies.

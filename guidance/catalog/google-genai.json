@@ -1,0 +1,32 @@
+{
+  "revision": "2026-09-03.1",
+  "entries": [
+    {
+      "id": "google.interactions.stateful.cleanup",
+      "revision": "1",
+      "finding_code": "contract.google.interactions.stateful.cleanup",
+      "finding_title": "A stored Google Interaction was not cleaned up",
+      "recommendation_title": "Delete every stateful Interaction created by AIQA",
+      "default_priority": "p0",
+      "action_kind": "fix",
+      "guidance_level": 3,
+      "audiences": ["gateway_maintainer", "qa_operator"],
+      "why": "The opt-in stateful probe creates provider-side state and must leave no retained resource behind after the run.",
+      "attribution": {
+        "component": "provider_gateway",
+        "confidence": "high",
+        "basis": "The provider did not confirm deletion of the resource created by the stateful compatibility probe."
+      },
+      "steps": [
+        {"id": "delete-resource", "text": "Delete the Interaction resource identified by the bounded hash in the evidence record, then verify that a follow-up lookup returns not-found."},
+        {"id": "repair-cleanup", "text": "Repair the gateway DELETE /interactions/{id} path and keep cleanup in a finally-style path for every stateful probe."}
+      ],
+      "verification": [
+        {"kind": "requirement", "ids": ["google.interactions.stateful.cleanup"]}
+      ],
+      "references": [
+        {"title": "Google Interactions API overview", "url": "https://ai.google.dev/gemini-api/docs/interactions-overview", "source_kind": "official"}
+      ]
+    }
+  ]
+}

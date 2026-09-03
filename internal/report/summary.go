@@ -87,6 +87,36 @@ func testBelongsToModule(testID, moduleID string) bool {
 		return strings.HasPrefix(testID, "anthropic.vision.")
 	case "anthropic.thinking":
 		return strings.HasPrefix(testID, "anthropic.thinking.")
+	case "google-genai.interactions":
+		return testID == "google.models.get" || strings.HasPrefix(testID, "google.models.metadata.") || testID == "google.model-param.unsupported" || testID == "google.interactions.basic" || testID == "google.interactions.schema" || testID == "google.interactions.output_text" || testID == "google.interactions.usage" || testID == "google.interactions.store_false" || testID == "google.interactions.status"
+	case "google-genai.interactions-tools":
+		return strings.HasPrefix(testID, "google.interactions.tools.")
+	case "google-genai.interactions-structured-output":
+		return strings.HasPrefix(testID, "google.interactions.structured.")
+	case "google-genai.interactions-vision":
+		return strings.HasPrefix(testID, "google.interactions.vision.")
+	case "google-genai.interactions-thinking":
+		return strings.HasPrefix(testID, "google.interactions.thinking.")
+	case "google-genai.interactions-stateful":
+		return strings.HasPrefix(testID, "google.interactions.stateful.")
+	case "google-genai.interactions-stream":
+		return strings.HasPrefix(testID, "google.interactions.stream.")
+	case "google-genai.generate-content":
+		return strings.HasPrefix(testID, "google.generate-content.") || strings.HasPrefix(testID, "google.generate.")
+	case "google-genai.generate-content-stream":
+		return strings.HasPrefix(testID, "google.generate-content.stream.")
+	case "google-genai.generate-content-tools":
+		return strings.HasPrefix(testID, "google.generate-content.tools.")
+	case "google-genai.generate-content-structured-output":
+		return strings.HasPrefix(testID, "google.generate-content.structured.")
+	case "google-genai.token-counting":
+		return strings.HasPrefix(testID, "google.tokens.")
+	case "google-genai.embeddings":
+		return strings.HasPrefix(testID, "google.embeddings.")
+	case "google-genai.vision":
+		return strings.HasPrefix(testID, "google.vision.")
+	case "google-genai.thinking":
+		return strings.HasPrefix(testID, "google.generate-content.thinking.")
 	default:
 		return false
 	}

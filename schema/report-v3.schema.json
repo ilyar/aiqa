@@ -29,14 +29,16 @@
         "formats": {"type": "array", "items": {"enum": ["markdown", "json"]}},
         "fail_on": {"enum": ["core", "any", "never"]},
         "guidance": {"enum": ["full", "summary", "off"]},
-        "ext_suites": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+        "ext_suites": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "allow_high_token_probes": {"type": "boolean"},
+        "allow_persistent_resources": {"type": "boolean"}
       },
       "additionalProperties": false
     },
     "targetConfig": {
       "type": "object", "required": ["id", "protocol", "base_url"],
       "properties": {
-        "id": {"type": "string", "minLength": 1}, "protocol": {"enum": ["openai", "anthropic"]}, "base_url": {"type": "string", "format": "uri"},
+        "id": {"type": "string", "minLength": 1}, "protocol": {"enum": ["openai", "anthropic", "google-genai"]}, "base_url": {"type": "string", "format": "uri"},
         "base_url_normalized": {"type": "boolean"}, "requested_models": {"type": "array", "items": {"type": "string"}}, "api_version": {"type": "string"}
       },
       "additionalProperties": false
@@ -44,7 +46,7 @@
     "profile": {
       "type": "object", "required": ["id", "revision", "source", "source_commit", "scope"],
       "properties": {
-        "schema_version": {"const": "aiqa.profile.v3"}, "id": {"type": "string"}, "protocol": {"enum": ["openai", "anthropic"]}, "revision": {"type": "string", "format": "date"},
+        "schema_version": {"const": "aiqa.profile.v3"}, "id": {"type": "string"}, "protocol": {"enum": ["openai", "anthropic", "google-genai"]}, "revision": {"type": "string", "format": "date"},
         "api_version": {"type": "string"}, "base_url_semantics": {"type": "string"}, "source": {"type": "string", "format": "uri"}, "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
         "source_ref_revision": {"type": "string"}, "scope": {"type": "string"}
       },
@@ -52,7 +54,7 @@
     },
     "subject": {
       "type": "object", "required": ["target_id", "protocol", "kind", "id"],
-      "properties": {"target_id": {"type": "string", "minLength": 1}, "protocol": {"enum": ["openai", "anthropic"]}, "kind": {"enum": ["provider", "model"]}, "id": {"type": "string", "minLength": 1}},
+      "properties": {"target_id": {"type": "string", "minLength": 1}, "protocol": {"enum": ["openai", "anthropic", "google-genai"]}, "kind": {"enum": ["provider", "model"]}, "id": {"type": "string", "minLength": 1}},
       "additionalProperties": false
     },
     "usage": {
@@ -128,7 +130,7 @@
     },
     "target": {
       "type": "object", "required": ["id", "protocol", "profile", "discovery", "models", "summary", "guidance", "rate_limit"],
-      "properties": {"id": {"type": "string"}, "protocol": {"enum": ["openai", "anthropic"]}, "profile": {"$ref": "#/$defs/profile"}, "discovery": {"type": "object"}, "models": {"type": "array", "items": {"$ref": "#/$defs/model"}}, "requirements": {"type": "array", "items": {"type": "object"}}, "summary": {"type": "object", "not": {"required": ["score"]}}, "guidance": {"type": "object"}, "rate_limit": {"$ref": "#/$defs/rateLimit"}, "extension_rate_limit": {"$ref": "#/$defs/rateLimit"}, "extensions": {"type": "array", "items": {"$ref": "#/$defs/extensionRun"}}},
+      "properties": {"id": {"type": "string"}, "protocol": {"enum": ["openai", "anthropic", "google-genai"]}, "profile": {"$ref": "#/$defs/profile"}, "discovery": {"type": "object"}, "models": {"type": "array", "items": {"$ref": "#/$defs/model"}}, "requirements": {"type": "array", "items": {"type": "object"}}, "summary": {"type": "object", "not": {"required": ["score"]}}, "guidance": {"type": "object"}, "rate_limit": {"$ref": "#/$defs/rateLimit"}, "extension_rate_limit": {"$ref": "#/$defs/rateLimit"}, "extensions": {"type": "array", "items": {"$ref": "#/$defs/extensionRun"}}, "notes": {"type": "array", "items": {"type": "string"}}},
       "additionalProperties": false
     },
     "runSummary": {

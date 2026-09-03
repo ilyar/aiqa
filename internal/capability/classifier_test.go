@@ -148,3 +148,28 @@ func TestAnthropicInventoryPolicyDoesNotAssumeMessages(t *testing.T) {
 		t.Fatalf("inventory-only policy was ignored: %+v", got)
 	}
 }
+
+func TestGoogleGenerationMethodsDoNotInferInteractions(t *testing.T) {
+	got := ClassifyGoogleGenAI("gemini-custom", map[string]any{
+		"name":                       "models/gemini-custom",
+		"supportedGenerationMethods": []any{"generateContent", "countTokens"},
+	}, Options{UnknownPolicy: "inventory"})
+	if got.Unknown || !got.Has(GoogleGenerateText) || !got.Has(GoogleCountTokens) || got.Has(GoogleInteractionsText) {
+		t.Fatalf("Google method routing inferred the wrong capabilities: %+v", got)
+	}
+}
+
+func TestGoogleUnknownPolicyAndMetadata(t *testing.T) {
+	unknown := ClassifyGoogleGenAI("opaque", map[string]any{"name": "models/opaque"}, Options{UnknownPolicy: "inventory"})
+	if !unknown.Unknown || unknown.Has(GoogleGenerateText) {
+		t.Fatalf("inventory policy assumed a Google text model: %+v", unknown)
+	}
+	text := ClassifyGoogleGenAI("opaque", map[string]any{"name": "models/opaque"}, Options{UnknownPolicy: "text"})
+	if text.Unknown || !text.Has(GoogleGenerateText) {
+		t.Fatalf("text fallback did not classify Google model: %+v", text)
+	}
+	embed := ClassifyGoogleGenAI("embed", map[string]any{"supportedGenerationMethods": []any{"embedContent"}}, Options{UnknownPolicy: "text"})
+	if embed.Unknown || !embed.Has(GoogleEmbedContent) || embed.Has(GoogleGenerateText) {
+		t.Fatalf("embedding-only Google model was routed to generation: %+v", embed)
+	}
+}

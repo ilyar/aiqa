@@ -21,8 +21,14 @@ func TestEmbeddedCatalogAndPackValidate(t *testing.T) {
 	if _, ok := catalog.Entry("anthropic.stream.sequence_invalid"); !ok {
 		t.Fatal("Anthropic guidance catalog was not merged")
 	}
+	if _, ok := catalog.Entry("contract.google.interactions.stateful.cleanup"); !ok {
+		t.Fatal("Google stateful cleanup guidance catalog was not merged")
+	}
 	if pack, _, err := LoadPack("generic-anthropic-facade"); err != nil || pack.ID != "generic-anthropic-facade" {
 		t.Fatalf("Anthropic advice pack is invalid: pack=%+v err=%v", pack, err)
+	}
+	if pack, info, err := LoadPack("generic-google-genai-gateway"); err != nil || pack.ID != "generic-google-genai-gateway" || info.ID != pack.ID {
+		t.Fatalf("Google advice pack is invalid: pack=%+v info=%+v err=%v", pack, info, err)
 	}
 }
 

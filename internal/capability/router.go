@@ -17,9 +17,10 @@ const (
 )
 
 type RoutingOptions struct {
-	Modules                []string
-	AllowBillableArtifacts bool
-	AllowHighTokenProbes   bool
+	Modules                  []string
+	AllowBillableArtifacts   bool
+	AllowHighTokenProbes     bool
+	AllowPersistentResources bool
 }
 
 func AssessModules(classification Classification, definitions []profile.Module, opts RoutingOptions) []result.ModuleAssessment {
@@ -54,6 +55,7 @@ func AssessModules(classification Classification, definitions []profile.Module, 
 			moduleEnabled := enabled[definition.ID] || (auto && definition.DefaultEnabled)
 			billable := strings.HasPrefix(definition.CostClass, "billable-")
 			highToken := definition.CostClass == "high-token"
+			persistent := definition.CostClass == "persistent-resource"
 			switch {
 			case !implementedModule(definition.ID):
 				assessment.Execution = result.ExecutionSkipped
@@ -64,6 +66,9 @@ func AssessModules(classification Classification, definitions []profile.Module, 
 			case highToken && !opts.AllowHighTokenProbes:
 				assessment.Execution = result.ExecutionSkipped
 				assessment.Reason = "high-token probes require explicit authorization"
+			case persistent && !opts.AllowPersistentResources:
+				assessment.Execution = result.ExecutionSkipped
+				assessment.Reason = "persistent-resource probes require explicit authorization"
 			case !moduleEnabled:
 				assessment.Execution = result.ExecutionSkipped
 				assessment.Reason = "module was not enabled"
@@ -92,7 +97,12 @@ func implementedModule(id string) bool {
 	switch id {
 	case ModuleChat, ModuleImages,
 		"anthropic.messages", "anthropic.tools", "anthropic.token-counting",
-		"anthropic.structured-output", "anthropic.vision", "anthropic.thinking":
+		"anthropic.structured-output", "anthropic.vision", "anthropic.thinking",
+		"google-genai.interactions", "google-genai.interactions-stream", "google-genai.interactions-tools",
+		"google-genai.interactions-structured-output", "google-genai.interactions-vision", "google-genai.interactions-thinking",
+		"google-genai.interactions-stateful", "google-genai.generate-content", "google-genai.generate-content-stream",
+		"google-genai.generate-content-tools", "google-genai.generate-content-structured-output", "google-genai.token-counting",
+		"google-genai.embeddings", "google-genai.vision", "google-genai.thinking":
 		return true
 	default:
 		return false

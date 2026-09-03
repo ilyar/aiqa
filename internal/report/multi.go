@@ -80,12 +80,22 @@ func MarkdownV3(r result.ReportV3) string {
 		fmt.Fprintf(&b, "- **Target ID:** `%s`\n", escapeInline(target.ID))
 		fmt.Fprintf(&b, "- **Profile:** `%s@%s`\n", escapeInline(target.Profile.ID), escapeInline(target.Profile.Revision))
 		if targetConfigNormalized(r.Config.Targets, target.ID) {
-			fmt.Fprintln(&b, "- **Base URL:** normalized by removing one trailing `/v1`; Anthropic paths append `/v1` themselves")
+			switch target.Protocol {
+			case "anthropic":
+				fmt.Fprintln(&b, "- **Base URL:** normalized by removing one trailing `/v1`; Anthropic paths append `/v1` themselves")
+			case "google-genai":
+				fmt.Fprintln(&b, "- **Base URL:** normalized as the prefix before the selected Google API version")
+			default:
+				fmt.Fprintln(&b, "- **Base URL:** normalized before requests")
+			}
 		}
 		if target.Profile.APIVersion != "" {
 			fmt.Fprintf(&b, "- **API version:** `%s`\n", escapeInline(target.Profile.APIVersion))
 		}
 		fmt.Fprintf(&b, "- **External checks:** %s\n", targetExternalChecks(target))
+		for _, note := range target.Notes {
+			fmt.Fprintf(&b, "- **Note:** %s\n", escapeInline(note))
+		}
 		fmt.Fprintf(&b, "- **Discovered models:** %d\n\n", target.Discovery.ModelCount)
 		writeTargetGuidance(&b, target)
 		writeRequirementAssessment(&b, target.Requirements)
@@ -156,6 +166,12 @@ func normalizeObservedUsage(protocol string, usage result.Usage) observedUsage {
 	case "anthropic":
 		row.input, row.output = usage.InputTokens, usage.OutputTokens
 		row.total = row.input + row.output + row.cacheCreation + row.cacheRead
+	case "google-genai":
+		row.input, row.output = usage.InputTokens, usage.OutputTokens
+		row.total = usage.TotalTokens
+		if row.total == 0 {
+			row.total = row.input + row.output + row.reasoning + row.cacheRead
+		}
 	default:
 		row.input, row.output = usage.PromptTokens, usage.CompletionTokens
 		row.total = usage.TotalTokens
@@ -237,6 +253,8 @@ func extensionLabel(provenance result.ExtensionProvenance) string {
 		return "[" + label + "](https://github.com/openai/openai-go/releases/tag/" + provenance.Version + ")"
 	case "official-sdk.anthropic":
 		return "[" + label + "](https://github.com/anthropics/anthropic-sdk-go/releases/tag/" + provenance.Version + ")"
+	case "official-sdk.google-genai":
+		return "[" + label + "](https://github.com/googleapis/go-genai/releases/tag/" + provenance.Version + ")"
 	default:
 		return escapeInline(label)
 	}
@@ -256,6 +274,9 @@ func protocolName(protocol string) string {
 	}
 	if protocol == "anthropic" {
 		return "Anthropic"
+	}
+	if protocol == "google-genai" {
+		return "Google GenAI"
 	}
 	return protocol
 }

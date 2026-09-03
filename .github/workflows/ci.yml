@@ -80,6 +80,33 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  live-google-genai:
+    if: vars.AIQA_LIVE_GOOGLE_GENAI == '1'
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27'
+      - run: make build VERSION=ci COMMIT="${GITHUB_SHA::12}" DATE=ci
+      - name: Run bounded Google GenAI compatibility probe
+        env:
+          GOOGLE_GENAI_BASE_URL: ${{ secrets.AIQA_GOOGLE_GENAI_BASE_URL }}
+          GOOGLE_GENAI_API_KEY: ${{ secrets.AIQA_GOOGLE_GENAI_API_KEY }}
+          GOOGLE_GENAI_MODEL: ${{ vars.AIQA_GOOGLE_GENAI_MODEL }}
+        run: |
+          test -n "$GOOGLE_GENAI_BASE_URL" && test -n "$GOOGLE_GENAI_API_KEY" && test -n "$GOOGLE_GENAI_MODEL"
+          ./bin/aiqa test=compat,ext-suite --target=google-genai --ext-suite=official-sdk --google-genai-model="$GOOGLE_GENAI_MODEL" --timeout=30 --request-interval=500ms --format=json --name=live-google-genai
+      - name: Upload sanitized Google GenAI report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-google-genai-report
+          path: live-google-genai.json
+          if-no-files-found: ignore
+          retention-days: 7
+
   live-dual-bifrost:
     if: vars.AIQA_LIVE_DUAL == '1'
     continue-on-error: true

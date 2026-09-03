@@ -53,7 +53,7 @@ func TestEmbeddedProfileFilesCanBeListedAndLoaded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(files) != 3 || files[0] != "anthropic-compat-2026-09.json" || files[1] != "openai-compat-2026-08.json" || files[2] != DefaultFile {
+	if len(files) != 5 || files[0] != "anthropic-compat-2026-09.json" || files[1] != "google-genai-compat-2026-09.json" || files[2] != "google-genai-generate-content-compat-2026-09.json" || files[3] != "openai-compat-2026-08.json" || files[4] != DefaultFile {
 		t.Fatalf("unexpected embedded profile files: %#v", files)
 	}
 	if _, err := LoadFile(DefaultFile); err != nil {

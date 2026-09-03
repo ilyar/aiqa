@@ -37,6 +37,17 @@ type release struct {
 	Draft      bool   `json:"draft"`
 	Prerelease bool   `json:"prerelease"`
 }
+type gitReference struct {
+	Object struct {
+		SHA  string `json:"sha"`
+		Type string `json:"type"`
+	} `json:"object"`
+}
+type gitTag struct {
+	Object struct {
+		SHA string `json:"sha"`
+	} `json:"object"`
+}
 
 func main() { os.Exit(run(os.Args[1:])) }
 
@@ -61,7 +72,7 @@ func run(args []string) int {
 	for _, source := range p.Sources {
 		switch source.Kind {
 		case "official_sdk":
-			state, err := checkRelease(ctx, source.URL, source.Version)
+			state, err := checkRelease(ctx, source.URL, source.Version, source.Commit)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "check %s: %v\n", source.URL, err)
 				return 2
@@ -122,7 +133,7 @@ func checkCommit(ctx context.Context, repository, pinned string) int {
 	return 1
 }
 
-func checkRelease(ctx context.Context, repository, pinned string) (bool, error) {
+func checkRelease(ctx context.Context, repository, pinned, pinnedCommit string) (bool, error) {
 	ownerRepo, err := githubRepo(repository)
 	if err != nil {
 		return false, err
@@ -134,12 +145,43 @@ func checkRelease(ctx context.Context, repository, pinned string) (bool, error) 
 	if latest.TagName == "" || latest.Draft || latest.Prerelease {
 		return false, fmt.Errorf("latest stable release response is invalid")
 	}
-	if latest.TagName == pinned {
-		fmt.Printf("profile SDK source is current: %s\n", pinned)
-		return false, nil
+	changed := latest.TagName != pinned
+	if pinnedCommit != "" {
+		resolved, err := checkTagCommit(ctx, ownerRepo, pinned)
+		if err != nil {
+			return false, fmt.Errorf("resolve pinned SDK tag %s: %w", pinned, err)
+		}
+		if resolved != pinnedCommit {
+			fmt.Printf("official SDK pinned tag changed; review generated API changes before updating\nprofile tag: %s\nprofile commit: %s\ntag commit: %s\n", pinned, pinnedCommit, resolved)
+			changed = true
+		}
 	}
-	fmt.Printf("official SDK moved; review generated API changes before updating\nprofile:  %s\nupstream: %s\n", pinned, latest.TagName)
-	return true, nil
+	if changed {
+		fmt.Printf("official SDK moved; review generated API changes before updating\nprofile: %s\nupstream: %s\n", pinned, latest.TagName)
+		return true, nil
+	}
+	fmt.Printf("profile SDK source is current: %s (%s)\n", pinned, pinnedCommit)
+	return false, nil
+}
+
+func checkTagCommit(ctx context.Context, ownerRepo, tag string) (string, error) {
+	var ref gitReference
+	endpoint := "https://api.github.com/repos/" + ownerRepo + "/git/ref/tags/" + url.PathEscape(tag)
+	if err := getJSON(ctx, endpoint, &ref); err != nil {
+		return "", err
+	}
+	sha := ref.Object.SHA
+	if ref.Object.Type == "tag" && sha != "" {
+		var annotated gitTag
+		if err := getJSON(ctx, "https://api.github.com/repos/"+ownerRepo+"/git/tags/"+url.PathEscape(sha), &annotated); err != nil {
+			return "", err
+		}
+		sha = annotated.Object.SHA
+	}
+	if sha == "" {
+		return "", fmt.Errorf("GitHub tag %q has no commit SHA", tag)
+	}
+	return sha, nil
 }
 
 func githubRepo(raw string) (string, error) {

@@ -97,3 +97,21 @@ func TestDoRawRetriesAnthropicOverloadUnlessServerOptsOut(t *testing.T) {
 		})
 	}
 }
+
+func TestModelScopedRequestsAttributePacingToURLAddressedModel(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+	client, err := NewClient(server.URL, "test", "aiqa-test", time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.DoJSONForModel(context.Background(), http.MethodGet, "models/gemini-test", nil, "gemini-test"); err != nil {
+		t.Fatal(err)
+	}
+	if got := client.PacingStatsForModel("gemini-test").SuccessfulRequests; got != 1 {
+		t.Fatalf("model-scoped pacing successes=%d, want 1", got)
+	}
+}

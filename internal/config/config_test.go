@@ -32,6 +32,8 @@ func TestResolveOfficialSDKSelectionUsesConfiguredTargets(t *testing.T) {
 		{name: "openai only", targets: []TargetConfig{{Protocol: ProtocolOpenAI}}, want: "official-sdk.openai"},
 		{name: "anthropic only", targets: []TargetConfig{{Protocol: ProtocolAnthropic}}, want: "official-sdk.anthropic"},
 		{name: "both", targets: []TargetConfig{{Protocol: ProtocolOpenAI}, {Protocol: ProtocolAnthropic}}, want: "official-sdk.openai,official-sdk.anthropic"},
+		{name: "google", targets: []TargetConfig{{Protocol: ProtocolGoogleGenAI}}, want: "official-sdk.google-genai"},
+		{name: "all", targets: []TargetConfig{{Protocol: ProtocolOpenAI}, {Protocol: ProtocolAnthropic}, {Protocol: ProtocolGoogleGenAI}}, want: "official-sdk.openai,official-sdk.anthropic,official-sdk.google-genai"},
 		{name: "no target", want: ""},
 	}
 	for _, tt := range tests {
@@ -41,6 +43,94 @@ func TestResolveOfficialSDKSelectionUsesConfiguredTargets(t *testing.T) {
 				t.Fatalf("resolved selection=%v, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestParseGoogleGenAIEnvironmentAndAliases(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("ANTHROPIC_BASE_URL", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("GOOGLE_GENAI_BASE_URL", "https://gateway.example/google/v1beta/")
+	t.Setenv("GOOGLE_GEMINI_BASE_URL", "https://gateway.example/google/v1beta")
+	t.Setenv("GOOGLE_GENAI_API_KEY", "")
+	t.Setenv("GOOGLE_API_KEY", "google-key")
+	t.Setenv("GEMINI_API_KEY", "google-key")
+	t.Setenv("GOOGLE_GENAI_MODEL", "gemini-a,gemini-b,gemini-a")
+	cfg, err := Parse([]string{"test=compat,ext-suite", "--ext-suite=official-sdk"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Targets) != 1 || cfg.Targets[0].Protocol != ProtocolGoogleGenAI {
+		t.Fatalf("unexpected Google target: %+v", cfg.Targets)
+	}
+	target := cfg.Targets[0]
+	if target.BaseURL != "https://gateway.example/google" || !target.BaseURLNormalized || target.APIVersion != "v1beta" || target.APIKey != "google-key" {
+		t.Fatalf("unexpected Google target normalization: %+v", target)
+	}
+	if strings.Join(target.Models, ",") != "gemini-a,gemini-b" {
+		t.Fatalf("Google model env was not preserved: %v", target.Models)
+	}
+	if got := strings.Join(ResolveExtSuiteSelection(cfg.ExtSuites, cfg.Targets), ","); got != "official-sdk.google-genai" {
+		t.Fatalf("unexpected Google SDK selection: %q", got)
+	}
+}
+
+func TestParseGoogleGenAICanonicalKeyWinsAndAliasConflictFails(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("ANTHROPIC_BASE_URL", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("GOOGLE_GENAI_BASE_URL", "http://127.0.0.1:8080/google")
+	t.Setenv("GOOGLE_GENAI_API_KEY", "canonical")
+	t.Setenv("GOOGLE_API_KEY", "alias-one")
+	t.Setenv("GEMINI_API_KEY", "alias-two")
+	cfg, err := Parse([]string{"test=compat"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Targets[0].APIKey != "canonical" {
+		t.Fatalf("canonical key did not win: %+v", cfg.Targets[0])
+	}
+	t.Setenv("GOOGLE_GENAI_API_KEY", "")
+	if _, err := Parse([]string{"test=compat"}); err == nil || !strings.Contains(err.Error(), "conflict") {
+		t.Fatalf("conflicting generic aliases were accepted: %v", err)
+	}
+}
+
+func TestParseGoogleGenAIBaseURLValidation(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("ANTHROPIC_BASE_URL", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("GOOGLE_GENAI_BASE_URL", "http://gateway.example/google")
+	t.Setenv("GOOGLE_GENAI_API_KEY", "key")
+	if _, err := Parse([]string{"test=compat"}); err == nil || !strings.Contains(err.Error(), "non-HTTPS") {
+		t.Fatalf("non-loopback HTTP Google URL was accepted: %v", err)
+	}
+	t.Setenv("GOOGLE_GENAI_BASE_URL", "http://127.0.0.1:8080/google?key=leak")
+	if _, err := Parse([]string{"test=compat"}); err == nil || !strings.Contains(err.Error(), "query") {
+		t.Fatalf("Google URL query was accepted: %v", err)
+	}
+	t.Setenv("GOOGLE_GENAI_BASE_URL", "http://127.0.0.1:8080/google")
+	if _, err := Parse([]string{"test=compat", "--google-genai-api-version=v2gamma"}); err == nil || !strings.Contains(err.Error(), "API version") {
+		t.Fatalf("invalid Google API version was accepted: %v", err)
+	}
+}
+
+func TestParseGoogleGenAIBaseAliasConflictFails(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("ANTHROPIC_BASE_URL", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("GOOGLE_GENAI_BASE_URL", "http://127.0.0.1:8080/one")
+	t.Setenv("GOOGLE_GEMINI_BASE_URL", "http://127.0.0.1:8080/two")
+	t.Setenv("GOOGLE_GENAI_API_KEY", "key")
+	if _, err := Parse([]string{"test=compat"}); err == nil || !strings.Contains(err.Error(), "BASE_URL") || !strings.Contains(err.Error(), "conflict") {
+		t.Fatalf("conflicting Google base aliases were accepted: %v", err)
+	}
+	if _, err := Parse([]string{"test=compat", "--google-genai-base-url=http://127.0.0.1:8080/explicit"}); err != nil {
+		t.Fatalf("explicit Google base URL should override environment aliases: %v", err)
 	}
 }
 
@@ -235,6 +325,25 @@ func TestParseKeyWithoutBaseDoesNotActivateTarget(t *testing.T) {
 	}
 	if len(cfg.Targets) != 1 || cfg.Targets[0].Protocol != ProtocolOpenAI {
 		t.Fatalf("API key without base URL activated a target: %+v", cfg.Targets)
+	}
+}
+
+func TestParseIgnoresGoogleAliasConflictWhenGoogleIsNotActive(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "http://127.0.0.1:8080/v1")
+	t.Setenv("OPENAI_API_KEY", "openai-secret")
+	t.Setenv("ANTHROPIC_BASE_URL", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("GOOGLE_GENAI_BASE_URL", "")
+	t.Setenv("GOOGLE_GEMINI_BASE_URL", "")
+	t.Setenv("GOOGLE_GENAI_API_KEY", "")
+	t.Setenv("GOOGLE_API_KEY", "google-one")
+	t.Setenv("GEMINI_API_KEY", "google-two")
+	cfg, err := Parse([]string{"test=compat"})
+	if err != nil {
+		t.Fatalf("inactive Google alias conflict should not affect auto target selection: %v", err)
+	}
+	if len(cfg.Targets) != 1 || cfg.Targets[0].Protocol != ProtocolOpenAI {
+		t.Fatalf("unexpected targets after ignoring inactive Google aliases: %+v", cfg.Targets)
 	}
 }
 

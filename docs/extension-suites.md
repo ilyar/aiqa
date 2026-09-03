@@ -10,6 +10,7 @@ Extension execution is always explicit:
 aiqa test=ext-suite
 aiqa test=compat,ext-suite
 aiqa test=ext-suite --ext-suite=official-sdk.openai
+aiqa test=compat,ext-suite --target=google-genai --ext-suite=official-sdk
 aiqa test=ext-suite \
   --ext-suite=acme.gateway \
   --ext-suite-path=/opt/aiqa/aiqa-acme-ext-suite
@@ -17,18 +18,19 @@ aiqa test=ext-suite \
 
 `test=ext-suite` runs every applicable built-in and discovered extension. Repeat `--ext-suite` or pass comma-separated IDs to select exact extensions. Selecting an unavailable ID is a configuration error. A `compat`-only run neither scans `PATH` nor executes extensions.
 
-The aggregate selector `--ext-suite=official-sdk` expands to `official-sdk.openai` and/or `official-sdk.anthropic` according to the configured targets. A target is configured only when its matching base URL and API key are present (and selected by `--target`), so an absent protocol environment pair does not add that SDK.
+The aggregate selector `--ext-suite=official-sdk` expands to `official-sdk.openai`, `official-sdk.anthropic`, and/or `official-sdk.google-genai` according to the configured targets. A target is configured only when its matching base URL and API key are present (and selected by `--target`), so an absent protocol environment pair does not add that SDK.
 
-AIQA includes two built-ins:
+AIQA includes three built-ins:
 
 | Extension ID | Implementation | Embedded version | License |
 |---|---|---:|---|
 | `official-sdk.openai` | [Official OpenAI Go SDK](https://github.com/openai/openai-go) | `v3.54.0` | [Apache-2.0](https://github.com/openai/openai-go/blob/v3.54.0/LICENSE) |
 | `official-sdk.anthropic` | [Official Anthropic Go SDK](https://github.com/anthropics/anthropic-sdk-go) | `v1.68.0` | [MIT](https://github.com/anthropics/anthropic-sdk-go/blob/v1.68.0/LICENSE) |
+| `official-sdk.google-genai` | [Official Google Gen AI Go SDK](https://github.com/googleapis/go-genai) | `v1.71.0` | [Apache-2.0](https://github.com/googleapis/go-genai/blob/v1.71.0/LICENSE) |
 
-Both SDKs disable their automatic retries. Requests use AIQA's bounded executor, adaptive target pacer, retry ceiling, and `Retry-After` handling.
+All SDKs disable their automatic retries. Requests use AIQA's bounded executor, adaptive target pacer, retry ceiling, and `Retry-After` handling. The Google built-in covers Models, legacy GenerateContent, streaming, Count Tokens, embeddings, tools, structured output, and bounded multimodal input. It intentionally does not advertise Interactions because the pinned SDK has no public Interactions methods; native Google probes cover that surface.
 
-The embedded suites retain every case that the previous runners could reach through current profiles: Models list/retrieve, chat or Messages, streaming, streaming usage, JSON or structured output, tools, tool streaming, multi-turn/system behavior, error parsing, token counting, and OpenAI image generation. Legacy OpenAI checker labels for Embeddings, Responses, and Audio were removed because AIQA had no selectable native modules or profile bindings for them. They can return as extension suites only with capability routing, tests, and explicit profile requirements.
+The embedded suites retain every case that the current profiles can reach: Models list/retrieve, chat or Messages, Google GenerateContent/Interactions, streaming, streaming usage, JSON or structured output, tools, tool streaming, multi-turn/system behavior, error parsing, token counting, embeddings, and OpenAI image generation. A suite is visible in conformance only when the active profile supplies an explicit binding.
 
 ## Applicability and cost
 
@@ -143,7 +145,7 @@ The extension contract is protected at five boundaries:
 | Boundary | Repository evidence |
 |---|---|
 | SDK parity | Each built-in has an exact suite-list test, an explicit-binding test for every suite, and a build-information check that the reported SDK version matches the pinned module. |
-| End-to-end behavior | Deterministic OpenAI and Anthropic loopback providers run both embedded SDKs directly, validate report v3, and verify combined native-plus-extension assessment. |
+| End-to-end behavior | Deterministic OpenAI, Anthropic, and Google loopback providers run the embedded SDKs directly, validate report v3, and verify combined native-plus-extension assessment. |
 | Process protocol | Contract tests and the published fixture cover credential-free manifest negotiation, stdin-only run credentials, executable provenance, malformed and duplicate records, bounded output, non-zero exit, partial output, and timeout recovery. |
 | Routing and load | Planner tests cover protocol and capability isolation, unknown/text and non-text models, billable budgets, built-in concurrency, and executable slot reservations. Race tests protect immutable manifests and concurrent result ordering. |
 | Supply chain | `make dependency-check` verifies checksums and exact pins; `make vuln-check` runs pinned `govulncheck`; `make sbom-check` validates a temporary license-bearing CycloneDX SBOM. |
@@ -163,4 +165,4 @@ The first implementation was measured against pre-extension commit `ef98a503f882
 
 Both `--version` runs completed below the timer's 0.01-second resolution. These measurements document the dependency trade-off; they are not release budgets and will vary by toolchain and host.
 
-`make dependency-check` verifies module checksums and exact SDK pins. `make vuln-check` runs the pinned official Go vulnerability scanner. `make sbom-check` creates a temporary CycloneDX module SBOM with detected licenses and asserts that both embedded SDK versions are present. CI runs the combined `make security-check`; the temporary SBOM is deleted after validation.
+`make dependency-check` verifies module checksums and exact SDK pins. `make vuln-check` runs the pinned official Go vulnerability scanner. `make sbom-check` creates a temporary CycloneDX module SBOM with detected licenses and asserts that all three embedded SDK versions are present. CI runs the combined `make security-check`; the temporary SBOM is deleted after validation.

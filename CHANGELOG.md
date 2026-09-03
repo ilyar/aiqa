@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Add first-class Google GenAI (`google-genai`) support with modern Interactions and strict legacy GenerateContent profiles, target-scoped configuration, metadata-aware routing, native REST/SSE probes, usage/error validation, and explicit persistent-resource safeguards.
+- Embed the pinned Google Gen AI Go SDK `v1.71.0` as `official-sdk.google-genai`; aggregate `--ext-suite=official-sdk` now includes it only when the Google target is configured. The report records that this SDK has no public Interactions API methods.
+- Add Google guidance, report-v3 target notes, service/version rendering, deterministic profile/schema/dependency/SBOM gates, and documentation for current/legacy surfaces and capability selection.
 
 ## 1.0.0-alpha.3 – 2026-09-02
 - Replace Docker and checker-specific Official SDK transports with the explicit `test=ext-suite` architecture.

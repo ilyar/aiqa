@@ -59,8 +59,13 @@ func Apply(r *result.Report, p profile.Profile, opts Options) {
 		return
 	}
 	requestedPack := opts.Pack
-	if (requestedPack == "" || requestedPack == "auto") && p.Protocol == "anthropic" {
-		requestedPack = "generic-anthropic-facade"
+	if requestedPack == "" || requestedPack == "auto" {
+		switch p.Protocol {
+		case "anthropic":
+			requestedPack = "generic-anthropic-facade"
+		case "google-genai":
+			requestedPack = "generic-google-genai-gateway"
+		}
 	}
 	pack, packInfo, err := LoadPack(requestedPack)
 	if err != nil {

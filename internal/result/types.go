@@ -289,13 +289,15 @@ type TargetPublicConfig struct {
 }
 
 type PublicConfigV3 struct {
-	Tests     []string             `json:"tests"`
-	Targets   []TargetPublicConfig `json:"targets"`
-	Timeout   string               `json:"timeout"`
-	Formats   []string             `json:"formats"`
-	FailOn    string               `json:"fail_on"`
-	Guidance  string               `json:"guidance,omitempty"`
-	ExtSuites []string             `json:"ext_suites,omitempty"`
+	Tests                    []string             `json:"tests"`
+	Targets                  []TargetPublicConfig `json:"targets"`
+	Timeout                  string               `json:"timeout"`
+	Formats                  []string             `json:"formats"`
+	FailOn                   string               `json:"fail_on"`
+	Guidance                 string               `json:"guidance,omitempty"`
+	ExtSuites                []string             `json:"ext_suites,omitempty"`
+	AllowHighTokenProbes     bool                 `json:"allow_high_token_probes,omitempty"`
+	AllowPersistentResources bool                 `json:"allow_persistent_resources,omitempty"`
 }
 
 type TargetReport struct {
@@ -310,6 +312,7 @@ type TargetReport struct {
 	RateLimit          RateLimitStats          `json:"rate_limit"`
 	ExtensionRateLimit *RateLimitStats         `json:"extension_rate_limit,omitempty"`
 	Extensions         []ExtensionRun          `json:"extensions,omitempty"`
+	Notes              []string                `json:"notes,omitempty"`
 }
 
 type RunSummary struct {

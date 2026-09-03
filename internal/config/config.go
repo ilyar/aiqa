@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -15,8 +16,9 @@ import (
 type Protocol string
 
 const (
-	ProtocolOpenAI    Protocol = "openai"
-	ProtocolAnthropic Protocol = "anthropic"
+	ProtocolOpenAI      Protocol = "openai"
+	ProtocolAnthropic   Protocol = "anthropic"
+	ProtocolGoogleGenAI Protocol = "google-genai"
 )
 
 type TargetConfig struct {
@@ -36,49 +38,59 @@ type TargetConfig struct {
 }
 
 type Config struct {
-	Targets                    []TargetConfig
-	BaseURL                    string
-	APIKey                     string
-	Tests                      []string
-	Models                     []string
-	Timeout                    time.Duration
-	RequestInterval            time.Duration
-	Formats                    []string
-	Name                       string
-	Concurrency                int
-	ExtSuites                  []string
-	ExtSuitePaths              []string
-	Modules                    []string
-	ModelCapabilities          []string
-	CapabilityFile             string
-	UnknownModel               string
-	AllowBillableArtifacts     bool
-	MaxArtifactsPerModel       int
-	FailOn                     string
-	Guidance                   string
-	GuidancePack               string
-	GuidanceLocale             string
-	AllowHTTP                  bool
-	Verbose                    bool
-	Samples                    int
-	ContextMaxTokens           int64
-	ContextPrecision           int64
-	ContextBudget              int64
-	ContextStartBytes          int
-	ContextMaxBytes            int
-	VersionOnly                bool
-	HelpOnly                   bool
-	TargetSelection            string
-	OpenAIModels               []string
-	AnthropicModels            []string
-	OpenAIModelCapabilities    []string
-	AnthropicModelCapabilities []string
-	OpenAICapabilityFile       string
-	AnthropicCapabilityFile    string
-	AnthropicUnknownModel      string
-	OpenAIProfile              string
-	AnthropicProfile           string
-	AllowHighTokenProbes       bool
+	Targets                      []TargetConfig
+	BaseURL                      string
+	APIKey                       string
+	Tests                        []string
+	Models                       []string
+	Timeout                      time.Duration
+	RequestInterval              time.Duration
+	Formats                      []string
+	Name                         string
+	Concurrency                  int
+	ExtSuites                    []string
+	ExtSuitePaths                []string
+	Modules                      []string
+	ModelCapabilities            []string
+	CapabilityFile               string
+	UnknownModel                 string
+	AllowBillableArtifacts       bool
+	MaxArtifactsPerModel         int
+	FailOn                       string
+	Guidance                     string
+	GuidancePack                 string
+	GuidanceLocale               string
+	AllowHTTP                    bool
+	Verbose                      bool
+	Samples                      int
+	ContextMaxTokens             int64
+	ContextPrecision             int64
+	ContextBudget                int64
+	ContextStartBytes            int
+	ContextMaxBytes              int
+	VersionOnly                  bool
+	HelpOnly                     bool
+	TargetSelection              string
+	OpenAIModels                 []string
+	AnthropicModels              []string
+	OpenAIModelCapabilities      []string
+	AnthropicModelCapabilities   []string
+	OpenAICapabilityFile         string
+	AnthropicCapabilityFile      string
+	AnthropicUnknownModel        string
+	OpenAIProfile                string
+	AnthropicProfile             string
+	AllowHighTokenProbes         bool
+	AllowPersistentResources     bool
+	GoogleGenAIBaseURL           string
+	GoogleGenAIAPIKey            string
+	GoogleGenAIAPIVersion        string
+	GoogleGenAIProfile           string
+	GoogleGenAIModels            []string
+	GoogleGenAIModelCapabilities []string
+	GoogleGenAICapabilityFile    string
+	GoogleGenAIUnknownModel      string
+	googleGenAIBaseURLFlag       bool
 }
 
 type durationValue struct{ d *time.Duration }
@@ -162,41 +174,61 @@ func Parse(args []string) (Config, error) {
 	openAIAPIKey := os.Getenv("OPENAI_API_KEY")
 	anthropicBaseURL := strings.TrimSpace(os.Getenv("ANTHROPIC_BASE_URL"))
 	anthropicAPIKey := os.Getenv("ANTHROPIC_API_KEY")
+	googleGenAIBaseURL := strings.TrimSpace(os.Getenv("GOOGLE_GENAI_BASE_URL"))
+	if googleGenAIBaseURL == "" {
+		googleGenAIBaseURL = strings.TrimSpace(os.Getenv("GOOGLE_GEMINI_BASE_URL"))
+	}
+	googleGenAIAPIKey := strings.TrimSpace(os.Getenv("GOOGLE_GENAI_API_KEY"))
+	googleGenAIAPIVersion := strings.TrimSpace(os.Getenv("GOOGLE_GENAI_API_VERSION"))
+	googleGenAIProfile := strings.TrimSpace(os.Getenv("GOOGLE_GENAI_PROFILE"))
+	if googleGenAIAPIVersion == "" {
+		googleGenAIAPIVersion = "v1beta"
+	}
+	if googleGenAIProfile == "" {
+		googleGenAIProfile = "google-genai-compat-2026-09.json"
+	}
+	googleGenAIModels := splitUnique(os.Getenv("GOOGLE_GENAI_MODEL"))
 	cfg := Config{
-		BaseURL:               openAIBaseURL,
-		APIKey:                openAIAPIKey,
-		Tests:                 []string{"compat"},
-		Timeout:               120 * time.Second,
-		RequestInterval:       2 * time.Second,
-		Formats:               []string{"markdown", "json"},
-		Name:                  "report",
-		Concurrency:           1,
-		ExtSuitePaths:         splitPathList(os.Getenv("AIQA_EXT_SUITE_PATHS")),
-		Modules:               []string{"auto"},
-		UnknownModel:          "chat",
-		AnthropicUnknownModel: "messages",
-		MaxArtifactsPerModel:  1,
-		FailOn:                "core",
-		Guidance:              "full",
-		GuidancePack:          "auto",
-		GuidanceLocale:        "en",
-		Samples:               5,
-		ContextMaxTokens:      1_100_000,
-		ContextPrecision:      512,
-		ContextBudget:         8_000_000,
-		ContextStartBytes:     1024,
-		ContextMaxBytes:       32 * 1024 * 1024,
-		TargetSelection:       "auto",
-		OpenAIProfile:         "openai-compat-2026-09.json",
-		AnthropicProfile:      "anthropic-compat-2026-09.json",
+		BaseURL:                 openAIBaseURL,
+		APIKey:                  openAIAPIKey,
+		Tests:                   []string{"compat"},
+		Timeout:                 120 * time.Second,
+		RequestInterval:         2 * time.Second,
+		Formats:                 []string{"markdown", "json"},
+		Name:                    "report",
+		Concurrency:             1,
+		ExtSuitePaths:           splitPathList(os.Getenv("AIQA_EXT_SUITE_PATHS")),
+		Modules:                 []string{"auto"},
+		UnknownModel:            "chat",
+		AnthropicUnknownModel:   "messages",
+		MaxArtifactsPerModel:    1,
+		FailOn:                  "core",
+		Guidance:                "full",
+		GuidancePack:            "auto",
+		GuidanceLocale:          "en",
+		Samples:                 5,
+		ContextMaxTokens:        1_100_000,
+		ContextPrecision:        512,
+		ContextBudget:           8_000_000,
+		ContextStartBytes:       1024,
+		ContextMaxBytes:         32 * 1024 * 1024,
+		TargetSelection:         "auto",
+		OpenAIProfile:           "openai-compat-2026-09.json",
+		AnthropicProfile:        "anthropic-compat-2026-09.json",
+		GoogleGenAIBaseURL:      googleGenAIBaseURL,
+		GoogleGenAIAPIKey:       googleGenAIAPIKey,
+		GoogleGenAIAPIVersion:   googleGenAIAPIVersion,
+		GoogleGenAIProfile:      googleGenAIProfile,
+		GoogleGenAIModels:       googleGenAIModels,
+		GoogleGenAIUnknownModel: "inventory",
 	}
 
 	args = normalizeTestArgument(args)
 	fs := flag.NewFlagSet("aiqa", flag.ContinueOnError)
 	fs.SetOutput(new(strings.Builder))
 
-	var tests, models, openAIModels, anthropicModels, formats, modules, modelCapabilities string
-	var openAIModelCapabilities, anthropicModelCapabilities string
+	var tests, models, openAIModels, anthropicModels, googleGenAIModelFlag, formats, modules, modelCapabilities string
+	var openAIModelCapabilities, anthropicModelCapabilities, googleGenAIModelCapabilities string
 	extSuitePaths := multiValue{values: append([]string(nil), cfg.ExtSuitePaths...)}
 	extSuiteValues := multiValue{}
 	tests = strings.Join(cfg.Tests, ",")
@@ -206,9 +238,14 @@ func Parse(args []string) (Config, error) {
 	fs.StringVar(&models, "model", "", "one or more comma-separated model IDs; default: discover via /models")
 	fs.StringVar(&openAIModels, "openai-model", "", "OpenAI model IDs")
 	fs.StringVar(&anthropicModels, "anthropic-model", "", "Anthropic model IDs")
-	fs.StringVar(&cfg.TargetSelection, "target", cfg.TargetSelection, "targets: auto,openai,anthropic,openai,anthropic")
+	fs.StringVar(&googleGenAIModelFlag, "google-genai-model", strings.Join(cfg.GoogleGenAIModels, ","), "Google GenAI model IDs")
+	fs.StringVar(&cfg.TargetSelection, "target", cfg.TargetSelection, "targets: auto,openai,anthropic,google-genai or comma-separated")
 	fs.StringVar(&cfg.OpenAIProfile, "openai-profile", cfg.OpenAIProfile, "embedded OpenAI profile filename")
 	fs.StringVar(&cfg.AnthropicProfile, "anthropic-profile", cfg.AnthropicProfile, "embedded Anthropic profile filename")
+	fs.StringVar(&cfg.GoogleGenAIProfile, "google-genai-profile", cfg.GoogleGenAIProfile, "embedded Google GenAI profile filename")
+	fs.StringVar(&cfg.GoogleGenAIBaseURL, "google-genai-base-url", cfg.GoogleGenAIBaseURL, "Google GenAI base URL; defaults to GOOGLE_GENAI_BASE_URL")
+	fs.StringVar(&cfg.GoogleGenAIAPIKey, "google-genai-api-key", cfg.GoogleGenAIAPIKey, "Google GenAI API key; defaults to GOOGLE_GENAI_API_KEY")
+	fs.StringVar(&cfg.GoogleGenAIAPIVersion, "google-genai-api-version", cfg.GoogleGenAIAPIVersion, "Google GenAI API version (default v1beta)")
 	fs.Var(durationValue{&cfg.Timeout}, "timeout", "per-request timeout, e.g. 120 or 2m")
 	fs.Var(durationValue{&cfg.RequestInterval}, "request-interval", "initial adaptive request interval, e.g. 2s")
 	fs.StringVar(&formats, "format", formats, "comma-separated report formats: markdown,json")
@@ -217,15 +254,19 @@ func Parse(args []string) (Config, error) {
 	fs.Var(&extSuiteValues, "ext-suite", "extension IDs to run; repeatable or comma-separated; official-sdk selects configured Official SDKs; default: all applicable extensions")
 	fs.Var(&extSuitePaths, "ext-suite-path", "absolute extension executable path; may be repeated")
 	fs.BoolVar(&cfg.AllowHighTokenProbes, "allow-high-token-probes", false, "allow opt-in high-token probes")
+	fs.BoolVar(&cfg.AllowPersistentResources, "allow-persistent-resources", false, "allow stateful probes that create retained provider resources")
 	fs.StringVar(&modules, "module", modules, "capability modules: auto, chat-completions, images-generations, or anthropic.*")
 	fs.StringVar(&modelCapabilities, "model-capability", "", "model capability overrides: model=capability[+capability]")
 	fs.StringVar(&cfg.CapabilityFile, "capability-file", "", "JSON file with model capability overrides")
 	fs.StringVar(&cfg.UnknownModel, "unknown-model", cfg.UnknownModel, "unknown model policy: inventory or chat")
 	fs.StringVar(&openAIModelCapabilities, "openai-model-capability", "", "OpenAI model capability overrides")
 	fs.StringVar(&anthropicModelCapabilities, "anthropic-model-capability", "", "Anthropic model capability overrides")
+	fs.StringVar(&googleGenAIModelCapabilities, "google-genai-model-capability", "", "Google GenAI model capability overrides")
 	fs.StringVar(&cfg.OpenAICapabilityFile, "openai-capability-file", "", "OpenAI capability override file")
 	fs.StringVar(&cfg.AnthropicCapabilityFile, "anthropic-capability-file", "", "Anthropic capability override file")
+	fs.StringVar(&cfg.GoogleGenAICapabilityFile, "google-genai-capability-file", "", "Google GenAI capability override file")
 	fs.StringVar(&cfg.AnthropicUnknownModel, "anthropic-unknown-model", cfg.AnthropicUnknownModel, "unknown Anthropic model policy: messages or inventory")
+	fs.StringVar(&cfg.GoogleGenAIUnknownModel, "google-genai-unknown-model", cfg.GoogleGenAIUnknownModel, "unknown Google GenAI model policy: inventory or text")
 	fs.BoolVar(&cfg.AllowBillableArtifacts, "allow-billable-artifacts", false, "allow modules that create billable media")
 	fs.IntVar(&cfg.MaxArtifactsPerModel, "max-artifacts-per-model", cfg.MaxArtifactsPerModel, "maximum billable artifacts generated per model")
 	fs.StringVar(&cfg.FailOn, "fail-on", cfg.FailOn, "exit policy: core,any,never")
@@ -257,6 +298,7 @@ func Parse(args []string) (Config, error) {
 	cfg.Models = splitUnique(models)
 	cfg.OpenAIModels = splitUnique(openAIModels)
 	cfg.AnthropicModels = splitUnique(anthropicModels)
+	cfg.GoogleGenAIModels = splitUnique(googleGenAIModelFlag)
 	cfg.Formats = normalizeFormats(splitUnique(formats))
 	cfg.Modules = splitUnique(modules)
 	cfg.ExtSuites = splitUnique(strings.Join(extSuiteValues.values, ","))
@@ -267,6 +309,7 @@ func Parse(args []string) (Config, error) {
 	cfg.ModelCapabilities = splitUnique(modelCapabilities)
 	cfg.OpenAIModelCapabilities = splitUnique(openAIModelCapabilities)
 	cfg.AnthropicModelCapabilities = splitUnique(anthropicModelCapabilities)
+	cfg.GoogleGenAIModelCapabilities = splitUnique(googleGenAIModelCapabilities)
 	cfg.FailOn = strings.ToLower(strings.TrimSpace(cfg.FailOn))
 	cfg.Guidance = strings.ToLower(strings.TrimSpace(cfg.Guidance))
 	cfg.GuidancePack = strings.ToLower(strings.TrimSpace(cfg.GuidancePack))
@@ -276,10 +319,22 @@ func Parse(args []string) (Config, error) {
 	cfg.CapabilityFile = strings.TrimSpace(cfg.CapabilityFile)
 	cfg.OpenAICapabilityFile = strings.TrimSpace(cfg.OpenAICapabilityFile)
 	cfg.AnthropicCapabilityFile = strings.TrimSpace(cfg.AnthropicCapabilityFile)
+	cfg.GoogleGenAICapabilityFile = strings.TrimSpace(cfg.GoogleGenAICapabilityFile)
 	cfg.Name = strings.TrimSpace(cfg.Name)
 	cfg.TargetSelection = strings.ToLower(strings.TrimSpace(cfg.TargetSelection))
 	cfg.OpenAIProfile = strings.TrimSpace(cfg.OpenAIProfile)
 	cfg.AnthropicProfile = strings.TrimSpace(cfg.AnthropicProfile)
+	cfg.GoogleGenAIBaseURL = strings.TrimSpace(cfg.GoogleGenAIBaseURL)
+	cfg.GoogleGenAIAPIKey = strings.TrimSpace(cfg.GoogleGenAIAPIKey)
+	cfg.GoogleGenAIAPIVersion = strings.TrimSpace(cfg.GoogleGenAIAPIVersion)
+	cfg.GoogleGenAIProfile = strings.TrimSpace(cfg.GoogleGenAIProfile)
+	cfg.GoogleGenAIUnknownModel = strings.ToLower(strings.TrimSpace(cfg.GoogleGenAIUnknownModel))
+	for _, arg := range args {
+		if arg == "--google-genai-base-url" || strings.HasPrefix(arg, "--google-genai-base-url=") {
+			cfg.googleGenAIBaseURLFlag = true
+			break
+		}
+	}
 
 	if err := cfg.configureTargets(openAIBaseURL, openAIAPIKey, anthropicBaseURL, anthropicAPIKey); err != nil {
 		return Config{}, err
@@ -398,7 +453,7 @@ func normalizeFormats(in []string) []string {
 
 func (c Config) Validate() error {
 	if len(c.Targets) == 0 {
-		return errors.New("no API target is configured; set an OPENAI or ANTHROPIC base URL and API key")
+		return errors.New("no API target is configured; set an OPENAI, ANTHROPIC, or GOOGLE_GENAI base URL and API key")
 	}
 	for _, target := range c.Targets {
 		u, err := url.Parse(target.BaseURL)
@@ -413,6 +468,9 @@ func (c Config) Validate() error {
 		}
 		if u.Scheme != "https" && !c.AllowHTTP && !isLoopbackHost(u.Hostname()) {
 			return fmt.Errorf("refusing non-HTTPS %s base URL outside loopback; use --allow-http to override", target.Protocol)
+		}
+		if target.Protocol == ProtocolGoogleGenAI && !validGoogleAPIVersion(target.APIVersion) {
+			return fmt.Errorf("invalid Google GenAI API version %q", target.APIVersion)
 		}
 	}
 	if len(c.Tests) == 0 {
@@ -467,7 +525,8 @@ func (c Config) Validate() error {
 	}
 	for _, module := range c.Modules {
 		switch module {
-		case "auto", "chat-completions", "images-generations", "anthropic.discovery", "anthropic.messages", "anthropic.tools", "anthropic.token-counting", "anthropic.structured-output", "anthropic.vision", "anthropic.thinking":
+		case "auto", "chat-completions", "images-generations", "anthropic.discovery", "anthropic.messages", "anthropic.tools", "anthropic.token-counting", "anthropic.structured-output", "anthropic.vision", "anthropic.thinking",
+			"google-genai.discovery", "google-genai.interactions", "google-genai.interactions-stream", "google-genai.interactions-tools", "google-genai.interactions-structured-output", "google-genai.interactions-vision", "google-genai.interactions-thinking", "google-genai.interactions-stateful", "google-genai.generate-content", "google-genai.generate-content-stream", "google-genai.generate-content-tools", "google-genai.generate-content-structured-output", "google-genai.token-counting", "google-genai.embeddings", "google-genai.vision", "google-genai.thinking":
 		default:
 			return fmt.Errorf("unknown module %q", module)
 		}
@@ -481,10 +540,13 @@ func (c Config) Validate() error {
 	if c.AnthropicUnknownModel != "inventory" && c.AnthropicUnknownModel != "messages" {
 		return errors.New("--anthropic-unknown-model must be inventory or messages")
 	}
+	if c.GoogleGenAIUnknownModel != "inventory" && c.GoogleGenAIUnknownModel != "text" {
+		return errors.New("--google-genai-unknown-model must be inventory or text")
+	}
 	if c.MaxArtifactsPerModel < 1 || c.MaxArtifactsPerModel > 10 {
 		return errors.New("--max-artifacts-per-model must be between 1 and 10")
 	}
-	for _, override := range append(append(append([]string(nil), c.ModelCapabilities...), c.OpenAIModelCapabilities...), c.AnthropicModelCapabilities...) {
+	for _, override := range append(append(append(append([]string(nil), c.ModelCapabilities...), c.OpenAIModelCapabilities...), c.AnthropicModelCapabilities...), c.GoogleGenAIModelCapabilities...) {
 		parts := strings.SplitN(override, "=", 2)
 		if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
 			return fmt.Errorf("invalid --model-capability %q", override)
@@ -537,8 +599,23 @@ func (c *Config) configureTargets(openAIBaseURL, openAIAPIKey, anthropicBaseURL,
 		return false
 	}
 	for _, item := range requested {
-		if item != string(ProtocolOpenAI) && item != string(ProtocolAnthropic) {
-			return fmt.Errorf("unknown target %q; supported: openai,anthropic", item)
+		if item != string(ProtocolOpenAI) && item != string(ProtocolAnthropic) && item != string(ProtocolGoogleGenAI) {
+			return fmt.Errorf("unknown target %q; supported: openai,anthropic,google-genai", item)
+		}
+	}
+	googleBaseURL := strings.TrimSpace(c.GoogleGenAIBaseURL)
+	googleAPIKey := c.GoogleGenAIAPIKey
+	// Generic Google aliases are intentionally consulted only after the Google
+	// target is active (a base URL or an explicit target selection). In auto
+	// mode, a key alone must never activate Google or make unrelated alias
+	// conflicts fatal. The canonical GOOGLE_GENAI_API_KEY wins over both
+	// aliases when it is present.
+	explicitGoogle := len(requested) > 0 && wants(string(ProtocolGoogleGenAI))
+	if googleAPIKey == "" && (googleBaseURL != "" || explicitGoogle) {
+		var err error
+		googleAPIKey, err = googleAliasKey()
+		if err != nil {
+			return err
 		}
 	}
 	if openAIBaseURL != "" && openAIAPIKey == "" && wants("openai") {
@@ -546,6 +623,14 @@ func (c *Config) configureTargets(openAIBaseURL, openAIAPIKey, anthropicBaseURL,
 	}
 	if anthropicBaseURL != "" && anthropicAPIKey == "" && wants("anthropic") {
 		return errors.New("ANTHROPIC_API_KEY is required when ANTHROPIC_BASE_URL is configured")
+	}
+	if googleBaseURL != "" && googleAPIKey == "" && wants(string(ProtocolGoogleGenAI)) {
+		return errors.New("GOOGLE_GENAI_API_KEY, GOOGLE_API_KEY, or GEMINI_API_KEY is required when GOOGLE_GENAI_BASE_URL is configured")
+	}
+	if googleBaseURL != "" && wants(string(ProtocolGoogleGenAI)) && !c.googleGenAIBaseURLFlag {
+		if err := validateGoogleBaseAliases(c.GoogleGenAIAPIVersion); err != nil {
+			return err
+		}
 	}
 	configured := map[string]TargetConfig{}
 	if wants("openai") && openAIBaseURL != "" && openAIAPIKey != "" {
@@ -577,9 +662,34 @@ func (c *Config) configureTargets(openAIBaseURL, openAIAPIKey, anthropicBaseURL,
 		normalized := normalizeAnthropicBaseURL(anthropicBaseURL)
 		configured["anthropic"] = TargetConfig{ID: "anthropic", Protocol: ProtocolAnthropic, BaseURL: normalized, BaseURLNormalized: normalized != strings.TrimRight(strings.TrimSpace(anthropicBaseURL), "/"), APIKey: anthropicAPIKey, Models: models, ProfileFile: c.AnthropicProfile, Modules: append([]string(nil), c.Modules...), ModelCapabilities: append([]string(nil), capabilities...), CapabilityFile: capabilityFile, UnknownModel: c.AnthropicUnknownModel, RequestInterval: c.RequestInterval, APIVersion: "2023-06-01"}
 	}
+	if wants(string(ProtocolGoogleGenAI)) && googleBaseURL != "" && googleAPIKey != "" {
+		version := strings.TrimSpace(c.GoogleGenAIAPIVersion)
+		if version == "" {
+			version = "v1beta"
+		}
+		if !validGoogleAPIVersion(version) {
+			return fmt.Errorf("invalid Google GenAI API version %q", version)
+		}
+		normalized, changed, err := normalizeGoogleBaseURL(googleBaseURL, version)
+		if err != nil {
+			return err
+		}
+		models := c.GoogleGenAIModels
+		if len(requested) <= 1 && len(models) == 0 {
+			models = c.Models
+		}
+		capabilities, capabilityFile := c.GoogleGenAIModelCapabilities, c.GoogleGenAICapabilityFile
+		if len(requested) <= 1 && len(capabilities) == 0 {
+			capabilities = c.ModelCapabilities
+		}
+		if len(requested) <= 1 && capabilityFile == "" {
+			capabilityFile = c.CapabilityFile
+		}
+		configured[string(ProtocolGoogleGenAI)] = TargetConfig{ID: "google-genai", Protocol: ProtocolGoogleGenAI, BaseURL: normalized, BaseURLNormalized: changed, APIKey: googleAPIKey, Models: models, ProfileFile: c.GoogleGenAIProfile, Modules: append([]string(nil), c.Modules...), ModelCapabilities: append([]string(nil), capabilities...), CapabilityFile: capabilityFile, UnknownModel: c.GoogleGenAIUnknownModel, RequestInterval: c.RequestInterval, APIVersion: version}
+	}
 	order := requested
 	if len(order) == 0 {
-		order = []string{"openai", "anthropic"}
+		order = []string{"openai", "anthropic", "google-genai"}
 	}
 	for _, id := range order {
 		if target, ok := configured[id]; ok {
@@ -601,7 +711,7 @@ func (c *Config) configureTargets(openAIBaseURL, openAIAPIKey, anthropicBaseURL,
 		}
 	}
 	if len(c.Targets) > 1 && len(c.Models) > 0 {
-		return errors.New("--model is ambiguous with multiple targets; use --openai-model or --anthropic-model")
+		return errors.New("--model is ambiguous with multiple targets; use protocol-specific model flags")
 	}
 	if len(c.Targets) > 1 && (len(c.ModelCapabilities) > 0 || c.CapabilityFile != "") {
 		return errors.New("--model-capability and --capability-file are ambiguous with multiple targets; use protocol-specific flags")
@@ -610,6 +720,77 @@ func (c *Config) configureTargets(openAIBaseURL, openAIAPIKey, anthropicBaseURL,
 		c.BaseURL, c.APIKey, c.Models = c.Targets[0].BaseURL, c.Targets[0].APIKey, append([]string(nil), c.Targets[0].Models...)
 	}
 	return nil
+}
+
+var googleAPIVersionPattern = regexp.MustCompile(`^v[0-9]+(?:beta[0-9]*|alpha[0-9]*)?$`)
+
+func validGoogleAPIVersion(version string) bool {
+	return googleAPIVersionPattern.MatchString(strings.TrimSpace(version))
+}
+
+func googleAliasKey() (string, error) {
+	canonical := strings.TrimSpace(os.Getenv("GOOGLE_GENAI_API_KEY"))
+	if canonical != "" {
+		return canonical, nil
+	}
+	google := strings.TrimSpace(os.Getenv("GOOGLE_API_KEY"))
+	gemini := strings.TrimSpace(os.Getenv("GEMINI_API_KEY"))
+	if google != "" && gemini != "" && google != gemini {
+		return "", errors.New("GOOGLE_API_KEY and GEMINI_API_KEY conflict; set GOOGLE_GENAI_API_KEY explicitly")
+	}
+	if google != "" {
+		return google, nil
+	}
+	return gemini, nil
+}
+
+func validateGoogleBaseAliases(version string) error {
+	canonical := strings.TrimSpace(os.Getenv("GOOGLE_GENAI_BASE_URL"))
+	alias := strings.TrimSpace(os.Getenv("GOOGLE_GEMINI_BASE_URL"))
+	if canonical == "" || alias == "" {
+		return nil
+	}
+	canonicalNormalized, _, err := normalizeGoogleBaseURL(canonical, version)
+	if err != nil {
+		return err
+	}
+	aliasNormalized, _, err := normalizeGoogleBaseURL(alias, version)
+	if err != nil {
+		return err
+	}
+	if canonicalNormalized != aliasNormalized {
+		return fmt.Errorf("GOOGLE_GENAI_BASE_URL and GOOGLE_GEMINI_BASE_URL conflict; set --google-genai-base-url explicitly")
+	}
+	return nil
+}
+
+func normalizeGoogleBaseURL(raw, version string) (string, bool, error) {
+	raw = strings.TrimSpace(raw)
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "", false, fmt.Errorf("invalid google-genai base URL %q", raw)
+	}
+	if u.RawQuery != "" || u.Fragment != "" {
+		return "", false, errors.New("google-genai base URL must not contain query parameters or a fragment")
+	}
+	if u.User != nil {
+		return "", false, errors.New("google-genai base URL must not contain user information or credentials")
+	}
+	trimmed := strings.TrimRight(u.Path, "/")
+	versionPath := "/" + strings.Trim(version, "/")
+	if strings.HasSuffix(trimmed, versionPath) {
+		u.Path = strings.TrimSuffix(trimmed, versionPath)
+		if u.Path == "" {
+			u.Path = "/"
+		}
+		u.RawPath = ""
+	}
+	u.Path = strings.TrimRight(u.Path, "/")
+	if u.Path == "" {
+		u.Path = "/"
+	}
+	normalized := strings.TrimRight(u.String(), "/")
+	return normalized, normalized != raw, nil
 }
 
 func normalizeAnthropicBaseURL(raw string) string {
@@ -651,6 +832,8 @@ func ResolveExtSuiteSelection(selected []string, targets []TargetConfig) []strin
 				resolved = append(resolved, "official-sdk.openai")
 			case ProtocolAnthropic:
 				resolved = append(resolved, "official-sdk.anthropic")
+			case ProtocolGoogleGenAI:
+				resolved = append(resolved, "official-sdk.google-genai")
 			}
 		}
 	}
