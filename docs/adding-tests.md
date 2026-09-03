@@ -63,8 +63,8 @@ Use `unsupported` when a valid optional parameter is explicitly rejected with a 
 ## Add a native suite
 
 1. Define the suite name in `internal/config` validation.
-2. Add a runner under `internal/suites`.
-3. Extend orchestration in `internal/app`.
+2. Implement it in the owning `internal/protocol/<protocol>` package. OpenAI wire probes currently live in `internal/suites` and are invoked only by `internal/protocol/openai`.
+3. Return its evidence through the existing protocol runner; protocol-specific execution must not be added to `internal/app`.
 4. Update the current report schema when the public contract changes.
 5. Document expected cost and side effects.
 
@@ -86,7 +86,7 @@ When adding a protocol or report target:
 
 1. Add a protocol-qualified profile and validate it through the embedded profile registry.
 2. Keep authentication, base-URL normalization, request types, streaming state, and usage parsing in a protocol package.
-3. Add a target-local runner and preserve deterministic target order.
+3. Add a target-local `protocol.Runner`, register it in `newProtocolRegistry`, and preserve deterministic target order. The runner must return the shared client and executor runtime used by extension suites.
 4. Extend report v3 without adding a cross-target percentage.
 5. Test duplicate model IDs across targets, credential isolation, redaction, and the exact CLI environment contract.
 

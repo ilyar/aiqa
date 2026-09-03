@@ -17,6 +17,9 @@ configuration validation
         v
 ordered target configs: OpenAI, Anthropic, Google GenAI
         |
+        v
+native protocol runner registry
+        |
         +----------------------+----------------------+----------------------+
         |                      |                                             |
         v                      v                                             v
@@ -39,7 +42,7 @@ target-local requirements, verdict, guidance, usage, and telemetry
                      atomic v3 JSON/Markdown writers
 ```
 
-`internal/app` owns this flow. It activates a target only from a base URL and its matching key, loads a protocol-matched profile, and keeps OpenAI, Anthropic, and Google credentials and telemetry separate. Each target discovers its own model inventory and derives its own authoritative verdict. The v3 root records no cross-protocol score; it selects the hardest target verdict for exit policy. Reports are written before that policy is applied.
+`internal/app` owns orchestration. It activates a target only from a base URL and its matching key, loads a protocol-matched profile, and dispatches the target through `internal/protocol.Registry`. Every runner returns the same target report and runtime contract; the runtime lets native and extension probes share one client, adaptive pacer, and concurrency budget. Each target discovers its own model inventory and derives its own authoritative verdict. The v3 root records no cross-protocol score; it selects the hardest target verdict for exit policy. Reports are written before that policy is applied.
 
 ## Packages and assets
 
@@ -47,15 +50,17 @@ target-local requirements, verdict, guidance, usage, and telemetry
 cmd/aiqa             CLI, usage text, build information, and signal handling
 internal/config      environment and flag parsing and validation
 internal/api         HTTP, JSON, SSE, artifact, pacing, and telemetry client
+internal/protocol/openai
+                     OpenAI Models, Chat Completions, images, routing, and model parameters
 internal/protocol/anthropic
                      Anthropic Models, Messages, tools, token counting, and named-event validation
 internal/protocol/googlegenai
                      Google Models, Interactions, GenerateContent, SSE, counting, embeddings, and errors
 internal/protocol/registry.go
-                     protocol-neutral native runner registration contract
+                     protocol-neutral runner, target-result, and shared-runtime contract
 internal/profile     embedded profile loading and validation
 internal/capability  capability evidence, classification, and module routing
-internal/suites      native compatibility and model-parameter probes
+internal/suites      OpenAI wire-level compatibility and model-parameter probes used by its runner
 internal/extsuite    extension registry, planning, validation, process protocol, and built-ins
 internal/result      stable in-memory and JSON report data model
 internal/assessment  canonical requirements, verdict, and comparison policy
@@ -72,7 +77,7 @@ script/              repository maintenance programs, not shipped CLI features
 
 ## Protocol isolation
 
-OpenAI, Anthropic, and Google GenAI are separate protocols, even when one gateway exposes more than one facade. The OpenAI target uses Bearer authentication, endpoints below its configured `/v1`, OpenAI response envelopes, `[DONE]` streaming termination, and prompt/completion usage names. The Anthropic target uses `x-api-key`, appends `/v1` to a configured prefix, sends `anthropic-version: 2023-06-01`, parses content blocks and named SSE events, and preserves input/output/cache usage names. The Google target treats its configured URL as a prefix before `v1beta` (or another validated version), sends only `x-goog-api-key`, and keeps Interactions SSE state separate from legacy GenerateContent chunk streaming.
+OpenAI, Anthropic, and Google GenAI are separate registered runners, even when one gateway exposes more than one facade. The application does not branch on protocol-specific execution logic after registry lookup. The OpenAI target uses Bearer authentication, endpoints below its configured `/v1`, OpenAI response envelopes, `[DONE]` streaming termination, and prompt/completion usage names. The Anthropic target uses `x-api-key`, appends `/v1` to a configured prefix, sends `anthropic-version: 2023-06-01`, parses content blocks and named SSE events, and preserves input/output/cache usage names. The Google target treats its configured URL as a prefix before `v1beta` (or another validated version), sends only `x-goog-api-key`, and keeps Interactions SSE state separate from legacy GenerateContent chunk streaming.
 
 Ambient Anthropic auth-token, beta, and custom-header variables do not affect native probes or the built-in Official SDK extension. The SDK receives explicit target configuration and disables automatic retries. Third-party executables receive credentials only through an `aiqa.ext.v1` stdin request. A malformed JSONL line becomes runner evidence without discarding valid suite entries parsed before or after it.
 

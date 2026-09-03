@@ -18,6 +18,7 @@ import (
 	"github.com/ilyar/aiqa/internal/guidance"
 	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/profile"
+	protocolpkg "github.com/ilyar/aiqa/internal/protocol"
 	reportpkg "github.com/ilyar/aiqa/internal/report"
 	"github.com/ilyar/aiqa/internal/result"
 )
@@ -34,6 +35,21 @@ type RunOptions struct {
 type Runtime struct {
 	Client   *api.Client
 	Executor *probe.Executor
+}
+
+// RunTarget adapts the Google GenAI implementation to the shared protocol
+// registry contract.
+func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg.RunResult, error) {
+	runtime := &Runtime{}
+	target, err := Run(ctx, RunOptions{
+		Target: options.Target, Config: options.Config, Profile: options.Profile,
+		UserAgent: options.UserAgent, Logf: options.Logf, Runtime: runtime,
+	})
+	target.Notes = []string{"Official Google Gen AI Go SDK v1.71.0 does not expose public Interactions API methods; no SDK Interactions suite is claimed."}
+	return protocolpkg.RunResult{
+		Target:  target,
+		Runtime: protocolpkg.Runtime{Client: runtime.Client, Executor: runtime.Executor},
+	}, err
 }
 
 func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {

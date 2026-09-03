@@ -9,27 +9,37 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/ilyar/aiqa/internal/api"
 	"github.com/ilyar/aiqa/internal/config"
+	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/profile"
 	"github.com/ilyar/aiqa/internal/result"
 )
 
 // RunOptions is the protocol-neutral portion of a native target invocation.
-// Protocol packages may carry a typed runtime through Runtime; the app owns
-// its lifecycle and passes it back to extensions after the run.
 type RunOptions struct {
 	Target    config.TargetConfig
 	Config    config.Config
 	Profile   profile.Profile
 	UserAgent string
 	Logf      func(string, ...any)
-	Runtime   any
 }
 
-// Runner is the adapter used by the application registry.  Concrete protocol
-// packages can convert RunOptions.Runtime to their own typed runtime while
-// retaining a single dispatch contract.
-type Runner func(context.Context, RunOptions) (result.TargetReport, error)
+// Runtime is the protocol-neutral execution state shared with extension
+// suites after native probes complete. The protocol runner owns both values.
+type Runtime struct {
+	Client   *api.Client
+	Executor *probe.Executor
+}
+
+// RunResult is the complete result of one native target invocation.
+type RunResult struct {
+	Target  result.TargetReport
+	Runtime Runtime
+}
+
+// Runner is the adapter used by the application registry.
+type Runner func(context.Context, RunOptions) (RunResult, error)
 
 // Registry maps stable protocol IDs to native runners.
 type Registry struct {

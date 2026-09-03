@@ -10,7 +10,9 @@ import (
 
 func TestRegistryProvidesStableProtocolDispatch(t *testing.T) {
 	r := NewRegistry()
-	runner := func(context.Context, RunOptions) (result.TargetReport, error) { return result.TargetReport{}, nil }
+	runner := func(context.Context, RunOptions) (RunResult, error) {
+		return RunResult{Target: result.TargetReport{}}, nil
+	}
 	if err := r.Register(config.ProtocolGoogleGenAI, runner); err != nil {
 		t.Fatal(err)
 	}
