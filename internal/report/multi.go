@@ -44,7 +44,7 @@ func MarkdownV3(r result.ReportV3) string {
 	var b strings.Builder
 	fmt.Fprintln(&b, "# AIQA compatibility report")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "_Measures observed API behavior; a passing report is not a security audit or an official certification._")
+	fmt.Fprintln(&b, "_measures observed API behavior, a passing report is not a security audit or an official certification_")
 	fmt.Fprintln(&b)
 	fmt.Fprintf(&b, "- **Generated:** %s\n", r.GeneratedAt.Format("2006-01-02 15:04:05Z07:00"))
 	fmt.Fprintf(&b, "- **Tool:** `aiqa %s`\n", escapeInline(r.Tool.Version))
@@ -54,11 +54,11 @@ func MarkdownV3(r result.ReportV3) string {
 	fmt.Fprintf(&b, "- **External checks:** %s\n\n", runExternalChecks(r.Targets))
 	fmt.Fprintln(&b, "## Targets")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "| Target | Protocol | Profile | Verdict | Core | Optional | Evidence | Models | Actions |")
-	fmt.Fprintln(&b, "|---|---|---|---:|---:|---:|---:|---:|---:|")
+	fmt.Fprintln(&b, "| Target | Verdict | Core | Optional | Evidence | Models | Actions |")
+	fmt.Fprintln(&b, "|---|---:|---:|---:|---:|---:|---:|")
 	for _, target := range r.Targets {
 		verdict, core, optional, evidence := targetVerdict(target)
-		fmt.Fprintf(&b, "| `%s` | %s | `%s@%s` | %s | %s | %s | %s | %d | %d |\n", escapeCell(target.ID), protocolName(target.Protocol), escapeCell(target.Profile.ID), escapeCell(target.Profile.Revision), statusLabelString(verdict), core, optional, evidence, len(target.Models), len(target.Guidance.Recommendations))
+		fmt.Fprintf(&b, "| `%s` | %s | %s | %s | %s | %d | %d |\n", escapeCell(target.ID), statusLabelString(verdict), core, optional, evidence, len(target.Models), len(target.Guidance.Recommendations))
 	}
 	fmt.Fprintln(&b)
 	fmt.Fprintf(&b, "**Run verdict:** %s\n\n", statusLabelString(r.Summary.Verdict))
@@ -67,7 +67,7 @@ func MarkdownV3(r result.ReportV3) string {
 
 	fmt.Fprintln(&b, "## Rate-limit and latency")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "| Target | Successful | 429 | Recovered retries | Backoff | Safe req/s | Safe concurrency | Mean | P50 | P95 |")
+	fmt.Fprintln(&b, "| Target | Successful | 429 | Retries | Backoff | Safe req/s | Safe concurrency | Mean | P50 | P95 |")
 	fmt.Fprintln(&b, "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
 	for _, target := range r.Targets {
 		s := target.RateLimit

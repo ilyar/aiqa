@@ -1,6 +1,6 @@
 # AIQA compatibility report
 
-_Measures observed API behavior; a passing report is not a security audit or an official certification._
+_Measures observed API behavior, a passing report is not a security audit or an official certification_
 
 - **Generated:** 2026-09-02 19:52:45Z
 - **Tool:** `aiqa 1.0.0-alpha.3`
