@@ -198,6 +198,30 @@ func TestExecutedProviderCoverageGapIsAnInternalError(t *testing.T) {
 	t.Fatal("missing provider coverage requirement")
 }
 
+func TestUnselectedModelParameterProbeDoesNotCreateCoverageGap(t *testing.T) {
+	p, err := profile.LoadFile("google-genai-compat-2026-09.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	module, ok := p.Module("google-genai.interactions")
+	if !ok {
+		t.Fatal("Google Interactions module missing from profile")
+	}
+	r := result.Report{
+		Config: result.PublicConfig{BaseURL: "https://example.test", Tests: []string{"compat"}},
+		Models: []result.ModelReport{{
+			ID:      "model-a",
+			Modules: []result.ModuleAssessment{{ID: module.ID, Applicability: result.ApplicabilityApplicable, Execution: result.ExecutionExecuted}},
+		}},
+	}
+	Apply(&r, p)
+	for _, requirement := range r.Requirements {
+		if requirement.ID == "model.parameter" {
+			t.Fatalf("unselected model-parameter probe created a requirement: %+v", requirement)
+		}
+	}
+}
+
 func reportWithTest(test result.TestResult) result.Report {
 	return result.Report{
 		Config:    result.PublicConfig{BaseURL: "https://example.test/v1", Tests: []string{"ext-suite"}},

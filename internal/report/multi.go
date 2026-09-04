@@ -13,6 +13,7 @@ import (
 
 func WriteV3(r result.ReportV3, cfg config.Config) ([]string, error) {
 	result.RedactSecrets(&r, reportSecrets(cfg)...)
+	r = normalizeV3Collections(r)
 	var paths []string
 	for _, format := range cfg.Formats {
 		var data []byte
@@ -38,6 +39,15 @@ func WriteV3(r result.ReportV3, cfg config.Config) ([]string, error) {
 		paths = append(paths, path)
 	}
 	return paths, nil
+}
+
+func normalizeV3Collections(r result.ReportV3) result.ReportV3 {
+	for index := range r.Targets {
+		if r.Targets[index].Models == nil {
+			r.Targets[index].Models = []result.ModelReport{}
+		}
+	}
+	return r
 }
 
 func MarkdownV3(r result.ReportV3) string {

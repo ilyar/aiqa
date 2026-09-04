@@ -1,11 +1,33 @@
 package report
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/ilyar/aiqa/internal/result"
 )
+
+func TestNormalizeV3CollectionsSerializesEmptyModelsAsArray(t *testing.T) {
+	report := normalizeV3Collections(result.ReportV3{
+		Targets: []result.TargetReport{{ID: "openai"}},
+	})
+	data, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Targets []struct {
+			Models json.RawMessage `json:"models"`
+		} `json:"targets"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Targets) != 1 || string(decoded.Targets[0].Models) != "[]" {
+		t.Fatalf("models JSON = %s, want []", decoded.Targets[0].Models)
+	}
+}
 
 func TestMarkdownV3RendersTargetActionsAndPerModelTelemetry(t *testing.T) {
 	assessment := result.ConformanceAssessment{Verdict: "pass-with-gaps"}

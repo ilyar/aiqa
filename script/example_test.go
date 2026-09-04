@@ -25,6 +25,40 @@ func TestGenerateWithoutModelProviderWarnsAndStops(t *testing.T) {
 	}
 }
 
+func TestGenerateWhenModelProviderCannotStartWarnsAndStops(t *testing.T) {
+	binDir := t.TempDir()
+	writeExecutable(t, filepath.Join(binDir, "model-provider"), `#!/bin/sh
+case "$*" in
+  *"--json status"*) printf '{"running":false}\n' ;;
+  *) printf 'ERROR: provider unavailable\n' >&2; exit 1 ;;
+esac
+`)
+	writeExecutable(t, filepath.Join(binDir, "aiqa"), "#!/bin/sh\nexit 0\n")
+	t.Setenv("PATH", binDir)
+
+	var stdout, stderr bytes.Buffer
+	if err := generate(context.Background(), &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr.String(), "model-provider could not be started") {
+		t.Fatalf("missing startup warning: %q", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "ERROR:") {
+		t.Fatalf("provider error leaked into maintenance output: %q", stderr.String())
+	}
+	if stdout.Len() == 0 {
+		t.Fatal("expected startup status on stdout")
+	}
+}
+
+func TestProviderCommandArgsPutConfigBeforeCommand(t *testing.T) {
+	got := providerCommandArgs("/tmp/provider.json", "--json", "status")
+	want := []string{"--config", "/tmp/provider.json", "--json", "status"}
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("provider args = %#v, want %#v", got, want)
+	}
+}
+
 func TestParseExports(t *testing.T) {
 	exports, err := parseExports([]byte("export OPENAI_BASE_URL='http://127.0.0.1:8080/v1';\nexport API_KEY='value-with-'\"'\"'quote';\n"))
 	if err != nil {
@@ -52,7 +86,7 @@ func TestParseExportsRejectsShellSyntax(t *testing.T) {
 func TestMergeEnvironmentOverridesAndUnsets(t *testing.T) {
 	got := mergeEnvironment(
 		[]string{"KEEP=one", "REPLACE=old", "REMOVE=value"},
-		map[string]string{"REPLACE": "new", "ADD": "two"},
+		map[string]string{"REPLACE": "new", "REMOVE": "override", "ADD": "two"},
 		"REMOVE",
 	)
 	joined := strings.Join(got, "\n")
@@ -86,11 +120,29 @@ func TestReportValidation(t *testing.T) {
 	if err := validateBadReport(directory); err != nil {
 		t.Fatal(err)
 	}
+	writeFixture(t, filepath.Join(directory, "bad-report.json"), `{
+		"summary":{"verdict":"fail"},
+		"targets":[
+			{"id":"openai","summary":{"error":1}},
+			{"id":"anthropic","summary":{"error":2}},
+			{"id":"google-genai","summary":{"error":3}}
+		]
+	}`)
+	if err := validateBadReport(directory); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func writeFixture(t *testing.T, path, value string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(value), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeExecutable(t *testing.T, path, value string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(value), 0o700); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -54,7 +54,7 @@ func apply(r *result.Report, p profile.Profile, targetID, protocol string) {
 			addContext(items, subject, model.Context)
 		}
 		if nativeCoverageSelected(r.Config.Tests) {
-			materializeModuleCoverage(items, subject, model.Modules, p)
+			materializeModuleCoverage(items, subject, model.Modules, p, r.Config.Tests)
 		}
 	}
 	for runIndex := range r.Extensions {
@@ -349,7 +349,7 @@ func finalizeRequirement(item *result.RequirementAssessment) {
 	}
 }
 
-func materializeModuleCoverage(items map[requirementKey]*result.RequirementAssessment, subject result.SubjectRef, assessments []result.ModuleAssessment, p profile.Profile) {
+func materializeModuleCoverage(items map[requirementKey]*result.RequirementAssessment, subject result.SubjectRef, assessments []result.ModuleAssessment, p profile.Profile, tests []string) {
 	modules := make(map[string]profile.Module, len(p.Modules))
 	for _, module := range p.Modules {
 		modules[module.ID] = module
@@ -361,6 +361,9 @@ func materializeModuleCoverage(items map[requirementKey]*result.RequirementAsses
 		}
 		for _, id := range module.ProbeIDs {
 			spec := p.Probe(id)
+			if !nativeProbeSelected(spec, tests) {
+				continue
+			}
 			level := result.RequirementOptional
 			if spec.Required {
 				level = result.RequirementCore
@@ -399,6 +402,15 @@ func materializeModuleCoverage(items map[requirementKey]*result.RequirementAsses
 			}
 			item.BlockedBy = append(item.BlockedBy, assessment.BlockedBy...)
 		}
+	}
+}
+
+func nativeProbeSelected(spec profile.Probe, tests []string) bool {
+	switch spec.Category {
+	case "parameters":
+		return containsString(tests, "model-param")
+	default:
+		return nativeCoverageSelected(tests)
 	}
 }
 

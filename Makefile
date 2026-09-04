@@ -6,6 +6,7 @@ DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 GOVULNCHECK_VERSION := v1.7.0
 CYCLONEDX_GOMOD_VERSION := v1.12.0
+EXAMPLE_SOURCES := ./script/example.go ./script/example_good.go ./script/example_bad.go
 
 .PHONY: all build test race vet fmt-check profiles-check schemas-check dependency-check vuln-check sbom-check security-check profile-upstream-check check install example clean dist
 
@@ -17,15 +18,15 @@ build:
 
 test:
 	go test ./...
-	go test ./script/example.go ./script/example_test.go
+	go test $(EXAMPLE_SOURCES) ./script/example_test.go
 
 race:
 	go test -race ./...
-	go test -race ./script/example.go ./script/example_test.go
+	go test -race $(EXAMPLE_SOURCES) ./script/example_test.go
 
 vet:
 	go vet ./...
-	go vet ./script/example.go
+	go vet $(EXAMPLE_SOURCES)
 
 fmt-check:
 	@test -z "$$(gofmt -l $$(find . -name '*.go' -type f))" || \
@@ -85,7 +86,7 @@ install: build
 	@aiqa --version
 
 example: build
-	@PATH="$(CURDIR)/bin:$$PATH" go run ./script/example.go
+	@PATH="$(CURDIR)/bin:$$PATH" go run $(EXAMPLE_SOURCES)
 
 dist: check
 	rm -rf dist
