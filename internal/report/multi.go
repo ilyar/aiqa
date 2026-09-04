@@ -288,7 +288,7 @@ func runExternalChecks(targets []result.TargetReport) string {
 }
 
 func extensionLabel(provenance result.ExtensionProvenance) string {
-	label := provenance.Name + " " + provenance.Version
+	label := strings.TrimSpace(strings.Join([]string{extensionDisplayName(provenance), provenance.Version}, " "))
 	switch provenance.ID {
 	case "official-sdk.openai":
 		return "[" + label + "](https://github.com/openai/openai-go/releases/tag/" + provenance.Version + ")"
@@ -298,6 +298,19 @@ func extensionLabel(provenance result.ExtensionProvenance) string {
 		return "[" + label + "](https://github.com/googleapis/go-genai/releases/tag/" + provenance.Version + ")"
 	default:
 		return escapeInline(label)
+	}
+}
+
+func extensionDisplayName(provenance result.ExtensionProvenance) string {
+	switch provenance.ID {
+	case "official-sdk.openai":
+		return "OpenAI Go SDK"
+	case "official-sdk.anthropic":
+		return "Anthropic Go SDK"
+	case "official-sdk.google-genai":
+		return "Google Gen AI Go SDK"
+	default:
+		return strings.TrimSpace(provenance.Name)
 	}
 }
 
@@ -362,7 +375,7 @@ func writeTargetGuidance(b *strings.Builder, target result.TargetReport) {
 				if verification.Kind == "requirement" || verification.Kind == "requirements" {
 					label = "Requirements"
 				} else if verification.Kind == "external_suite" || verification.Kind == "external_suites" {
-					label = "Official SDK suites"
+					label = "SDK suites"
 				}
 				fmt.Fprintf(b, "- %s: %s\n", label, codeList(verification.IDs))
 			}
@@ -444,7 +457,7 @@ func writeTargetExtensions(b *strings.Builder, runs []result.ExtensionRun, rateL
 	}
 	for _, id := range ids {
 		p := provenance[id]
-		fmt.Fprintf(b, "#### %s %s\n\n", escapeCell(p.Name), escapeCell(p.Version))
+		fmt.Fprintf(b, "#### %s %s\n\n", escapeCell(extensionDisplayName(p)), escapeCell(p.Version))
 		fmt.Fprintln(b, "| Suite | Subject | Status | Duration | Summary |")
 		fmt.Fprintln(b, "|---|---|---:|---:|---|")
 		for _, run := range groups[id] {

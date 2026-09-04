@@ -1,17 +1,17 @@
 {
   "schema_version": "aiqa.report.v3",
-  "generated_at": "2026-09-04T07:30:16.780146302Z",
+  "generated_at": "2026-09-04T15:30:16.836598955Z",
   "tool": {
     "name": "aiqa",
-    "version": "1.0.0-alpha.3",
-    "commit": "fb6f8c9",
-    "build_date": "2026-09-04T07:30:05Z",
+    "version": "1.0.0-alpha.4",
+    "commit": "8509ca1",
+    "build_date": "2026-09-04T15:30:03Z",
     "go_version": "go1.27.0"
   },
   "config": {
     "tests": [
       "compat",
-      "ext-suite"
+      "sdk"
     ],
     "targets": [
       {
@@ -74,7 +74,6 @@
             "category": "discovery",
             "required": true,
             "status": "pass",
-            "duration_ms": 7,
             "summary": "Google Models endpoint returned JSON",
             "expected": "GET /models returns a successful Google JSON response",
             "http": {
@@ -92,7 +91,6 @@
             "category": "schema",
             "required": true,
             "status": "pass",
-            "duration_ms": 7,
             "summary": "Google model-list schema is valid (1 models)",
             "expected": "The Google models envelope and names are valid",
             "http": {
@@ -110,7 +108,6 @@
             "category": "schema",
             "required": true,
             "status": "pass",
-            "duration_ms": 7,
             "summary": "Google model names are unique after removing models/ prefix",
             "expected": "Model names are unique after normalizing the models/ prefix",
             "http": {
@@ -128,7 +125,6 @@
             "category": "auth",
             "required": true,
             "status": "pass",
-            "duration_ms": 7,
             "summary": "x-goog-api-key authentication was accepted",
             "expected": "The x-goog-api-key header is accepted",
             "http": {
@@ -189,14 +185,14 @@
               "category": "errors",
               "required": true,
               "status": "pass",
-              "duration_ms": 31,
+              "duration_ms": 2,
               "summary": "Three malformed JSON variants returned client errors",
               "expected": "Multiple malformed JSON variants are rejected as client errors",
               "observation": "variant 1: HTTP 400; variant 2: HTTP 400; variant 3: HTTP 400",
               "http": {
                 "status_code": 400,
                 "content_type": "application/json",
-                "request_id": "e74fa704-0828-4e87-8502-03fc24bdc4b0"
+                "request_id": "9089f888-87f4-4dfd-be0c-2db5f6e86a87"
               },
               "usage": {}
             },
@@ -209,7 +205,6 @@
               "category": "errors",
               "required": true,
               "status": "pass",
-              "duration_ms": 2,
               "summary": "Invalid model returned a structured Google API error",
               "expected": "An invalid model produces a structured client error",
               "http": {
@@ -227,7 +222,6 @@
               "category": "errors",
               "required": true,
               "status": "pass",
-              "duration_ms": 2,
               "summary": "Google error envelope is valid",
               "expected": "Errors use the Google RPC-like error envelope",
               "http": {
@@ -245,13 +239,13 @@
               "category": "generate-content",
               "required": true,
               "status": "pass",
-              "duration_ms": 262,
+              "duration_ms": 142,
               "summary": "generateContent returned the requested marker",
               "expected": "Legacy generateContent returns the requested text",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "4f19e942-6708-4a8e-8ad3-d735eb0005dd"
+                "request_id": "77354a99-1a03-4240-9f4a-2b5512a5e6fe"
               },
               "usage": {
                 "input_tokens": 19,
@@ -269,13 +263,13 @@
               "category": "generate-content",
               "required": true,
               "status": "pass",
-              "duration_ms": 262,
+              "duration_ms": 142,
               "summary": "GenerateContent output text was extracted",
               "expected": "Legacy output text can be extracted",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "4f19e942-6708-4a8e-8ad3-d735eb0005dd"
+                "request_id": "77354a99-1a03-4240-9f4a-2b5512a5e6fe"
               },
               "usage": {}
             },
@@ -288,13 +282,13 @@
               "category": "schema",
               "required": true,
               "status": "pass",
-              "duration_ms": 262,
+              "duration_ms": 142,
               "summary": "GenerateContent response schema is valid",
               "expected": "Legacy GenerateContent candidates and parts are valid",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "4f19e942-6708-4a8e-8ad3-d735eb0005dd"
+                "request_id": "77354a99-1a03-4240-9f4a-2b5512a5e6fe"
               },
               "usage": {}
             },
@@ -307,13 +301,13 @@
               "category": "streaming",
               "required": true,
               "status": "pass",
-              "duration_ms": 387,
+              "duration_ms": 141,
               "summary": "GenerateContent stream exposed a finish reason",
               "expected": "Legacy stream exposes a recognized finish reason",
               "http": {
                 "status_code": 200,
                 "content_type": "text/event-stream",
-                "request_id": "b71f1c91-f825-4d98-9025-e716d60cc1b9"
+                "request_id": "6c945543-68a1-44c5-bacd-afe4b0bf9eb5"
               },
               "usage": {}
             },
@@ -326,13 +320,13 @@
               "category": "streaming",
               "required": true,
               "status": "pass",
-              "duration_ms": 387,
+              "duration_ms": 141,
               "summary": "GenerateContent stream uses SSE",
               "expected": "Legacy streaming returns text/event-stream",
               "http": {
                 "status_code": 200,
                 "content_type": "text/event-stream",
-                "request_id": "b71f1c91-f825-4d98-9025-e716d60cc1b9"
+                "request_id": "6c945543-68a1-44c5-bacd-afe4b0bf9eb5"
               },
               "usage": {}
             },
@@ -345,13 +339,13 @@
               "category": "streaming",
               "required": true,
               "status": "pass",
-              "duration_ms": 387,
+              "duration_ms": 141,
               "summary": "GenerateContent stream chunks have valid response shapes",
               "expected": "Legacy response chunks have valid GenerateContent shapes",
               "http": {
                 "status_code": 200,
                 "content_type": "text/event-stream",
-                "request_id": "b71f1c91-f825-4d98-9025-e716d60cc1b9"
+                "request_id": "6c945543-68a1-44c5-bacd-afe4b0bf9eb5"
               },
               "usage": {}
             },
@@ -364,13 +358,13 @@
               "category": "streaming",
               "required": true,
               "status": "pass",
-              "duration_ms": 387,
+              "duration_ms": 141,
               "summary": "GenerateContent stream chunks were parsed to EOF",
               "expected": "Legacy response chunks are parsed independently",
               "http": {
                 "status_code": 200,
                 "content_type": "text/event-stream",
-                "request_id": "b71f1c91-f825-4d98-9025-e716d60cc1b9"
+                "request_id": "6c945543-68a1-44c5-bacd-afe4b0bf9eb5"
               },
               "usage": {
                 "input_tokens": 19,
@@ -388,13 +382,13 @@
               "category": "streaming",
               "required": true,
               "status": "pass",
-              "duration_ms": 387,
+              "duration_ms": 141,
               "summary": "GenerateContent stream reconstructed response text",
               "expected": "Legacy stream chunks reconstruct the requested text",
               "http": {
                 "status_code": 200,
                 "content_type": "text/event-stream",
-                "request_id": "b71f1c91-f825-4d98-9025-e716d60cc1b9"
+                "request_id": "6c945543-68a1-44c5-bacd-afe4b0bf9eb5"
               },
               "usage": {}
             },
@@ -407,13 +401,13 @@
               "category": "streaming",
               "required": false,
               "status": "pass",
-              "duration_ms": 387,
+              "duration_ms": 141,
               "summary": "GenerateContent stream exposed valid usage metadata",
               "expected": "Legacy stream exposes valid usage metadata when available",
               "http": {
                 "status_code": 200,
                 "content_type": "text/event-stream",
-                "request_id": "b71f1c91-f825-4d98-9025-e716d60cc1b9"
+                "request_id": "6c945543-68a1-44c5-bacd-afe4b0bf9eb5"
               },
               "usage": {
                 "input_tokens": 19,
@@ -431,13 +425,13 @@
               "category": "structured-output",
               "required": false,
               "status": "pass",
-              "duration_ms": 569,
+              "duration_ms": 382,
               "summary": "GenerateContent structured output conforms to the local JSON schema",
               "expected": "Legacy JSON output conforms to a local schema",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "d7a7490b-2bce-4d18-b04e-87a0e6faac3f"
+                "request_id": "984fafee-aa52-4dd2-91cb-0d41f7395d36"
               },
               "usage": {
                 "input_tokens": 24,
@@ -455,13 +449,13 @@
               "category": "tools",
               "required": false,
               "status": "pass",
-              "duration_ms": 1232,
+              "duration_ms": 935,
               "summary": "GenerateContent function declaration was accepted and a valid function call was returned",
               "expected": "Legacy function declarations are accepted",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "fa413c30-0a6e-468e-956d-9d0f0c48e5a7"
+                "request_id": "e28f2496-b3d3-442a-aa74-22c55e318ba1"
               },
               "usage": {
                 "input_tokens": 156,
@@ -482,13 +476,13 @@
               "category": "usage",
               "required": true,
               "status": "pass",
-              "duration_ms": 262,
+              "duration_ms": 142,
               "summary": "GenerateContent usage metadata was normalized",
               "expected": "Legacy usageMetadata is normalized",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "4f19e942-6708-4a8e-8ad3-d735eb0005dd"
+                "request_id": "77354a99-1a03-4240-9f4a-2b5512a5e6fe"
               },
               "usage": {
                 "input_tokens": 19,
@@ -506,7 +500,6 @@
               "category": "discovery",
               "required": false,
               "status": "pass",
-              "duration_ms": 1,
               "summary": "Model metadata was retrieved for the selected model",
               "expected": "GET /models/{id} returns metadata for the selected model",
               "http": {
@@ -524,7 +517,6 @@
               "category": "discovery",
               "required": false,
               "status": "pass",
-              "duration_ms": 1,
               "summary": "Advertised token limits are non-negative and coherent",
               "expected": "Advertised token limits are non-negative and coherent",
               "http": {
@@ -546,7 +538,6 @@
               "category": "discovery",
               "required": false,
               "status": "pass",
-              "duration_ms": 1,
               "summary": "supportedGenerationMethods is a string array",
               "expected": "supportedGenerationMethods is a string array when advertised",
               "http": {
@@ -567,7 +558,6 @@
               "category": "discovery",
               "required": false,
               "status": "pass",
-              "duration_ms": 1,
               "summary": "thinking metadata is boolean",
               "expected": "The thinking metadata flag is boolean when advertised",
               "http": {
@@ -586,12 +576,12 @@
             "retries_recovered": 0,
             "retries_exhausted": 0,
             "backoff_ms": 0,
-            "observed_safe_requests_per_second": 2.6315789473684212,
-            "observed_safe_concurrency": 5,
+            "observed_safe_requests_per_second": 3.1578947368421053,
+            "observed_safe_concurrency": 6,
             "latency_samples": 5,
-            "mean_latency_ms": 490,
-            "p50_latency_ms": 387,
-            "p95_latency_ms": 1232
+            "mean_latency_ms": 320,
+            "p50_latency_ms": 142,
+            "p95_latency_ms": 935
           },
           "capabilities": [
             {
@@ -1672,8 +1662,8 @@
         },
         {
           "id": "official-sdk.google-genai.generate-content",
-          "name": "Official SDK generate content",
-          "description": "Official Google Go SDK generates content",
+          "name": "SDK generate content",
+          "description": "Google Go SDK generates content",
           "level": "optional",
           "subject": {
             "target_id": "google-genai",
@@ -1690,7 +1680,7 @@
               "kind": "extension",
               "suite": "generate-content",
               "status": "pass",
-              "summary": "Official Google Gen AI Go SDK sent and parsed the suite",
+              "summary": "Google Gen AI Go SDK sent and parsed the suite",
               "related_requirement_ids": [
                 "google.generate-content.basic",
                 "google.generate-content.schema"
@@ -1700,8 +1690,8 @@
         },
         {
           "id": "official-sdk.google-genai.generate-content-stream",
-          "name": "Official SDK generate stream",
-          "description": "Official Google Go SDK parses a generation stream",
+          "name": "SDK generate stream",
+          "description": "Google Go SDK parses a generation stream",
           "level": "optional",
           "subject": {
             "target_id": "google-genai",
@@ -1718,7 +1708,7 @@
               "kind": "extension",
               "suite": "generate-content-stream",
               "status": "pass",
-              "summary": "Official Google Gen AI Go SDK sent and parsed the suite",
+              "summary": "Google Gen AI Go SDK sent and parsed the suite",
               "related_requirement_ids": [
                 "google.generate-content.stream.http",
                 "google.generate-content.stream.text"
@@ -1728,8 +1718,8 @@
         },
         {
           "id": "official-sdk.google-genai.models.get",
-          "name": "Official SDK model get",
-          "description": "Official Google Go SDK retrieves a model",
+          "name": "SDK model get",
+          "description": "Google Go SDK retrieves a model",
           "level": "optional",
           "subject": {
             "target_id": "google-genai",
@@ -1746,14 +1736,14 @@
               "kind": "extension",
               "suite": "models.get",
               "status": "pass",
-              "summary": "Official Google Gen AI Go SDK sent and parsed the suite"
+              "summary": "Google Gen AI Go SDK sent and parsed the suite"
             }
           ]
         },
         {
           "id": "official-sdk.google-genai.structured-output",
-          "name": "Official SDK structured output",
-          "description": "Official Google Go SDK parses schema-conforming JSON",
+          "name": "SDK structured output",
+          "description": "Google Go SDK parses schema-conforming JSON",
           "level": "optional",
           "subject": {
             "target_id": "google-genai",
@@ -1770,7 +1760,7 @@
               "kind": "extension",
               "suite": "structured-output",
               "status": "pass",
-              "summary": "Official Google Gen AI Go SDK sent and parsed the suite",
+              "summary": "Google Gen AI Go SDK sent and parsed the suite",
               "related_requirement_ids": [
                 "google.generate-content.structured-output"
               ]
@@ -1779,8 +1769,8 @@
         },
         {
           "id": "official-sdk.google-genai.tools",
-          "name": "Official SDK tools",
-          "description": "Official Google Go SDK sends function declarations",
+          "name": "SDK tools",
+          "description": "Google Go SDK sends function declarations",
           "level": "optional",
           "subject": {
             "target_id": "google-genai",
@@ -1797,7 +1787,7 @@
               "kind": "extension",
               "suite": "tools",
               "status": "pass",
-              "summary": "Official Google Gen AI Go SDK sent and parsed the suite",
+              "summary": "Google Gen AI Go SDK sent and parsed the suite",
               "related_requirement_ids": [
                 "google.generate-content.tools"
               ]
@@ -1938,8 +1928,8 @@
         },
         {
           "id": "official-sdk.google-genai.models.list",
-          "name": "Official SDK models list",
-          "description": "Official Google Go SDK lists models",
+          "name": "SDK models list",
+          "description": "Google Go SDK lists models",
           "level": "optional",
           "subject": {
             "target_id": "google-genai",
@@ -1956,7 +1946,7 @@
               "kind": "extension",
               "suite": "models.list",
               "status": "pass",
-              "summary": "Official Google Gen AI Go SDK sent and parsed the suite",
+              "summary": "Google Gen AI Go SDK sent and parsed the suite",
               "related_requirement_ids": [
                 "google.models.list.http",
                 "google.models.list.schema"
@@ -2063,9 +2053,9 @@
         "observed_safe_requests_per_second": 3.1578947368421053,
         "observed_safe_concurrency": 6,
         "latency_samples": 6,
-        "mean_latency_ms": 409,
-        "p50_latency_ms": 262,
-        "p95_latency_ms": 1232
+        "mean_latency_ms": 266,
+        "p50_latency_ms": 141,
+        "p95_latency_ms": 935
       },
       "extension_rate_limit": {
         "logical_requests": 6,
@@ -2079,15 +2069,15 @@
         "observed_safe_requests_per_second": 3.333333333333333,
         "observed_safe_concurrency": 6,
         "latency_samples": 6,
-        "mean_latency_ms": 226,
-        "p50_latency_ms": 91,
-        "p95_latency_ms": 782
+        "mean_latency_ms": 204,
+        "p50_latency_ms": 55,
+        "p95_latency_ms": 669
       },
       "extensions": [
         {
           "provenance": {
             "id": "official-sdk.google-genai",
-            "name": "Official SDK – Google Gen AI Go",
+            "name": "Google Gen AI Go SDK",
             "version": "v1.71.0",
             "source": "builtin",
             "protocol_version": "aiqa.ext.v1"
@@ -2102,7 +2092,7 @@
           "runner": {
             "status": "pass",
             "startup_duration_ms": 0,
-            "total_duration_ms": 783,
+            "total_duration_ms": 672,
             "exit_code": 0,
             "pacing_compliance": "host_enforced",
             "summary": "Extension runner completed"
@@ -2119,8 +2109,8 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 139,
-              "summary": "Official Google Gen AI Go SDK sent and parsed the suite",
+              "duration_ms": 269,
+              "summary": "Google Gen AI Go SDK sent and parsed the suite",
               "http": {},
               "usage": {
                 "input_tokens": 19,
@@ -2149,8 +2139,8 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 92,
-              "summary": "Official Google Gen AI Go SDK sent and parsed the suite",
+              "duration_ms": 57,
+              "summary": "Google Gen AI Go SDK sent and parsed the suite",
               "http": {},
               "usage": {
                 "input_tokens": 19,
@@ -2179,8 +2169,8 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 4,
-              "summary": "Official Google Gen AI Go SDK sent and parsed the suite",
+              "duration_ms": 1,
+              "summary": "Google Gen AI Go SDK sent and parsed the suite",
               "http": {},
               "usage": {},
               "requirement_id": "official-sdk.google-genai.models.get",
@@ -2197,8 +2187,8 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 337,
-              "summary": "Official Google Gen AI Go SDK sent and parsed the suite",
+              "duration_ms": 235,
+              "summary": "Google Gen AI Go SDK sent and parsed the suite",
               "http": {},
               "usage": {
                 "input_tokens": 24,
@@ -2226,8 +2216,8 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 783,
-              "summary": "Official Google Gen AI Go SDK sent and parsed the suite",
+              "duration_ms": 671,
+              "summary": "Google Gen AI Go SDK sent and parsed the suite",
               "http": {},
               "usage": {
                 "input_tokens": 156,
@@ -2249,7 +2239,7 @@
         {
           "provenance": {
             "id": "official-sdk.google-genai",
-            "name": "Official SDK – Google Gen AI Go",
+            "name": "Google Gen AI Go SDK",
             "version": "v1.71.0",
             "source": "builtin",
             "protocol_version": "aiqa.ext.v1"
@@ -2264,7 +2254,7 @@
           "runner": {
             "status": "pass",
             "startup_duration_ms": 0,
-            "total_duration_ms": 5,
+            "total_duration_ms": 1,
             "exit_code": 0,
             "pacing_compliance": "host_enforced",
             "summary": "Extension runner completed"
@@ -2281,8 +2271,8 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 5,
-              "summary": "Official Google Gen AI Go SDK sent and parsed the suite",
+              "duration_ms": 1,
+              "summary": "Google Gen AI Go SDK sent and parsed the suite",
               "http": {},
               "usage": {},
               "requirement_id": "official-sdk.google-genai.models.list",
@@ -2296,7 +2286,7 @@
         }
       ],
       "notes": [
-        "Official Google Gen AI Go SDK v1.71.0 does not expose public Interactions API methods; no SDK Interactions suite is claimed."
+        "Google Gen AI Go SDK v1.71.0 does not expose public Interactions API methods; no SDK Interactions suite is claimed."
       ]
     }
   ],

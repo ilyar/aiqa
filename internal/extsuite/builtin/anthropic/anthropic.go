@@ -32,7 +32,7 @@ func (e *Extension) Manifest() extsuite.Manifest {
 	return extsuite.Manifest{
 		SchemaVersion:    extsuite.ProtocolVersion,
 		Type:             "manifest",
-		Extension:        extsuite.ExtensionInfo{ID: extensionID, Name: "Official SDK – Anthropic Go", Version: sdkVersion},
+		Extension:        extsuite.ExtensionInfo{ID: extensionID, Name: "Anthropic Go SDK", Version: sdkVersion},
 		ReportContracts:  []string{"aiqa.report.v3"},
 		ProfileContracts: []string{"aiqa.profile.v3"},
 		Protocols:        []string{"anthropic"},
@@ -100,7 +100,7 @@ func runSuite(ctx context.Context, client *anthropicsdk.Client, request extsuite
 	event.Usage = usage
 	if err == nil {
 		event.Outcome = result.ExtensionOutcomePass
-		event.Summary = "Official Anthropic Go SDK sent and parsed the suite"
+		event.Summary = "Anthropic Go SDK sent and parsed the suite"
 		return event
 	}
 	applyError(&event, err)
@@ -214,7 +214,7 @@ func runCase(ctx context.Context, client *anthropicsdk.Client, suiteID, model st
 		}
 		return result.Usage{}, nil
 	default:
-		return result.Usage{}, fmt.Errorf("unknown Anthropic Official SDK suite %q", suiteID)
+		return result.Usage{}, fmt.Errorf("unknown Anthropic SDK suite %q", suiteID)
 	}
 }
 

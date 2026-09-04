@@ -56,7 +56,11 @@ func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, er
 }
 
 func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, error) {
-	cfg.ExtSuites = config.ResolveExtSuiteSelection(cfg.ExtSuites, cfg.Targets)
+	selectedExtensions := append([]string(nil), cfg.ExtSuites...)
+	if cfg.HasTest("sdk") && !cfg.HasTest("ext-suite") {
+		selectedExtensions = append(selectedExtensions, "official-sdk")
+	}
+	cfg.ExtSuites = config.ResolveExtSuiteSelection(selectedExtensions, cfg.Targets)
 	r := result.ReportV3{
 		SchemaVersion: "aiqa.report.v3",
 		GeneratedAt:   time.Now().UTC(),
@@ -76,9 +80,11 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (Ru
 	if err != nil {
 		return RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("register native protocol runners: %w", err)
 	}
-	if cfg.HasTest("ext-suite") {
-		if err := extsuite.RegisterExecutables(ctx, extRegistry, cfg, extsuite.HostInfo{Name: "aiqa", Version: build.Version}); err != nil {
-			return RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("discover extension suites: %w", err)
+	if cfg.HasExtensionTests() {
+		if cfg.HasTest("ext-suite") {
+			if err := extsuite.RegisterExecutables(ctx, extRegistry, cfg, extsuite.HostInfo{Name: "aiqa", Version: build.Version}); err != nil {
+				return RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("discover extension suites: %w", err)
+			}
 		}
 		if err := extsuite.ValidateSelection(extRegistry, cfg.ExtSuites); err != nil {
 			return RunResult{ReportV3: &r, ExitCode: 2}, err
@@ -160,7 +166,7 @@ func reportFromTarget(target result.TargetReport, baseURL string) result.Report 
 }
 
 func finishTargetExtensions(ctx context.Context, cfg config.Config, target config.TargetConfig, p profile.Profile, targetReport result.TargetReport, registry *extsuite.Registry, client *api.Client, executor *probe.Executor) (result.TargetReport, error) {
-	if !cfg.HasTest("ext-suite") {
+	if !cfg.HasExtensionTests() {
 		return targetReport, nil
 	}
 	if client == nil || executor == nil {

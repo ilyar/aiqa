@@ -234,7 +234,7 @@ func Parse(args []string) (Config, error) {
 	tests = strings.Join(cfg.Tests, ",")
 	formats = strings.Join(cfg.Formats, ",")
 	modules = strings.Join(cfg.Modules, ",")
-	fs.StringVar(&tests, "test", tests, "comma-separated suites: compat,model-param,ext-suite")
+	fs.StringVar(&tests, "test", tests, "comma-separated suites: compat,model-param,sdk,ext-suite")
 	fs.StringVar(&models, "model", "", "one or more comma-separated model IDs; default: discover via /models")
 	fs.StringVar(&cfg.TargetSelection, "target", cfg.TargetSelection, "targets: auto,openai,anthropic,google-genai or comma-separated")
 	fs.StringVar(&cfg.OpenAIProfile, "openai-profile", cfg.OpenAIProfile, "embedded OpenAI profile filename")
@@ -248,7 +248,7 @@ func Parse(args []string) (Config, error) {
 	fs.StringVar(&formats, "format", formats, "comma-separated report formats: markdown,json")
 	fs.StringVar(&cfg.Name, "name", cfg.Name, "output basename without extension")
 	fs.IntVar(&cfg.Concurrency, "concurrency", cfg.Concurrency, "global ceiling for concurrent native and extension probe work")
-	fs.Var(&extSuiteValues, "ext-suite", "extension IDs to run; repeatable or comma-separated; official-sdk selects configured Official SDKs; default: all applicable extensions")
+	fs.Var(&extSuiteValues, "ext-suite", "extension IDs to run; repeatable or comma-separated; official-sdk selects configured SDKs; default: all applicable extensions")
 	fs.Var(&extSuitePaths, "ext-suite-path", "absolute extension executable path; may be repeated")
 	fs.BoolVar(&cfg.AllowHighTokenProbes, "allow-high-token-probes", false, "allow opt-in high-token probes")
 	fs.BoolVar(&cfg.AllowPersistentResources, "allow-persistent-resources", false, "allow stateful probes that create retained provider resources")
@@ -531,8 +531,8 @@ func (c Config) Validate() error {
 		return errors.New("at least one test suite is required")
 	}
 	for _, test := range c.Tests {
-		if test != "compat" && test != "model-param" && test != "ext-suite" {
-			return fmt.Errorf("unknown test suite %q; supported: compat,model-param,ext-suite", test)
+		if test != "compat" && test != "model-param" && test != "sdk" && test != "ext-suite" {
+			return fmt.Errorf("unknown test suite %q; supported: compat,model-param,sdk,ext-suite", test)
 		}
 	}
 	if len(c.Formats) == 0 {
@@ -572,7 +572,7 @@ func (c Config) Validate() error {
 		}
 	}
 	if len(c.ExtSuites) > 0 && !c.HasTest("ext-suite") {
-		return errors.New("--ext-suite requires test=ext-suite")
+		return errors.New("--ext-suite requires test=ext-suite; use test=sdk for built-in SDK checks")
 	}
 	if len(c.Modules) == 0 {
 		return errors.New("at least one --module is required")
@@ -854,7 +854,11 @@ func (c Config) HasTest(name string) bool {
 	return false
 }
 
-// ResolveExtSuiteSelection expands the user-facing Official SDK aggregate
+func (c Config) HasExtensionTests() bool {
+	return c.HasTest("sdk") || c.HasTest("ext-suite")
+}
+
+// ResolveExtSuiteSelection expands the user-facing SDK aggregate
 // after targets have been configured. Target configuration is the source of
 // truth here: an unset or inactive protocol never adds its SDK extension.
 func ResolveExtSuiteSelection(selected []string, targets []TargetConfig) []string {

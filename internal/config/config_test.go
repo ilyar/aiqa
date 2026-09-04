@@ -23,6 +23,30 @@ func TestParseExtensionSelectionAndPaths(t *testing.T) {
 	}
 }
 
+func TestParseSDKTestSelector(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "https://example.test/v1")
+	t.Setenv("OPENAI_API_KEY", "secret")
+	t.Setenv("ANTHROPIC_BASE_URL", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("GOOGLE_GENAI_BASE_URL", "")
+	t.Setenv("GOOGLE_GEMINI_BASE_URL", "")
+	t.Setenv("GOOGLE_GENAI_API_KEY", "")
+	t.Setenv("GOOGLE_API_KEY", "")
+	t.Setenv("GEMINI_API_KEY", "")
+	t.Setenv("AIQA_EXT_SUITE_PATHS", "")
+
+	cfg, err := Parse([]string{"test=compat,sdk"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Tests) != 2 || cfg.Tests[0] != "compat" || cfg.Tests[1] != "sdk" {
+		t.Fatalf("unexpected tests: %#v", cfg.Tests)
+	}
+	if !cfg.HasExtensionTests() || cfg.HasTest("ext-suite") || len(cfg.ExtSuites) != 0 {
+		t.Fatalf("SDK selector was treated as a generic extension selection: %+v", cfg)
+	}
+}
+
 func TestResolveOfficialSDKSelectionUsesConfiguredTargets(t *testing.T) {
 	tests := []struct {
 		name    string

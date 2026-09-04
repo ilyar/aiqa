@@ -31,7 +31,7 @@ func (e *Extension) Manifest() extsuite.Manifest {
 	return extsuite.Manifest{
 		SchemaVersion:    extsuite.ProtocolVersion,
 		Type:             "manifest",
-		Extension:        extsuite.ExtensionInfo{ID: extensionID, Name: "Official SDK – OpenAI Go", Version: sdkVersion},
+		Extension:        extsuite.ExtensionInfo{ID: extensionID, Name: "OpenAI Go SDK", Version: sdkVersion},
 		ReportContracts:  []string{"aiqa.report.v3"},
 		ProfileContracts: []string{"aiqa.profile.v3"},
 		Protocols:        []string{"openai"},
@@ -180,12 +180,12 @@ func runSuite(ctx context.Context, client *openaisdk.Client, request extsuite.Ru
 			err = errors.New("SDK parsed an image response without image data")
 		}
 	default:
-		err = fmt.Errorf("unknown OpenAI Official SDK suite %q", suiteID)
+		err = fmt.Errorf("unknown OpenAI SDK suite %q", suiteID)
 	}
 	event.DurationMS = time.Since(started).Milliseconds()
 	if err == nil {
 		event.Outcome = result.ExtensionOutcomePass
-		event.Summary = "Official OpenAI Go SDK sent and parsed the suite"
+		event.Summary = "OpenAI Go SDK sent and parsed the suite"
 		return event
 	}
 	applyError(&event, err)

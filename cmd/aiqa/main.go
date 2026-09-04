@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	version = "1.0.0-alpha.3"
+	version = "1.0.0-alpha.4"
 	commit  = "unknown"
 	date    = "unknown"
 )
@@ -52,8 +52,10 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, `usage:
   aiqa test=compat [options]
   aiqa test=model-param [options]
+  aiqa test=sdk [options]
   aiqa test=ext-suite [options]
   aiqa test=compat,model-param [options]
+  aiqa test=compat,sdk [options]
   aiqa test=compat,ext-suite [options]
 
 environment:

@@ -73,13 +73,13 @@ schema/              machine-readable report, profile, and extension protocol co
 script/              repository maintenance programs, not shipped CLI features
 ```
 
-`profile/embed.go` embeds every JSON profile in `profile/`. The current profiles use `aiqa.profile.v3`. `internal/profile` validates provenance, protocol, API version, qualified vendor IDs, unique probe IDs, native module ownership, extension requirements, and explicit suite bindings. OpenAI defaults to `openai-compat-2026-09.json`; Anthropic uses `anthropic-compat-2026-09.json` and pins `2023-06-01`; Google defaults to `google-genai-compat-2026-09.json` and pins `v1beta` plus the reviewed Official SDK commit.
+`profile/embed.go` embeds every JSON profile in `profile/`. The current profiles use `aiqa.profile.v3`. `internal/profile` validates provenance, protocol, API version, qualified vendor IDs, unique probe IDs, native module ownership, extension requirements, and explicit suite bindings. OpenAI defaults to `openai-compat-2026-09.json`; Anthropic uses `anthropic-compat-2026-09.json` and pins `2023-06-01`; Google defaults to `google-genai-compat-2026-09.json` and pins `v1beta` plus the reviewed SDK commit.
 
 ## Protocol isolation
 
 OpenAI, Anthropic, and Google GenAI are separate registered runners, even when one gateway exposes more than one facade. The application does not branch on protocol-specific execution logic after registry lookup. The OpenAI target uses Bearer authentication, endpoints below its configured `/v1`, OpenAI response envelopes, `[DONE]` streaming termination, and prompt/completion usage names. The Anthropic target uses `x-api-key`, appends `/v1` to a configured prefix, sends `anthropic-version: 2023-06-01`, parses content blocks and named SSE events, and preserves input/output/cache usage names. The Google target treats its configured URL as a prefix before `v1beta` (or another validated version), sends only `x-goog-api-key`, and keeps Interactions SSE state separate from legacy GenerateContent chunk streaming.
 
-Ambient Anthropic auth-token, beta, and custom-header variables do not affect native probes or the built-in Official SDK extension. The SDK receives explicit target configuration and disables automatic retries. Third-party executables receive credentials only through an `aiqa.ext.v1` stdin request. A malformed JSONL line becomes runner evidence without discarding valid suite entries parsed before or after it.
+Ambient Anthropic auth-token, beta, and custom-header variables do not affect native probes or the built-in SDK extension. The SDK receives explicit target configuration and disables automatic retries. Third-party executables receive credentials only through an `aiqa.ext.v1` stdin request. A malformed JSONL line becomes runner evidence without discarding valid suite entries parsed before or after it.
 
 Target IDs qualify requirement subjects and evidence IDs in report v3. The same model ID may therefore appear under both facades without merging findings or SDK evidence.
 
@@ -124,13 +124,13 @@ The native implementation executes OpenAI Chat Completions and image generation,
 5. **Validation canary** – deliberately invalid input is rejected instead of silently ignored.
 6. **Statistical evidence** – repeated generations compare observed distributions without presenting a small sample as certainty.
 
-Raw native and Official SDK evidence distinguishes `pass`, `warn`, `unsupported`, `fail`, `error`, and `skip`. Optional capabilities rejected with an appropriate 400, 404, or 422 response are `unsupported`. Timeouts, exhausted 429 responses, 5xx responses, and runner failures are `error` because the compatibility conclusion is incomplete. The requirement layer additionally uses `not_applicable`; this is distinct from a skipped applicable check.
+Raw native and SDK evidence distinguishes `pass`, `warn`, `unsupported`, `fail`, `error`, and `skip`. Optional capabilities rejected with an appropriate 400, 404, or 422 response are `unsupported`. Timeouts, exhausted 429 responses, 5xx responses, and runner failures are `error` because the compatibility conclusion is incomplete. The requirement layer additionally uses `not_applicable`; this is distinct from a skipped applicable check.
 
 ## Native probes and extension suites
 
-Native probes test wire behavior, response shape, validation, and semantic effects. Built-in Official SDK extensions check whether the official OpenAI, Anthropic, and Google Gen AI Go clients can send requests and parse responses through the target. The pinned Google SDK exposes Models/GenerateContent/counting/embedding methods but no public Interactions methods; the report records that limitation instead of advertising a missing suite.
+Native probes test wire behavior, response shape, validation, and semantic effects. Built-in SDK extensions check whether the OpenAI, Anthropic, and Google Gen AI Go clients can send requests and parse responses through the target. The pinned Google SDK exposes Models/GenerateContent/counting/embedding methods but no public Interactions methods; the report records that limitation instead of advertising a missing suite.
 
-Extension execution requires `test=ext-suite`. The application registers built-ins explicitly and may discover trusted `aiqa-*-ext-suite` executables. Built-ins and executables share manifest, planning, event validation, profile binding, status derivation, and report types. Each suite contributes independently. AIQA normalizes known optional-capability rejections against the active profile and converts provider-side 408, 429, and 5xx failures to `error` rather than compatibility failures.
+Built-in SDK execution uses `test=sdk`; generic extension execution uses `test=ext-suite`. The application registers built-ins explicitly and may discover trusted `aiqa-*-ext-suite` executables. Built-ins and executables share manifest, planning, event validation, profile binding, status derivation, and report types. Each suite contributes independently. AIQA normalizes known optional-capability rejections against the active profile and converts provider-side 408, 429, and 5xx failures to `error` rather than compatibility failures.
 
 Executable extensions remain a trusted process boundary, not a sandbox. Suite duration comes from the extension's reported request and parse work rather than process startup and is never mixed into native request latency. A startup, protocol, timeout, or termination failure is a runner error rather than a failed compatibility check. [`extension-suites.md`](extension-suites.md) defines this contract.
 
@@ -152,7 +152,7 @@ The conformance verdict is derived only from applicable canonical requirements:
 
 ## Findings and actionable guidance
 
-`internal/guidance` consumes canonical requirements and typed evidence signals. It does not parse prose summaries to decide what happened. The engine groups repeated observations by finding code and subject, assigns stable fingerprints, records evidence and artifact references, and emits deterministic recommendations with priority, target component, confidence, verification targets, references, and conditional impact. Verification targets are requirement or Official SDK suite IDs; the current engine does not emit broad shell commands.
+`internal/guidance` consumes canonical requirements and typed evidence signals. It does not parse prose summaries to decide what happened. The engine groups repeated observations by finding code and subject, assigns stable fingerprints, records evidence and artifact references, and emits deterministic recommendations with priority, target component, confidence, verification targets, references, and conditional impact. Verification targets are requirement or SDK suite IDs; the current engine does not emit broad shell commands.
 
 Normative facts remain in the compatibility profile and requirement assessment. The generic catalog provides reviewed cross-provider guidance for known signal codes. Advice packs may add operational steps, workarounds, caveats, and references, but they cannot redefine requirement level, status, verdict, or priority policy. Unknown signals receive conservative generic guidance instead of a fabricated provider-specific fix.
 

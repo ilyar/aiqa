@@ -2,12 +2,12 @@
 
 _measures observed API behavior, a passing report is not a security audit or an official certification_
 
-- **Generated:** 2026-09-04 07:30:16Z
-- **Tool:** `aiqa 1.0.0-alpha.3`
+- **Generated:** 2026-09-04 15:30:16Z
+- **Tool:** `aiqa 1.0.0-alpha.4`
 - **Service:** [127.0.0.1:8080](http://127.0.0.1:8080)
-- **Suites:** `compat,ext-suite`
+- **Suites:** `compat,sdk`
 - **Timeout:** `1m0s` per request
-- **External checks:** [Official SDK – Google Gen AI Go v1.71.0](https://github.com/googleapis/go-genai/releases/tag/v1.71.0)
+- **External checks:** [Google Gen AI Go SDK v1.71.0](https://github.com/googleapis/go-genai/releases/tag/v1.71.0)
 
 ## Targets
 
@@ -23,15 +23,15 @@ Targets are assessed independently. Percentages are not combined into a cross-pr
 
 | Target | Logical | Attempts | Successful | 429 | Retry attempts | Recovered | Exhausted | Backoff | Safe req/s | Concurrency | Mean | P50 | P95 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| `google-genai` | 10 | 10 | 6 | 0 | 0 | 0 | 0 | 0ms | 3.16 req/s | 6 | 409ms | 262ms | 1232ms |
+| `google-genai` | 10 | 10 | 6 | 0 | 0 | 0 | 0 | 0ms | 3.16 req/s | 6 | 266ms | 141ms | 935ms |
 
 ## Target: Google GenAI
 
 - **Target ID:** `google-genai`
 - **Profile:** `google-genai-generate-content-compat@2026-09-03`
 - **API version:** `v1beta`
-- **External checks:** [Official SDK – Google Gen AI Go v1.71.0](https://github.com/googleapis/go-genai/releases/tag/v1.71.0)
-- **Note:** Official Google Gen AI Go SDK v1.71.0 does not expose public Interactions API methods; no SDK Interactions suite is claimed.
+- **External checks:** [Google Gen AI Go SDK v1.71.0](https://github.com/googleapis/go-genai/releases/tag/v1.71.0)
+- **Note:** Google Gen AI Go SDK v1.71.0 does not expose public Interactions API methods; no SDK Interactions suite is claimed.
 - **Discovered models:** 1
 - **Selected models:** `Ternary-Bonsai-1.7B`
 
@@ -73,16 +73,16 @@ Built-in extension transport counts are separate from native latency percentiles
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | 6 | 6 | 6 | 0 | 0 | 0 | 0 | 0ms | 3.33 req/s | 6 |
 
-#### Official SDK – Google Gen AI Go v1.71.0
+#### Google Gen AI Go SDK v1.71.0
 
 | Suite | Subject | Status | Duration | Summary |
 |---|---|---:|---:|---|
-| `generate-content` | `model:Ternary-Bonsai-1.7B` | PASS | 139ms | Official Google Gen AI Go SDK sent and parsed the suite |
-| `generate-content-stream` | `model:Ternary-Bonsai-1.7B` | PASS | 92ms | Official Google Gen AI Go SDK sent and parsed the suite |
-| `models.get` | `model:Ternary-Bonsai-1.7B` | PASS | 4ms | Official Google Gen AI Go SDK sent and parsed the suite |
-| `structured-output` | `model:Ternary-Bonsai-1.7B` | PASS | 337ms | Official Google Gen AI Go SDK sent and parsed the suite |
-| `tools` | `model:Ternary-Bonsai-1.7B` | PASS | 783ms | Official Google Gen AI Go SDK sent and parsed the suite |
-| `models.list` | `provider:http://127.0.0.1:8080/genai` | PASS | 5ms | Official Google Gen AI Go SDK sent and parsed the suite |
+| `generate-content` | `model:Ternary-Bonsai-1.7B` | PASS | 269ms | Google Gen AI Go SDK sent and parsed the suite |
+| `generate-content-stream` | `model:Ternary-Bonsai-1.7B` | PASS | 57ms | Google Gen AI Go SDK sent and parsed the suite |
+| `models.get` | `model:Ternary-Bonsai-1.7B` | PASS | 1ms | Google Gen AI Go SDK sent and parsed the suite |
+| `structured-output` | `model:Ternary-Bonsai-1.7B` | PASS | 235ms | Google Gen AI Go SDK sent and parsed the suite |
+| `tools` | `model:Ternary-Bonsai-1.7B` | PASS | 671ms | Google Gen AI Go SDK sent and parsed the suite |
+| `models.list` | `provider:http://127.0.0.1:8080/genai` | PASS | 1ms | Google Gen AI Go SDK sent and parsed the suite |
 
 ## Observed API usage
 

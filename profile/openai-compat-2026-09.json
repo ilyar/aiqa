@@ -306,90 +306,90 @@
     },
     {
       "id": "official-sdk.openai.models.list",
-      "name": "Official SDK: list models",
+      "name": "SDK: list models",
       "category": "official-sdk",
       "required": false,
-      "description": "The official OpenAI Go SDK lists models",
+      "description": "The OpenAI Go SDK lists models",
       "executor": "extension"
     },
     {
       "id": "official-sdk.openai.models.get",
-      "name": "Official SDK: retrieve model",
+      "name": "SDK: retrieve model",
       "category": "official-sdk",
       "required": false,
-      "description": "The official OpenAI Go SDK retrieves the selected model",
+      "description": "The OpenAI Go SDK retrieves the selected model",
       "executor": "extension"
     },
     {
       "id": "official-sdk.openai.chat.completions",
-      "name": "Official SDK: chat completion",
+      "name": "SDK: chat completion",
       "category": "official-sdk",
       "required": false,
-      "description": "The official OpenAI Go SDK sends and parses a chat completion",
+      "description": "The OpenAI Go SDK sends and parses a chat completion",
       "executor": "extension"
     },
     {
       "id": "official-sdk.openai.chat.stream",
-      "name": "Official SDK: chat stream",
+      "name": "SDK: chat stream",
       "category": "official-sdk",
       "required": false,
-      "description": "The official OpenAI Go SDK consumes a chat stream",
+      "description": "The OpenAI Go SDK consumes a chat stream",
       "executor": "extension"
     },
     {
       "id": "official-sdk.openai.chat.stream.usage",
-      "name": "Official SDK: streaming usage",
+      "name": "SDK: streaming usage",
       "category": "official-sdk",
       "required": false,
-      "description": "The official OpenAI Go SDK reconstructs streaming usage",
+      "description": "The OpenAI Go SDK reconstructs streaming usage",
       "executor": "extension"
     },
     {
       "id": "official-sdk.openai.chat.json",
-      "name": "Official SDK: JSON mode",
+      "name": "SDK: JSON mode",
       "category": "official-sdk",
       "required": false,
-      "description": "The official OpenAI Go SDK parses JSON mode output",
+      "description": "The OpenAI Go SDK parses JSON mode output",
       "executor": "extension"
     },
     {
       "id": "official-sdk.openai.chat.tools",
-      "name": "Official SDK: tools",
+      "name": "SDK: tools",
       "category": "official-sdk",
       "required": false,
-      "description": "The official OpenAI Go SDK parses and continues tool calls",
+      "description": "The OpenAI Go SDK parses and continues tool calls",
       "executor": "extension"
     },
     {
       "id": "official-sdk.openai.chat.tools.stream",
-      "name": "Official SDK: streaming tools",
+      "name": "SDK: streaming tools",
       "category": "official-sdk",
       "required": false,
-      "description": "The official OpenAI Go SDK reconstructs streamed tool calls",
+      "description": "The OpenAI Go SDK reconstructs streamed tool calls",
       "executor": "extension"
     },
     {
       "id": "official-sdk.openai.chat.multi_turn",
-      "name": "Official SDK: multi-turn chat",
+      "name": "SDK: multi-turn chat",
       "category": "official-sdk",
       "required": false,
-      "description": "The official OpenAI Go SDK sends multi-turn messages",
+      "description": "The OpenAI Go SDK sends multi-turn messages",
       "executor": "extension"
     },
     {
       "id": "official-sdk.openai.error.responses",
-      "name": "Official SDK: errors",
+      "name": "SDK: errors",
       "category": "official-sdk",
       "required": false,
-      "description": "The official OpenAI Go SDK parses API errors",
+      "description": "The OpenAI Go SDK parses API errors",
       "executor": "extension"
     },
     {
       "id": "official-sdk.openai.images.generations",
-      "name": "Official SDK: image generation",
+      "name": "SDK: image generation",
       "category": "official-sdk",
       "required": false,
-      "description": "The official OpenAI Go SDK sends and parses image generation",
+      "description": "The OpenAI Go SDK sends and parses image generation",
       "executor": "extension"
     }
   ],

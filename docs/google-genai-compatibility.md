@@ -14,9 +14,8 @@ enough to create an active target.
 ```bash
 GOOGLE_GENAI_BASE_URL="https://generativelanguage.googleapis.com" \
 GOOGLE_GENAI_API_KEY="$GEMINI_API_KEY" \
-aiqa test=compat,ext-suite \
+aiqa test=compat,sdk \
   --target=google-genai \
-  --ext-suite=official-sdk \
   --model=gemini-2.5-flash \
   --format=markdown,json \
   --name=google-genai-compat
@@ -125,7 +124,7 @@ contains an explicit optional `UNSUP` notice stating that the Google
 parameter suite is not implemented in this release and no parameter calls
 were made.
 
-## Official SDK extension
+## SDK check
 
 `official-sdk.google-genai` is a built-in extension backed by
 [`google.golang.org/genai`](https://github.com/googleapis/go-genai) `v1.71.0`,
@@ -148,13 +147,13 @@ evidence therefore remains authoritative for that surface. SDK request
 rejections are `UNSUP` only when the active profile marks the capability
 optional; transport, timeout, 429, and 5xx failures remain `ERROR`.
 
-The user-facing aggregate works as follows:
+The built-in SDK check is selected as follows:
 
 ```bash
-aiqa test=compat,ext-suite --ext-suite=official-sdk
+aiqa test=compat,sdk
 ```
 
-The aggregate expands only to Official SDKs for active targets. `compat` alone
+The selector expands only to the SDK check for active targets. `compat` alone
 never starts an extension. Each suite is bound once in the selected profile;
 native and SDK observations remain separate evidence and a disagreement is an
 evidence conflict, not two independent failure votes.
@@ -190,7 +189,7 @@ by default.
 The deterministic fixture in
 [`internal/protocol/googlegenai/runner_test.go`](../internal/protocol/googlegenai/runner_test.go)
 exercises discovery, Interactions, malformed JSON, streams, tools, structured
-output, token counting, and routing without network access. The Official SDK
+output, token counting, and routing without network access. The SDK
 manifest test checks the exact public suite list, profile bindings, and module
 version. Run the repository gates with a writable Go cache when the host `/tmp`
 filesystem is constrained:
@@ -213,7 +212,7 @@ The following is the completed acceptance audit for the Google GenAI plan.
 | 19–23: method routing, embed-only isolation, unknown policy, and Interactions selection | `internal/capability/classifier.go`, `internal/protocol/googlegenai/runner.go` | Implemented; missing allowlisted model is inconclusive |
 | 24–32: header-only auth, pagination, metadata preservation, stateless default, opt-in stateful cleanup | `internal/protocol/googlegenai/client.go`, `runner.go`, fixture tests | Implemented; stateful path is explicit opt-in |
 | 33–48: schemas, streams, errors, usage, counting, embeddings, structured output, vision, and thinking privacy | `validate.go`, `stream.go`, `runner.go` | Implemented for the profiled MVP surfaces |
-| 49–60: pinned Official SDK, target-owned transport, retries, public suite list, no fabricated Interactions, and bindings | `internal/extsuite/builtin/googlegenai`, profiles, `go.mod` | Implemented and manifest-tested |
+| 49–60: pinned SDK, target-owned transport, retries, public suite list, no fabricated Interactions, and bindings | `internal/extsuite/builtin/googlegenai`, profiles, `go.mod` | Implemented and manifest-tested |
 | 61–74: report v3, independent targets, SDK limitation note, redaction, fingerprints, guidance, and exit policy | `internal/result`, `internal/report`, `internal/assessment`, `internal/guidance` | Implemented; no cross-target score |
 | 75–79: format, race, vulnerability, module checksum, and SBOM gates | `Makefile`, CI, dependency pin checks | Passed on 2026-09-03 (`make check`, `make race`, `make security-check`, `go mod verify`) |
 | 80–82: secret-gated live tests, billable-call safety, deterministic fixtures | `.github/workflows/ci.yml`, `runner_test.go` | Implemented; live evidence remains opt-in |

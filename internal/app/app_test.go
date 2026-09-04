@@ -121,6 +121,28 @@ func TestCompatibilityOnlyDoesNotDiscoverPATHConstructedExtensions(t *testing.T)
 	}
 }
 
+func TestSDKSelectionDoesNotDiscoverPATHConstructedExtensions(t *testing.T) {
+	server := newMockOpenAI(t)
+	defer server.Close()
+	pathDir := t.TempDir()
+	broken := filepath.Join(pathDir, "aiqa-broken-ext-suite")
+	if err := os.WriteFile(broken, []byte("not an executable format"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", pathDir)
+	cfg := testConfig(server.URL+"/v1", []string{"compat", "sdk"})
+	cfg.Formats = nil
+	out, err := Run(context.Background(), cfg, BuildInfo{Version: "test"})
+	if err != nil {
+		t.Fatalf("SDK selection touched PATH extension candidate: %v", err)
+	}
+	for _, extension := range out.ReportV3.Targets[0].Extensions {
+		if extension.Provenance.Source == "executable" {
+			t.Fatalf("SDK selection unexpectedly ran executable extension: %+v", extension.Provenance)
+		}
+	}
+}
+
 func TestUnavailableSelectedExtensionIsConfigurationError(t *testing.T) {
 	server := newMockOpenAI(t)
 	defer server.Close()
@@ -170,8 +192,7 @@ func TestCombinedNativeAndExtensionRunProducesOneAssessment(t *testing.T) {
 	server := newMockOpenAI(t)
 	defer server.Close()
 	t.Setenv("PATH", t.TempDir())
-	cfg := testConfig(server.URL+"/v1", []string{"compat", "ext-suite"})
-	cfg.ExtSuites = []string{"official-sdk"}
+	cfg := testConfig(server.URL+"/v1", []string{"compat", "sdk"})
 	cfg.Concurrency = 3
 	cfg.Formats = nil
 	out, err := Run(context.Background(), cfg, BuildInfo{Version: "test"})
@@ -184,6 +205,12 @@ func TestCombinedNativeAndExtensionRunProducesOneAssessment(t *testing.T) {
 	}
 	if target.Summary.Assessment == nil || target.Summary.Assessment.Verdict != "pass" {
 		t.Fatalf("combined assessment is not authoritative: %+v", target.Summary.Assessment)
+	}
+	if got := strings.Join(out.ReportV3.Config.Tests, ","); got != "compat,sdk" {
+		t.Fatalf("report did not preserve SDK selector: %q", got)
+	}
+	if got := strings.Join(out.ReportV3.Config.ExtSuites, ","); got != "official-sdk.openai" {
+		t.Fatalf("SDK selector did not resolve to the active built-in: %q", got)
 	}
 	seen := map[string]bool{}
 	for _, requirement := range target.Requirements {
@@ -254,7 +281,7 @@ func TestGenerateExampleReports(t *testing.T) {
 	cfg.ContextBudget = 50_000
 	cfg.ContextMaxBytes = 16 * 1024
 	out, err := Run(context.Background(), cfg, BuildInfo{
-		Version: "1.0.0-alpha.3-example",
+		Version: "1.0.0-alpha.4-example",
 		Commit:  "example",
 		Date:    "2026-08-30T00:00:00Z",
 	})

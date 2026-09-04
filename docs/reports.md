@@ -43,9 +43,9 @@ Guidance never changes a requirement status, conformance assessment, or exit cod
 
 ## Canonical requirements
 
-A probe is an experiment; a requirement is the contract unit being assessed. Several probes may support one requirement without giving that requirement extra weight. Native and Official SDK observations retain separate evidence IDs.
+A probe is an experiment; a requirement is the contract unit being assessed. Several probes may support one requirement without giving that requirement extra weight. Native and SDK observations retain separate evidence IDs.
 
-Official SDK parsing is normally an explicit optional interoperability requirement linked to the related native wire requirement. `aiqa.profile.v3` supplies the binding; an extension cannot define its own requiredness or weight. Conflicting native and SDK observations create an evidence diagnostic without rewriting a passing native core result. Unbound extension results remain visible but do not enter conformance measures.
+SDK parsing is normally an explicit optional interoperability requirement linked to the related native wire requirement. `aiqa.profile.v3` supplies the binding; an extension cannot define its own requiredness or weight. Conflicting native and SDK observations create an evidence diagnostic without rewriting a passing native core result. Unbound extension results remain visible but do not enter conformance measures.
 
 Each requirement has a level, applicability, status, subject, and evidence:
 
@@ -115,7 +115,7 @@ Guidance levels describe specificity:
 
 Finding, attribution, and recommendation confidence are recorded separately as `high`, `medium`, or `low`. A projected verdict is conditional: it assumes only the affected requirements change to `pass` and nothing else regresses. Conflicting or inconclusive findings always use `projected_verdict: null`.
 
-Verification entries identify the affected target, protocol, requirement IDs, and Official SDK suite IDs. AIQA does not emit shell commands: a full `test=compat` rerun does not verify one finding in isolation and would misrepresent its cost and scope. Targeted execution and opt-in command rendering are tracked in the [backlog](../tasks/backlog.md).
+Verification entries identify the affected target, protocol, requirement IDs, and SDK suite IDs. AIQA does not emit shell commands: a full `test=compat` rerun does not verify one finding in isolation and would misrepresent its cost and scope. Targeted execution and opt-in command rendering are tracked in the [backlog](../tasks/backlog.md).
 
 ## Markdown layout
 

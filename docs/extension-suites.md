@@ -4,29 +4,30 @@ Extension suites add client-library and third-party evidence to an AIQA run. The
 
 ## Running extensions
 
-Extension execution is always explicit:
+Built-in SDK checks and third-party extension execution are explicit:
 
 ```bash
+aiqa test=sdk
+aiqa test=compat,sdk
 aiqa test=ext-suite
 aiqa test=compat,ext-suite
 aiqa test=ext-suite --ext-suite=official-sdk.openai
-aiqa test=compat,ext-suite --target=google-genai --ext-suite=official-sdk
 aiqa test=ext-suite \
   --ext-suite=acme.gateway \
   --ext-suite-path=/opt/aiqa/aiqa-acme-ext-suite
 ```
 
-`test=ext-suite` runs every applicable built-in and discovered extension. Repeat `--ext-suite` or pass comma-separated IDs to select exact extensions. Selecting an unavailable ID is a configuration error. A `compat`-only run neither scans `PATH` nor executes extensions.
+`test=sdk` runs the applicable built-in SDK checks for active targets and does not scan `PATH`. `test=ext-suite` runs every applicable built-in and discovered extension. Repeat `--ext-suite` or pass comma-separated IDs to select exact extensions; that filter requires `test=ext-suite`. Selecting an unavailable ID is a configuration error. A `compat`-only run neither scans `PATH` nor executes extensions.
 
-The aggregate selector `--ext-suite=official-sdk` expands to `official-sdk.openai`, `official-sdk.anthropic`, and/or `official-sdk.google-genai` according to the configured targets. A target is configured only when its matching base URL and API key are present (and selected by `--target`), so an absent protocol environment pair does not add that SDK.
+The `sdk` selector expands to `official-sdk.openai`, `official-sdk.anthropic`, and/or `official-sdk.google-genai` according to the configured targets. A target is configured only when its matching base URL and API key are present (and selected by `--target`), so an absent protocol environment pair does not add that SDK.
 
 AIQA includes three built-ins:
 
 | Extension ID | Implementation | Embedded version | License |
 |---|---|---:|---|
-| `official-sdk.openai` | [Official OpenAI Go SDK](https://github.com/openai/openai-go) | `v3.54.0` | [Apache-2.0](https://github.com/openai/openai-go/blob/v3.54.0/LICENSE) |
-| `official-sdk.anthropic` | [Official Anthropic Go SDK](https://github.com/anthropics/anthropic-sdk-go) | `v1.68.0` | [MIT](https://github.com/anthropics/anthropic-sdk-go/blob/v1.68.0/LICENSE) |
-| `official-sdk.google-genai` | [Official Google Gen AI Go SDK](https://github.com/googleapis/go-genai) | `v1.71.0` | [Apache-2.0](https://github.com/googleapis/go-genai/blob/v1.71.0/LICENSE) |
+| `official-sdk.openai` | [OpenAI Go SDK](https://github.com/openai/openai-go) | `v3.54.0` | [Apache-2.0](https://github.com/openai/openai-go/blob/v3.54.0/LICENSE) |
+| `official-sdk.anthropic` | [Anthropic Go SDK](https://github.com/anthropics/anthropic-sdk-go) | `v1.68.0` | [MIT](https://github.com/anthropics/anthropic-sdk-go/blob/v1.68.0/LICENSE) |
+| `official-sdk.google-genai` | [Google Gen AI Go SDK](https://github.com/googleapis/go-genai) | `v1.71.0` | [Apache-2.0](https://github.com/googleapis/go-genai/blob/v1.71.0/LICENSE) |
 
 All SDKs disable their automatic retries. Requests use AIQA's bounded executor, adaptive target pacer, retry ceiling, and `Retry-After` handling. The Google built-in covers Models, legacy GenerateContent, streaming, Count Tokens, embeddings, tools, structured output, and bounded multimodal input. It intentionally does not advertise Interactions because the pinned SDK has no public Interactions methods; native Google probes cover that surface.
 
@@ -101,7 +102,7 @@ External executables implement `aiqa.ext.v1` as one JSON object per line. The st
 For manifest negotiation, AIQA starts the executable directly, with no shell and a clean environment, then writes one credential-free request:
 
 ```json
-{"schema_version":"aiqa.ext.v1","type":"manifest_request","host":{"name":"aiqa","version":"1.0.0-alpha.3"}}
+{"schema_version":"aiqa.ext.v1","type":"manifest_request","host":{"name":"aiqa","version":"1.0.0-alpha.4"}}
 ```
 
 The executable writes exactly one `manifest` record and exits zero. stdout is reserved for protocol records; human diagnostics belong on stderr.

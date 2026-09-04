@@ -34,7 +34,7 @@ POST <base>/v1/messages/count_tokens
 
 A trailing `/v1` is removed once and the normalization is recorded as `config.targets[].base_url_normalized` in report v3. A configured base URL without `ANTHROPIC_API_KEY` is a configuration error. A key without a base URL does not activate the target.
 
-Use the global `--model` option to select one or more exact IDs. The list is intersected with the Anthropic Models inventory; an absent ID is not probed or materialized as a model report. A slash inside a model ID is encoded as one path parameter for native and Official SDK retrieve checks. If a facade supports Messages but intentionally omits Models, discovery is inconclusive; the current contract does not synthesize a model outside the inventory.
+Use the global `--model` option to select one or more exact IDs. The list is intersected with the Anthropic Models inventory; an absent ID is not probed or materialized as a model report. A slash inside a model ID is encoded as one path parameter for native and SDK retrieve checks. If a facade supports Messages but intentionally omits Models, discovery is inconclusive; the current contract does not synthesize a model outside the inventory.
 
 Native requests use `x-api-key` and the pinned `anthropic-version`. They do not inherit `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BETA`, or ambient custom headers.
 
@@ -95,9 +95,9 @@ The Anthropic stream validator consumes named SSE events. It accepts pings and u
 
 For an applicable optional capability, a stable 400, 404, or 422 response is `UNSUP`. The same rejection cannot turn a required requirement into a pass or optional gap: required unsupported behavior is a core failure.
 
-## Official SDK extension
+## SDK check
 
-`official-sdk.anthropic` is compiled into AIQA and pins `anthropic-sdk-go v1.68.0`. Run it explicitly with `test=ext-suite` or combine it with native probes using `test=compat,ext-suite`.
+`official-sdk.anthropic` is compiled into AIQA and pins `anthropic-sdk-go v1.68.0`. Run it with `test=sdk` or combine it with native probes using `test=compat,sdk`.
 
 The extension receives the selected target and subject, disables SDK retries, uses AIQA's bounded executor and adaptive HTTP transport, and emits each case through the shared extension validator. Current suites cover:
 

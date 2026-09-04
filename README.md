@@ -14,15 +14,14 @@ aiqa test=compat \
   --name=compat-report
 ```
 
-For a Gemini Developer API target, set the prefix before the API version. The Official SDK is explicit and follows the same target selection:
+For a Gemini Developer API target, set the prefix before the API version. SDK checks follow the same target selection:
 
 ```bash
 export GOOGLE_GENAI_BASE_URL="https://generativelanguage.googleapis.com"
 export GOOGLE_GENAI_API_KEY="<GEMINI_API_KEY>"
 
-aiqa test=compat,ext-suite \
+aiqa test=compat,sdk \
   --target=google-genai \
-  --ext-suite=official-sdk \
   --model=gemini-2.5-flash \
   --format=markdown,json \
   --name=google-compat-report
@@ -111,7 +110,7 @@ aiqa test=compat \
 
 Reports retain only the observed image format, media type, byte size, dimensions, and SHA-256 digest. Base64 payloads, binary data, and signed URL query strings are not stored.
 
-The native image probe consumes one artifact slot. Set `--max-artifacts-per-model=2` for a combined native and Official SDK image run; the default limit of one prevents the extension suite from creating a second billable image.
+The native image probe consumes one artifact slot. Set `--max-artifacts-per-model=2` for a combined native and SDK image run; the default limit of one prevents the extension suite from creating a second billable image.
 
 ## Installation
 
@@ -129,7 +128,7 @@ Generate a successful report against the local model provider and an intentional
 make example
 ```
 
-The target builds the current AIQA source first, then runs the Go maintenance command `script/example.go`. If `model-provider` is not installed or cannot be started/read, it prints a warning and exits without changing the reports. If the configured provider is stopped, the target starts it with storage `/arch/model` on `0.0.0.0:8080`. The successful example intentionally targets the provider's compatible Google GenAI route and writes `example/good-report.md` and `example/good-report.json` using the native compatibility and Official SDK suites; the failure example exercises all three protocol facades. Set `AIQA_EXAMPLE_PROVIDER_CONFIG` when the provider registry must be kept in a different writable location; the value is passed as the provider's global `--config` option.
+The target builds the current AIQA source first, then runs the Go maintenance command `script/example.go`. If `model-provider` is not installed or cannot be started/read, it prints a warning and exits without changing the reports. If the configured provider is stopped, the target starts it with storage `/arch/model` on `0.0.0.0:8080`. The successful example intentionally targets the provider's compatible Google GenAI route and writes `example/good-report.md` and `example/good-report.json` using the native compatibility and SDK suites; the failure example exercises all three protocol facades. Set `AIQA_EXAMPLE_PROVIDER_CONFIG` when the provider registry must be kept in a different writable location; the value is passed as the provider's global `--config` option.
 
 The failure example uses the pinned official WireMock Docker image and the fixtures in `test/wiremock`. Separate OpenAI, Anthropic, and Google GenAI model inventories let discovery complete for every target, while all other API operations return an intentional `503`; the resulting `example/bad-report.md` and `example/bad-report.json` demonstrate execution errors without representing a checker startup failure. Set `AIQA_EXAMPLE_PROVIDER_STORAGE`, `AIQA_EXAMPLE_PROVIDER_LISTEN`, or `AIQA_EXAMPLE_WIREMOCK_IMAGE` to override the defaults.
 
@@ -189,24 +188,25 @@ The current modular profile is in [`profile/openai-compat-2026-09.json`](profile
 
 The Anthropic compatibility contract is in [`profile/anthropic-compat-2026-09.json`](profile/anthropic-compat-2026-09.json). It pins `anthropic-version: 2023-06-01` and the official Go SDK v1.68.0. AIQA sends `x-api-key`, does not inherit `ANTHROPIC_AUTH_TOKEN` or beta headers, parses Anthropic content blocks and named SSE events, and keeps Anthropic token fields distinct from OpenAI usage fields. The profile covers Models, Messages, streaming, tools, Count Tokens, structured output, vision routing, and opt-in thinking. It does not claim coverage of the entire Anthropic Platform API.
 
-See [`docs/anthropic-compatibility.md`](docs/anthropic-compatibility.md) for the complete activation, routing, module, streaming, Official SDK, report, and maintenance contract.
+See [`docs/anthropic-compatibility.md`](docs/anthropic-compatibility.md) for the complete activation, routing, module, streaming, SDK, report, and maintenance contract.
 
 The Google GenAI compatibility contract has two profiles: [`profile/google-genai-compat-2026-09.json`](profile/google-genai-compat-2026-09.json) tests the modern Interactions surface with optional legacy methods, while [`profile/google-genai-generate-content-compat-2026-09.json`](profile/google-genai-generate-content-compat-2026-09.json) is a strict legacy `generateContent` contract. Google is an independent Gemini Developer API target, defaults to `v1beta`, and authenticates with `x-goog-api-key`. Configure it with `GOOGLE_GENAI_BASE_URL` and `GOOGLE_GENAI_API_KEY`; `GOOGLE_GEMINI_BASE_URL`, `GOOGLE_API_KEY`, and `GEMINI_API_KEY` are compatibility aliases. See [`docs/google-genai-compatibility.md`](docs/google-genai-compatibility.md).
 
 Google routing is metadata-first: `supportedGenerationMethods` enables `generateContent`, `countTokens`, and `embedContent` modules independently. `generateContent` never implies Interactions. The modern profile selects Interactions only for an explicitly selected model or its reviewed allowlist; an unknown or embedding-only model is not sent through that surface. Unclassified Google models remain inventory-only by default (`--google-genai-unknown-model=text` opts into a text fallback).
 
-## Extension suites and Official SDKs
+## Extension suites and SDK checks
 
-Official SDK checks are compiled into AIQA and use the same extension contract as installed third-party suites. They run only when `ext-suite` is selected:
+SDK checks are compiled into AIQA and use the same extension contract as installed third-party suites. Select the built-in checks directly with `sdk`:
 
 ```bash
+aiqa test=sdk
+aiqa test=compat,sdk
 aiqa test=ext-suite
 aiqa test=compat,ext-suite
 aiqa test=ext-suite --ext-suite=official-sdk.openai
-aiqa test=compat,ext-suite --ext-suite=official-sdk
 ```
 
-The aggregate `official-sdk` selector expands to the configured OpenAI, Anthropic, and/or Google GenAI SDKs. It does not add an SDK whose matching base URL and API key are absent.
+`sdk` expands to the built-in OpenAI, Anthropic, and/or Google Gen AI SDK checks for the active targets. It does not add a check whose matching base URL and API key are absent. `ext-suite` remains the generic extension boundary: it runs all applicable built-ins and trusted executables, with `--ext-suite` available for exact ID filters.
 
 The binary pins the official OpenAI Go SDK `v3.54.0`, Anthropic Go SDK `v1.68.0`, and Google Gen AI Go SDK `v1.71.0`. SDK retries are disabled, and requests share AIQA's global concurrency and adaptive pacing policy. Each suite contributes separately through an explicit `aiqa.profile.v3` binding. The pinned Google SDK has no public Interactions methods, so AIQA does not claim SDK coverage for that surface.
 
@@ -386,9 +386,9 @@ Integration tests run a deterministic mock endpoint and check:
 - canonical requirement aggregation and actionable guidance
 - Draft 2020-12 report-schema validation and deterministic guidance fixtures
 - independent OpenAI, Anthropic, and Google GenAI execution, protocol-specific headers, named SSE events, and v3 report isolation
-- pinned built-in OpenAI, Anthropic, and Google GenAI Official SDK suites
+- pinned built-in OpenAI, Anthropic, and Google GenAI SDK suites
 
-Live CI jobs are disabled unless the repository variables `AIQA_LIVE_OPENAI`, `AIQA_LIVE_ANTHROPIC`, `AIQA_LIVE_DUAL`, or `AIQA_LIVE_GOOGLE_GENAI` equal `1`. They also require matching secret URLs and keys plus an explicit model variable. OpenAI and Anthropic jobs are non-blocking, run one model, and omit `ext-suite`; the Google job is equally bounded but exercises the explicitly selected native-plus-Official-SDK path. No job scans a production catalog by default.
+Live CI jobs are disabled unless the repository variables `AIQA_LIVE_OPENAI`, `AIQA_LIVE_ANTHROPIC`, `AIQA_LIVE_DUAL`, or `AIQA_LIVE_GOOGLE_GENAI` equal `1`. They also require matching secret URLs and keys plus an explicit model variable. OpenAI and Anthropic jobs are non-blocking, run one model, and omit `ext-suite`; the Google job is equally bounded but exercises the explicitly selected native-plus-SDK path. No job scans a production catalog by default.
 
 See [`docs/adding-tests.md`](docs/adding-tests.md) for how to add a new suite or probe
 

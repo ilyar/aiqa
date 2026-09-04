@@ -102,10 +102,13 @@ func TestMarkdownV3GroupsExtensionSuitesWithoutExecutablePath(t *testing.T) {
 		}},
 	}}}
 	markdown := MarkdownV3(report)
-	for _, want := range []string{"**External checks:** [Official SDK – OpenAI Go v3.54.0]", "#### Official SDK – OpenAI Go v3.54.0", "| Suite | Subject | Status | Duration | Summary |", "| `chat.stream` | `model:model-a` | PASS | 12ms |"} {
+	for _, want := range []string{"**External checks:** [OpenAI Go SDK v3.54.0]", "#### OpenAI Go SDK v3.54.0", "| Suite | Subject | Status | Duration | Summary |", "| `chat.stream` | `model:model-a` | PASS | 12ms |"} {
 		if !strings.Contains(markdown, want) {
 			t.Fatalf("markdown missing %q:\n%s", want, markdown)
 		}
+	}
+	if strings.Contains(markdown, "Official SDK") {
+		t.Fatalf("redundant SDK label leaked into Markdown:\n%s", markdown)
 	}
 	if strings.Contains(markdown, "/private/bin") || strings.Contains(markdown, "Runner issues") {
 		t.Fatalf("Markdown exposed transport detail or a successful runner issue:\n%s", markdown)

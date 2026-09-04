@@ -23,7 +23,7 @@
     "config": {
       "type": "object", "required": ["tests", "targets", "timeout", "formats", "fail_on"],
       "properties": {
-        "tests": {"type": "array", "minItems": 1, "items": {"enum": ["compat", "model-param", "ext-suite"]}},
+        "tests": {"type": "array", "minItems": 1, "items": {"enum": ["compat", "model-param", "sdk", "ext-suite"]}},
         "targets": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/targetConfig"}},
         "requested_models": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "timeout": {"type": "string", "minLength": 1},

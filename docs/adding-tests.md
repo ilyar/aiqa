@@ -18,7 +18,7 @@ A probe should record:
 - a short sanitized observation;
 - metrics needed for later machine analysis.
 
-When several probes test the same normative promise, map them to one canonical requirement. When they test distinct promises, such as valid SSE framing and Official SDK parser interoperability, give them separate requirement IDs and link the extension suite through `related_requirement_ids`.
+When several probes test the same normative promise, map them to one canonical requirement. When they test distinct promises, such as valid SSE framing and SDK parser interoperability, give them separate requirement IDs and link the extension suite through `related_requirement_ids`.
 
 For Anthropic, add the probe to `profile/anthropic-compat-2026-09.json` and use an `anthropic.*` requirement ID. Implement request construction and validation under `internal/protocol/anthropic`; do not translate the probe into an OpenAI Chat Completions request. Stable probes must send `x-api-key` and `anthropic-version: 2023-06-01`, must not inherit beta headers, and must preserve Anthropic content blocks, error envelopes, named SSE events, and usage fields.
 
@@ -42,7 +42,7 @@ Official Google Gen AI Go SDK extension, is in
 
 Add a typed signal and a generic catalog entry under `guidance/catalog/` when AIQA can provide reviewed, cross-provider advice. Every P0/P1 entry needs ordered steps and verification targets. Guidance level 3 always needs verification targets.
 
-A verification target is a stable requirement ID or Official SDK suite ID. Do not embed shell commands in catalogs or reports. AIQA will render commands only after the targeted verification runner in [`tasks/backlog.md`](../tasks/backlog.md) exists and only when the user explicitly enables them.
+A verification target is a stable requirement ID or SDK suite ID. Do not embed shell commands in catalogs or reports. AIQA will render commands only after the targeted verification runner in [`tasks/backlog.md`](../tasks/backlog.md) exists and only when the user explicitly enables them.
 
 Catalog entries may define normative priority and action policy. Advice packs under `guidance/packs/` are deliberately narrower: they may add steps, workarounds, caveats, and references, but strict decoding rejects status, requirement-level, priority, verdict, or impact overrides.
 

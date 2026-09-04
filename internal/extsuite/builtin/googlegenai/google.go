@@ -32,7 +32,7 @@ func (e *Extension) Manifest() extsuite.Manifest {
 	return extsuite.Manifest{
 		SchemaVersion:    extsuite.ProtocolVersion,
 		Type:             "manifest",
-		Extension:        extsuite.ExtensionInfo{ID: extensionID, Name: "Official SDK – Google Gen AI Go", Version: sdkVersion},
+		Extension:        extsuite.ExtensionInfo{ID: extensionID, Name: "Google Gen AI Go SDK", Version: sdkVersion},
 		ReportContracts:  []string{"aiqa.report.v3"},
 		ProfileContracts: []string{"aiqa.profile.v3"},
 		Protocols:        []string{"google-genai"},
@@ -102,7 +102,7 @@ func runSuite(parent context.Context, client *genai.Client, request extsuite.Run
 	event.Usage = usage
 	if err == nil {
 		event.Outcome = result.ExtensionOutcomePass
-		event.Summary = "Official Google Gen AI Go SDK sent and parsed the suite"
+		event.Summary = "Google Gen AI Go SDK sent and parsed the suite"
 		return event
 	}
 	applyError(&event, err)
@@ -204,7 +204,7 @@ func runCase(ctx context.Context, client *genai.Client, suiteID, model string) (
 		}
 		return responseUsage(response), nil
 	default:
-		return result.Usage{}, fmt.Errorf("unknown Google Gen AI Official SDK suite %q", suiteID)
+		return result.Usage{}, fmt.Errorf("unknown Google Gen AI SDK suite %q", suiteID)
 	}
 }
 

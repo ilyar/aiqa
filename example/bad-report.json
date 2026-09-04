@@ -1,35 +1,35 @@
 {
   "schema_version": "aiqa.report.v3",
-  "generated_at": "2026-09-04T07:30:20.655049079Z",
+  "generated_at": "2026-09-04T15:30:19.936961192Z",
   "tool": {
     "name": "aiqa",
-    "version": "1.0.0-alpha.3",
-    "commit": "fb6f8c9",
-    "build_date": "2026-09-04T07:30:05Z",
+    "version": "1.0.0-alpha.4",
+    "commit": "8509ca1",
+    "build_date": "2026-09-04T15:30:03Z",
     "go_version": "go1.27.0"
   },
   "config": {
     "tests": [
       "compat",
-      "ext-suite"
+      "sdk"
     ],
     "targets": [
       {
         "id": "anthropic",
         "protocol": "anthropic",
-        "base_url": "http://127.0.0.1:32779/anthropic",
+        "base_url": "http://127.0.0.1:32781/anthropic",
         "api_version": "2023-06-01"
       },
       {
         "id": "google-genai",
         "protocol": "google-genai",
-        "base_url": "http://127.0.0.1:32779/google",
+        "base_url": "http://127.0.0.1:32781/google",
         "api_version": "v1beta"
       },
       {
         "id": "openai",
         "protocol": "openai",
-        "base_url": "http://127.0.0.1:32779/openai/v1"
+        "base_url": "http://127.0.0.1:32781/openai/v1"
       }
     ],
     "requested_models": [
@@ -83,7 +83,7 @@
             "category": "discovery",
             "required": true,
             "status": "pass",
-            "duration_ms": 33,
+            "duration_ms": 31,
             "summary": "Anthropic Models endpoint returned JSON",
             "expected": "GET /v1/models returns successful JSON",
             "http": {
@@ -102,7 +102,7 @@
             "category": "schema",
             "required": true,
             "status": "fail",
-            "duration_ms": 33,
+            "duration_ms": 31,
             "summary": "Anthropic model-list schema is invalid",
             "expected": "The Anthropic model-list envelope and entries are valid",
             "observation": "data[0].max_input_tokens is missing or not positive; data[0].max_tokens is missing or not positive; data[0].capabilities is missing or not an object",
@@ -163,7 +163,7 @@
               "category": "core",
               "required": true,
               "status": "error",
-              "duration_ms": 4,
+              "duration_ms": 3,
               "summary": "model availability could not be determined after a transient preflight failure",
               "expected": "A minimal Messages request succeeds",
               "http": {
@@ -329,14 +329,14 @@
             "target_id": "anthropic",
             "protocol": "anthropic",
             "kind": "provider",
-            "id": "http://127.0.0.1:32779/anthropic"
+            "id": "http://127.0.0.1:32781/anthropic"
           },
           "module": "anthropic.discovery",
           "applicability": "applicable",
           "status": "pass",
           "evidence": [
             {
-              "id": "native:anthropic:provider:http.127.0.0.1.32779.anthropic:aiqa.native.anthropic.models.list.http",
+              "id": "native:anthropic:provider:http.127.0.0.1.32781.anthropic:aiqa.native.anthropic.models.list.http",
               "kind": "native",
               "probe_id": "aiqa.native.anthropic.models.list.http",
               "status": "pass",
@@ -354,14 +354,14 @@
             "target_id": "anthropic",
             "protocol": "anthropic",
             "kind": "provider",
-            "id": "http://127.0.0.1:32779/anthropic"
+            "id": "http://127.0.0.1:32781/anthropic"
           },
           "module": "anthropic.discovery",
           "applicability": "applicable",
           "status": "skip",
           "evidence": [
             {
-              "id": "native:anthropic:provider:http.127.0.0.1.32779.anthropic:aiqa.native.anthropic.models.list.pagination",
+              "id": "native:anthropic:provider:http.127.0.0.1.32781.anthropic:aiqa.native.anthropic.models.list.pagination",
               "kind": "native",
               "probe_id": "aiqa.native.anthropic.models.list.pagination",
               "status": "skip",
@@ -390,14 +390,14 @@
             "target_id": "anthropic",
             "protocol": "anthropic",
             "kind": "provider",
-            "id": "http://127.0.0.1:32779/anthropic"
+            "id": "http://127.0.0.1:32781/anthropic"
           },
           "module": "anthropic.discovery",
           "applicability": "applicable",
           "status": "fail",
           "evidence": [
             {
-              "id": "native:anthropic:provider:http.127.0.0.1.32779.anthropic:aiqa.native.anthropic.models.list.schema",
+              "id": "native:anthropic:provider:http.127.0.0.1.32781.anthropic:aiqa.native.anthropic.models.list.schema",
               "kind": "native",
               "probe_id": "aiqa.native.anthropic.models.list.schema",
               "status": "fail",
@@ -413,14 +413,14 @@
         },
         {
           "id": "anthropic.official-sdk.models.list",
-          "name": "Official SDK: list models",
-          "description": "The official Anthropic Go SDK lists models",
+          "name": "SDK: list models",
+          "description": "The Anthropic Go SDK lists models",
           "level": "optional",
           "subject": {
             "target_id": "anthropic",
             "protocol": "anthropic",
             "kind": "provider",
-            "id": "http://127.0.0.1:32779/anthropic"
+            "id": "http://127.0.0.1:32781/anthropic"
           },
           "module": "anthropic.discovery",
           "applicability": "applicable",
@@ -428,18 +428,18 @@
           "failure_kind": "evidence_conflict",
           "evidence": [
             {
-              "id": "extension:anthropic:provider:http.127.0.0.1.32779.anthropic:official.sdk.anthropic.models.list",
+              "id": "extension:anthropic:provider:http.127.0.0.1.32781.anthropic:official.sdk.anthropic.models.list",
               "kind": "extension",
               "suite": "models.list",
               "status": "pass",
-              "summary": "Official Anthropic Go SDK sent and parsed the suite",
+              "summary": "Anthropic Go SDK sent and parsed the suite",
               "related_requirement_ids": [
                 "anthropic.models.list.http",
                 "anthropic.models.list.schema"
               ]
             },
             {
-              "id": "native:anthropic:provider:http.127.0.0.1.32779.anthropic:aiqa.native.anthropic.models.list.http",
+              "id": "native:anthropic:provider:http.127.0.0.1.32781.anthropic:aiqa.native.anthropic.models.list.http",
               "kind": "native",
               "probe_id": "aiqa.native.anthropic.models.list.http",
               "status": "pass",
@@ -447,7 +447,7 @@
               "http_status": 200
             },
             {
-              "id": "native:anthropic:provider:http.127.0.0.1.32779.anthropic:aiqa.native.anthropic.models.list.schema",
+              "id": "native:anthropic:provider:http.127.0.0.1.32781.anthropic:aiqa.native.anthropic.models.list.schema",
               "kind": "native",
               "probe_id": "aiqa.native.anthropic.models.list.schema",
               "status": "fail",
@@ -539,8 +539,8 @@
         },
         "findings": [
           {
-            "id": "finding:evidence-anthropic-official-sdk-models-list-native-sdk-conflict:b5f0aadd260d",
-            "fingerprint": "sha256:b5f0aadd260d3d34709e6364c4d597569404051119a57358ec3ab1985ba56d43",
+            "id": "finding:evidence-anthropic-official-sdk-models-list-native-sdk-conflict:b3640dd9a068",
+            "fingerprint": "sha256:b3640dd9a0688943cdcfa57acfe13a9e9a26328cb7e95d9a6fee1d2741899262",
             "code": "evidence.anthropic.official-sdk.models.list.native_sdk_conflict",
             "root_cause": "code:evidence.anthropic.official-sdk.models.list.native_sdk_conflict\u0000{}",
             "class": "evidence_conflict",
@@ -551,19 +551,19 @@
               "target_id": "anthropic",
               "protocol": "anthropic",
               "kind": "provider",
-              "id": "http://127.0.0.1:32779/anthropic"
+              "id": "http://127.0.0.1:32781/anthropic"
             },
             "observed_scope": {},
             "requirement_ids": [
               "anthropic.official-sdk.models.list"
             ],
             "evidence_refs": [
-              "extension:anthropic:provider:http.127.0.0.1.32779.anthropic:official.sdk.anthropic.models.list",
-              "native:anthropic:provider:http.127.0.0.1.32779.anthropic:aiqa.native.anthropic.models.list.http",
-              "native:anthropic:provider:http.127.0.0.1.32779.anthropic:aiqa.native.anthropic.models.list.schema"
+              "extension:anthropic:provider:http.127.0.0.1.32781.anthropic:official.sdk.anthropic.models.list",
+              "native:anthropic:provider:http.127.0.0.1.32781.anthropic:aiqa.native.anthropic.models.list.http",
+              "native:anthropic:provider:http.127.0.0.1.32781.anthropic:aiqa.native.anthropic.models.list.schema"
             ],
-            "expected": "The official Anthropic Go SDK lists models",
-            "observed": "Anthropic Models endpoint returned JSON Anthropic model-list schema is invalid Official Anthropic Go SDK sent and parsed the suite",
+            "expected": "The Anthropic Go SDK lists models",
+            "observed": "Anthropic Go SDK sent and parsed the suite Anthropic Models endpoint returned JSON Anthropic model-list schema is invalid",
             "attribution": {
               "component": "unknown",
               "confidence": "low",
@@ -607,8 +607,8 @@
             "baseline_state": "unknown"
           },
           {
-            "id": "finding:requirement-anthropic-models-list-schema-fail:25ce99779621",
-            "fingerprint": "sha256:25ce9977962188d7f76ac94128e45ce60c44f1a4127472d145cba767cb3c857f",
+            "id": "finding:requirement-anthropic-models-list-schema-fail:73a74aefdb61",
+            "fingerprint": "sha256:73a74aefdb61f50a6fe49d9e7b0b2ad452ac69de8fe33d402d5a8474ae099250",
             "code": "requirement.anthropic.models.list.schema.fail",
             "root_cause": "code:requirement.anthropic.models.list.schema.fail\u0000{}",
             "class": "behavior_mismatch",
@@ -619,14 +619,14 @@
               "target_id": "anthropic",
               "protocol": "anthropic",
               "kind": "provider",
-              "id": "http://127.0.0.1:32779/anthropic"
+              "id": "http://127.0.0.1:32781/anthropic"
             },
             "observed_scope": {},
             "requirement_ids": [
               "anthropic.models.list.schema"
             ],
             "evidence_refs": [
-              "native:anthropic:provider:http.127.0.0.1.32779.anthropic:aiqa.native.anthropic.models.list.schema"
+              "native:anthropic:provider:http.127.0.0.1.32781.anthropic:aiqa.native.anthropic.models.list.schema"
             ],
             "expected": "The Anthropic model-list envelope and entries are valid",
             "observed": "Anthropic model-list schema is invalid",
@@ -708,10 +708,10 @@
             }
           },
           {
-            "id": "recommendation:requirement-anthropic-models-list-schema-fail:cd8409e71076",
-            "fingerprint": "sha256:cd8409e710761a7a8ee0374a0812d28ef75bd0600698fa680ce381c0ccc89a7e",
+            "id": "recommendation:requirement-anthropic-models-list-schema-fail:ba266546f13f",
+            "fingerprint": "sha256:ba266546f13ff6a1f22cb427570829275abb695953e7bd6c8fcea88dc58ee958",
             "finding_ids": [
-              "finding:requirement-anthropic-models-list-schema-fail:25ce99779621"
+              "finding:requirement-anthropic-models-list-schema-fail:73a74aefdb61"
             ],
             "title": "Correct the incompatible behavior",
             "priority": "p0",
@@ -774,10 +774,10 @@
             }
           },
           {
-            "id": "recommendation:evidence-anthropic-official-sdk-models-list-native-sdk-conflict:3fe9824e5169",
-            "fingerprint": "sha256:3fe9824e5169132189a2a1b1283bc9275754b14f4096656152c01c15cb84e7fb",
+            "id": "recommendation:evidence-anthropic-official-sdk-models-list-native-sdk-conflict:e0d0b0b9bef4",
+            "fingerprint": "sha256:e0d0b0b9bef40d4230afa358a0b4f72ae96fdc1e79b077455f1a5213a17eb2d7",
             "finding_ids": [
-              "finding:evidence-anthropic-official-sdk-models-list-native-sdk-conflict:b5f0aadd260d"
+              "finding:evidence-anthropic-official-sdk-models-list-native-sdk-conflict:b3640dd9a068"
             ],
             "title": "Investigate the incomplete or conflicting evidence",
             "priority": "p1",
@@ -793,7 +793,7 @@
               "component": "unknown"
             },
             "why": "Trustworthy evidence sources disagree, so the mismatch must be localized before choosing a fix.",
-            "observed": "Anthropic Models endpoint returned JSON Anthropic model-list schema is invalid Official Anthropic Go SDK sent and parsed the suite",
+            "observed": "Anthropic Go SDK sent and parsed the suite Anthropic Models endpoint returned JSON Anthropic model-list schema is invalid",
             "steps": [
               {
                 "id": "compare-evidence",
@@ -852,9 +852,9 @@
         "observed_safe_requests_per_second": 0.5,
         "observed_safe_concurrency": 1,
         "latency_samples": 1,
-        "mean_latency_ms": 33,
-        "p50_latency_ms": 33,
-        "p95_latency_ms": 33
+        "mean_latency_ms": 31,
+        "p50_latency_ms": 31,
+        "p95_latency_ms": 31
       },
       "extension_rate_limit": {
         "logical_requests": 1,
@@ -868,15 +868,15 @@
         "observed_safe_requests_per_second": 0.5,
         "observed_safe_concurrency": 1,
         "latency_samples": 1,
-        "mean_latency_ms": 4,
-        "p50_latency_ms": 4,
-        "p95_latency_ms": 4
+        "mean_latency_ms": 3,
+        "p50_latency_ms": 3,
+        "p95_latency_ms": 3
       },
       "extensions": [
         {
           "provenance": {
             "id": "official-sdk.anthropic",
-            "name": "Official SDK – Anthropic Go",
+            "name": "Anthropic Go SDK",
             "version": "v1.68.0",
             "source": "builtin",
             "protocol_version": "aiqa.ext.v1"
@@ -886,12 +886,12 @@
             "target_id": "anthropic",
             "protocol": "anthropic",
             "kind": "provider",
-            "id": "http://127.0.0.1:32779/anthropic"
+            "id": "http://127.0.0.1:32781/anthropic"
           },
           "runner": {
             "status": "pass",
             "startup_duration_ms": 0,
-            "total_duration_ms": 6,
+            "total_duration_ms": 4,
             "exit_code": 0,
             "pacing_compliance": "host_enforced",
             "summary": "Extension runner completed"
@@ -904,12 +904,12 @@
                 "target_id": "anthropic",
                 "protocol": "anthropic",
                 "kind": "provider",
-                "id": "http://127.0.0.1:32779/anthropic"
+                "id": "http://127.0.0.1:32781/anthropic"
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 5,
-              "summary": "Official Anthropic Go SDK sent and parsed the suite",
+              "duration_ms": 4,
+              "summary": "Anthropic Go SDK sent and parsed the suite",
               "http": {},
               "usage": {},
               "requirement_id": "anthropic.official-sdk.models.list",
@@ -1148,7 +1148,7 @@
               "category": "errors",
               "required": true,
               "status": "error",
-              "duration_ms": 2,
+              "duration_ms": 4,
               "summary": "Provider/runtime error makes the negative probe inconclusive",
               "expected": "An invalid model produces a structured client error",
               "http": {
@@ -1174,7 +1174,7 @@
               "category": "errors",
               "required": true,
               "status": "skip",
-              "duration_ms": 2,
+              "duration_ms": 4,
               "summary": "skipped because prerequisite google.error.invalid_model did not pass",
               "expected": "Errors use the Google RPC-like error envelope",
               "http": {
@@ -1522,7 +1522,7 @@
               "category": "interactions",
               "required": true,
               "status": "error",
-              "duration_ms": 2,
+              "duration_ms": 3,
               "summary": "Provider/runtime error HTTP 503 makes compatibility inconclusive",
               "expected": "A stateless Interaction returns the requested text",
               "http": {
@@ -1548,7 +1548,7 @@
               "category": "interactions",
               "required": true,
               "status": "skip",
-              "duration_ms": 2,
+              "duration_ms": 3,
               "summary": "Interaction output text was extracted without exposing private thought content",
               "expected": "Model output text can be extracted without exposing thought content",
               "http": {
@@ -1575,7 +1575,7 @@
               "category": "schema",
               "required": true,
               "status": "skip",
-              "duration_ms": 2,
+              "duration_ms": 3,
               "summary": "skipped because prerequisite google.interactions.basic did not pass",
               "expected": "Interaction response has id, object, status, steps, and usage",
               "http": {
@@ -1602,7 +1602,7 @@
               "category": "schema",
               "required": true,
               "status": "skip",
-              "duration_ms": 2,
+              "duration_ms": 3,
               "summary": "Interaction status is a recognized terminal state",
               "expected": "Interaction status is a recognized terminal state",
               "http": {
@@ -1629,7 +1629,7 @@
               "category": "privacy",
               "required": true,
               "status": "skip",
-              "duration_ms": 2,
+              "duration_ms": 3,
               "summary": "Stateless Interaction request used store=false",
               "expected": "Default Interaction requests send store=false",
               "http": {
@@ -1656,7 +1656,7 @@
               "category": "streaming",
               "required": true,
               "status": "skip",
-              "duration_ms": 4,
+              "duration_ms": 5,
               "summary": "skipped because prerequisite google.interactions.stream.sequence did not pass",
               "expected": "Interactions stream contains interaction.completed after all steps",
               "http": {
@@ -1683,7 +1683,7 @@
               "category": "streaming",
               "required": true,
               "status": "skip",
-              "duration_ms": 4,
+              "duration_ms": 5,
               "summary": "skipped because prerequisite google.interactions.stream.sequence did not pass",
               "expected": "Interactions stream ends with completed and [DONE]",
               "http": {
@@ -1710,7 +1710,7 @@
               "category": "streaming",
               "required": true,
               "status": "skip",
-              "duration_ms": 4,
+              "duration_ms": 5,
               "summary": "skipped because prerequisite google.interactions.stream.sequence did not pass",
               "expected": "Known SSE event names match their JSON event type",
               "http": {
@@ -1737,7 +1737,7 @@
               "category": "streaming",
               "required": true,
               "status": "error",
-              "duration_ms": 4,
+              "duration_ms": 5,
               "summary": "Google stream could not be evaluated",
               "expected": "Interactions streaming returns text/event-stream",
               "http": {
@@ -1764,7 +1764,7 @@
               "category": "streaming",
               "required": true,
               "status": "skip",
-              "duration_ms": 4,
+              "duration_ms": 5,
               "summary": "skipped because prerequisite google.interactions.stream.http did not pass",
               "expected": "Interactions SSE lifecycle is legal",
               "http": {
@@ -1791,7 +1791,7 @@
               "category": "streaming",
               "required": true,
               "status": "skip",
-              "duration_ms": 4,
+              "duration_ms": 5,
               "summary": "Interactions SSE framing and JSON data are valid",
               "expected": "Interactions SSE framing and JSON data are valid",
               "http": {
@@ -1818,7 +1818,7 @@
               "category": "streaming",
               "required": true,
               "status": "skip",
-              "duration_ms": 4,
+              "duration_ms": 5,
               "summary": "skipped because prerequisite google.interactions.stream.sequence did not pass",
               "expected": "Interactions deltas reconstruct the requested text",
               "http": {
@@ -1845,7 +1845,7 @@
               "category": "streaming",
               "required": true,
               "status": "skip",
-              "duration_ms": 4,
+              "duration_ms": 5,
               "summary": "skipped because prerequisite google.interactions.stream.sequence did not pass",
               "expected": "Interactions stream exposes valid final usage",
               "http": {
@@ -1872,7 +1872,7 @@
               "category": "structured-output",
               "required": false,
               "status": "error",
-              "duration_ms": 3,
+              "duration_ms": 2,
               "summary": "Provider/runtime error HTTP 503 makes compatibility inconclusive",
               "expected": "Interactions output conforms to a local JSON schema",
               "http": {
@@ -1898,7 +1898,7 @@
               "category": "tools",
               "required": false,
               "status": "error",
-              "duration_ms": 2,
+              "duration_ms": 4,
               "summary": "Provider/runtime error HTTP 503 makes compatibility inconclusive",
               "expected": "Client-side function declarations are accepted",
               "http": {
@@ -1924,7 +1924,7 @@
               "category": "usage",
               "required": true,
               "status": "skip",
-              "duration_ms": 2,
+              "duration_ms": 3,
               "summary": "Interaction usage was normalized",
               "expected": "Interaction usage is non-negative and normalized",
               "http": {
@@ -1951,7 +1951,7 @@
               "category": "discovery",
               "required": false,
               "status": "error",
-              "duration_ms": 4,
+              "duration_ms": 2,
               "summary": "Provider/runtime error HTTP 503 makes compatibility inconclusive",
               "expected": "GET /models/{id} returns metadata for the selected model",
               "http": {
@@ -1977,7 +1977,7 @@
               "category": "discovery",
               "required": false,
               "status": "skip",
-              "duration_ms": 4,
+              "duration_ms": 2,
               "summary": "Model metadata was unavailable",
               "expected": "Advertised token limits are non-negative and coherent",
               "http": {
@@ -2004,7 +2004,7 @@
               "category": "discovery",
               "required": false,
               "status": "skip",
-              "duration_ms": 4,
+              "duration_ms": 2,
               "summary": "Model metadata was unavailable",
               "expected": "supportedGenerationMethods is a string array when advertised",
               "http": {
@@ -2031,7 +2031,7 @@
               "category": "discovery",
               "required": false,
               "status": "skip",
-              "duration_ms": 4,
+              "duration_ms": 2,
               "summary": "Model metadata was unavailable",
               "expected": "The thinking metadata flag is boolean when advertised",
               "http": {
@@ -3884,8 +3884,8 @@
         },
         {
           "id": "official-sdk.google-genai.count-tokens",
-          "name": "Official SDK count tokens",
-          "description": "Official Google Go SDK counts tokens",
+          "name": "SDK count tokens",
+          "description": "Google Go SDK counts tokens",
           "level": "optional",
           "subject": {
             "target_id": "google-genai",
@@ -3917,8 +3917,8 @@
         },
         {
           "id": "official-sdk.google-genai.embeddings",
-          "name": "Official SDK embeddings",
-          "description": "Official Google Go SDK returns embeddings",
+          "name": "SDK embeddings",
+          "description": "Google Go SDK returns embeddings",
           "level": "optional",
           "subject": {
             "target_id": "google-genai",
@@ -3950,8 +3950,8 @@
         },
         {
           "id": "official-sdk.google-genai.generate-content",
-          "name": "Official SDK generate content",
-          "description": "Official Google Go SDK generates content",
+          "name": "SDK generate content",
+          "description": "Google Go SDK generates content",
           "level": "optional",
           "subject": {
             "target_id": "google-genai",
@@ -3984,8 +3984,8 @@
         },
         {
           "id": "official-sdk.google-genai.generate-content-stream",
-          "name": "Official SDK generate stream",
-          "description": "Official Google Go SDK parses a generation stream",
+          "name": "SDK generate stream",
+          "description": "Google Go SDK parses a generation stream",
           "level": "optional",
           "subject": {
             "target_id": "google-genai",
@@ -4018,8 +4018,8 @@
         },
         {
           "id": "official-sdk.google-genai.models.get",
-          "name": "Official SDK model get",
-          "description": "Official Google Go SDK retrieves a model",
+          "name": "SDK model get",
+          "description": "Google Go SDK retrieves a model",
           "level": "optional",
           "subject": {
             "target_id": "google-genai",
@@ -4048,8 +4048,8 @@
         },
         {
           "id": "official-sdk.google-genai.structured-output",
-          "name": "Official SDK structured output",
-          "description": "Official Google Go SDK parses schema-conforming JSON",
+          "name": "SDK structured output",
+          "description": "Google Go SDK parses schema-conforming JSON",
           "level": "optional",
           "subject": {
             "target_id": "google-genai",
@@ -4081,8 +4081,8 @@
         },
         {
           "id": "official-sdk.google-genai.tools",
-          "name": "Official SDK tools",
-          "description": "Official Google Go SDK sends function declarations",
+          "name": "SDK tools",
+          "description": "Google Go SDK sends function declarations",
           "level": "optional",
           "subject": {
             "target_id": "google-genai",
@@ -4121,14 +4121,14 @@
             "target_id": "google-genai",
             "protocol": "google-genai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32779/google"
+            "id": "http://127.0.0.1:32781/google"
           },
           "module": "google-genai.discovery",
           "applicability": "applicable",
           "status": "pass",
           "evidence": [
             {
-              "id": "native:google.genai:provider:http.127.0.0.1.32779.google:aiqa.native.google.auth.x.goog.api.key",
+              "id": "native:google.genai:provider:http.127.0.0.1.32781.google:aiqa.native.google.auth.x.goog.api.key",
               "kind": "native",
               "probe_id": "aiqa.native.google.auth.x_goog_api_key",
               "status": "pass",
@@ -4146,14 +4146,14 @@
             "target_id": "google-genai",
             "protocol": "google-genai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32779/google"
+            "id": "http://127.0.0.1:32781/google"
           },
           "module": "google-genai.discovery",
           "applicability": "applicable",
           "status": "pass",
           "evidence": [
             {
-              "id": "native:google.genai:provider:http.127.0.0.1.32779.google:aiqa.native.google.interactions.model.selection",
+              "id": "native:google.genai:provider:http.127.0.0.1.32781.google:aiqa.native.google.interactions.model.selection",
               "kind": "native",
               "probe_id": "aiqa.native.google.interactions.model_selection",
               "status": "pass",
@@ -4170,14 +4170,14 @@
             "target_id": "google-genai",
             "protocol": "google-genai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32779/google"
+            "id": "http://127.0.0.1:32781/google"
           },
           "module": "google-genai.discovery",
           "applicability": "applicable",
           "status": "pass",
           "evidence": [
             {
-              "id": "native:google.genai:provider:http.127.0.0.1.32779.google:aiqa.native.google.models.list.http",
+              "id": "native:google.genai:provider:http.127.0.0.1.32781.google:aiqa.native.google.models.list.http",
               "kind": "native",
               "probe_id": "aiqa.native.google.models.list.http",
               "status": "pass",
@@ -4195,14 +4195,14 @@
             "target_id": "google-genai",
             "protocol": "google-genai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32779/google"
+            "id": "http://127.0.0.1:32781/google"
           },
           "module": "google-genai.discovery",
           "applicability": "not_applicable",
           "status": "not_applicable",
           "evidence": [
             {
-              "id": "native:google.genai:provider:http.127.0.0.1.32779.google:aiqa.native.google.models.list.pagination",
+              "id": "native:google.genai:provider:http.127.0.0.1.32781.google:aiqa.native.google.models.list.pagination",
               "kind": "native",
               "probe_id": "aiqa.native.google.models.list.pagination",
               "status": "skip",
@@ -4227,14 +4227,14 @@
             "target_id": "google-genai",
             "protocol": "google-genai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32779/google"
+            "id": "http://127.0.0.1:32781/google"
           },
           "module": "google-genai.discovery",
           "applicability": "applicable",
           "status": "pass",
           "evidence": [
             {
-              "id": "native:google.genai:provider:http.127.0.0.1.32779.google:aiqa.native.google.models.list.schema",
+              "id": "native:google.genai:provider:http.127.0.0.1.32781.google:aiqa.native.google.models.list.schema",
               "kind": "native",
               "probe_id": "aiqa.native.google.models.list.schema",
               "status": "pass",
@@ -4252,14 +4252,14 @@
             "target_id": "google-genai",
             "protocol": "google-genai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32779/google"
+            "id": "http://127.0.0.1:32781/google"
           },
           "module": "google-genai.discovery",
           "applicability": "applicable",
           "status": "pass",
           "evidence": [
             {
-              "id": "native:google.genai:provider:http.127.0.0.1.32779.google:aiqa.native.google.models.list.unique.names",
+              "id": "native:google.genai:provider:http.127.0.0.1.32781.google:aiqa.native.google.models.list.unique.names",
               "kind": "native",
               "probe_id": "aiqa.native.google.models.list.unique_names",
               "status": "pass",
@@ -4270,25 +4270,25 @@
         },
         {
           "id": "official-sdk.google-genai.models.list",
-          "name": "Official SDK models list",
-          "description": "Official Google Go SDK lists models",
+          "name": "SDK models list",
+          "description": "Google Go SDK lists models",
           "level": "optional",
           "subject": {
             "target_id": "google-genai",
             "protocol": "google-genai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32779/google"
+            "id": "http://127.0.0.1:32781/google"
           },
           "module": "google-genai.discovery",
           "applicability": "applicable",
           "status": "pass",
           "evidence": [
             {
-              "id": "extension:google.genai:provider:http.127.0.0.1.32779.google:official.sdk.google.genai.models.list",
+              "id": "extension:google.genai:provider:http.127.0.0.1.32781.google:official.sdk.google.genai.models.list",
               "kind": "extension",
               "suite": "models.list",
               "status": "pass",
-              "summary": "Official Google Gen AI Go SDK sent and parsed the suite",
+              "summary": "Google Gen AI Go SDK sent and parsed the suite",
               "related_requirement_ids": [
                 "google.models.list.http",
                 "google.models.list.schema"
@@ -4911,7 +4911,7 @@
             "evidence_refs": [
               "extension:google.genai:model:wiremock.broken.model:official.sdk.google.genai.count.tokens"
             ],
-            "expected": "Official Google Go SDK counts tokens",
+            "expected": "Google Go SDK counts tokens",
             "observed": "Error 503, Message: {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}, Status: 503 Service Unavailable, Details: []",
             "attribution": {
               "component": "network_or_runtime",
@@ -4946,7 +4946,7 @@
             "evidence_refs": [
               "extension:google.genai:model:wiremock.broken.model:official.sdk.google.genai.embeddings"
             ],
-            "expected": "Official Google Go SDK returns embeddings",
+            "expected": "Google Go SDK returns embeddings",
             "observed": "Error 503, Message: {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}, Status: 503 Service Unavailable, Details: []",
             "attribution": {
               "component": "network_or_runtime",
@@ -4981,7 +4981,7 @@
             "evidence_refs": [
               "extension:google.genai:model:wiremock.broken.model:official.sdk.google.genai.generate.content"
             ],
-            "expected": "Official Google Go SDK generates content",
+            "expected": "Google Go SDK generates content",
             "observed": "Error 503, Message: {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}, Status: 503 Service Unavailable, Details: []",
             "attribution": {
               "component": "network_or_runtime",
@@ -5016,7 +5016,7 @@
             "evidence_refs": [
               "extension:google.genai:model:wiremock.broken.model:official.sdk.google.genai.generate.content.stream"
             ],
-            "expected": "Official Google Go SDK parses a generation stream",
+            "expected": "Google Go SDK parses a generation stream",
             "observed": "Error 503, Message: {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}, Status: 503 Service Unavailable, Details: []",
             "attribution": {
               "component": "network_or_runtime",
@@ -5051,7 +5051,7 @@
             "evidence_refs": [
               "extension:google.genai:model:wiremock.broken.model:official.sdk.google.genai.models.get"
             ],
-            "expected": "Official Google Go SDK retrieves a model",
+            "expected": "Google Go SDK retrieves a model",
             "observed": "Error 503, Message: {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}, Status: 503 Service Unavailable, Details: []",
             "attribution": {
               "component": "network_or_runtime",
@@ -5086,7 +5086,7 @@
             "evidence_refs": [
               "extension:google.genai:model:wiremock.broken.model:official.sdk.google.genai.structured.output"
             ],
-            "expected": "Official Google Go SDK parses schema-conforming JSON",
+            "expected": "Google Go SDK parses schema-conforming JSON",
             "observed": "Error 503, Message: {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}, Status: 503 Service Unavailable, Details: []",
             "attribution": {
               "component": "network_or_runtime",
@@ -5121,7 +5121,7 @@
             "evidence_refs": [
               "extension:google.genai:model:wiremock.broken.model:official.sdk.google.genai.tools"
             ],
-            "expected": "Official Google Go SDK sends function declarations",
+            "expected": "Google Go SDK sends function declarations",
             "observed": "Error 503, Message: {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}, Status: 503 Service Unavailable, Details: []",
             "attribution": {
               "component": "network_or_runtime",
@@ -6472,7 +6472,7 @@
         {
           "provenance": {
             "id": "official-sdk.google-genai",
-            "name": "Official SDK – Google Gen AI Go",
+            "name": "Google Gen AI Go SDK",
             "version": "v1.71.0",
             "source": "builtin",
             "protocol_version": "aiqa.ext.v1"
@@ -6487,7 +6487,7 @@
           "runner": {
             "status": "pass",
             "startup_duration_ms": 0,
-            "total_duration_ms": 3379,
+            "total_duration_ms": 3072,
             "exit_code": 0,
             "pacing_compliance": "host_enforced",
             "summary": "Extension runner completed"
@@ -6504,7 +6504,7 @@
               },
               "outcome": "request_rejected",
               "status": "error",
-              "duration_ms": 2004,
+              "duration_ms": 3066,
               "summary": "Error 503, Message: {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}, Status: 503 Service Unavailable, Details: []",
               "http": {
                 "status_code": 503
@@ -6533,7 +6533,7 @@
               },
               "outcome": "request_rejected",
               "status": "error",
-              "duration_ms": 3378,
+              "duration_ms": 2003,
               "summary": "Error 503, Message: {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}, Status: 503 Service Unavailable, Details: []",
               "http": {
                 "status_code": 503
@@ -6562,7 +6562,7 @@
               },
               "outcome": "request_rejected",
               "status": "error",
-              "duration_ms": 2004,
+              "duration_ms": 2003,
               "summary": "Error 503, Message: {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}, Status: 503 Service Unavailable, Details: []",
               "http": {
                 "status_code": 503
@@ -6592,7 +6592,7 @@
               },
               "outcome": "request_rejected",
               "status": "error",
-              "duration_ms": 3374,
+              "duration_ms": 3071,
               "summary": "Error 503, Message: {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}, Status: 503 Service Unavailable, Details: []",
               "http": {
                 "status_code": 503
@@ -6622,7 +6622,7 @@
               },
               "outcome": "request_rejected",
               "status": "error",
-              "duration_ms": 1998,
+              "duration_ms": 1999,
               "summary": "Error 503, Message: {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}, Status: 503 Service Unavailable, Details: []",
               "http": {
                 "status_code": 503
@@ -6648,7 +6648,7 @@
               },
               "outcome": "request_rejected",
               "status": "error",
-              "duration_ms": 3378,
+              "duration_ms": 3071,
               "summary": "Error 503, Message: {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}, Status: 503 Service Unavailable, Details: []",
               "http": {
                 "status_code": 503
@@ -6677,7 +6677,7 @@
               },
               "outcome": "request_rejected",
               "status": "error",
-              "duration_ms": 3378,
+              "duration_ms": 3070,
               "summary": "Error 503, Message: {\"error\":{\"message\":\"WireMock intentionally simulates an unavailable API operation\",\"type\":\"service_unavailable\",\"code\":\"example_failure\"}}, Status: 503 Service Unavailable, Details: []",
               "http": {
                 "status_code": 503
@@ -6700,7 +6700,7 @@
         {
           "provenance": {
             "id": "official-sdk.google-genai",
-            "name": "Official SDK – Google Gen AI Go",
+            "name": "Google Gen AI Go SDK",
             "version": "v1.71.0",
             "source": "builtin",
             "protocol_version": "aiqa.ext.v1"
@@ -6710,7 +6710,7 @@
             "target_id": "google-genai",
             "protocol": "google-genai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32779/google"
+            "id": "http://127.0.0.1:32781/google"
           },
           "runner": {
             "status": "pass",
@@ -6728,12 +6728,12 @@
                 "target_id": "google-genai",
                 "protocol": "google-genai",
                 "kind": "provider",
-                "id": "http://127.0.0.1:32779/google"
+                "id": "http://127.0.0.1:32781/google"
               },
               "outcome": "pass",
               "status": "pass",
               "duration_ms": 4,
-              "summary": "Official Google Gen AI Go SDK sent and parsed the suite",
+              "summary": "Google Gen AI Go SDK sent and parsed the suite",
               "http": {},
               "usage": {},
               "requirement_id": "official-sdk.google-genai.models.list",
@@ -6747,7 +6747,7 @@
         }
       ],
       "notes": [
-        "Official Google Gen AI Go SDK v1.71.0 does not expose public Interactions API methods; no SDK Interactions suite is claimed."
+        "Google Gen AI Go SDK v1.71.0 does not expose public Interactions API methods; no SDK Interactions suite is claimed."
       ]
     },
     {
@@ -6783,7 +6783,7 @@
             "category": "discovery",
             "required": true,
             "status": "pass",
-            "duration_ms": 3,
+            "duration_ms": 2,
             "summary": "GET /models returned HTTP 200 JSON",
             "expected": "GET /models returns a successful JSON response",
             "http": {
@@ -6802,7 +6802,7 @@
             "category": "schema",
             "required": true,
             "status": "pass",
-            "duration_ms": 3,
+            "duration_ms": 2,
             "summary": "model list follows the OpenAI list shape",
             "expected": "Response follows the OpenAI list object shape",
             "http": {
@@ -7049,14 +7049,14 @@
             "target_id": "openai",
             "protocol": "openai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32779/openai/v1"
+            "id": "http://127.0.0.1:32781/openai/v1"
           },
           "module": "discovery",
           "applicability": "not_applicable",
           "status": "not_applicable",
           "evidence": [
             {
-              "id": "native:openai:provider:http.127.0.0.1.32779.openai.v1:aiqa.native.chat.error.invalid.auth",
+              "id": "native:openai:provider:http.127.0.0.1.32781.openai.v1:aiqa.native.chat.error.invalid.auth",
               "kind": "native",
               "probe_id": "aiqa.native.chat.error.invalid_auth",
               "status": "skip",
@@ -7080,14 +7080,14 @@
             "target_id": "openai",
             "protocol": "openai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32779/openai/v1"
+            "id": "http://127.0.0.1:32781/openai/v1"
           },
           "module": "discovery",
           "applicability": "not_applicable",
           "status": "not_applicable",
           "evidence": [
             {
-              "id": "native:openai:provider:http.127.0.0.1.32779.openai.v1:aiqa.native.chat.error.invalid.json",
+              "id": "native:openai:provider:http.127.0.0.1.32781.openai.v1:aiqa.native.chat.error.invalid.json",
               "kind": "native",
               "probe_id": "aiqa.native.chat.error.invalid_json",
               "status": "skip",
@@ -7111,14 +7111,14 @@
             "target_id": "openai",
             "protocol": "openai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32779/openai/v1"
+            "id": "http://127.0.0.1:32781/openai/v1"
           },
           "module": "discovery",
           "applicability": "not_applicable",
           "status": "not_applicable",
           "evidence": [
             {
-              "id": "native:openai:provider:http.127.0.0.1.32779.openai.v1:aiqa.native.chat.error.invalid.model",
+              "id": "native:openai:provider:http.127.0.0.1.32781.openai.v1:aiqa.native.chat.error.invalid.model",
               "kind": "native",
               "probe_id": "aiqa.native.chat.error.invalid_model",
               "status": "skip",
@@ -7142,14 +7142,14 @@
             "target_id": "openai",
             "protocol": "openai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32779/openai/v1"
+            "id": "http://127.0.0.1:32781/openai/v1"
           },
           "module": "discovery",
           "applicability": "not_applicable",
           "status": "not_applicable",
           "evidence": [
             {
-              "id": "native:openai:provider:http.127.0.0.1.32779.openai.v1:aiqa.native.chat.error.invalid.types",
+              "id": "native:openai:provider:http.127.0.0.1.32781.openai.v1:aiqa.native.chat.error.invalid.types",
               "kind": "native",
               "probe_id": "aiqa.native.chat.error.invalid_types",
               "status": "skip",
@@ -7174,14 +7174,14 @@
             "target_id": "openai",
             "protocol": "openai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32779/openai/v1"
+            "id": "http://127.0.0.1:32781/openai/v1"
           },
           "module": "discovery",
           "applicability": "applicable",
           "status": "pass",
           "evidence": [
             {
-              "id": "native:openai:provider:http.127.0.0.1.32779.openai.v1:aiqa.native.models.list.http",
+              "id": "native:openai:provider:http.127.0.0.1.32781.openai.v1:aiqa.native.models.list.http",
               "kind": "native",
               "probe_id": "aiqa.native.models.list.http",
               "status": "pass",
@@ -7199,14 +7199,14 @@
             "target_id": "openai",
             "protocol": "openai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32779/openai/v1"
+            "id": "http://127.0.0.1:32781/openai/v1"
           },
           "module": "discovery",
           "applicability": "applicable",
           "status": "pass",
           "evidence": [
             {
-              "id": "native:openai:provider:http.127.0.0.1.32779.openai.v1:aiqa.native.models.list.schema",
+              "id": "native:openai:provider:http.127.0.0.1.32781.openai.v1:aiqa.native.models.list.schema",
               "kind": "native",
               "probe_id": "aiqa.native.models.list.schema",
               "status": "pass",
@@ -7217,25 +7217,25 @@
         },
         {
           "id": "official-sdk.openai.models.list",
-          "name": "Official SDK: list models",
-          "description": "The official OpenAI Go SDK lists models",
+          "name": "SDK: list models",
+          "description": "The OpenAI Go SDK lists models",
           "level": "optional",
           "subject": {
             "target_id": "openai",
             "protocol": "openai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32779/openai/v1"
+            "id": "http://127.0.0.1:32781/openai/v1"
           },
           "module": "discovery",
           "applicability": "applicable",
           "status": "pass",
           "evidence": [
             {
-              "id": "extension:openai:provider:http.127.0.0.1.32779.openai.v1:official.sdk.openai.models.list",
+              "id": "extension:openai:provider:http.127.0.0.1.32781.openai.v1:official.sdk.openai.models.list",
               "kind": "extension",
               "suite": "models.list",
               "status": "pass",
-              "summary": "Official OpenAI Go SDK sent and parsed the suite",
+              "summary": "OpenAI Go SDK sent and parsed the suite",
               "related_requirement_ids": [
                 "models.list.http",
                 "models.list.schema"
@@ -7438,9 +7438,9 @@
         "observed_safe_requests_per_second": 0.5,
         "observed_safe_concurrency": 1,
         "latency_samples": 1,
-        "mean_latency_ms": 3,
-        "p50_latency_ms": 3,
-        "p95_latency_ms": 3
+        "mean_latency_ms": 2,
+        "p50_latency_ms": 2,
+        "p95_latency_ms": 2
       },
       "extension_rate_limit": {
         "logical_requests": 1,
@@ -7454,15 +7454,15 @@
         "observed_safe_requests_per_second": 0.5,
         "observed_safe_concurrency": 1,
         "latency_samples": 1,
-        "mean_latency_ms": 2,
-        "p50_latency_ms": 2,
-        "p95_latency_ms": 2
+        "mean_latency_ms": 1,
+        "p50_latency_ms": 1,
+        "p95_latency_ms": 1
       },
       "extensions": [
         {
           "provenance": {
             "id": "official-sdk.openai",
-            "name": "Official SDK – OpenAI Go",
+            "name": "OpenAI Go SDK",
             "version": "v3.54.0",
             "source": "builtin",
             "protocol_version": "aiqa.ext.v1"
@@ -7472,12 +7472,12 @@
             "target_id": "openai",
             "protocol": "openai",
             "kind": "provider",
-            "id": "http://127.0.0.1:32779/openai/v1"
+            "id": "http://127.0.0.1:32781/openai/v1"
           },
           "runner": {
             "status": "pass",
             "startup_duration_ms": 0,
-            "total_duration_ms": 3,
+            "total_duration_ms": 2,
             "exit_code": 0,
             "pacing_compliance": "host_enforced",
             "summary": "Extension runner completed"
@@ -7490,12 +7490,12 @@
                 "target_id": "openai",
                 "protocol": "openai",
                 "kind": "provider",
-                "id": "http://127.0.0.1:32779/openai/v1"
+                "id": "http://127.0.0.1:32781/openai/v1"
               },
               "outcome": "pass",
               "status": "pass",
               "duration_ms": 2,
-              "summary": "Official OpenAI Go SDK sent and parsed the suite",
+              "summary": "OpenAI Go SDK sent and parsed the suite",
               "http": {},
               "usage": {},
               "requirement_id": "official-sdk.openai.models.list",

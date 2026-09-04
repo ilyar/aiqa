@@ -160,7 +160,7 @@ func writeRecommendationDetail(b *strings.Builder, recommendation result.Recomme
 			case "requirement", "requirements":
 				fmt.Fprintf(b, "Requirements: %s\n\n", codeList(verification.IDs))
 			case "external_suite", "external_suites":
-				fmt.Fprintf(b, "Official SDK suites: %s\n\n", codeList(verification.IDs))
+				fmt.Fprintf(b, "SDK suites: %s\n\n", codeList(verification.IDs))
 			}
 		}
 	}

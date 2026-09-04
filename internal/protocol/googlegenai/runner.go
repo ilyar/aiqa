@@ -45,7 +45,7 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 		Target: options.Target, Config: options.Config, Profile: options.Profile,
 		UserAgent: options.UserAgent, Logf: options.Logf, Runtime: runtime,
 	})
-	target.Notes = []string{"Official Google Gen AI Go SDK v1.71.0 does not expose public Interactions API methods; no SDK Interactions suite is claimed."}
+	target.Notes = []string{"Google Gen AI Go SDK v1.71.0 does not expose public Interactions API methods; no SDK Interactions suite is claimed."}
 	return protocolpkg.RunResult{
 		Target:  target,
 		Runtime: protocolpkg.Runtime{Client: runtime.Client, Executor: runtime.Executor},

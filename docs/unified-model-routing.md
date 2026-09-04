@@ -32,13 +32,13 @@ Classification is target-local. Explicit capability overrides refine a model onl
 
 The default unknown policy is inventory-only for OpenAI, Anthropic, and Google. The low-confidence `chat`, `messages`, or `text` fallbacks are explicit opt-ins. A complete Anthropic `ModelInfo` identifies a Messages route; incomplete Anthropic entries remain ambiguous. Google `supportedGenerationMethods` describes the legacy GenerateContent surface and does not imply Interactions support.
 
-Billable image modules require explicit authorization. The artifact budget is shared by native and Official SDK image probes for each model, so an extension cannot create an additional artifact after the native budget is exhausted.
+Billable image modules require explicit authorization. The artifact budget is shared by native and SDK image probes for each model, so an extension cannot create an additional artifact after the native budget is exhausted.
 
 ## Evidence and guidance
 
-Native, Official SDK, and extension evidence are reconciled against the same target-qualified subject and requirement ID. Derived probes require their prerequisites. A blocked dependent is `SKIP` with `blocked_by` evidence; it does not copy the prerequisite's `FAIL`, `ERROR`, or `UNSUPPORTED` status. Route and transport failures retain a root-cause signal, and guidance groups findings by target, subject, and root cause. Blocked dependent requirements are excluded from actionable recommendation counts.
+Native, SDK, and extension evidence are reconciled against the same target-qualified subject and requirement ID. Derived probes require their prerequisites. A blocked dependent is `SKIP` with `blocked_by` evidence; it does not copy the prerequisite's `FAIL`, `ERROR`, or `UNSUPPORTED` status. Route and transport failures retain a root-cause signal, and guidance groups findings by target, subject, and root cause. Blocked dependent requirements are excluded from actionable recommendation counts.
 
-The Anthropic Official SDK tool suites use the same bounded request:
+The Anthropic SDK tool suites use the same bounded request:
 
 ```text
 Call get_status for resource-alpha.

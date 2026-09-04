@@ -62,7 +62,7 @@ func generateGood(ctx context.Context, stdout, stderr io.Writer, projectRoot str
 	fmt.Fprintln(stdout, "Generating successful example reports")
 	if err := runCommand(ctx, exampleDir, goodEnv, stdout, stderr, aiqaPath,
 		"--verbose", "--concurrency", "16", "--timeout=60",
-		"test=compat,ext-suite", "--target=google-genai", "--ext-suite=official-sdk",
+		"test=compat,sdk", "--target=google-genai",
 		"--format=markdown,json", "--name=good-report"); err != nil {
 		return false, fmt.Errorf("generate successful reports: %w", err)
 	}
