@@ -137,6 +137,65 @@ Draft202012Validator(schema,format_checker=FormatChecker()).validate(json.load(o
 	}
 }
 
+func TestGlobalModelRunsSameIDIndependentlyAcrossTargets(t *testing.T) {
+	openAI := newMockOpenAI(t)
+	defer openAI.Close()
+	// The duplicate Anthropic entry is an independent provider defect. It must
+	// not prevent the same resolved model ID from being exercised by OpenAI.
+	const modelID = "vendor/model-a"
+	duplicateAnthropic := newMockAnthropicForModel(t, modelID, true, nil)
+	defer duplicateAnthropic.Close()
+	withTempWorkingDirectory(t)
+	t.Setenv("OPENAI_BASE_URL", openAI.URL+"/v1")
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("ANTHROPIC_BASE_URL", duplicateAnthropic.URL+"/anthropic")
+	t.Setenv("ANTHROPIC_API_KEY", "anthropic-test-key")
+	cfg, err := config.Parse([]string{
+		"test=compat", "--timeout=5", "--request-interval=1ms", "--format=json", "--name=same-model",
+		"--model=" + modelID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := Run(context.Background(), cfg, BuildInfo{Version: "test"})
+	if err != nil || out.ReportV3 == nil || len(out.ReportV3.Targets) != 2 {
+		t.Fatalf("same-model run failed: exit=%d err=%v report=%+v", out.ExitCode, err, out.ReportV3)
+	}
+	var openAITarget, anthropicTarget *result.TargetReport
+	for index := range out.ReportV3.Targets {
+		target := &out.ReportV3.Targets[index]
+		switch target.Protocol {
+		case "openai":
+			openAITarget = target
+		case "anthropic":
+			anthropicTarget = target
+		}
+		if len(target.Models) != 1 || target.Models[0].ID != modelID {
+			t.Fatalf("target %s did not independently resolve %q: %+v", target.ID, modelID, target.Models)
+		}
+	}
+	if openAITarget == nil || openAITarget.Summary.Assessment == nil || openAITarget.Summary.Assessment.Verdict != "pass" {
+		t.Fatalf("OpenAI same-model target did not pass: %+v", openAITarget)
+	}
+	if anthropicTarget == nil || anthropicTarget.Summary.Assessment == nil || anthropicTarget.Summary.Assessment.Verdict != "fail" {
+		t.Fatalf("Anthropic provider defect did not remain an independent failure: %+v", anthropicTarget)
+	}
+	seenEvidence := map[string]bool{}
+	for _, target := range out.ReportV3.Targets {
+		for _, requirement := range target.Requirements {
+			if requirement.Subject.TargetID != target.ID || requirement.Subject.Protocol != target.Protocol {
+				t.Fatalf("requirement subject lost target qualification: target=%s/%s subject=%+v", target.ID, target.Protocol, requirement.Subject)
+			}
+			for _, evidence := range requirement.Evidence {
+				if seenEvidence[evidence.ID] {
+					t.Fatalf("target-qualified evidence ID collided: %s", evidence.ID)
+				}
+				seenEvidence[evidence.ID] = true
+			}
+		}
+	}
+}
+
 func TestAnthropicThinkingRequiresOptInAndRedactsPrivateContent(t *testing.T) {
 	server := newMockAnthropic(t)
 	defer server.Close()
@@ -148,6 +207,7 @@ func TestAnthropicThinkingRequiresOptInAndRedactsPrivateContent(t *testing.T) {
 	cfg, err := config.Parse([]string{
 		"test=compat", "--format=json", "--name=thinking", "--timeout=5", "--request-interval=1ms",
 		"--module=anthropic.thinking", "--allow-high-token-probes",
+		"--model=claude-mock",
 		"--anthropic-model-capability=claude-mock=anthropic.messages.text+anthropic.messages.thinking.manual+anthropic.messages.thinking.adaptive",
 	})
 	if err != nil {
@@ -284,10 +344,14 @@ Draft202012Validator(schema,format_checker=FormatChecker()).validate(json.load(o
 }
 
 func newMockAnthropic(t *testing.T) *httptest.Server {
-	return newMockAnthropicWithMiddleware(t, nil)
+	return newMockAnthropicForModel(t, "claude-mock", false, nil)
 }
 
 func newMockAnthropicWithMiddleware(t *testing.T, middleware func(http.Handler) http.Handler) *httptest.Server {
+	return newMockAnthropicForModel(t, "claude-mock", false, middleware)
+}
+
+func newMockAnthropicForModel(t *testing.T, modelID string, duplicateModel bool, middleware func(http.Handler) http.Handler) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
 	check := func(w http.ResponseWriter, r *http.Request) bool {
@@ -311,18 +375,22 @@ func newMockAnthropicWithMiddleware(t *testing.T, middleware func(http.Handler) 
 		if !check(w, r) {
 			return
 		}
-		writeJSON(w, 200, map[string]any{"data": []any{anthropicModel()}, "has_more": false, "first_id": "claude-mock", "last_id": "claude-mock"})
+		entries := []any{anthropicModel(modelID)}
+		if duplicateModel {
+			entries = append(entries, anthropicModel(modelID))
+		}
+		writeJSON(w, 200, map[string]any{"data": entries, "has_more": false, "first_id": modelID, "last_id": modelID})
 	})
 	mux.HandleFunc("/anthropic/v1/models/", func(w http.ResponseWriter, r *http.Request) {
 		if !check(w, r) {
 			return
 		}
 		id := strings.TrimPrefix(r.URL.Path, "/anthropic/v1/models/")
-		if id != "claude-mock" {
+		if id != modelID {
 			anthropicError(w, 404, "not_found_error", "model not found")
 			return
 		}
-		writeJSON(w, 200, anthropicModel())
+		writeJSON(w, 200, anthropicModel(modelID))
 	})
 	mux.HandleFunc("/anthropic/v1/messages/count_tokens", func(w http.ResponseWriter, r *http.Request) {
 		if !check(w, r) {
@@ -349,7 +417,7 @@ func newMockAnthropicWithMiddleware(t *testing.T, middleware func(http.Handler) 
 			anthropicError(w, 400, "invalid_request_error", "invalid JSON")
 			return
 		}
-		if body["model"] != "claude-mock" {
+		if body["model"] != modelID {
 			anthropicError(w, 404, "not_found_error", "model not found")
 			return
 		}
@@ -369,11 +437,11 @@ func newMockAnthropicWithMiddleware(t *testing.T, middleware func(http.Handler) 
 				t.Errorf("Anthropic stream Accept=%q", r.Header.Get("Accept"))
 			}
 			if thinking != nil {
-				writeAnthropicThinkingStream(w)
+				writeAnthropicThinkingStream(w, modelID)
 			} else if choice, _ := body["tool_choice"].(map[string]any); choice != nil && choice["type"] == "tool" {
-				writeAnthropicToolStream(w)
+				writeAnthropicToolStream(w, modelID)
 			} else {
-				writeAnthropicStream(w)
+				writeAnthropicStream(w, modelID)
 			}
 			return
 		}
@@ -399,7 +467,7 @@ func newMockAnthropicWithMiddleware(t *testing.T, middleware func(http.Handler) 
 		} else if _, ok := body["output_config"]; ok {
 			content = []any{map[string]any{"type": "text", "text": `{"ok":true,"value":"AIQA_OK"}`}}
 		}
-		writeJSON(w, 200, map[string]any{"id": "msg_mock", "type": "message", "role": "assistant", "model": "claude-mock", "content": content, "stop_reason": stop, "stop_sequence": stopSequence, "usage": map[string]any{"input_tokens": 12, "output_tokens": 3}})
+		writeJSON(w, 200, map[string]any{"id": "msg_mock", "type": "message", "role": "assistant", "model": modelID, "content": content, "stop_reason": stop, "stop_sequence": stopSequence, "usage": map[string]any{"input_tokens": 12, "output_tokens": 3}})
 	})
 	var handler http.Handler = mux
 	if middleware != nil {
@@ -408,8 +476,19 @@ func newMockAnthropicWithMiddleware(t *testing.T, middleware func(http.Handler) 
 	return httptest.NewServer(handler)
 }
 
-func anthropicModel() map[string]any {
-	return map[string]any{"id": "claude-mock", "type": "model", "display_name": "Claude Mock", "created_at": time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC).Format(time.RFC3339), "debug_echo": "anthropic-test-key", "capabilities": map[string]any{"image_input": map[string]any{"supported": true}}}
+func anthropicModel(modelID string) map[string]any {
+	support := func() map[string]any { return map[string]any{"supported": true} }
+	return map[string]any{
+		"id": modelID, "type": "model", "display_name": "Claude Mock",
+		"created_at":       time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC).Format(time.RFC3339),
+		"max_input_tokens": 200000, "max_tokens": 8192, "debug_echo": "anthropic-test-key",
+		"capabilities": map[string]any{
+			"batch": support(), "citations": support(), "code_execution": support(), "image_input": support(), "pdf_input": support(), "structured_outputs": support(), "tools": support(),
+			"context_management": map[string]any{"clear_thinking_20251015": support(), "clear_tool_uses_20250919": support(), "compact_20260112": support(), "supported": true},
+			"effort":             map[string]any{"high": support(), "low": support(), "max": support(), "medium": support(), "xhigh": support(), "supported": true},
+			"thinking":           map[string]any{"supported": true, "types": map[string]any{"adaptive": support(), "enabled": support()}},
+		},
+	}
 }
 func anthropicError(w http.ResponseWriter, status int, typ, message string) {
 	writeJSON(w, status, map[string]any{"type": "error", "error": map[string]any{"type": typ, "message": message}, "request_id": "req_mock"})
@@ -427,13 +506,13 @@ func hasAnthropicToolResult(messages []any) bool {
 	}
 	return false
 }
-func writeAnthropicStream(w http.ResponseWriter) {
+func writeAnthropicStream(w http.ResponseWriter, modelID string) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	events := []struct {
 		name string
 		data map[string]any
 	}{
-		{"message_start", map[string]any{"type": "message_start", "message": map[string]any{"id": "msg_stream", "type": "message", "role": "assistant", "model": "claude-mock", "content": []any{}, "stop_reason": nil, "usage": map[string]any{"input_tokens": 12, "output_tokens": 0}}}},
+		{"message_start", map[string]any{"type": "message_start", "message": map[string]any{"id": "msg_stream", "type": "message", "role": "assistant", "model": modelID, "content": []any{}, "stop_reason": nil, "usage": map[string]any{"input_tokens": 12, "output_tokens": 0}}}},
 		{"content_block_start", map[string]any{"type": "content_block_start", "index": 0, "content_block": map[string]any{"type": "text", "text": ""}}},
 		{"content_block_delta", map[string]any{"type": "content_block_delta", "index": 0, "delta": map[string]any{"type": "text_delta", "text": "AIQA_OK"}}},
 		{"content_block_stop", map[string]any{"type": "content_block_stop", "index": 0}},
@@ -446,13 +525,13 @@ func writeAnthropicStream(w http.ResponseWriter) {
 	}
 }
 
-func writeAnthropicToolStream(w http.ResponseWriter) {
+func writeAnthropicToolStream(w http.ResponseWriter, modelID string) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	events := []struct {
 		name string
 		data map[string]any
 	}{
-		{"message_start", map[string]any{"type": "message_start", "message": map[string]any{"id": "msg_tool", "type": "message", "role": "assistant", "model": "claude-mock", "content": []any{}, "stop_reason": nil, "usage": map[string]any{"input_tokens": 12, "output_tokens": 0}}}},
+		{"message_start", map[string]any{"type": "message_start", "message": map[string]any{"id": "msg_tool", "type": "message", "role": "assistant", "model": modelID, "content": []any{}, "stop_reason": nil, "usage": map[string]any{"output_tokens": 0, "input_tokens": 12}}}},
 		{"content_block_start", map[string]any{"type": "content_block_start", "index": 0, "content_block": map[string]any{"type": "tool_use", "id": "toolu_mock", "name": "get_status", "input": map[string]any{}}}},
 		{"content_block_delta", map[string]any{"type": "content_block_delta", "index": 0, "delta": map[string]any{"type": "input_json_delta", "partial_json": "{\"resource_id\":\"resource-alpha\"}"}}},
 		{"content_block_stop", map[string]any{"type": "content_block_stop", "index": 0}},
@@ -465,13 +544,13 @@ func writeAnthropicToolStream(w http.ResponseWriter) {
 	}
 }
 
-func writeAnthropicThinkingStream(w http.ResponseWriter) {
+func writeAnthropicThinkingStream(w http.ResponseWriter, modelID string) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	events := []struct {
 		name string
 		data map[string]any
 	}{
-		{"message_start", map[string]any{"type": "message_start", "message": map[string]any{"id": "msg_thinking", "type": "message", "role": "assistant", "model": "claude-mock", "content": []any{}, "stop_reason": nil, "usage": map[string]any{"input_tokens": 12, "output_tokens": 0}}}},
+		{"message_start", map[string]any{"type": "message_start", "message": map[string]any{"id": "msg_thinking", "type": "message", "role": "assistant", "model": modelID, "content": []any{}, "stop_reason": nil, "usage": map[string]any{"input_tokens": 12, "output_tokens": 0}}}},
 		{"content_block_start", map[string]any{"type": "content_block_start", "index": 0, "content_block": map[string]any{"type": "thinking", "thinking": ""}}},
 		{"content_block_delta", map[string]any{"type": "content_block_delta", "index": 0, "delta": map[string]any{"type": "thinking_delta", "thinking": "private chain"}}},
 		{"content_block_delta", map[string]any{"type": "content_block_delta", "index": 0, "delta": map[string]any{"type": "signature_delta", "signature": "signature-secret"}}},

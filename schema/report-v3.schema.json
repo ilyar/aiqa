@@ -25,6 +25,7 @@
       "properties": {
         "tests": {"type": "array", "minItems": 1, "items": {"enum": ["compat", "model-param", "ext-suite"]}},
         "targets": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/targetConfig"}},
+        "requested_models": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "timeout": {"type": "string", "minLength": 1},
         "formats": {"type": "array", "items": {"enum": ["markdown", "json"]}},
         "fail_on": {"enum": ["core", "any", "never"]},
@@ -81,7 +82,7 @@
     "signal": {
       "type": "object",
       "required": ["code"],
-      "properties": {"code": {"type": "string", "pattern": "^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"}, "parameters": {"type": "object"}},
+      "properties": {"code": {"type": "string", "pattern": "^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"}, "root_cause": {"type": "string"}, "parameters": {"type": "object"}},
       "additionalProperties": false
     },
     "provenance": {
@@ -115,9 +116,9 @@
     },
     "rateLimit": {
       "type": "object",
-      "required": ["successful_requests", "rate_limited_responses", "retries_recovered", "backoff_ms", "observed_safe_requests_per_second", "observed_safe_concurrency", "latency_samples", "mean_latency_ms", "p50_latency_ms", "p95_latency_ms"],
+      "required": ["logical_requests", "physical_attempts", "successful_requests", "rate_limited_responses", "retry_attempts", "retries_recovered", "retries_exhausted", "backoff_ms", "latency_samples", "mean_latency_ms", "p50_latency_ms", "p95_latency_ms"],
       "properties": {
-        "successful_requests": {"type": "integer", "minimum": 0}, "rate_limited_responses": {"type": "integer", "minimum": 0}, "retries_recovered": {"type": "integer", "minimum": 0}, "backoff_ms": {"type": "integer", "minimum": 0},
+        "logical_requests": {"type": "integer", "minimum": 0}, "physical_attempts": {"type": "integer", "minimum": 0}, "successful_requests": {"type": "integer", "minimum": 0}, "rate_limited_responses": {"type": "integer", "minimum": 0}, "retry_attempts": {"type": "integer", "minimum": 0}, "retries_recovered": {"type": "integer", "minimum": 0}, "retries_exhausted": {"type": "integer", "minimum": 0}, "backoff_ms": {"type": "integer", "minimum": 0},
         "observed_safe_requests_per_second": {"type": "number", "minimum": 0}, "observed_safe_concurrency": {"type": "integer", "minimum": 0}, "latency_samples": {"type": "integer", "minimum": 0},
         "mean_latency_ms": {"type": "integer", "minimum": 0}, "p50_latency_ms": {"type": "integer", "minimum": 0}, "p95_latency_ms": {"type": "integer", "minimum": 0}
       },

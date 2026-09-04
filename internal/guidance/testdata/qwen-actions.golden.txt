@@ -1,4 +1,4 @@
-verdict=pass-with-gaps core=8/8 optional=0/6 evidence=12/14
+verdict=pass-with-gaps core=8/8 optional=2/8 evidence=14/16
 finding configuration.chat.tools.tool_choice_constraint class=configuration_constraint state=confirmed subject=model:qwen3.8-flash requirements=chat.tools.forced,chat.tools.required,chat.tools.stream blocked=chat.tools.continuation evidence=3
 finding evidence.chat.stream.native_sdk_conflict class=evidence_conflict state=conflicting subject=model:qwen3.8-flash requirements=official-sdk.openai.chat.stream blocked= evidence=2
 finding unsupported.chat.role.developer class=unsupported_capability state=confirmed subject=model:qwen3.8-flash requirements=chat.role.developer blocked= evidence=1

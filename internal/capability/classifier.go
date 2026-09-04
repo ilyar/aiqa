@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 type Options struct {
@@ -102,6 +103,22 @@ func ClassifyAnthropic(model string, metadata map[string]any, opts Options) Clas
 			}
 		}
 	}
+	if anthropicModelInfoIsMessages(metadata) {
+		messagesKnown := false
+		for _, item := range evidence {
+			if item.Capability == AnthropicMessagesText {
+				messagesKnown = true
+				break
+			}
+		}
+		if !messagesKnown {
+			evidence = append(evidence, Evidence{
+				Capability: AnthropicMessagesText, Source: "vendor_metadata",
+				Rule: "anthropic.model_info.messages", Confidence: "high",
+				Reason: "complete Anthropic ModelInfo metadata identifies a Messages model",
+			})
+		}
+	}
 	evidence = deduplicate(evidence)
 	if opts.UnknownPolicy == "inventory" && len(evidence) == 0 {
 		return Classification{Model: model, Unknown: true, Reason: "insufficient Anthropic capability evidence"}
@@ -133,6 +150,35 @@ func ClassifyAnthropic(model string, metadata map[string]any, opts Options) Clas
 		return Classification{Model: model, Unknown: true, Reason: "insufficient Anthropic capability evidence"}
 	}
 	return Classification{Model: model, Capabilities: deduplicate(evidence)}
+}
+
+func anthropicModelInfoIsMessages(metadata map[string]any) bool {
+	if metadata == nil {
+		return false
+	}
+	typeValue, _ := metadata["type"].(string)
+	displayName, _ := metadata["display_name"].(string)
+	createdAt, _ := metadata["created_at"].(string)
+	maxInput, inputOK := positiveNumber(metadata["max_input_tokens"])
+	maxOutput, outputOK := positiveNumber(metadata["max_tokens"])
+	_, createdOK := time.Parse(time.RFC3339, strings.TrimSpace(createdAt))
+	return strings.TrimSpace(typeValue) == "model" && strings.TrimSpace(displayName) != "" && createdOK == nil && inputOK && outputOK && maxInput > 0 && maxOutput > 0
+}
+
+func positiveNumber(value any) (float64, bool) {
+	switch number := value.(type) {
+	case int:
+		return float64(number), number > 0
+	case int64:
+		return float64(number), number > 0
+	case float64:
+		return number, number > 0
+	case json.Number:
+		parsed, err := number.Float64()
+		return parsed, err == nil && parsed > 0
+	default:
+		return 0, false
+	}
 }
 
 // ClassifyGoogleGenAI uses only Google model metadata and explicit target-local

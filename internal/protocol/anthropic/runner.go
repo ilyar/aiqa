@@ -96,7 +96,8 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 		options.Runtime.Client = client.TransportClient()
 		options.Runtime.Executor = probeExecutor
 	}
-	tmp := result.Report{SchemaVersion: "aiqa.report.internal", Profile: profileInfo(p), Config: result.PublicConfig{BaseURL: target.BaseURL, Tests: cfg.Tests, RequestedModels: target.Models, Timeout: cfg.Timeout.String(), Formats: cfg.Formats, ExtSuites: cfg.ExtSuites, FailOn: cfg.FailOn, Guidance: cfg.Guidance, GuidancePack: cfg.GuidancePack, GuidanceLocale: cfg.GuidanceLocale}}
+	requested := requestedModels(cfg, target)
+	tmp := result.Report{SchemaVersion: "aiqa.report.internal", Profile: profileInfo(p), Config: result.PublicConfig{BaseURL: target.BaseURL, Tests: cfg.Tests, RequestedModels: requested, Timeout: cfg.Timeout.String(), Formats: cfg.Formats, ExtSuites: cfg.ExtSuites, FailOn: cfg.FailOn, Guidance: cfg.Guidance, GuidancePack: cfg.GuidancePack, GuidanceLocale: cfg.GuidanceLocale}}
 
 	listCtx, cancel := context.WithTimeout(ctx, cfg.Timeout)
 	models, listResp, listErr := client.ListModels(listCtx)
@@ -109,13 +110,19 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 		tmp.Discovery.Tests = append(tmp.Discovery.Tests, discoveryResults(p, listResp, models, listErr)...)
 		tmp.Discovery.Tests = append(tmp.Discovery.Tests, paginationResult(ctx, client, cfg.Timeout, p, listResp, models, listErr))
 	}
-	selected, metadata := selectModels(target.Models, models)
+	selected, metadata := selectModels(requested, models)
 	if len(selected) == 0 {
 		reportpkg.Finalize(&tmp)
 		guidance.ExtractArtifacts(&tmp)
 		guidance.QualifyArtifacts(&tmp, target.ID)
 		assessment.ApplyTarget(&tmp, p, target.ID, string(target.Protocol))
-		return toTarget(target, tmp), fmt.Errorf("Anthropic target returned no models; set --anthropic-model when /v1/models is unavailable")
+		if listErr != nil || !listResp.Is2xx() {
+			if listErr != nil {
+				return toTarget(target, tmp), fmt.Errorf("model discovery failed: %w", listErr)
+			}
+			return toTarget(target, tmp), fmt.Errorf("model discovery returned HTTP %d", listResp.StatusCode)
+		}
+		return toTarget(target, tmp), nil
 	}
 	if options.Logf != nil {
 		options.Logf("[%s] testing %d model(s): %s", target.ID, len(selected), strings.Join(selected, ", "))
@@ -126,6 +133,55 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	type modelItem struct {
 		index  int
 		report result.ModelReport
+	}
+	preflights := make([]*api.Response, len(selected))
+	preflightErrors := make([]error, len(selected))
+	preflightTests := make([]*result.TestResult, len(selected))
+	routeBlocked := make([]bool, len(selected))
+	classifications := make([]capability.Classification, len(selected))
+	modulePlans := make([][]result.ModuleAssessment, len(selected))
+	for index, model := range selected {
+		unknownPolicy := target.UnknownModel
+		if len(requested) > 0 {
+			unknownPolicy = "inventory"
+		}
+		classifications[index] = capability.ClassifyAnthropic(model, metadata[model], capability.Options{BaseURL: target.BaseURL, Overrides: overrides, UnknownPolicy: unknownPolicy})
+		if len(requested) > 0 && classifications[index].Unknown {
+			test, response, preflightErr := runMessagesPreflight(ctx, client, cfg.Timeout, p, model)
+			preflightTests[index], preflights[index], preflightErrors[index] = &test, &response, preflightErr
+			switch {
+			case response.Is2xx() && preflightErr == nil:
+				classifications[index].Unknown = false
+				classifications[index].Reason = ""
+				classifications[index].Capabilities = append(classifications[index].Capabilities, capability.Evidence{Capability: capability.AnthropicMessagesText, Source: "preflight", Rule: "anthropic.messages.preflight", Confidence: "high", Reason: "minimal Messages preflight accepted the requested model"})
+			case isTransientResponse(response, preflightErr):
+				classifications[index].Reason = "model availability is inconclusive after transient preflight failure"
+				routeBlocked[index] = true
+				markRouteBlockedTest(preflightTests[index], "model availability could not be determined after a transient preflight failure")
+			default:
+				if isModelRouteRejection(response) {
+					classifications[index].Reason = "explicit model route rejection"
+					markRouteRejectionTest(preflightTests[index])
+				} else {
+					classifications[index].Reason = "model availability is inconclusive after validation preflight failure"
+					markRouteBlockedTest(preflightTests[index], "model availability could not be determined from this validation response")
+				}
+				routeBlocked[index] = true
+			}
+		}
+		modulePlans[index] = capability.AssessModules(classifications[index], p.Modules, capability.RoutingOptions{
+			Modules:                  target.Modules,
+			AllowBillableArtifacts:   cfg.AllowBillableArtifacts,
+			AllowHighTokenProbes:     cfg.AllowHighTokenProbes,
+			AllowPersistentResources: cfg.AllowPersistentResources,
+		})
+		if routeBlocked[index] {
+			for moduleIndex := range modulePlans[index] {
+				if modulePlans[index][moduleIndex].Applicability != result.ApplicabilityNotApplicable {
+					modulePlans[index][moduleIndex].BlockedBy = []string{"anthropic.messages.basic"}
+				}
+			}
+		}
 	}
 	jobs := make(chan int)
 	modelResults := make(chan modelItem, len(selected))
@@ -143,21 +199,20 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 				if options.Logf != nil {
 					options.Logf("[%s/%s] start", target.ID, model)
 				}
-				classification := capability.ClassifyAnthropic(model, metadata[model], capability.Options{BaseURL: target.BaseURL, Overrides: overrides, UnknownPolicy: target.UnknownModel})
-				modules := capability.AssessModules(classification, p.Modules, capability.RoutingOptions{Modules: target.Modules, AllowBillableArtifacts: cfg.AllowBillableArtifacts, AllowHighTokenProbes: cfg.AllowHighTokenProbes})
+				classification := classifications[index]
+				modules := modulePlans[index]
 				mr := result.ModelReport{ID: model, Metadata: cloneMap(metadata[model]), Modules: modules}
 				for _, evidence := range classification.Capabilities {
 					mr.Capabilities = append(mr.Capabilities, result.CapabilityAssessment{ID: evidence.Capability, Source: evidence.Source, Rule: evidence.Rule, Confidence: evidence.Confidence, Reason: evidence.Reason})
 				}
-				if cfg.HasTest("compat") {
-					mr.Compatibility = runModel(ctx, client, cfg, p, model, modules, probeExecutor)
+				if cfg.HasTest("compat") && preflightTests[index] != nil && routeBlocked[index] {
+					mr.Compatibility = append(mr.Compatibility, *preflightTests[index])
+				} else if cfg.HasTest("compat") {
+					mr.Compatibility = runModelWithPreflight(ctx, client, cfg, p, model, modules, probeExecutor, preflights[index], preflightErrors[index])
 				}
 				sort.Slice(mr.Compatibility, func(i, j int) bool { return mr.Compatibility[i].ID < mr.Compatibility[j].ID })
-				if len(selected) > 1 {
-					stats := client.PacingStatsForModel(model)
-					mr.RateLimit = &result.RateLimitStats{SuccessfulRequests: stats.SuccessfulRequests, RateLimited: stats.RateLimited, RetriesRecovered: stats.RetriesRecovered, BackoffMS: stats.Backoff.Milliseconds(), SafeRate: stats.SafeRate, SafeConcurrency: stats.SafeConcurrency}
-					addModelLatency(mr.RateLimit, mr)
-				}
+				stats := client.PacingStatsForModel(model)
+				mr.RateLimit = rateLimitStats(stats)
 				if options.Logf != nil {
 					options.Logf("[%s/%s] done", target.ID, model)
 				}
@@ -178,8 +233,7 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 		tmp.Models[item.index] = item.report
 	}
 	stats := client.PacingStats()
-	tmp.RateLimit = result.RateLimitStats{SuccessfulRequests: stats.SuccessfulRequests, RateLimited: stats.RateLimited, RetriesRecovered: stats.RetriesRecovered, BackoffMS: stats.Backoff.Milliseconds(), SafeRate: stats.SafeRate, SafeConcurrency: stats.SafeConcurrency}
-	addLatency(&tmp.RateLimit, tmp)
+	tmp.RateLimit = *rateLimitStats(stats)
 	reportpkg.Finalize(&tmp)
 	guidance.ExtractArtifacts(&tmp)
 	guidance.QualifyArtifacts(&tmp, target.ID)
@@ -197,9 +251,13 @@ func discoveryResults(p profile.Profile, resp api.Response, models []api.Model, 
 	schema := testBase(p, "anthropic.models.list.schema")
 	schema.DurationMS, schema.HTTP = httpTest.DurationMS, httpTest.HTTP
 	if httpTest.Status != result.StatusPass {
-		schema.Status = httpTest.Status
+		schema.Status = result.StatusSkip
 		schema.Summary = "Model schema could not be evaluated"
 		schema.Error = httpTest.Error
+		schema.Signals = []result.EvidenceSignal{{
+			Code: "blocked.anthropic.models.list.schema", RootCause: "blocked-prerequisite",
+			Parameters: map[string]any{"blocked_by_requirement": "anthropic.models.list.http"},
+		}}
 	} else if problems := ValidateModels(resp.JSON); len(problems) > 0 {
 		schema.Status = result.StatusFail
 		schema.Summary = "Anthropic model-list schema is invalid"
@@ -214,9 +272,13 @@ func discoveryResults(p profile.Profile, resp api.Response, models []api.Model, 
 
 func paginationResult(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, first api.Response, models []api.Model, listErr error) result.TestResult {
 	test := testBase(p, "anthropic.models.list.pagination")
-	if listErr != nil || !first.Is2xx() {
+	if listErr != nil || !first.Is2xx() || len(ValidateModels(first.JSON)) != 0 {
 		test.Status = result.StatusSkip
 		test.Summary = "Pagination could not be evaluated because model discovery failed"
+		test.Signals = []result.EvidenceSignal{{
+			Code: "blocked.anthropic.models.list.pagination", RootCause: "blocked-prerequisite",
+			Parameters: map[string]any{"blocked_by_requirement": "anthropic.models.list.schema"},
+		}}
 		return test
 	}
 	hasMore, _ := first.JSON["has_more"].(bool)
@@ -263,6 +325,10 @@ func paginationResult(parent context.Context, client *Client, timeout time.Durat
 }
 
 func runModel(parent context.Context, client *Client, cfg config.Config, p profile.Profile, model string, modules []result.ModuleAssessment, executor *probe.Executor) []result.TestResult {
+	return runModelWithPreflight(parent, client, cfg, p, model, modules, executor, nil, nil)
+}
+
+func runModelWithPreflight(parent context.Context, client *Client, cfg config.Config, p profile.Profile, model string, modules []result.ModuleAssessment, executor *probe.Executor, preflight *api.Response, preflightErr error) []result.TestResult {
 	timeout := cfg.Timeout
 	var out []result.TestResult
 	retrieve := probe.Map(executor, func() result.TestResult {
@@ -287,7 +353,12 @@ func runModel(parent context.Context, client *Client, cfg config.Config, p profi
 		test     result.TestResult
 	}
 	phase := probe.Map(executor, func() basicPhase {
-		resp, err := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, body) })
+		resp, err := api.Response{}, preflightErr
+		if preflight != nil {
+			resp = *preflight
+		} else {
+			resp, err = call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, body) })
+		}
 		basic := testBase(p, "anthropic.messages.basic")
 		basic.DurationMS = resp.Duration.Milliseconds()
 		basic.HTTP = observation(resp)
@@ -526,7 +597,7 @@ func runErrors(parent context.Context, client *Client, timeout time.Duration, p 
 	invalidJSON.Status = result.StatusPass
 	var observations []string
 	for i, raw := range variants {
-		r, e := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.MessageRaw(ctx, raw) })
+		r, e := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.MessageRawForModel(ctx, raw, model) })
 		invalidJSON.DurationMS += r.Duration.Milliseconds()
 		invalidJSON.Usage = invalidJSON.Usage.Add(ParseUsage(r.JSON))
 		if i == 0 {
@@ -570,7 +641,7 @@ func runStream(parent context.Context, client *Client, timeout time.Duration, p 
 	base.DurationMS = stream.Duration.Milliseconds()
 	base.HTTP = result.HTTPObservation{StatusCode: stream.StatusCode, ContentType: stream.ContentType, RequestID: stream.RequestID, Snippet: truncate(stream.RawSnippet, 1000)}
 	if err != nil {
-		if isTransientStatus(stream.StatusCode) {
+		if stream.StatusCode == 0 || stream.StatusCode >= 200 && stream.StatusCode < 300 || isTransientStatus(stream.StatusCode) {
 			base.Status = result.StatusError
 		} else {
 			base.Status = result.StatusFail
@@ -621,11 +692,13 @@ func runStream(parent context.Context, client *Client, timeout time.Duration, p 
 	}
 	usage.Summary = "Streaming usage was reconstructed"
 	noDone := derived(p, "anthropic.messages.stream.no_done_sentinel", sequence)
-	if validation.SawDoneSentinel {
-		noDone.Status = result.StatusFail
-		noDone.Summary = "Stream emitted the OpenAI [DONE] sentinel"
-	} else {
-		noDone.Summary = "Stream ended with message_stop and no [DONE] sentinel"
+	if sequence.Status == result.StatusPass {
+		if validation.SawDoneSentinel {
+			noDone.Status = result.StatusFail
+			noDone.Summary = "Stream emitted the OpenAI [DONE] sentinel"
+		} else {
+			noDone.Summary = "Stream ended with message_stop and no [DONE] sentinel"
+		}
 	}
 	return []result.TestResult{base, sequence, typeMatch, textProbe, usage, noDone}
 }
@@ -661,7 +734,7 @@ func runTools(parent context.Context, client *Client, timeout time.Duration, p p
 		}
 	}
 	inputSchema := derived(p, "anthropic.tools.input_schema", specific)
-	if len(uses) > 0 {
+	if specific.Status == result.StatusPass && len(uses) > 0 {
 		input, _ := uses[0]["input"].(map[string]any)
 		if stringValue(input["resource_id"]) == "" {
 			inputSchema.Status = result.StatusFail
@@ -671,7 +744,7 @@ func runTools(parent context.Context, client *Client, timeout time.Duration, p p
 		}
 	}
 	continuation := testBase(p, "anthropic.tools.continuation")
-	if len(uses) == 0 {
+	if specific.Status != result.StatusPass || len(uses) == 0 {
 		continuation.Status = result.StatusSkip
 		continuation.Summary = "Continuation blocked because no tool_use was returned"
 		continuation.Signals = []result.EvidenceSignal{{Code: "anthropic.tools.result_roundtrip_failed", Parameters: map[string]any{"blocked_by_requirement": "anthropic.tools.specific"}}}
@@ -700,10 +773,10 @@ func runTools(parent context.Context, client *Client, timeout time.Duration, p p
 	validation := ValidateStream(stream)
 	streamProbe.Usage = validation.Usage
 	if streamErr != nil {
-		if stream.StatusCode == 400 || stream.StatusCode == 404 || stream.StatusCode == 422 {
-			streamProbe.Status = result.StatusUnsupported
-		} else if isTransientStatus(stream.StatusCode) {
+		if stream.StatusCode == 0 || stream.StatusCode >= 200 && stream.StatusCode < 300 || isTransientStatus(stream.StatusCode) {
 			streamProbe.Status = result.StatusError
+		} else if stream.StatusCode == 400 || stream.StatusCode == 404 || stream.StatusCode == 422 {
+			streamProbe.Status = result.StatusUnsupported
 		} else {
 			streamProbe.Status = result.StatusFail
 		}
@@ -1048,10 +1121,15 @@ func testBase(p profile.Profile, id string) result.TestResult {
 }
 func derived(p profile.Profile, id string, source result.TestResult) result.TestResult {
 	t := testBase(p, id)
-	t.Status = source.Status
 	t.DurationMS = source.DurationMS
 	t.HTTP = source.HTTP
-	t.Error = source.Error
+	if source.Status != result.StatusPass {
+		t.Status = result.StatusSkip
+		t.Summary = fmt.Sprintf("skipped because prerequisite %s did not pass", source.RequirementID)
+		t.Signals = []result.EvidenceSignal{{Code: "blocked." + strings.ReplaceAll(id, "_", "."), RootCause: "blocked-prerequisite", Parameters: map[string]any{"blocked_by_requirement": source.RequirementID}}}
+		return t
+	}
+	t.Status = result.StatusPass
 	return t
 }
 func call(parent context.Context, timeout time.Duration, fn func(context.Context) (api.Response, error)) (api.Response, error) {
@@ -1127,25 +1205,81 @@ func toTarget(target config.TargetConfig, r result.Report) result.TargetReport {
 	return result.TargetReport{ID: target.ID, Protocol: string(target.Protocol), Profile: r.Profile, Discovery: r.Discovery, Models: r.Models, Requirements: r.Requirements, Summary: r.Summary, Guidance: r.Guidance, RateLimit: r.RateLimit}
 }
 func selectModels(requested []string, models []api.Model) ([]string, map[string]map[string]any) {
-	metadata := map[string]map[string]any{}
-	for _, m := range models {
-		metadata[m.ID] = m.Raw
+	return protocolpkg.SelectModels(requested, models, protocolpkg.ExactModelID, anthropicInventoryTrusted)
+}
+
+func requestedModels(cfg config.Config, target config.TargetConfig) []string {
+	if len(cfg.Models) > 0 {
+		return append([]string(nil), cfg.Models...)
 	}
-	if len(requested) > 0 {
-		out := append([]string(nil), requested...)
-		for _, id := range out {
-			if metadata[id] == nil {
-				metadata[id] = map[string]any{"id": id, "type": "model", "source": "--anthropic-model"}
-			}
+	return append([]string(nil), target.Models...)
+}
+
+func anthropicInventoryTrusted(metadata map[string]any) bool {
+	if metadata == nil {
+		return false
+	}
+	root := map[string]any{"data": []any{metadata}, "has_more": false, "first_id": nil, "last_id": nil}
+	return len(ValidateModels(root)) == 0
+}
+
+func runMessagesPreflight(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string) (result.TestResult, api.Response, error) {
+	resp, err := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, basicBody(model)) })
+	test := testBase(p, "anthropic.messages.basic")
+	test.DurationMS, test.HTTP = resp.Duration.Milliseconds(), observation(resp)
+	test.Usage = ParseUsage(resp.JSON)
+	setHTTPStatus(&test, resp, err, false)
+	if test.Status == result.StatusPass {
+		if strings.Contains(Text(resp.JSON), "AIQA_OK") {
+			test.Summary = "Minimal Anthropic Message returned the requested marker"
+		} else {
+			test.Status = result.StatusFail
+			test.Summary = "Message succeeded but did not return AIQA_OK"
+			test.Observation = truncate(Text(resp.JSON), 200)
 		}
-		return out, metadata
 	}
-	out := make([]string, 0, len(models))
-	for _, m := range models {
-		out = append(out, m.ID)
+	return test, resp, err
+}
+
+func isTransientResponse(resp api.Response, err error) bool {
+	return err != nil && resp.StatusCode == 0 || isTransientStatus(resp.StatusCode)
+}
+
+func isModelRouteRejection(resp api.Response) bool {
+	if resp.StatusCode == 404 || resp.StatusCode == 410 {
+		return true
 	}
-	sort.Strings(out)
-	return out, metadata
+	if resp.StatusCode < 400 || resp.StatusCode >= 500 {
+		return false
+	}
+	text := strings.ToLower(resp.Snippet(2000))
+	for _, marker := range []string{"model not found", "model_not_found", "unknown model", "unsupported model", "model is not", "no such model", "route mismatch", "unsupported route", "does not support this model"} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func markRouteRejectionTest(test *result.TestResult) {
+	if test == nil {
+		return
+	}
+	test.Signals = append(test.Signals, result.EvidenceSignal{Code: "routing.model_route_rejected", RootCause: "model-route-rejection", Parameters: map[string]any{"route_rejection": true}})
+	test.Summary = "The provider explicitly rejected the requested model route"
+}
+
+func markRouteBlockedTest(test *result.TestResult, summary string) {
+	if test == nil {
+		return
+	}
+	test.Status = result.StatusError
+	test.Summary = summary
+	test.Signals = append(test.Signals, result.EvidenceSignal{Code: "execution.model_route_unknown", RootCause: "model-route-availability-unknown"})
+}
+
+func rateLimitStats(stats api.PacingStats) *result.RateLimitStats {
+	return protocolpkg.RateLimitStats(stats)
 }
 func truncate(value string, limit int) string {
 	value = strings.TrimSpace(value)
@@ -1153,33 +1287,6 @@ func truncate(value string, limit int) string {
 		return value
 	}
 	return value[:limit] + "…"
-}
-func addLatency(out *result.RateLimitStats, r result.Report) {
-	var values []int64
-	for _, t := range r.Discovery.Tests {
-		if t.HTTP.StatusCode >= 200 && t.HTTP.StatusCode < 300 && t.DurationMS > 0 {
-			values = append(values, t.DurationMS)
-		}
-	}
-	for _, m := range r.Models {
-		for _, t := range m.Compatibility {
-			if t.HTTP.StatusCode >= 200 && t.HTTP.StatusCode < 300 && t.DurationMS > 0 {
-				values = append(values, t.DurationMS)
-			}
-		}
-	}
-	if len(values) == 0 {
-		return
-	}
-	sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
-	var sum int64
-	for _, v := range values {
-		sum += v
-	}
-	out.LatencySamples = len(values)
-	out.MeanLatencyMS = sum / int64(len(values))
-	out.P50LatencyMS = values[(len(values)-1)/2]
-	out.P95LatencyMS = values[(95*len(values)-1)/100]
 }
 func max(a, b int64) int64 {
 	if a > b {
@@ -1204,27 +1311,6 @@ func moduleExecuted(modules []result.ModuleAssessment, id string) bool {
 		}
 	}
 	return false
-}
-
-func addModelLatency(out *result.RateLimitStats, model result.ModelReport) {
-	var values []int64
-	for _, test := range model.Compatibility {
-		if test.HTTP.StatusCode >= 200 && test.HTTP.StatusCode < 300 && test.DurationMS > 0 {
-			values = append(values, test.DurationMS)
-		}
-	}
-	if len(values) == 0 {
-		return
-	}
-	sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
-	var sum int64
-	for _, value := range values {
-		sum += value
-	}
-	out.LatencySamples = len(values)
-	out.MeanLatencyMS = sum / int64(len(values))
-	out.P50LatencyMS = values[(len(values)-1)/2]
-	out.P95LatencyMS = values[(95*len(values)-1)/100]
 }
 
 var _ = http.MethodPost

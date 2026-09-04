@@ -761,7 +761,7 @@ aiqa test=compat \
 Default policy:
 
 ```text
---unknown-model=chat
+--unknown-model=inventory
 ```
 
 Strict inventory override:

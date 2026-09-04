@@ -22,6 +22,7 @@ type Options struct {
 
 type findingGroup struct {
 	code           string
+	rootCause      string
 	subject        result.SubjectRef
 	requirementIDs map[string]bool
 	evidenceRefs   map[string]bool
@@ -158,11 +159,13 @@ func buildFindings(r result.Report, p profile.Profile, catalog Catalog) []result
 		}
 		codes := findingCodes(requirement, catalog)
 		for _, code := range codes {
-			key := code + "\x00" + subjectKey(requirement.Subject) + "\x00" + rootCauseKey(requirement, code)
+			rootCause := rootCauseKey(requirement, code)
+			key := subjectKey(requirement.Subject) + "\x00" + rootCause
 			group := groups[key]
 			if group == nil {
 				group = &findingGroup{
 					code:           code,
+					rootCause:      rootCause,
 					subject:        requirement.Subject,
 					requirementIDs: map[string]bool{},
 					evidenceRefs:   map[string]bool{},
@@ -174,6 +177,9 @@ func buildFindings(r result.Report, p profile.Profile, catalog Catalog) []result
 					failureKinds:   map[string]bool{},
 				}
 				groups[key] = group
+			}
+			if code < group.code {
+				group.code = code
 			}
 			group.requirementIDs[requirement.ID] = true
 			group.statuses[requirement.Status] = true
@@ -209,6 +215,7 @@ func buildFindings(r result.Report, p profile.Profile, catalog Catalog) []result
 			ID:             "finding:" + slug(group.code) + ":" + shortFingerprint(fingerprint),
 			Fingerprint:    fingerprint,
 			Code:           group.code,
+			RootCause:      group.rootCause,
 			Class:          findingClass(group.code, group.statuses, group.failureKinds),
 			EvidenceState:  evidenceState(group.code, group.statuses, group.failureKinds),
 			Confidence:     findingConfidence(group.code, group.statuses, group.failureKinds),
@@ -228,11 +235,23 @@ func buildFindings(r result.Report, p profile.Profile, catalog Catalog) []result
 			finding.Attribution = entry.Attribution
 		}
 		finding.ObservedScope = observedScope(finding)
-		for _, requirementID := range requirementIDs {
-			key := subjectKey(group.subject) + "\x00" + requirementID
-			finding.BlockedRequirementIDs = append(finding.BlockedRequirementIDs, blocked[key]...)
+		seenBlocked := map[string]bool{}
+		var collectBlocked func(string)
+		collectBlocked = func(parent string) {
+			key := subjectKey(group.subject) + "\x00" + parent
+			for _, child := range blocked[key] {
+				if seenBlocked[child] {
+					continue
+				}
+				seenBlocked[child] = true
+				finding.BlockedRequirementIDs = append(finding.BlockedRequirementIDs, child)
+				collectBlocked(child)
+			}
 		}
-		finding.BlockedRequirementIDs = uniqueStrings(finding.BlockedRequirementIDs)
+		for _, requirementID := range requirementIDs {
+			collectBlocked(requirementID)
+		}
+		sort.Strings(finding.BlockedRequirementIDs)
 		findings = append(findings, finding)
 	}
 	sort.Slice(findings, func(i, j int) bool { return findings[i].ID < findings[j].ID })
@@ -241,16 +260,37 @@ func buildFindings(r result.Report, p profile.Profile, catalog Catalog) []result
 
 func rootCauseKey(requirement result.RequirementAssessment, code string) string {
 	root := map[string]any{}
+	var explicit string
+	var fallbackExplicit string
 	for _, evidence := range requirement.Evidence {
 		for _, signal := range evidence.Signals {
-			if signal.Code != code {
-				continue
+			if signal.RootCause != "" {
+				if signal.Code == code {
+					explicit = signal.RootCause
+				} else if fallbackExplicit == "" {
+					fallbackExplicit = signal.RootCause
+				}
 			}
-			mergeDetails(root, stableDetails(signal.Parameters))
+			if value, ok := signal.Parameters["root_cause"].(string); ok && value != "" {
+				if signal.Code == code {
+					explicit = value
+				} else if fallbackExplicit == "" {
+					fallbackExplicit = value
+				}
+			}
+			if signal.Code == code {
+				mergeDetails(root, stableDetails(signal.Parameters))
+			}
 		}
 	}
+	if explicit == "" {
+		explicit = fallbackExplicit
+	}
+	if explicit != "" {
+		return "root:" + explicit
+	}
 	encoded, _ := json.Marshal(root)
-	return string(encoded)
+	return "code:" + code + "\x00" + string(encoded)
 }
 
 func findingCodes(requirement result.RequirementAssessment, catalog Catalog) []string {

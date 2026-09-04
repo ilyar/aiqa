@@ -29,8 +29,12 @@ func TestPacedSDKTransportOwnsRetriesAndCountsExhaustedRateLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = response.Body.Close()
-	if calls.Load() != 3 || client.PacingStats().RateLimited != 3 {
-		t.Fatalf("calls=%d rate_limited=%d, want 3/3", calls.Load(), client.PacingStats().RateLimited)
+	stats := client.PacingStats()
+	if calls.Load() != 3 || stats.RateLimited != 3 {
+		t.Fatalf("calls=%d rate_limited=%d, want 3/3", calls.Load(), stats.RateLimited)
+	}
+	if stats.LogicalRequests != 1 || stats.PhysicalAttempts != 3 || stats.RetryAttempts != 2 || stats.RetriesExhausted != 1 || stats.SuccessfulRequests != 0 || stats.LatencySamples != nil {
+		t.Fatalf("exhausted SDK telemetry=%+v", stats)
 	}
 	if got := client.PacingConstraints().SafeConcurrency; got != 1 {
 		t.Fatalf("current adaptive concurrency=%d after 429, want 1", got)
@@ -60,8 +64,41 @@ func TestDoRawStopsAfterThreeRateLimitedAttempts(t *testing.T) {
 	if got := calls.Load(); got != 3 {
 		t.Fatalf("requests=%d, want exactly 3 rate-limited attempts", got)
 	}
-	if got := client.PacingStats().RateLimited; got != 3 {
+	stats := client.PacingStats()
+	if got := stats.RateLimited; got != 3 {
 		t.Fatalf("rate-limited stats=%d, want 3", got)
+	}
+	if stats.LogicalRequests != 1 || stats.PhysicalAttempts != 3 || stats.RetryAttempts != 2 || stats.RetriesExhausted != 1 || stats.SuccessfulRequests != 0 || stats.LatencySamples != nil || stats.SafeRate != 0 || stats.SafeConcurrency != 0 {
+		t.Fatalf("exhausted raw telemetry=%+v", stats)
+	}
+}
+
+func TestDoRawTelemetryCountsRecoveredRetryAndUniqueLatency(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write([]byte(`{"error":"temporary"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "test", "aiqa-test", time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.DoJSON(context.Background(), http.MethodGet, "models", nil); err != nil {
+		t.Fatal(err)
+	}
+	stats := client.PacingStats()
+	if stats.LogicalRequests != 1 || stats.PhysicalAttempts != 2 || stats.SuccessfulRequests != 1 || stats.RetryAttempts != 1 || stats.RetriesRecovered != 1 || stats.RetriesExhausted != 0 || stats.RateLimited != 0 {
+		t.Fatalf("recovered raw telemetry=%+v", stats)
+	}
+	if len(stats.LatencySamples) != 1 || stats.Backoff <= 0 || stats.SafeRate <= 0 || stats.SafeConcurrency <= 0 {
+		t.Fatalf("recovered latency/pacer telemetry=%+v", stats)
 	}
 }
 
@@ -111,7 +148,17 @@ func TestModelScopedRequestsAttributePacingToURLAddressedModel(t *testing.T) {
 	if _, err := client.DoJSONForModel(context.Background(), http.MethodGet, "models/gemini-test", nil, "gemini-test"); err != nil {
 		t.Fatal(err)
 	}
-	if got := client.PacingStatsForModel("gemini-test").SuccessfulRequests; got != 1 {
-		t.Fatalf("model-scoped pacing successes=%d, want 1", got)
+	stats := client.PacingStatsForModel("gemini-test")
+	if stats.LogicalRequests != 1 || stats.PhysicalAttempts != 1 || stats.SuccessfulRequests != 1 || len(stats.LatencySamples) != 1 {
+		t.Fatalf("model-scoped pacing telemetry=%+v", stats)
+	}
+}
+
+func TestDeltaPacingStatsOmitsSafeStateWhenOperationHasNoSuccess(t *testing.T) {
+	before := PacingStats{SuccessfulRequests: 2, SafeRate: 4, SafeConcurrency: 2, LatencySamples: []int64{10, 20}}
+	after := PacingStats{SuccessfulRequests: 2, SafeRate: 1, SafeConcurrency: 1, LatencySamples: []int64{10, 20}}
+	got := DeltaPacingStats(before, after)
+	if got.SuccessfulRequests != 0 || got.SafeRate != 0 || got.SafeConcurrency != 0 || len(got.LatencySamples) != 0 {
+		t.Fatalf("delta with no successful operation retained positive safe state: %+v", got)
 	}
 }

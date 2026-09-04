@@ -31,7 +31,11 @@
       "cost_class": "none",
       "probe_ids": [
         "models.list.http",
-        "models.list.schema"
+        "models.list.schema",
+        "chat.error.invalid_model",
+        "chat.error.invalid_auth",
+        "chat.error.invalid_json",
+        "chat.error.invalid_types"
       ]
     },
     {
@@ -61,11 +65,7 @@
         "chat.tools.continuation",
         "chat.structured.json_object",
         "chat.structured.json_schema",
-        "chat.logprobs",
-        "chat.error.invalid_model",
-        "chat.error.invalid_auth",
-        "chat.error.invalid_json",
-        "chat.error.invalid_types"
+        "chat.logprobs"
       ]
     },
     {

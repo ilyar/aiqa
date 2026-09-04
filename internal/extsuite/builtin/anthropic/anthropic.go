@@ -160,9 +160,10 @@ func runCase(ctx context.Context, client *anthropicsdk.Client, suiteID, model st
 		}
 		return messageUsage(message), validateSDKMessage(message, true)
 	case "tools":
-		return runTools(ctx, client, model, params)
+		return runTools(ctx, client, model, messageParams(model, toolPrompt))
 	case "tools.stream":
-		stream := client.Messages.NewStreaming(ctx, params, option.WithHeader("Accept", "text/event-stream"), option.WithJSONSet("tools", []map[string]any{{"name": "get_status", "description": "Return status.", "input_schema": map[string]any{"type": "object"}}}), option.WithJSONSet("tool_choice", map[string]any{"type": "tool", "name": "get_status"}))
+		streamParams := messageParams(model, toolPrompt)
+		stream := client.Messages.NewStreaming(ctx, streamParams, option.WithHeader("Accept", "text/event-stream"), option.WithJSONSet("tools", []map[string]any{toolDefinition()}), option.WithJSONSet("tool_choice", map[string]any{"type": "tool", "name": "get_status"}))
 		message := anthropicsdk.Message{}
 		for stream.Next() {
 			if err := message.Accumulate(stream.Current()); err != nil {
@@ -231,7 +232,7 @@ func onlyKeys(value map[string]any, allowed ...string) bool {
 }
 
 func runTools(ctx context.Context, client *anthropicsdk.Client, model string, params anthropicsdk.MessageNewParams) (result.Usage, error) {
-	tool := map[string]any{"name": "get_status", "description": "Return status.", "input_schema": map[string]any{"type": "object", "properties": map[string]any{"resource_id": map[string]any{"type": "string"}}, "required": []string{"resource_id"}}}
+	tool := toolDefinition()
 	message, err := client.Messages.New(ctx, params, option.WithJSONSet("tools", []map[string]any{tool}), option.WithJSONSet("tool_choice", map[string]any{"type": "tool", "name": "get_status"}))
 	if err != nil {
 		return result.Usage{}, err
@@ -288,12 +289,27 @@ func sdkToolUse(message *anthropicsdk.Message) (anthropicsdk.ToolUseBlock, error
 			continue
 		}
 		var input map[string]any
-		if json.Unmarshal(block.Input, &input) != nil || input["resource_id"] != "resource-alpha" {
+		if json.Unmarshal(block.Input, &input) != nil || !onlyKeys(input, "resource_id") || input["resource_id"] != "resource-alpha" {
 			return anthropicsdk.ToolUseBlock{}, errors.New("SDK parsed tool_use with invalid input")
 		}
 		return block.AsToolUse(), nil
 	}
 	return anthropicsdk.ToolUseBlock{}, errors.New("SDK parsed no get_status tool_use block")
+}
+
+const toolPrompt = "Call get_status for resource-alpha."
+
+func toolDefinition() map[string]any {
+	return map[string]any{
+		"name":        "get_status",
+		"description": "Return status.",
+		"input_schema": map[string]any{
+			"type":                 "object",
+			"properties":           map[string]any{"resource_id": map[string]any{"type": "string"}},
+			"required":             []string{"resource_id"},
+			"additionalProperties": false,
+		},
+	}
 }
 
 func messageParams(model, prompt string) anthropicsdk.MessageNewParams {

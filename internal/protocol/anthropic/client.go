@@ -103,7 +103,7 @@ func (c *Client) ListModelsPage(ctx context.Context, afterID string, limit int) 
 }
 
 func (c *Client) RetrieveModel(ctx context.Context, id string) (api.Response, error) {
-	return c.inner.DoJSON(ctx, http.MethodGet, "models/"+url.PathEscape(id), nil)
+	return c.inner.DoJSONForModel(ctx, http.MethodGet, "models/"+url.PathEscape(id), nil, id)
 }
 
 func (c *Client) Message(ctx context.Context, body map[string]any) (api.Response, error) {
@@ -111,7 +111,13 @@ func (c *Client) Message(ctx context.Context, body map[string]any) (api.Response
 }
 
 func (c *Client) MessageRaw(ctx context.Context, raw []byte) (api.Response, error) {
-	return c.inner.DoRaw(ctx, http.MethodPost, "messages", raw, "application/json")
+	return c.MessageRawForModel(ctx, raw, "")
+}
+
+// MessageRawForModel keeps deliberately malformed request probes attributed to
+// the selected model even when their JSON cannot be decoded for model lookup.
+func (c *Client) MessageRawForModel(ctx context.Context, raw []byte, model string) (api.Response, error) {
+	return c.inner.DoRawForModel(ctx, http.MethodPost, "messages", raw, "application/json", model)
 }
 
 func (c *Client) StreamMessage(ctx context.Context, body map[string]any) (api.StreamResponse, error) {

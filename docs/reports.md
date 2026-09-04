@@ -15,6 +15,16 @@ Each target owns these fields:
 - findings, recommendations, usage, rate-limit telemetry, and grouped extension runs.
 - optional notes, such as a pinned SDK surface limitation (Google currently has no public Interactions methods in v1.71.0).
 
+The original model request is stored once as `config.requested_models`. Target
+rows contain only models selected from that target's successfully retrieved
+inventory; `targets[].models` is not a copy of the requested list. An ID that
+is absent from one successful inventory is silently omitted there, and an ID
+absent from every successful inventory creates no model row, requirement,
+finding, or verdict effect. Raw inventory and discovery validation remain in
+the affected target, so consumers can distinguish silent absence from a
+discovery failure. The full routing contract is in
+[`unified-model-routing.md`](unified-model-routing.md).
+
 Model verdicts are derived from that model's canonical requirements. A missing planned native or profile-bound extension result cannot leave a model labelled `PASS`.
 
 Requirement subjects and evidence IDs include the target ID. The same model name on OpenAI and Anthropic targets remains two separate subjects. The root contains a run verdict and target counts, but no weighted score or cross-protocol percentage. The hardest target outcome wins in this order: `FAIL`, `INCONCLUSIVE`, `PARTIAL`, `PASS-WITH-GAPS`, and `PASS`.
@@ -112,6 +122,13 @@ Verification entries identify the affected target, protocol, requirement IDs, an
 Markdown is rendered from the same report object serialized as JSON. Its order is:
 
 Markdown shows the tested service origin (host-only, linked to the service root), target comparison table, run verdict, per-target telemetry, separate target sections, model routing, grouped extension suites, and normalized provider-reported usage. API paths, query parameters, and credentials are not included in the service link. OpenAI `prompt_tokens`/`completion_tokens`, Anthropic `input_tokens`/`output_tokens`, and Google `promptTokenCount`/`candidatesTokenCount` share common Input and Output columns. Cache creation and cache read remain separate input categories; thinking/reasoning is shown as an output subset and is not added twice. The Total column and the multi-target total row show the observed aggregate. When a target evaluates more than one model, its model section also shows separate rate-limit and latency observations for each model. Percentages remain target-local.
+
+Rate-limit telemetry is transport-owned. `logical_requests`, physical attempts,
+retry attempts, recovered and exhausted retries, rate-limited responses,
+backoff, and unique successful-response latency samples are not reconstructed
+from the number of result rows. Safe request rate and concurrency are client
+pacer observations and are omitted from JSON, or rendered as `N/S`, when no
+request succeeded.
 
 Failed extension-runner diagnostics are redacted, truncated, stored once in `guidance.artifacts`, and linked by content-addressed `artifact_ref` values. API keys, bearer tokens, cookies, signed query strings, tool arguments, and long base64 payloads are removed before rendering.
 

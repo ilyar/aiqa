@@ -158,6 +158,7 @@ type ModuleAssessment struct {
 	Reason        string         `json:"reason"`
 	Source        string         `json:"source,omitempty"`
 	Confidence    string         `json:"confidence,omitempty"`
+	BlockedBy     []string       `json:"blocked_by,omitempty"`
 	TestIDs       []string       `json:"test_ids,omitempty"`
 	Summary       *Summary       `json:"summary,omitempty"`
 }
@@ -291,6 +292,7 @@ type TargetPublicConfig struct {
 type PublicConfigV3 struct {
 	Tests                    []string             `json:"tests"`
 	Targets                  []TargetPublicConfig `json:"targets"`
+	RequestedModels          []string             `json:"requested_models,omitempty"`
 	Timeout                  string               `json:"timeout"`
 	Formats                  []string             `json:"formats"`
 	FailOn                   string               `json:"fail_on"`
@@ -386,12 +388,16 @@ type Report struct {
 }
 
 type RateLimitStats struct {
+	LogicalRequests    int     `json:"logical_requests"`
+	PhysicalAttempts   int     `json:"physical_attempts"`
 	SuccessfulRequests int     `json:"successful_requests"`
 	RateLimited        int     `json:"rate_limited_responses"`
+	RetryAttempts      int     `json:"retry_attempts"`
 	RetriesRecovered   int     `json:"retries_recovered"`
+	RetriesExhausted   int     `json:"retries_exhausted"`
 	BackoffMS          int64   `json:"backoff_ms"`
-	SafeRate           float64 `json:"observed_safe_requests_per_second"`
-	SafeConcurrency    int     `json:"observed_safe_concurrency"`
+	SafeRate           float64 `json:"observed_safe_requests_per_second,omitempty"`
+	SafeConcurrency    int     `json:"observed_safe_concurrency,omitempty"`
 	LatencySamples     int     `json:"latency_samples"`
 	MeanLatencyMS      int64   `json:"mean_latency_ms"`
 	P50LatencyMS       int64   `json:"p50_latency_ms"`

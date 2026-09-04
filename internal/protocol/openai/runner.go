@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 	"sync"
 
@@ -59,7 +58,7 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 		SchemaVersion: "aiqa.report.internal",
 		Profile:       profileInfo(p),
 		Config: result.PublicConfig{
-			BaseURL: target.BaseURL, Tests: append([]string(nil), cfg.Tests...), RequestedModels: append([]string(nil), target.Models...),
+			BaseURL: target.BaseURL, Tests: append([]string(nil), cfg.Tests...), RequestedModels: append([]string(nil), requestedModels(cfg, target)...),
 			Timeout: cfg.Timeout.String(), Formats: append([]string(nil), cfg.Formats...), ExtSuites: append([]string(nil), cfg.ExtSuites...),
 			FailOn: cfg.FailOn, ContextMaxTokens: cfg.ContextMaxTokens, ContextPrecision: cfg.ContextPrecision,
 			ContextBudget: cfg.ContextBudget, Samples: cfg.Samples, Modules: append([]string(nil), target.Modules...),
@@ -85,17 +84,21 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 		tmp.Discovery.Tests = append(tmp.Discovery.Tests, suites.DiscoveryTests(p, listResp, models, listErr)...)
 	}
 
-	selected, metadata := selectModels(target.Models, models)
+	requested := requestedModels(cfg, target)
+	selected, metadata := selectModels(requested, models)
 	if len(selected) == 0 {
 		if !cfg.HasTest("compat") {
 			tmp.Discovery.Tests = append(tmp.Discovery.Tests, suites.DiscoveryTests(p, listResp, models, listErr)...)
 		}
 		finish(&tmp, p, target)
 		out := protocolpkg.RunResult{Target: toTarget(target, tmp), Runtime: runtime}
-		if listErr != nil {
-			return out, fmt.Errorf("no models available: %w", listErr)
+		if listErr != nil || !listResp.Is2xx() {
+			if listErr != nil {
+				return out, fmt.Errorf("model discovery failed: %w", listErr)
+			}
+			return out, fmt.Errorf("model discovery returned HTTP %d", listResp.StatusCode)
 		}
-		return out, fmt.Errorf("no models returned by endpoint")
+		return out, nil
 	}
 	fmt.Fprintf(os.Stderr, "aiqa: testing %d model(s): %s\n", len(selected), joinModels(selected))
 	if cfg.HasTest("model-param") {
@@ -104,13 +107,66 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 
 	classifications := make([]capability.Classification, len(selected))
 	modulePlans := make([][]result.ModuleAssessment, len(selected))
+	preflights := make([]*api.Response, len(selected))
+	preflightErrors := make([]error, len(selected))
+	preflightTests := make([]*result.TestResult, len(selected))
+	routeBlocked := make([]bool, len(selected))
 	for index, model := range selected {
-		classifications[index] = capability.Classify(model, metadata[model], capability.Options{BaseURL: target.BaseURL, Overrides: overrides, UnknownPolicy: target.UnknownModel})
-		modulePlans[index] = capability.AssessModules(classifications[index], p.Modules, capability.RoutingOptions{Modules: target.Modules, AllowBillableArtifacts: cfg.AllowBillableArtifacts})
+		explicit := len(requested) > 0
+		unknownPolicy := target.UnknownModel
+		if explicit {
+			unknownPolicy = "inventory"
+		}
+		classifications[index] = capability.Classify(model, metadata[model], capability.Options{BaseURL: target.BaseURL, Overrides: overrides, UnknownPolicy: unknownPolicy})
+		if explicit && classifications[index].Unknown {
+			test, response, preflightErr := suites.RunChatPreflight(ctx, env, model)
+			preflightTests[index], preflights[index], preflightErrors[index] = &test, &response, preflightErr
+			switch {
+			case response.Is2xx() && preflightErr == nil:
+				classifications[index].Unknown = false
+				classifications[index].Reason = ""
+				classifications[index].Capabilities = append(classifications[index].Capabilities, capability.Evidence{Capability: capability.ChatText, Source: "preflight", Rule: "openai.chat.preflight", Confidence: "high", Reason: "minimal Chat Completions preflight accepted the requested model"})
+			case isTransientResponse(response, preflightErr):
+				classifications[index].Reason = "model availability is inconclusive after transient preflight failure"
+				routeBlocked[index] = true
+				markRouteBlockedTest(preflightTests[index], "model availability could not be determined after a transient preflight failure")
+			default:
+				if isModelRouteRejection(response) {
+					classifications[index].Reason = "explicit model route rejection"
+					markRouteRejectionTest(preflightTests[index])
+				} else {
+					classifications[index].Reason = "model availability is inconclusive after validation preflight failure"
+					markRouteBlockedTest(preflightTests[index], "model availability could not be determined from this validation response")
+				}
+				routeBlocked[index] = true
+			}
+		}
+		modulePlans[index] = capability.AssessModules(classifications[index], p.Modules, capability.RoutingOptions{
+			Modules:                  target.Modules,
+			AllowBillableArtifacts:   cfg.AllowBillableArtifacts,
+			AllowHighTokenProbes:     cfg.AllowHighTokenProbes,
+			AllowPersistentResources: cfg.AllowPersistentResources,
+		})
+		if routeBlocked[index] {
+			for moduleIndex := range modulePlans[index] {
+				if modulePlans[index][moduleIndex].Applicability != result.ApplicabilityNotApplicable {
+					modulePlans[index][moduleIndex].BlockedBy = []string{"chat.basic"}
+				}
+			}
+		}
 	}
 	chatRepresentative := representativeModel(selected, modulePlans, capability.ModuleChat)
-	if cfg.HasTest("compat") && chatRepresentative != "" {
-		tmp.Discovery.Compatibility = append(tmp.Discovery.Compatibility, suites.RunEndpointCompat(ctx, env, chatRepresentative)...)
+	if cfg.HasTest("compat") {
+		if chatRepresentative != "" {
+			tmp.Discovery.Compatibility = append(tmp.Discovery.Compatibility, suites.RunEndpointCompat(ctx, env, chatRepresentative)...)
+		} else {
+			// Endpoint-level chat error probes are provider-scoped, but there is
+			// no valid text route from which to execute them for an image-only or
+			// inventory-only selection. Mark them N/A instead of manufacturing a
+			// provider evidence gap that would make an otherwise valid image run
+			// inconclusive.
+			tmp.Discovery.Compatibility = append(tmp.Discovery.Compatibility, chatEndpointNotApplicable(p)...)
+		}
 		suites.SortTests(tmp.Discovery.Compatibility)
 	}
 
@@ -138,8 +194,10 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 				}
 				chatModule := capability.Module(mr.Modules, capability.ModuleChat)
 				imageModule := capability.Module(mr.Modules, capability.ModuleImages)
-				if cfg.HasTest("compat") && chatModule != nil && chatModule.Execution == result.ExecutionExecuted {
-					mr.Compatibility = suites.RunModelCompat(ctx, env, model)
+				if cfg.HasTest("compat") && preflightTests[index] != nil && routeBlocked[index] {
+					mr.Compatibility = append(mr.Compatibility, *preflightTests[index])
+				} else if cfg.HasTest("compat") && chatModule != nil && chatModule.Execution == result.ExecutionExecuted {
+					mr.Compatibility = suites.RunModelCompatWithPreflight(ctx, env, model, preflights[index], preflightErrors[index])
 				}
 				if cfg.HasTest("compat") && imageModule != nil && imageModule.Execution == result.ExecutionExecuted {
 					mr.Compatibility = append(mr.Compatibility, suites.RunImageCompat(ctx, env, model)...)
@@ -148,11 +206,8 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 				if cfg.HasTest("model-param") && chatModule != nil && chatModule.Execution == result.ExecutionExecuted {
 					mr.Parameters, mr.Context = suites.RunModelParameters(ctx, env, model, metadata[model])
 				}
-				if len(selected) > 1 {
-					stats := client.PacingStatsForModel(model)
-					mr.RateLimit = rateLimitStats(stats)
-					addModelLatency(mr.RateLimit, mr)
-				}
+				stats := client.PacingStatsForModel(model)
+				mr.RateLimit = protocolpkg.RateLimitStats(stats)
 				fmt.Fprintf(os.Stderr, "aiqa: [%s] done\n", model)
 				modelResults <- modelItem{index: index, report: mr}
 			}
@@ -170,8 +225,7 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 	for item := range modelResults {
 		tmp.Models[item.index] = item.report
 	}
-	tmp.RateLimit = *rateLimitStats(client.PacingStats())
-	addLatency(&tmp.RateLimit, tmp)
+	tmp.RateLimit = *protocolpkg.RateLimitStats(client.PacingStats())
 	finish(&tmp, p, target)
 	return protocolpkg.RunResult{Target: toTarget(target, tmp), Runtime: runtime}, nil
 }
@@ -192,25 +246,64 @@ func toTarget(target config.TargetConfig, report result.Report) result.TargetRep
 }
 
 func selectModels(requested []string, discovered []api.Model) ([]string, map[string]map[string]any) {
-	metadata := make(map[string]map[string]any, len(discovered))
-	for _, model := range discovered {
-		metadata[model.ID] = model.Raw
+	return protocolpkg.SelectModels(requested, discovered, protocolpkg.ExactModelID, openAIInventoryTrusted)
+}
+
+func requestedModels(cfg config.Config, target config.TargetConfig) []string {
+	if len(cfg.Models) > 0 {
+		return append([]string(nil), cfg.Models...)
 	}
-	if len(requested) > 0 {
-		selected := append([]string(nil), requested...)
-		for _, id := range selected {
-			if metadata[id] == nil {
-				metadata[id] = map[string]any{"id": id, "object": "model", "source": "--model"}
-			}
+	// Target.Models is retained as a resolved execution-list input for callers
+	// that invoke a protocol runner directly. Config.Parse never fills it from
+	// a protocol-specific user selector.
+	return append([]string(nil), target.Models...)
+}
+
+func openAIInventoryTrusted(metadata map[string]any) bool {
+	if metadata == nil {
+		return false
+	}
+	id, _ := metadata["id"].(string)
+	object, objectOK := metadata["object"].(string)
+	_, createdOK := metadata["created"]
+	return strings.TrimSpace(id) != "" && objectOK && object == "model" && createdOK
+}
+
+func isTransientResponse(resp api.Response, err error) bool {
+	return err != nil && resp.StatusCode == 0 || resp.StatusCode == 408 || resp.StatusCode == 429 || resp.StatusCode >= 500
+}
+
+func isModelRouteRejection(resp api.Response) bool {
+	if resp.StatusCode == 404 || resp.StatusCode == 410 {
+		return true
+	}
+	if resp.StatusCode < 400 || resp.StatusCode >= 500 {
+		return false
+	}
+	text := strings.ToLower(resp.Snippet(2000))
+	for _, marker := range []string{"model not found", "model_not_found", "unknown model", "unsupported model", "model is not", "no such model", "route mismatch", "unsupported route", "does not support this model"} {
+		if strings.Contains(text, marker) {
+			return true
 		}
-		return selected, metadata
 	}
-	selected := make([]string, 0, len(discovered))
-	for _, model := range discovered {
-		selected = append(selected, model.ID)
+	return false
+}
+
+func markRouteRejectionTest(test *result.TestResult) {
+	if test == nil {
+		return
 	}
-	sort.Strings(selected)
-	return selected, metadata
+	test.Signals = append(test.Signals, result.EvidenceSignal{Code: "routing.model_route_rejected", RootCause: "model-route-rejection", Parameters: map[string]any{"route_rejection": true}})
+	test.Summary = "The provider explicitly rejected the requested model route"
+}
+
+func markRouteBlockedTest(test *result.TestResult, summary string) {
+	if test == nil {
+		return
+	}
+	test.Status = result.StatusError
+	test.Summary = summary
+	test.Signals = append(test.Signals, result.EvidenceSignal{Code: "execution.model_route_unknown", RootCause: "model-route-availability-unknown"})
 }
 
 func representativeModel(models []string, plans [][]result.ModuleAssessment, moduleID string) string {
@@ -223,6 +316,22 @@ func representativeModel(models []string, plans [][]result.ModuleAssessment, mod
 		}
 	}
 	return ""
+}
+
+func chatEndpointNotApplicable(p profile.Profile) []result.TestResult {
+	ids := []string{"chat.error.invalid_model", "chat.error.invalid_auth", "chat.error.invalid_json", "chat.error.invalid_types"}
+	tests := make([]result.TestResult, 0, len(ids))
+	for _, id := range ids {
+		spec := p.Probe(id)
+		tests = append(tests, result.TestResult{
+			ID: id, RequirementID: id, ProbeID: "aiqa.native." + id,
+			Name: spec.Name, Suite: "compat", Category: spec.Category,
+			Required: spec.Required, Applicability: result.ApplicabilityNotApplicable,
+			Status:  result.StatusSkip,
+			Summary: "chat endpoint is not applicable because no selected model has a text capability",
+		})
+	}
+	return tests
 }
 
 func cloneMap(in map[string]any) map[string]any {
@@ -242,54 +351,4 @@ func joinModels(models []string) string {
 		return fmt.Sprint(models)
 	}
 	return fmt.Sprintf("%v and %d more", models[:max], len(models)-max)
-}
-
-func rateLimitStats(stats api.PacingStats) *result.RateLimitStats {
-	return &result.RateLimitStats{SuccessfulRequests: stats.SuccessfulRequests, RateLimited: stats.RateLimited, RetriesRecovered: stats.RetriesRecovered, BackoffMS: stats.Backoff.Milliseconds(), SafeRate: stats.SafeRate, SafeConcurrency: stats.SafeConcurrency}
-}
-
-func addModelLatency(out *result.RateLimitStats, model result.ModelReport) {
-	var values []int64
-	for _, test := range model.Compatibility {
-		if test.HTTP.StatusCode >= 200 && test.HTTP.StatusCode < 300 && test.DurationMS > 0 {
-			values = append(values, test.DurationMS)
-		}
-	}
-	setLatency(out, values)
-}
-
-func addLatency(out *result.RateLimitStats, report result.Report) {
-	var values []int64
-	add := func(test result.TestResult) {
-		if test.HTTP.StatusCode >= 200 && test.HTTP.StatusCode < 300 && test.DurationMS > 0 {
-			values = append(values, test.DurationMS)
-		}
-	}
-	for _, test := range report.Discovery.Tests {
-		add(test)
-	}
-	for _, test := range report.Discovery.Compatibility {
-		add(test)
-	}
-	for _, model := range report.Models {
-		for _, test := range model.Compatibility {
-			add(test)
-		}
-	}
-	setLatency(out, values)
-}
-
-func setLatency(out *result.RateLimitStats, values []int64) {
-	if len(values) == 0 {
-		return
-	}
-	sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
-	var total int64
-	for _, value := range values {
-		total += value
-	}
-	out.LatencySamples = len(values)
-	out.MeanLatencyMS = total / int64(len(values))
-	out.P50LatencyMS = values[(len(values)-1)/2]
-	out.P95LatencyMS = values[(95*len(values)-1)/100]
 }

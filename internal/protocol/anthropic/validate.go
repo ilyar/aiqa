@@ -41,6 +41,18 @@ func ValidateModels(root map[string]any) []string {
 		if _, err := time.Parse(time.RFC3339, created); err != nil {
 			problems = append(problems, fmt.Sprintf("data[%d].created_at is not RFC3339", i))
 		}
+		if value, valid := positiveInteger(model["max_input_tokens"]); !valid || value <= 0 {
+			problems = append(problems, fmt.Sprintf("data[%d].max_input_tokens is missing or not positive", i))
+		}
+		if value, valid := positiveInteger(model["max_tokens"]); !valid || value <= 0 {
+			problems = append(problems, fmt.Sprintf("data[%d].max_tokens is missing or not positive", i))
+		}
+		capabilities, ok := model["capabilities"].(map[string]any)
+		if !ok {
+			problems = append(problems, fmt.Sprintf("data[%d].capabilities is missing or not an object", i))
+		} else {
+			problems = append(problems, validateModelCapabilities(fmt.Sprintf("data[%d].capabilities", i), capabilities)...)
+		}
 	}
 	if value, exists := root["has_more"]; !exists {
 		problems = append(problems, "has_more is missing")
@@ -57,6 +69,77 @@ func ValidateModels(root map[string]any) []string {
 		}
 	}
 	return problems
+}
+
+func validateModelCapabilities(path string, capabilities map[string]any) []string {
+	var problems []string
+	for _, key := range []string{"batch", "citations", "code_execution", "image_input", "pdf_input", "structured_outputs"} {
+		problems = append(problems, validateCapabilitySupport(path+"."+key, capabilities, key)...)
+	}
+
+	contextManagement, ok := capabilities["context_management"].(map[string]any)
+	if !ok {
+		problems = append(problems, path+".context_management is missing or not an object")
+	} else {
+		for _, key := range []string{"clear_thinking_20251015", "clear_tool_uses_20250919", "compact_20260112"} {
+			problems = append(problems, validateCapabilitySupport(path+".context_management."+key, contextManagement, key)...)
+		}
+		problems = append(problems, validateRequiredBool(path+".context_management.supported", contextManagement, "supported")...)
+	}
+
+	effort, ok := capabilities["effort"].(map[string]any)
+	if !ok {
+		problems = append(problems, path+".effort is missing or not an object")
+	} else {
+		for _, key := range []string{"high", "low", "max", "medium", "xhigh"} {
+			problems = append(problems, validateCapabilitySupport(path+".effort."+key, effort, key)...)
+		}
+		problems = append(problems, validateRequiredBool(path+".effort.supported", effort, "supported")...)
+	}
+
+	thinking, ok := capabilities["thinking"].(map[string]any)
+	if !ok {
+		problems = append(problems, path+".thinking is missing or not an object")
+	} else {
+		problems = append(problems, validateRequiredBool(path+".thinking.supported", thinking, "supported")...)
+		types, ok := thinking["types"].(map[string]any)
+		if !ok {
+			problems = append(problems, path+".thinking.types is missing or not an object")
+		} else {
+			for _, key := range []string{"adaptive", "enabled"} {
+				problems = append(problems, validateCapabilitySupport(path+".thinking.types."+key, types, key)...)
+			}
+		}
+	}
+	return problems
+}
+
+func validateCapabilitySupport(path string, parent map[string]any, key string) []string {
+	value, exists := parent[key]
+	if !exists {
+		return []string{path + " is missing"}
+	}
+	object, ok := value.(map[string]any)
+	if !ok {
+		return []string{path + " is not an object"}
+	}
+	return validateRequiredBool(path+".supported", object, "supported")
+}
+
+func validateRequiredBool(path string, parent map[string]any, key string) []string {
+	value, exists := parent[key]
+	if !exists {
+		return []string{path + " is missing"}
+	}
+	if _, ok := value.(bool); !ok {
+		return []string{path + " is not boolean"}
+	}
+	return nil
+}
+
+func positiveInteger(value any) (int64, bool) {
+	number, ok := nonNegativeInteger(value)
+	return number, ok && number > 0
 }
 
 func ValidateMessage(root map[string]any) []string {

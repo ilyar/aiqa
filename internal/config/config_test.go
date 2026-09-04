@@ -46,7 +46,7 @@ func TestResolveOfficialSDKSelectionUsesConfiguredTargets(t *testing.T) {
 	}
 }
 
-func TestParseGoogleGenAIEnvironmentAndAliases(t *testing.T) {
+func TestParseGoogleGenAIEnvironmentAndGlobalModelList(t *testing.T) {
 	t.Setenv("OPENAI_BASE_URL", "")
 	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("ANTHROPIC_BASE_URL", "")
@@ -56,8 +56,8 @@ func TestParseGoogleGenAIEnvironmentAndAliases(t *testing.T) {
 	t.Setenv("GOOGLE_GENAI_API_KEY", "")
 	t.Setenv("GOOGLE_API_KEY", "google-key")
 	t.Setenv("GEMINI_API_KEY", "google-key")
-	t.Setenv("GOOGLE_GENAI_MODEL", "gemini-a,gemini-b,gemini-a")
-	cfg, err := Parse([]string{"test=compat,ext-suite", "--ext-suite=official-sdk"})
+	t.Setenv("GOOGLE_GENAI_MODEL", "")
+	cfg, err := Parse([]string{"test=compat,ext-suite", "--ext-suite=official-sdk", "--model=gemini-a,gemini-b,gemini-a"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,8 +68,8 @@ func TestParseGoogleGenAIEnvironmentAndAliases(t *testing.T) {
 	if target.BaseURL != "https://gateway.example/google" || !target.BaseURLNormalized || target.APIVersion != "v1beta" || target.APIKey != "google-key" {
 		t.Fatalf("unexpected Google target normalization: %+v", target)
 	}
-	if strings.Join(target.Models, ",") != "gemini-a,gemini-b" {
-		t.Fatalf("Google model env was not preserved: %v", target.Models)
+	if strings.Join(cfg.Models, ",") != "gemini-a,gemini-b" || len(target.Models) != 0 {
+		t.Fatalf("global model list was not preserved without a target-local assignment: cfg=%v target=%v", cfg.Models, target.Models)
 	}
 	if got := strings.Join(ResolveExtSuiteSelection(cfg.ExtSuites, cfg.Targets), ","); got != "official-sdk.google-genai" {
 		t.Fatalf("unexpected Google SDK selection: %q", got)
@@ -115,6 +115,41 @@ func TestParseGoogleGenAIBaseURLValidation(t *testing.T) {
 	t.Setenv("GOOGLE_GENAI_BASE_URL", "http://127.0.0.1:8080/google")
 	if _, err := Parse([]string{"test=compat", "--google-genai-api-version=v2gamma"}); err == nil || !strings.Contains(err.Error(), "API version") {
 		t.Fatalf("invalid Google API version was accepted: %v", err)
+	}
+}
+
+func TestParseRejectsRemovedModelSelectorsAndGoogleModelEnvironment(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "http://127.0.0.1:8080/v1")
+	t.Setenv("OPENAI_API_KEY", "key")
+	t.Setenv("ANTHROPIC_BASE_URL", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	for _, argument := range []string{"--openai-model=x", "--anthropic-model=x", "--google-genai-model=x"} {
+		if _, err := Parse([]string{"test=compat", argument}); err == nil || !strings.Contains(err.Error(), "removed") {
+			t.Fatalf("removed selector %q was accepted: %v", argument, err)
+		}
+	}
+	t.Setenv("GOOGLE_GENAI_BASE_URL", "http://127.0.0.1:8080/google")
+	t.Setenv("GOOGLE_GENAI_API_KEY", "key")
+	t.Setenv("GOOGLE_GENAI_MODEL", "legacy-model")
+	if _, err := Parse([]string{"test=compat"}); err == nil || !strings.Contains(err.Error(), "GOOGLE_GENAI_MODEL") {
+		t.Fatalf("removed Google model environment was accepted: %v", err)
+	}
+}
+
+func TestParseGlobalModelListRejectsEmptyComponentsAndDeduplicates(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "http://127.0.0.1:8080/v1")
+	t.Setenv("OPENAI_API_KEY", "key")
+	for _, value := range []string{"", " ", "one,,two", "one, ,two", ",one", "one,"} {
+		if _, err := Parse([]string{"test=compat", "--model=" + value}); err == nil || !strings.Contains(err.Error(), "empty model ID") {
+			t.Fatalf("empty model component %q was accepted: %v", value, err)
+		}
+	}
+	cfg, err := Parse([]string{"test=compat", "--model= one, two,one ,two "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(cfg.Models, ",") != "one,two" {
+		t.Fatalf("global model list was not trimmed/deduplicated: %v", cfg.Models)
 	}
 }
 
@@ -174,8 +209,11 @@ func TestParseExpectedCLI(t *testing.T) {
 	if cfg.RequestInterval != 2*time.Second {
 		t.Fatalf("unexpected request interval: %s", cfg.RequestInterval)
 	}
-	if cfg.UnknownModel != "chat" {
+	if cfg.UnknownModel != "inventory" {
 		t.Fatalf("unexpected unknown-model policy: %s", cfg.UnknownModel)
+	}
+	if cfg.AnthropicUnknownModel != "inventory" {
+		t.Fatalf("unexpected Anthropic unknown-model policy: %s", cfg.AnthropicUnknownModel)
 	}
 	if cfg.Guidance != "full" || cfg.GuidancePack != "auto" || cfg.GuidanceLocale != "en" {
 		t.Fatalf("unexpected guidance defaults: mode=%q pack=%q locale=%q", cfg.Guidance, cfg.GuidancePack, cfg.GuidanceLocale)
@@ -271,7 +309,7 @@ func TestParseDualTargetsInDeterministicOrder(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "openai-secret")
 	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:8080/anthropic/v1")
 	t.Setenv("ANTHROPIC_API_KEY", "anthropic-secret")
-	cfg, err := Parse([]string{"test=compat", "--openai-model=o", "--anthropic-model=a"})
+	cfg, err := Parse([]string{"test=compat", "--model=o,a"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,6 +322,9 @@ func TestParseDualTargetsInDeterministicOrder(t *testing.T) {
 	if cfg.Targets[0].APIKey == cfg.Targets[1].APIKey {
 		t.Fatal("target credentials were conflated")
 	}
+	if strings.Join(cfg.Models, ",") != "o,a" || len(cfg.Targets[0].Models) != 0 || len(cfg.Targets[1].Models) != 0 {
+		t.Fatalf("global models were not kept separate from target configuration: cfg=%v targets=%+v", cfg.Models, cfg.Targets)
+	}
 }
 
 func TestParsePreservesExplicitTargetSelectionOrderBeforePlanning(t *testing.T) {
@@ -291,7 +332,7 @@ func TestParsePreservesExplicitTargetSelectionOrderBeforePlanning(t *testing.T) 
 	t.Setenv("OPENAI_API_KEY", "openai-secret")
 	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:8080/anthropic")
 	t.Setenv("ANTHROPIC_API_KEY", "anthropic-secret")
-	cfg, err := Parse([]string{"test=compat", "--target=anthropic,openai", "--openai-model=o", "--anthropic-model=a"})
+	cfg, err := Parse([]string{"test=compat", "--target=anthropic,openai", "--model=o,a"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,7 +346,7 @@ func TestParseActivatesTargetsIndependently(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "unused-key")
 	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:8080/anthropic/v1/")
 	t.Setenv("ANTHROPIC_API_KEY", "anthropic-secret")
-	cfg, err := Parse([]string{"test=compat", "--anthropic-model=a"})
+	cfg, err := Parse([]string{"test=compat", "--model=a"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,7 +393,7 @@ func TestParseTargetQualifiedAnthropicCapabilityControls(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:8080/anthropic")
 	t.Setenv("ANTHROPIC_API_KEY", "anthropic-secret")
-	cfg, err := Parse([]string{"test=compat", "--anthropic-model=a", "--anthropic-model-capability=a=anthropic.messages.text+anthropic.messages.tools", "--anthropic-capability-file=anthropic.json", "--anthropic-unknown-model=inventory"})
+	cfg, err := Parse([]string{"test=compat", "--model=a", "--anthropic-model-capability=a=anthropic.messages.text+anthropic.messages.tools", "--anthropic-capability-file=anthropic.json", "--anthropic-unknown-model=inventory"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,13 +413,17 @@ func TestParseRejectsUnqualifiedCapabilityControlsForMultipleTargets(t *testing.
 	}
 }
 
-func TestParseRejectsAmbiguousModelWithDualTargets(t *testing.T) {
+func TestParseAppliesGlobalModelToEveryActiveTarget(t *testing.T) {
 	t.Setenv("OPENAI_BASE_URL", "http://127.0.0.1:8080/openai/v1")
 	t.Setenv("OPENAI_API_KEY", "openai-secret")
 	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:8080/anthropic")
 	t.Setenv("ANTHROPIC_API_KEY", "anthropic-secret")
-	if _, err := Parse([]string{"test=compat", "--model=ambiguous"}); err == nil {
-		t.Fatal("expected ambiguous --model to fail")
+	cfg, err := Parse([]string{"test=compat", "--model=ambiguous"})
+	if err != nil {
+		t.Fatalf("global --model was rejected for multiple targets: %v", err)
+	}
+	if len(cfg.Targets) != 2 || len(cfg.Models) != 1 || cfg.Models[0] != "ambiguous" {
+		t.Fatalf("global model was not retained across targets: %+v", cfg)
 	}
 }
 

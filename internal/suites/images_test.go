@@ -62,6 +62,40 @@ func TestImageSuiteValidatesArtifactWithoutReportingBase64(t *testing.T) {
 	}
 }
 
+func TestImageGenerationDependentsStayBlockedAfterTransientFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeImageError(w, http.StatusServiceUnavailable, "temporarily unavailable")
+	}))
+	defer server.Close()
+	p, err := profile.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := api.NewClient(server.URL, "key", "test", time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := Environment{Client: client, Profile: p, Config: config.Config{Timeout: time.Second, MaxArtifactsPerModel: 1}}
+	tests := RunImageCompat(context.Background(), env, "image-model")
+	byID := make(map[string]result.TestResult, len(tests))
+	for _, test := range tests {
+		byID[test.ID] = test
+	}
+	for _, item := range []struct {
+		id      string
+		blocked string
+	}{
+		{id: "images.generate.schema", blocked: "images.generate.basic"},
+		{id: "images.generate.artifact", blocked: "images.generate.schema"},
+		{id: "images.generate.usage", blocked: "images.generate.basic"},
+	} {
+		test, ok := byID[item.id]
+		if !ok || test.Status != result.StatusSkip || len(test.Signals) != 1 || test.Signals[0].Parameters["blocked_by_requirement"] != item.blocked {
+			t.Fatalf("%s was not blocked by %s: %+v", item.id, item.blocked, test)
+		}
+	}
+}
+
 func TestImageHTTPObservationRedactsSignedURL(t *testing.T) {
 	const signedURL = "https://cdn.example.test/image.png?signature=super-secret&expires=999999"
 	observation := imageHTTPObservation(api.Response{JSON: map[string]any{

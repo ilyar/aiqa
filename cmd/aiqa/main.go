@@ -63,7 +63,6 @@ environment:
   ANTHROPIC_API_KEY    Anthropic x-api-key value
   GOOGLE_GENAI_BASE_URL Google Gemini Developer API prefix before v1beta
   GOOGLE_GENAI_API_KEY Google Gemini API key (x-goog-api-key)
-  GOOGLE_GENAI_MODEL    Google model ID[,ID] (optional)
   GOOGLE_GENAI_PROFILE  Google profile filename (default modern Interactions)
   GOOGLE_GENAI_API_VERSION API version (default v1beta)
   GOOGLE_GEMINI_BASE_URL, GOOGLE_API_KEY, GEMINI_API_KEY are accepted aliases
@@ -72,9 +71,6 @@ environment:
 targets:
   --target auto|openai|anthropic|google-genai|...
                             select configured targets (default auto)
-  --openai-model ID[,ID]    OpenAI-specific model selection
-  --anthropic-model ID[,ID] Anthropic-specific model selection
-  --google-genai-model ID[,ID] Google GenAI-specific model selection
   --openai-profile FILE     embedded OpenAI profile
   --anthropic-profile FILE  embedded Anthropic profile
   --google-genai-profile FILE embedded Google GenAI profile
@@ -90,7 +86,7 @@ compatibility:
   --module MODULE[,MODULE]
                             auto or explicit capability modules
   --model-capability MODEL=CAPABILITY[+CAPABILITY]
-                            OpenAI-only legacy capability override
+                            capability override for a single active target
   --capability-file FILE   JSON file containing model capability overrides
   --openai-model-capability MODEL=CAPABILITY[+CAPABILITY]
   --anthropic-model-capability MODEL=CAPABILITY[+CAPABILITY]
@@ -103,9 +99,9 @@ compatibility:
   --google-genai-unknown-model inventory|text
                             Google target-qualified capability controls
   --unknown-model inventory|chat
-                            policy for unclassified models (default chat)
+                            policy for unclassified OpenAI models (default inventory)
   --anthropic-unknown-model inventory|messages
-                            Anthropic fallback policy (default messages)
+                            Anthropic fallback policy (default inventory)
   --allow-billable-artifacts
                             permit modules that generate billable media
   --allow-persistent-resources

@@ -1,6 +1,6 @@
-verdict=fail core=1/2 optional=0/4 evidence=4/6
+verdict=fail core=4/5 optional=1/5 evidence=8/10
 finding behavior.chat.logprobs.accepted_but_missing class=behavior_mismatch state=confirmed subject=model:gpt-5.4-mini requirements=chat.logprobs blocked= evidence=1
-finding contract.chat.invalid_request.upstream_5xx class=contract_violation state=confirmed subject=model:gpt-5.4-mini requirements=chat.error.invalid_types blocked= evidence=1
+finding contract.chat.invalid_request.upstream_5xx class=contract_violation state=confirmed subject=provider:https://vibecode.example/v1 requirements=chat.error.invalid_types blocked= evidence=1
 finding contract.models.list.entry.created_missing class=contract_violation state=confirmed subject=provider:https://vibecode.example/v1 requirements=models.list.schema blocked= evidence=1
 finding evidence.chat.stream.native_sdk_conflict class=evidence_conflict state=conflicting subject=model:gpt-5.4-mini requirements=official-sdk.openai.chat.stream blocked= evidence=2
 finding unsupported.models.retrieve class=unsupported_capability state=confirmed subject=model:gpt-5.4-mini requirements=models.retrieve blocked= evidence=1

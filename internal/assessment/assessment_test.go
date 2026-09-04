@@ -40,7 +40,7 @@ func TestOptionalUnsupportedIsPassWithGaps(t *testing.T) {
 
 func TestUnboundExtensionDoesNotCreateRequirement(t *testing.T) {
 	r := result.Report{
-		Config:     result.PublicConfig{BaseURL: "https://example.test/v1"},
+		Config:     result.PublicConfig{BaseURL: "https://example.test/v1", Tests: []string{"ext-suite"}},
 		Extensions: []result.ExtensionRun{{Suites: []result.ExtensionSuiteResult{{ExtensionID: "third-party.example", SuiteID: "extra", Bound: false, Status: result.StatusFail, Subject: result.SubjectRef{Kind: "provider", ID: "https://example.test/v1"}}}}},
 	}
 	Apply(&r, profile.Profile{})
@@ -54,7 +54,7 @@ func TestExtensionEvidenceCreatesProfileBoundRequirement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := result.Report{Config: result.PublicConfig{BaseURL: "https://example.test/v1"}}
+	r := result.Report{Config: result.PublicConfig{BaseURL: "https://example.test/v1", Tests: []string{"ext-suite"}}}
 	r.Models = []result.ModelReport{{
 		ID:            "model-a",
 		Compatibility: []result.TestResult{{ID: "chat.stream.sse", Name: "stream", Status: result.StatusPass}},
@@ -77,7 +77,7 @@ func TestRunnerFailureKeepsPassingSuiteButMakesEvidenceIncomplete(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := result.Report{Config: result.PublicConfig{BaseURL: "https://example.test/v1"}, Extensions: []result.ExtensionRun{{
+	r := result.Report{Config: result.PublicConfig{BaseURL: "https://example.test/v1", Tests: []string{"ext-suite"}}, Extensions: []result.ExtensionRun{{
 		Runner: result.ExtensionRunnerResult{Status: result.StatusError, Summary: "process exited after emitting results"},
 		Suites: []result.ExtensionSuiteResult{{ExtensionID: "official-sdk.openai", SuiteID: "chat.stream", RequirementID: "official-sdk.openai.chat.stream", Bound: true, Status: result.StatusPass, Subject: result.SubjectRef{Kind: "model", ID: "model-a"}}},
 	}}}
@@ -93,7 +93,7 @@ func TestMultipleSuiteCasesCountOneCanonicalRequirement(t *testing.T) {
 		t.Fatal(err)
 	}
 	subject := result.SubjectRef{Kind: "model", ID: "model-a"}
-	r := result.Report{Config: result.PublicConfig{BaseURL: "https://example.test/v1"}, Extensions: []result.ExtensionRun{{Suites: []result.ExtensionSuiteResult{
+	r := result.Report{Config: result.PublicConfig{BaseURL: "https://example.test/v1", Tests: []string{"ext-suite"}}, Extensions: []result.ExtensionRun{{Suites: []result.ExtensionSuiteResult{
 		{ExtensionID: "fixture.multi", SuiteID: "case-a", RequirementID: "official-sdk.openai.chat.stream", Bound: true, Status: result.StatusPass, Subject: subject},
 		{ExtensionID: "fixture.multi", SuiteID: "case-b", RequirementID: "official-sdk.openai.chat.stream", Bound: true, Status: result.StatusPass, Subject: subject},
 	}}}}
@@ -109,7 +109,7 @@ func TestOfficialSDKConflictDoesNotRewriteNativeCoreRequirement(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := result.Report{
-		Config: result.PublicConfig{BaseURL: "https://example.test/v1"},
+		Config: result.PublicConfig{BaseURL: "https://example.test/v1", Tests: []string{"ext-suite"}},
 		Models: []result.ModelReport{{
 			ID: "model-a",
 			Compatibility: []result.TestResult{{
@@ -141,6 +141,11 @@ func TestNonApplicableModuleDoesNotEnterMeasures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	chatModule, ok := p.Module("chat-completions")
+	if !ok {
+		t.Fatal("chat module missing from profile")
+	}
+	p.Modules = []profile.Module{chatModule}
 	r := result.Report{Config: result.PublicConfig{BaseURL: "https://example.test/v1"}, Models: []result.ModelReport{{
 		ID:      "image-model",
 		Modules: []result.ModuleAssessment{{ID: "chat-completions", Applicability: result.ApplicabilityNotApplicable}},
@@ -172,9 +177,30 @@ func TestTargetModelVerdictIncludesMaterializedProfileGaps(t *testing.T) {
 	}
 }
 
+func TestExecutedProviderCoverageGapIsAnInternalError(t *testing.T) {
+	p, err := profile.LoadFile("openai-compat-2026-09.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := result.Report{
+		Config: result.PublicConfig{BaseURL: "https://example.test/v1", Tests: []string{"compat"}},
+		Models: []result.ModelReport{{ID: "model-a"}},
+	}
+	Apply(&r, p)
+	for _, requirement := range r.Requirements {
+		if requirement.Subject.Kind == "provider" && requirement.ID == "models.list.http" {
+			if requirement.Status != result.RequirementError || requirement.FailureKind != "coverage_missing_probe" {
+				t.Fatalf("provider coverage gap=%+v, want execution error", requirement)
+			}
+			return
+		}
+	}
+	t.Fatal("missing provider coverage requirement")
+}
+
 func reportWithTest(test result.TestResult) result.Report {
 	return result.Report{
-		Config:    result.PublicConfig{BaseURL: "https://example.test/v1"},
+		Config:    result.PublicConfig{BaseURL: "https://example.test/v1", Tests: []string{"ext-suite"}},
 		Discovery: result.Discovery{Tests: []result.TestResult{test}},
 	}
 }

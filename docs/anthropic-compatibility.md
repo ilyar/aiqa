@@ -34,7 +34,7 @@ POST <base>/v1/messages/count_tokens
 
 A trailing `/v1` is removed once and the normalization is recorded as `config.targets[].base_url_normalized` in report v3. A configured base URL without `ANTHROPIC_API_KEY` is a configuration error. A key without a base URL does not activate the target.
 
-Use `--anthropic-model` to select one or more exact IDs. A slash inside a model ID is encoded as one path parameter for native and Official SDK retrieve checks. If a facade supports Messages but intentionally omits Models, provide an explicit model for current diagnostics; a separate Messages-only profile remains backlog work.
+Use the global `--model` option to select one or more exact IDs. The list is intersected with the Anthropic Models inventory; an absent ID is not probed or materialized as a model report. A slash inside a model ID is encoded as one path parameter for native and Official SDK retrieve checks. If a facade supports Messages but intentionally omits Models, discovery is inconclusive; the current contract does not synthesize a model outside the inventory.
 
 Native requests use `x-api-key` and the pinned `anthropic-version`. They do not inherit `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BETA`, or ambient custom headers.
 
@@ -42,7 +42,7 @@ Native requests use `x-api-key` and the pinned `anthropic-version`. They do not 
 
 Anthropic classification uses only Anthropic target metadata and target-qualified overrides. It does not reuse OpenAI provider adapters or OpenAI model-name rules.
 
-The default `--anthropic-unknown-model=messages` policy treats an inventory model as Messages text-capable when there is no contrary classification. It also permits safe optional probes for tools and structured output; a clean 400, 404, or 422 response becomes `UNSUP`, not `N/A`. Use `--anthropic-unknown-model=inventory` to keep unclassified models inventory-only.
+The default `--anthropic-unknown-model=inventory` policy keeps ambiguous inventory entries discovery-only. A complete Anthropic `ModelInfo` identifies a Messages route; incomplete metadata remains ambiguous and receives no automatic preflight. Use `--anthropic-unknown-model=messages` to opt into the low-confidence Messages fallback and its safe optional tools and structured-output probes. A clean 400, 404, or 422 response becomes `UNSUP`, not `N/A`.
 
 Override incomplete metadata with:
 
@@ -77,7 +77,7 @@ In a multi-target run, generic model-capability controls are rejected as ambiguo
 | `anthropic.vision` | on when applicable | bounded embedded PNG input and response semantics; no base64 payload is persisted |
 | `anthropic.thinking` | off | adaptive, effort, manual budget, invalid budget, and thinking-stream structure |
 
-Modules retain separate applicability and execution states. A module marked `executed` must materialize all profile probes; a missing applicable result becomes `SKIP` rather than an implicit pass. Optional modules execute independently of the default Messages module when explicitly selected.
+Modules retain separate applicability and execution states. An applicable skipped module materializes visible `SKIP`; an executed module that omits a declared probe becomes an execution `ERROR`, never an implicit pass. Optional modules execute independently of the default Messages module when explicitly selected.
 
 Thinking requires all three conditions:
 

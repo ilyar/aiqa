@@ -93,16 +93,16 @@ type pacedRoundTripper struct {
 }
 
 func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	r.client.pacer.logical(r.model)
 	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 && request.GetBody == nil {
+			return nil, errors.New("cannot retry SDK request with a non-replayable body")
+		}
 		if err := r.client.pacer.wait(request.Context(), r.model); err != nil {
 			return nil, err
 		}
 		current := request
 		if attempt > 0 {
-			if request.GetBody == nil {
-				r.client.pacer.release(r.model)
-				return nil, errors.New("cannot retry SDK request with a non-replayable body")
-			}
 			body, err := request.GetBody()
 			if err != nil {
 				r.client.pacer.release(r.model)
@@ -111,17 +111,23 @@ func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 			current = request.Clone(request.Context())
 			current.Body = body
 		}
+		if attempt > 0 {
+			r.client.pacer.retry(r.model)
+		}
+		started := time.Now()
 		response, err := r.client.http.Transport.RoundTrip(current)
-		retry := err != nil || response.StatusCode == http.StatusRequestTimeout || response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500
+		retry := err != nil || response != nil && (response.StatusCode == http.StatusRequestTimeout || response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500)
 		if attempt == 2 && response != nil && response.StatusCode == http.StatusTooManyRequests {
 			r.client.pacer.limited(r.model, retryAfter(response.Header))
 		}
 		if !retry || attempt == 2 {
-			if err == nil && response.StatusCode >= 200 && response.StatusCode < 300 {
-				r.client.pacer.success(r.model)
+			if err == nil && response != nil && response.StatusCode >= 200 && response.StatusCode < 300 {
+				r.client.pacer.success(r.model, time.Since(started))
 				if attempt > 0 {
 					r.client.pacer.recovered(r.model)
 				}
+			} else if attempt == 2 && retry {
+				r.client.pacer.exhausted(r.model)
 			}
 			r.client.pacer.release(r.model)
 			return response, err
@@ -138,6 +144,7 @@ func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 			}
 		}
 		if response == nil || response.StatusCode != http.StatusTooManyRequests {
+			r.client.pacer.backoff(r.model, delay)
 			if err := waitDuration(request.Context(), delay); err != nil {
 				return nil, err
 			}
@@ -223,7 +230,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any, mode
 }
 
 func (c *Client) DoRaw(ctx context.Context, method, path string, body []byte, contentType string) (Response, error) {
-	return c.DoRawForModel(ctx, method, path, body, contentType, "")
+	return c.DoRawForModel(ctx, method, path, body, contentType, modelFromRaw(body))
 }
 
 // DoRawForModel is the model-scoped variant of DoRaw.  It preserves the raw
@@ -246,14 +253,18 @@ func (c *Client) doRaw(ctx context.Context, method, path string, body []byte, co
 }
 
 func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []byte, contentType, model string) (Response, error) {
+	c.pacer.logical(model)
 	for attempt := 0; attempt < 3; attempt++ {
 		if err := c.pacer.wait(ctx, model); err != nil {
 			return Response{}, err
 		}
+		if attempt > 0 {
+			c.pacer.retry(model)
+		}
 		resp, err := c.doRawURLOnce(ctx, method, endpoint, body, contentType)
 		if !shouldRetry(resp, err) {
 			if resp.Is2xx() {
-				c.pacer.success(model)
+				c.pacer.success(model, resp.Duration)
 				if attempt > 0 {
 					c.pacer.recovered(model)
 				}
@@ -267,9 +278,11 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 			c.pacer.limited(model, delay)
 		}
 		if attempt == 2 {
+			c.pacer.exhausted(model)
 			return resp, err
 		}
 		if resp.StatusCode != http.StatusTooManyRequests {
+			c.pacer.backoff(model, delay)
 			select {
 			case <-ctx.Done():
 				return resp, ctx.Err()
@@ -364,6 +377,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 	if err != nil {
 		return StreamResponse{}, fmt.Errorf("marshal stream request: %w", err)
 	}
+	c.pacer.logical(model)
 	u := *c.baseURL
 	pathPart, queryPart, _ := strings.Cut(path, "?")
 	u.Path = joinURLPath(c.baseURL.Path, pathPart)
@@ -372,24 +386,30 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 	var started time.Time
 	attempts := 0
 	for attempt := 0; attempt < 3; attempt++ {
-		attempts = attempt
 		if err := c.pacer.wait(ctx, model); err != nil {
 			return StreamResponse{}, err
 		}
 		started = time.Now()
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bytes.NewReader(raw))
 		if err != nil {
+			c.pacer.release(model)
 			return StreamResponse{}, err
 		}
 		c.applyHeaders(req, "application/json")
 		req.Header.Set("Accept", "text/event-stream")
+		if attempt > 0 {
+			attempts++
+			c.pacer.retry(model)
+		}
 		httpResp, err = c.http.Do(req)
 		if err != nil {
 			c.pacer.release(model)
 			if attempt == 2 {
+				c.pacer.exhausted(model)
 				return StreamResponse{Duration: time.Since(started)}, err
 			}
 			delay := time.Duration(1<<attempt) * 100 * time.Millisecond
+			c.pacer.backoff(model, delay)
 			select {
 			case <-ctx.Done():
 				return StreamResponse{Duration: time.Since(started)}, ctx.Err()
@@ -408,6 +428,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 			if httpResp.StatusCode == http.StatusTooManyRequests {
 				c.pacer.limited(model, delay)
 			}
+			c.pacer.exhausted(model)
 			break
 		}
 		_, _ = io.Copy(io.Discard, io.LimitReader(httpResp.Body, 32<<10))
@@ -416,6 +437,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 		if httpResp.StatusCode == http.StatusTooManyRequests {
 			c.pacer.limited(model, delay)
 		} else {
+			c.pacer.backoff(model, delay)
 			select {
 			case <-ctx.Done():
 				return StreamResponse{Duration: time.Since(started)}, ctx.Err()
@@ -437,7 +459,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 		result.RawSnippet = strings.TrimSpace(string(b))
 		return result, fmt.Errorf("stream request returned HTTP %d", httpResp.StatusCode)
 	}
-	c.pacer.success(model)
+	c.pacer.success(model, time.Since(started))
 	if attempts > 0 {
 		c.pacer.recovered(model)
 	}
@@ -546,6 +568,14 @@ func modelFromBody(body any) string {
 		return model
 	}
 	return ""
+}
+
+func modelFromRaw(raw []byte) string {
+	var body map[string]any
+	if json.Unmarshal(raw, &body) != nil {
+		return ""
+	}
+	return modelFromBody(body)
 }
 
 func (c *Client) applyHeaders(req *http.Request, contentType string) {

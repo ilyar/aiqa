@@ -48,6 +48,10 @@ func DiscoveryTests(p profile.Profile, resp api.Response, models []api.Model, li
 	if !resp.Is2xx() || resp.JSON == nil {
 		schemaTest.Status = result.StatusSkip
 		schemaTest.Summary = "schema was not checked because model discovery failed"
+		schemaTest.Signals = []result.EvidenceSignal{{
+			Code: "blocked.models.list.schema", RootCause: "blocked-prerequisite",
+			Parameters: map[string]any{"blocked_by_requirement": "models.list.http"},
+		}}
 	} else {
 		var problems []string
 		missingCreated := 0
@@ -117,14 +121,42 @@ func RunEndpointCompat(ctx context.Context, env Environment, validModel string) 
 }
 
 func RunModelCompat(ctx context.Context, env Environment, model string) []result.TestResult {
+	return runModelCompat(ctx, env, model, nil, nil)
+}
+
+// RunModelCompatWithPreflight reuses a successful or accepted basic request
+// performed while resolving an explicitly requested ambiguous inventory
+// entry. The response is evaluated by the ordinary basic/schema/usage probes
+// and is not sent a second time.
+func RunModelCompatWithPreflight(ctx context.Context, env Environment, model string, preflight *api.Response, preflightErr error) []result.TestResult {
+	return runModelCompat(ctx, env, model, preflight, preflightErr)
+}
+
+// RunChatPreflight performs the one minimal, non-billable request allowed for
+// an explicitly requested ambiguous model. A 2xx response proves that the
+// route accepted the model even when its envelope later fails schema checks.
+func RunChatPreflight(ctx context.Context, env Environment, model string) (result.TestResult, api.Response, error) {
+	resp, err := callChat(ctx, env, map[string]any{
+		"model":    model,
+		"messages": []any{map[string]any{"role": "user", "content": "Reply with exactly AIQA_OK."}},
+	})
+	return evaluateBasic(env.Profile, resp, err), resp, err
+}
+
+func runModelCompat(ctx context.Context, env Environment, model string, preflight *api.Response, preflightErr error) []result.TestResult {
 	env.logf("[%s] compat: scheduling independent probes", model)
 	groups := probe.Map(env.Probes,
 		func() []result.TestResult { return []result.TestResult{probeRetrieveModel(ctx, env, model)} },
 		func() []result.TestResult {
-			basicResp, basicErr := callChat(ctx, env, map[string]any{
-				"model":    model,
-				"messages": []any{map[string]any{"role": "user", "content": "Reply with exactly AIQA_OK and nothing else."}},
-			})
+			basicResp, basicErr := api.Response{}, preflightErr
+			if preflight != nil {
+				basicResp = *preflight
+			} else {
+				basicResp, basicErr = callChat(ctx, env, map[string]any{
+					"model":    model,
+					"messages": []any{map[string]any{"role": "user", "content": "Reply with exactly AIQA_OK and nothing else."}},
+				})
+			}
 			return []result.TestResult{
 				evaluateBasic(env.Profile, basicResp, basicErr),
 				evaluateChatSchema(env.Profile, basicResp, basicErr),
@@ -243,6 +275,7 @@ func evaluateChatSchema(p profile.Profile, resp api.Response, err error) result.
 	if err != nil || !resp.Is2xx() || resp.JSON == nil {
 		t.Status = result.StatusSkip
 		t.Summary = "response schema was not checked because basic chat failed"
+		t.Signals = []result.EvidenceSignal{{Code: "blocked.chat.schema", Parameters: map[string]any{"blocked_by_requirement": "chat.basic"}}}
 		return t
 	}
 	problems := api.ValidateChatShape(resp.JSON)
@@ -264,6 +297,7 @@ func evaluateUsage(p profile.Profile, resp api.Response, err error) result.TestR
 	if err != nil || !resp.Is2xx() || resp.JSON == nil {
 		t.Status = result.StatusSkip
 		t.Summary = "usage was not checked because basic chat failed"
+		t.Signals = []result.EvidenceSignal{{Code: "blocked.chat.usage", Parameters: map[string]any{"blocked_by_requirement": "chat.basic"}}}
 		return t
 	}
 	u := api.ParseUsage(resp.JSON)

@@ -28,6 +28,7 @@ type SubjectRef struct {
 
 type EvidenceSignal struct {
 	Code       string         `json:"code"`
+	RootCause  string         `json:"root_cause,omitempty"`
 	Parameters map[string]any `json:"parameters,omitempty"`
 }
 
@@ -109,6 +110,7 @@ type Finding struct {
 	ID                    string         `json:"id"`
 	Fingerprint           string         `json:"fingerprint"`
 	Code                  string         `json:"code"`
+	RootCause             string         `json:"root_cause,omitempty"`
 	Class                 string         `json:"class"`
 	EvidenceState         string         `json:"evidence_state"`
 	Confidence            string         `json:"confidence"`

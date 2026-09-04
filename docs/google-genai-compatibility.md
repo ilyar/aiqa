@@ -14,10 +14,10 @@ enough to create an active target.
 ```bash
 GOOGLE_GENAI_BASE_URL="https://generativelanguage.googleapis.com" \
 GOOGLE_GENAI_API_KEY="$GEMINI_API_KEY" \
-GOOGLE_GENAI_MODEL="gemini-2.5-flash" \
 aiqa test=compat,ext-suite \
   --target=google-genai \
   --ext-suite=official-sdk \
+  --model=gemini-2.5-flash \
   --format=markdown,json \
   --name=google-genai-compat
 ```
@@ -30,14 +30,16 @@ The accepted controls are:
 | API key | `--google-genai-api-key`, `GOOGLE_GENAI_API_KEY` | `GOOGLE_API_KEY`, then `GEMINI_API_KEY` |
 | API version | `--google-genai-api-version`, `GOOGLE_GENAI_API_VERSION` | default `v1beta` |
 | Profile | `--google-genai-profile`, `GOOGLE_GENAI_PROFILE` | default `google-genai-compat-2026-09.json` |
-| Models | `--google-genai-model`, `GOOGLE_GENAI_MODEL` | otherwise discovered from `/models` |
+| Models | global `--model` | otherwise discovered from `/models` |
 
 An explicit flag wins over its environment counterpart. A canonical key wins
 over aliases; conflicting `GOOGLE_API_KEY` and `GEMINI_API_KEY` values fail
 configuration unless `GOOGLE_GENAI_API_KEY` is set. Aliases are read only
 after Google has been activated. With `--target=auto`, all complete configured
-OpenAI, Anthropic, and Google pairs are selected in deterministic order. A
-generic `--model` remains ambiguous when more than one target is active.
+OpenAI, Anthropic, and Google pairs are selected in deterministic order. The
+global `--model` list is intersected independently with each target inventory;
+an ID missing from one target is silently omitted there. `GOOGLE_GENAI_MODEL`
+is no longer accepted and must be migrated to `--model`.
 
 The configured Google URL is the prefix immediately before the API version.
 For example, a base of `http://127.0.0.1:8080/google/v1beta/` and version

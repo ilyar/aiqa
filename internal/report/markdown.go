@@ -25,6 +25,9 @@ func Markdown(r result.Report) string {
 		fmt.Fprintf(&b, "- **Service:** %s\n", service)
 	}
 	fmt.Fprintf(&b, "- **Suites:** `%s`\n", strings.Join(r.Config.Tests, ","))
+	if len(r.Config.RequestedModels) > 0 {
+		fmt.Fprintf(&b, "- **Requested models:** `%s` (the same global list was intersected independently with this target inventory)\n", escapeInline(strings.Join(r.Config.RequestedModels, ", ")))
+	}
 	fmt.Fprintf(&b, "- **Timeout:** `%s` per request\n", r.Config.Timeout)
 	fmt.Fprintf(&b, "- **Profile:** `%s@%s` (`%s`) – %s\n", r.Profile.ID, r.Profile.Revision, shortSHA(r.Profile.SourceCommit), r.Profile.Scope)
 	fmt.Fprintln(&b)
@@ -158,25 +161,56 @@ func writeUsage(b *strings.Builder, summary result.Summary) {
 func writeModelRateLimit(b *strings.Builder, s result.RateLimitStats) {
 	fmt.Fprintln(b, "#### Rate-limit and latency")
 	fmt.Fprintln(b)
-	fmt.Fprintln(b, "- Request pacing: shared adaptive scheduler")
+	fmt.Fprintln(b, "- Pacer state: shared adaptive scheduler")
+	fmt.Fprintf(b, "- Logical requests: %d\n", s.LogicalRequests)
+	fmt.Fprintf(b, "- Physical attempts: %d\n", s.PhysicalAttempts)
 	fmt.Fprintf(b, "- Successful native requests: %d\n", s.SuccessfulRequests)
 	fmt.Fprintf(b, "- 429 responses: %d\n", s.RateLimited)
+	fmt.Fprintf(b, "- Retry attempts: %d\n", s.RetryAttempts)
 	fmt.Fprintf(b, "- Retries recovered: %d\n", s.RetriesRecovered)
-	fmt.Fprintf(b, "- Successful native latency (n=%d): mean %d ms; P50 %d ms; P95 %d ms\n", s.LatencySamples, s.MeanLatencyMS, s.P50LatencyMS, s.P95LatencyMS)
+	fmt.Fprintf(b, "- Retries exhausted: %d\n", s.RetriesExhausted)
+	fmt.Fprintf(b, "- Observed safe request rate: %s\n", safeRateText(s))
+	fmt.Fprintf(b, "- Observed safe concurrency: %s\n", safeConcurrencyText(s))
+	fmt.Fprintf(b, "- Unique successful HTTP latency (n=%d): %s\n", s.LatencySamples, latencyText(s))
 	fmt.Fprintf(b, "- Backoff time: %d ms\n\n", s.BackoffMS)
 }
 
 func writeRateLimit(b *strings.Builder, s result.RateLimitStats) {
 	fmt.Fprintln(b, "## Rate-limit and latency")
 	fmt.Fprintln(b)
-	fmt.Fprintln(b, "- Request pacing: adaptive")
+	fmt.Fprintln(b, "- Pacer state: adaptive target-owned transport")
+	fmt.Fprintf(b, "- Logical requests: %d\n", s.LogicalRequests)
+	fmt.Fprintf(b, "- Physical attempts: %d\n", s.PhysicalAttempts)
 	fmt.Fprintf(b, "- Successful native requests: %d\n", s.SuccessfulRequests)
 	fmt.Fprintf(b, "- 429 responses: %d\n", s.RateLimited)
+	fmt.Fprintf(b, "- Retry attempts: %d\n", s.RetryAttempts)
 	fmt.Fprintf(b, "- Retries recovered: %d\n", s.RetriesRecovered)
-	fmt.Fprintf(b, "- Observed safe request rate: %.2f req/s\n", s.SafeRate)
-	fmt.Fprintf(b, "- Observed safe concurrency: %d\n", s.SafeConcurrency)
-	fmt.Fprintf(b, "- Successful native latency (n=%d): mean %d ms; P50 %d ms; P95 %d ms\n", s.LatencySamples, s.MeanLatencyMS, s.P50LatencyMS, s.P95LatencyMS)
+	fmt.Fprintf(b, "- Retries exhausted: %d\n", s.RetriesExhausted)
+	fmt.Fprintf(b, "- Observed safe request rate: %s\n", safeRateText(s))
+	fmt.Fprintf(b, "- Observed safe concurrency: %s\n", safeConcurrencyText(s))
+	fmt.Fprintf(b, "- Unique successful HTTP latency (n=%d): %s\n", s.LatencySamples, latencyText(s))
 	fmt.Fprintf(b, "- Backoff time: %d ms\n\n", s.BackoffMS)
+}
+
+func safeRateText(s result.RateLimitStats) string {
+	if s.SuccessfulRequests == 0 {
+		return "N/S"
+	}
+	return fmt.Sprintf("%.2f req/s", s.SafeRate)
+}
+
+func safeConcurrencyText(s result.RateLimitStats) string {
+	if s.SuccessfulRequests == 0 {
+		return "N/S"
+	}
+	return strconv.Itoa(s.SafeConcurrency)
+}
+
+func latencyText(s result.RateLimitStats) string {
+	if s.LatencySamples == 0 {
+		return "N/S"
+	}
+	return fmt.Sprintf("mean %d ms; P50 %d ms; P95 %d ms", s.MeanLatencyMS, s.P50LatencyMS, s.P95LatencyMS)
 }
 
 func capabilityCells(m result.ModelReport) (string, string, string) {

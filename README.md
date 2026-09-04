@@ -23,7 +23,7 @@ export GOOGLE_GENAI_API_KEY="<GEMINI_API_KEY>"
 aiqa test=compat,ext-suite \
   --target=google-genai \
   --ext-suite=official-sdk \
-  --google-genai-model=gemini-2.5-flash \
+  --model=gemini-2.5-flash \
   --format=markdown,json \
   --name=google-compat-report
 ```
@@ -41,7 +41,7 @@ aiqa --verbose test=compat \
   --name=compat-report
 ```
 
-The OpenAI base URL includes `/v1`. The Anthropic base URL is the prefix before `/v1`; AIQA appends `/v1/models`, `/v1/messages`, and `/v1/messages/count_tokens`. A configured base URL without its matching key is a configuration error. Use `--openai-model` and `--anthropic-model` for protocol-specific selection. The shared `--model` flag is rejected when both targets are active.
+The OpenAI base URL includes `/v1`. The Anthropic base URL is the prefix before `/v1`; AIQA appends `/v1/models`, `/v1/messages`, and `/v1/messages/count_tokens`. A configured base URL without its matching key is a configuration error. The global `--model` list is intersected independently with every active target inventory, so the same ID may be tested by more than one protocol. Removed protocol-specific model selectors and `GOOGLE_GENAI_MODEL` produce a migration error.
 
 Test the parameters of every discovered model classified as Chat Completions capable:
 
@@ -68,11 +68,14 @@ aiqa test=compat,model-param \
   --model moonshotai/Kimi-K2.6,deepseek-ai/DeepSeek-V4-Flash-0731
 ```
 
-When `--model` is not specified, `aiqa` preserves every `/models` entry in the inventory and runs only modules supported by the model's evidence-backed capabilities. Models are processed sequentially by default so parallel context probing does not unexpectedly test the provider's rate limiter instead of compatibility.
+When `--model` is not specified, `aiqa` preserves every `/models` entry in the inventory, schedules only trusted entries, and runs only modules supported by evidence-backed capabilities. Ambiguous entries remain inventory-only. When an explicit ID is absent from a successfully retrieved target inventory, that target performs no model request for it. Models are processed sequentially by default so parallel context probing does not unexpectedly test the provider's rate limiter instead of compatibility.
+
+The complete global-request, target-local routing, preflight, report, and
+telemetry contract is in [`docs/unified-model-routing.md`](docs/unified-model-routing.md).
 
 ## Capability routing
 
-OpenAI's standard model object does not declare endpoint capabilities. AIQA therefore uses explicit overrides first, then recognized vendor metadata and conservative model-name rules. When no capability evidence exists and nothing identifies the model as non-text, AIQA treats it as a text chat model with low confidence. Explicit image, embedding, audio, or video evidence still prevents chat routing, and conflicting evidence remains unknown.
+OpenAI's standard model object does not declare endpoint capabilities. AIQA therefore uses explicit overrides first, then recognized vendor metadata and conservative model-name rules. When no capability evidence exists and nothing identifies the model as non-text, the default inventory policy leaves the entry untested; `--unknown-model=chat` opts into the low-confidence text fallback. Explicit image, embedding, audio, or video evidence still prevents chat routing, and conflicting evidence remains unknown.
 
 Declare a known model explicitly:
 
@@ -93,7 +96,7 @@ Multiple capabilities use `+`, and larger catalogs can use `--capability-file`:
 }
 ```
 
-The default is `--unknown-model=chat`. Use `--unknown-model=inventory` when unclassified models must remain inventory-only and receive no capability tests.
+The default is `--unknown-model=inventory`. Use `--unknown-model=chat` only when an unclassified OpenAI-compatible entry should receive the low-confidence text fallback. Anthropic uses the same conservative inventory default; `--anthropic-unknown-model=messages` is the opt-in fallback.
 
 Image generation is a billable module and remains skipped by default. Enable it deliberately for a selected model:
 
@@ -352,9 +355,7 @@ Main additional options:
 --ext-suite ID[,ID]
 --ext-suite-path /absolute/path
 --target auto|openai|anthropic|google-genai|...
---openai-model ID[,ID]
---anthropic-model ID[,ID]
---google-genai-model ID[,ID]
+--model ID[,ID]
 --google-genai-profile FILE
 --guidance full|summary|off
 --guidance-pack auto|generic|ID

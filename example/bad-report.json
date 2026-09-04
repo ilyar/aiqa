@@ -24,9 +24,6 @@
         "id": "google-genai",
         "protocol": "google-genai",
         "base_url": "http://127.0.0.1:32776/google",
-        "requested_models": [
-          "wiremock-broken-model"
-        ],
         "api_version": "v1beta"
       },
       {
@@ -34,6 +31,9 @@
         "protocol": "openai",
         "base_url": "http://127.0.0.1:32776/openai/v1"
       }
+    ],
+    "requested_models": [
+      "wiremock-broken-model"
     ],
     "timeout": "1m0s",
     "formats": [
@@ -9101,9 +9101,13 @@
         ]
       },
       "rate_limit": {
+        "logical_requests": 1,
+        "physical_attempts": 1,
         "successful_requests": 1,
         "rate_limited_responses": 0,
+        "retry_attempts": 0,
         "retries_recovered": 0,
+        "retries_exhausted": 0,
         "backoff_ms": 0,
         "observed_safe_requests_per_second": 0.5,
         "observed_safe_concurrency": 1,
@@ -9113,9 +9117,13 @@
         "p95_latency_ms": 29
       },
       "extension_rate_limit": {
+        "logical_requests": 1,
+        "physical_attempts": 1,
         "successful_requests": 1,
         "rate_limited_responses": 0,
+        "retry_attempts": 0,
         "retries_recovered": 0,
+        "retries_exhausted": 0,
         "backoff_ms": 0,
         "observed_safe_requests_per_second": 2,
         "observed_safe_concurrency": 4,
@@ -17336,9 +17344,13 @@
         ]
       },
       "rate_limit": {
+        "logical_requests": 1,
+        "physical_attempts": 1,
         "successful_requests": 1,
         "rate_limited_responses": 0,
+        "retry_attempts": 0,
         "retries_recovered": 0,
+        "retries_exhausted": 0,
         "backoff_ms": 0,
         "observed_safe_requests_per_second": 0.5,
         "observed_safe_concurrency": 1,
@@ -17348,9 +17360,13 @@
         "p95_latency_ms": 2
       },
       "extension_rate_limit": {
+        "logical_requests": 1,
+        "physical_attempts": 1,
         "successful_requests": 1,
         "rate_limited_responses": 0,
+        "retry_attempts": 0,
         "retries_recovered": 0,
+        "retries_exhausted": 0,
         "backoff_ms": 0,
         "observed_safe_requests_per_second": 0.5,
         "observed_safe_concurrency": 1,
@@ -22856,9 +22872,13 @@
         ]
       },
       "rate_limit": {
+        "logical_requests": 1,
+        "physical_attempts": 1,
         "successful_requests": 1,
         "rate_limited_responses": 0,
+        "retry_attempts": 0,
         "retries_recovered": 0,
+        "retries_exhausted": 0,
         "backoff_ms": 0,
         "observed_safe_requests_per_second": 0.5,
         "observed_safe_concurrency": 1,
@@ -22868,9 +22888,13 @@
         "p95_latency_ms": 2
       },
       "extension_rate_limit": {
+        "logical_requests": 1,
+        "physical_attempts": 1,
         "successful_requests": 1,
         "rate_limited_responses": 0,
+        "retry_attempts": 0,
         "retries_recovered": 0,
+        "retries_exhausted": 0,
         "backoff_ms": 0,
         "observed_safe_requests_per_second": 3,
         "observed_safe_concurrency": 6,

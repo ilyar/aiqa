@@ -52,8 +52,8 @@ func AssessModules(classification Classification, definitions []profile.Module, 
 		case matchedCapability != "":
 			assessment.Applicability = result.ApplicabilityApplicable
 			assessment.Reason, assessment.Source, assessment.Confidence = capabilityReason(classification, matchedCapability)
-			moduleEnabled := enabled[definition.ID] || (auto && definition.DefaultEnabled)
 			billable := strings.HasPrefix(definition.CostClass, "billable-")
+			moduleEnabled := enabled[definition.ID] || (auto && (definition.DefaultEnabled || billable && opts.AllowBillableArtifacts))
 			highToken := definition.CostClass == "high-token"
 			persistent := definition.CostClass == "persistent-resource"
 			switch {

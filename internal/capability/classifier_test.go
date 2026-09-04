@@ -142,10 +142,31 @@ func TestAnthropicClassificationUsesOnlyTargetMetadata(t *testing.T) {
 	}
 }
 
+func TestAnthropicInvalidModelInfoTimestampRemainsUnknown(t *testing.T) {
+	got := ClassifyAnthropic("claude-invalid", map[string]any{
+		"type": "model", "display_name": "Invalid Date", "created_at": "not-a-timestamp",
+		"max_input_tokens": 1024, "max_tokens": 128,
+	}, Options{UnknownPolicy: "inventory"})
+	if !got.Unknown || got.Has(AnthropicMessagesText) {
+		t.Fatalf("invalid Anthropic ModelInfo was treated as a trusted Messages route: %+v", got)
+	}
+}
+
 func TestAnthropicInventoryPolicyDoesNotAssumeMessages(t *testing.T) {
 	got := ClassifyAnthropic("opaque", map[string]any{"id": "opaque"}, Options{UnknownPolicy: "inventory"})
 	if !got.Unknown || len(got.Capabilities) != 0 {
 		t.Fatalf("inventory-only policy was ignored: %+v", got)
+	}
+}
+
+func TestAnthropicCompleteModelInfoIdentifiesMessagesRoute(t *testing.T) {
+	got := ClassifyAnthropic("claude-mock", map[string]any{
+		"type": "model", "display_name": "Claude Mock", "created_at": "2026-09-01T00:00:00Z",
+		"max_input_tokens": 200000, "max_tokens": 8192,
+		"capabilities": map[string]any{"thinking": map[string]any{"supported": true}},
+	}, Options{UnknownPolicy: "inventory"})
+	if got.Unknown || !got.Has(AnthropicMessagesText) || len(got.Capabilities) != 1 {
+		t.Fatalf("complete Anthropic ModelInfo was not trusted as Messages text: %+v", got)
 	}
 }
 

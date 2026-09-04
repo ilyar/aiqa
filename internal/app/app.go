@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -63,6 +64,7 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (Ru
 		Config: result.PublicConfigV3{
 			Tests: append([]string(nil), cfg.Tests...), Timeout: cfg.Timeout.String(), Formats: append([]string(nil), cfg.Formats...),
 			FailOn: cfg.FailOn, Guidance: cfg.Guidance, ExtSuites: append([]string(nil), cfg.ExtSuites...),
+			RequestedModels:      append([]string(nil), cfg.Models...),
 			AllowHighTokenProbes: cfg.AllowHighTokenProbes, AllowPersistentResources: cfg.AllowPersistentResources,
 		},
 	}
@@ -82,6 +84,7 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (Ru
 			return RunResult{ReportV3: &r, ExitCode: 2}, err
 		}
 	}
+	var runErrors []error
 	logf := func(format string, args ...any) {
 		if cfg.Verbose {
 			fmt.Fprintf(os.Stderr, "aiqa: "+format+"\n", args...)
@@ -90,7 +93,7 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (Ru
 	targets := append([]config.TargetConfig(nil), cfg.Targets...)
 	sort.Slice(targets, func(i, j int) bool { return targets[i].ID < targets[j].ID })
 	for _, target := range targets {
-		r.Config.Targets = append(r.Config.Targets, result.TargetPublicConfig{ID: target.ID, Protocol: string(target.Protocol), BaseURL: target.BaseURL, BaseURLNormalized: target.BaseURLNormalized, RequestedModels: append([]string(nil), target.Models...), APIVersion: target.APIVersion})
+		r.Config.Targets = append(r.Config.Targets, result.TargetPublicConfig{ID: target.ID, Protocol: string(target.Protocol), BaseURL: target.BaseURL, BaseURLNormalized: target.BaseURLNormalized, APIVersion: target.APIVersion})
 		p, err := profile.LoadFile(target.ProfileFile)
 		if err != nil {
 			return RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("load %s profile: %w", target.ID, err)
@@ -104,15 +107,23 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (Ru
 		}
 		native, runErr := runner(ctx, protocolpkg.RunOptions{Target: target, Config: cfg, Profile: p, UserAgent: "aiqa/" + build.Version, Logf: logf})
 		if native.Target.ID == "" {
+			if runErr == nil {
+				runErr = errors.New("native runner returned no target report")
+			}
 			return RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("run %s target: %w", target.Protocol, runErr)
 		}
 		targetReport := native.Target
 		tmp := reportFromTarget(targetReport, target.BaseURL)
 		guidance.Apply(&tmp, p, guidance.Options{Mode: cfg.Guidance, Pack: cfg.GuidancePack, Locale: cfg.GuidanceLocale})
 		targetReport.Guidance = tmp.Guidance
-		targetReport, extErr := finishTargetExtensions(ctx, cfg, target, p, targetReport, extRegistry, native.Runtime.Client, native.Runtime.Executor)
-		if extErr != nil {
-			return RunResult{ReportV3: &r, ExitCode: 2}, extErr
+		if runErr != nil {
+			runErrors = append(runErrors, fmt.Errorf("run %s target %s: %w", target.Protocol, target.ID, runErr))
+		} else {
+			var extErr error
+			targetReport, extErr = finishTargetExtensions(ctx, cfg, target, p, targetReport, extRegistry, native.Runtime.Client, native.Runtime.Executor)
+			if extErr != nil {
+				runErrors = append(runErrors, fmt.Errorf("run extension suites for target %s: %w", target.ID, extErr))
+			}
 		}
 		r.Targets = append(r.Targets, targetReport)
 	}
@@ -120,6 +131,9 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (Ru
 	paths, err := reportpkg.WriteV3(r, cfg)
 	if err != nil {
 		return RunResult{ReportV3: &r, ExitCode: 2}, err
+	}
+	if len(runErrors) > 0 {
+		return RunResult{ReportV3: &r, Paths: paths, ExitCode: 2}, errors.Join(runErrors...)
 	}
 	return RunResult{ReportV3: &r, Paths: paths, ExitCode: multiExitCode(cfg, r.Summary)}, nil
 }
@@ -156,14 +170,8 @@ func finishTargetExtensions(ctx context.Context, cfg config.Config, target confi
 	targetReport.Extensions = extsuite.ExecuteTarget(ctx, registry, cfg, target, p, targetReport.Models, client, executor)
 	if hasBuiltInExtension(targetReport.Extensions) {
 		after := client.PacingStats()
-		targetReport.ExtensionRateLimit = &result.RateLimitStats{
-			SuccessfulRequests: after.SuccessfulRequests - before.SuccessfulRequests,
-			RateLimited:        after.RateLimited - before.RateLimited,
-			RetriesRecovered:   after.RetriesRecovered - before.RetriesRecovered,
-			BackoffMS:          (after.Backoff - before.Backoff).Milliseconds(),
-			SafeRate:           after.SafeRate,
-			SafeConcurrency:    after.SafeConcurrency,
-		}
+		delta := api.DeltaPacingStats(before, after)
+		targetReport.ExtensionRateLimit = protocolpkg.RateLimitStats(delta)
 	}
 	tmp := reportFromTarget(targetReport, target.BaseURL)
 	tmp.Config.Tests = append([]string(nil), cfg.Tests...)

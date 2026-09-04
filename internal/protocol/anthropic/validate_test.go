@@ -11,13 +11,13 @@ import (
 
 func TestValidateModelsAndMessages(t *testing.T) {
 	models := map[string]any{
-		"data":     []any{map[string]any{"id": "vendor/model", "type": "model", "display_name": "Model", "created_at": "2026-09-01T00:00:00Z"}},
+		"data":     []any{validModel("vendor/model")},
 		"has_more": false, "first_id": "vendor/model", "last_id": "vendor/model",
 	}
 	if problems := ValidateModels(models); len(problems) != 0 {
 		t.Fatalf("valid models rejected: %v", problems)
 	}
-	models["data"] = []any{map[string]any{"id": "duplicate", "type": "wrong", "created_at": "bad"}, map[string]any{"id": "duplicate", "type": "model", "display_name": "Model", "created_at": "2026-09-01T00:00:00Z"}}
+	models["data"] = []any{map[string]any{"id": "duplicate", "type": "wrong", "created_at": "bad"}, validModel("duplicate")}
 	if problems := ValidateModels(models); len(problems) < 4 {
 		t.Fatalf("invalid models underdiagnosed: %v", problems)
 	}
@@ -30,6 +30,56 @@ func TestValidateModelsAndMessages(t *testing.T) {
 	message["content"] = []any{map[string]any{"type": "text", "text": 1}}
 	if problems := ValidateMessage(message); len(problems) < 2 {
 		t.Fatalf("invalid message underdiagnosed: %v", problems)
+	}
+}
+
+func TestValidateModelsRequiresPinnedSDKModelInfoGroups(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		edit func(map[string]any)
+		want string
+	}{
+		{name: "capabilities", edit: func(model map[string]any) { delete(model, "capabilities") }, want: ".capabilities"},
+		{name: "max input", edit: func(model map[string]any) { delete(model, "max_input_tokens") }, want: ".max_input_tokens"},
+		{name: "batch supported", edit: func(model map[string]any) {
+			delete(model["capabilities"].(map[string]any)["batch"].(map[string]any), "supported")
+		}, want: ".batch.supported"},
+		{name: "context management", edit: func(model map[string]any) {
+			delete(model["capabilities"].(map[string]any)["context_management"].(map[string]any), "compact_20260112")
+		}, want: "compact_20260112"},
+		{name: "effort", edit: func(model map[string]any) {
+			delete(model["capabilities"].(map[string]any)["effort"].(map[string]any), "xhigh")
+		}, want: ".effort.xhigh"},
+		{name: "thinking types", edit: func(model map[string]any) {
+			delete(model["capabilities"].(map[string]any)["thinking"].(map[string]any), "types")
+		}, want: ".thinking.types"},
+		{name: "thinking enabled", edit: func(model map[string]any) {
+			delete(model["capabilities"].(map[string]any)["thinking"].(map[string]any)["types"].(map[string]any), "enabled")
+		}, want: ".thinking.types.enabled"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			model := validModel("vendor/model")
+			test.edit(model)
+			root := map[string]any{"data": []any{model}, "has_more": false, "first_id": "vendor/model", "last_id": "vendor/model"}
+			problems := strings.Join(ValidateModels(root), "; ")
+			if !strings.Contains(problems, test.want) {
+				t.Fatalf("validation did not identify %q: %s", test.want, problems)
+			}
+		})
+	}
+}
+
+func validModel(id string) map[string]any {
+	support := func() map[string]any { return map[string]any{"supported": true} }
+	return map[string]any{
+		"id": id, "type": "model", "display_name": "Model", "created_at": "2026-09-01T00:00:00Z",
+		"max_input_tokens": 200000, "max_tokens": 8192,
+		"capabilities": map[string]any{
+			"batch": support(), "citations": support(), "code_execution": support(), "image_input": support(), "pdf_input": support(), "structured_outputs": support(),
+			"context_management": map[string]any{"clear_thinking_20251015": support(), "clear_tool_uses_20250919": support(), "compact_20260112": support(), "supported": true},
+			"effort":             map[string]any{"high": support(), "low": support(), "max": support(), "medium": support(), "xhigh": support(), "supported": true},
+			"thinking":           map[string]any{"supported": true, "types": map[string]any{"adaptive": support(), "enabled": support()}},
+		},
 	}
 }
 

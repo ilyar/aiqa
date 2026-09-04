@@ -50,6 +50,9 @@ func MarkdownV3(r result.ReportV3) string {
 	fmt.Fprintf(&b, "- **Tool:** `aiqa %s`\n", escapeInline(r.Tool.Version))
 	fmt.Fprintf(&b, "- **Service:** %s\n", servicesLink(r.Config.Targets))
 	fmt.Fprintf(&b, "- **Suites:** `%s`\n", strings.Join(r.Config.Tests, ","))
+	if len(r.Config.RequestedModels) > 0 {
+		fmt.Fprintf(&b, "- **Requested models:** `%s` (one global list; each target reports only its selected inventory intersection)\n", escapeInline(strings.Join(r.Config.RequestedModels, ", ")))
+	}
 	fmt.Fprintf(&b, "- **Timeout:** `%s` per request\n", r.Config.Timeout)
 	fmt.Fprintf(&b, "- **External checks:** %s\n\n", runExternalChecks(r.Targets))
 	fmt.Fprintln(&b, "## Targets")
@@ -67,11 +70,11 @@ func MarkdownV3(r result.ReportV3) string {
 
 	fmt.Fprintln(&b, "## Rate-limit and latency")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "| Target | Successful | 429 | Retries | Backoff | Safe req/s | Concurrency | Mean | P50 | P95 |")
-	fmt.Fprintln(&b, "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+	fmt.Fprintln(&b, "| Target | Logical | Attempts | Successful | 429 | Retry attempts | Recovered | Exhausted | Backoff | Safe req/s | Concurrency | Mean | P50 | P95 |")
+	fmt.Fprintln(&b, "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
 	for _, target := range r.Targets {
 		s := target.RateLimit
-		fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %dms | %.2f | %d | %dms | %dms | %dms |\n", escapeCell(target.ID), s.SuccessfulRequests, s.RateLimited, s.RetriesRecovered, s.BackoffMS, s.SafeRate, s.SafeConcurrency, s.MeanLatencyMS, s.P50LatencyMS, s.P95LatencyMS)
+		fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d | %d | %d | %d | %dms | %s | %s | %s | %s | %s |\n", escapeCell(target.ID), s.LogicalRequests, s.PhysicalAttempts, s.SuccessfulRequests, s.RateLimited, s.RetryAttempts, s.RetriesRecovered, s.RetriesExhausted, s.BackoffMS, safeRateText(s), safeConcurrencyText(s), latencyPart(s, "mean"), latencyPart(s, "p50"), latencyPart(s, "p95"))
 	}
 	fmt.Fprintln(&b)
 
@@ -96,7 +99,8 @@ func MarkdownV3(r result.ReportV3) string {
 		for _, note := range target.Notes {
 			fmt.Fprintf(&b, "- **Note:** %s\n", escapeInline(note))
 		}
-		fmt.Fprintf(&b, "- **Discovered models:** %d\n\n", target.Discovery.ModelCount)
+		fmt.Fprintf(&b, "- **Discovered models:** %d\n", target.Discovery.ModelCount)
+		fmt.Fprintf(&b, "- **Selected models:** %s\n\n", selectedModelsText(target.Models))
 		writeTargetGuidance(&b, target)
 		writeRequirementAssessment(&b, target.Requirements)
 		writeTargetModels(&b, target)
@@ -200,6 +204,33 @@ func targetConfigNormalized(configs []result.TargetPublicConfig, targetID string
 		}
 	}
 	return false
+}
+
+func selectedModelsText(models []result.ModelReport) string {
+	if len(models) == 0 {
+		return "none"
+	}
+	ids := make([]string, 0, len(models))
+	for _, model := range models {
+		ids = append(ids, "`"+escapeInline(model.ID)+"`")
+	}
+	return strings.Join(ids, ", ")
+}
+
+func latencyPart(s result.RateLimitStats, part string) string {
+	if s.LatencySamples == 0 {
+		return "N/S"
+	}
+	var value int64
+	switch part {
+	case "mean":
+		value = s.MeanLatencyMS
+	case "p50":
+		value = s.P50LatencyMS
+	case "p95":
+		value = s.P95LatencyMS
+	}
+	return fmt.Sprintf("%dms", value)
 }
 
 func targetExternalChecks(target result.TargetReport) string {
@@ -345,17 +376,16 @@ func writeTargetModels(b *strings.Builder, target result.TargetReport) {
 	if len(target.Models) > 1 {
 		fmt.Fprintln(b, "#### Per-model rate-limit and latency")
 		fmt.Fprintln(b)
-		fmt.Fprintln(b, "| Model | Successful | 429 | Retries | Safe req/s | Mean | P50 | P95 |")
-		fmt.Fprintln(b, "|---|---:|---:|---:|---:|---:|---:|---:|")
+		fmt.Fprintln(b, "| Model | Logical | Attempts | Successful | 429 | Retry attempts | Recovered | Exhausted | Safe req/s | Mean | P50 | P95 |")
+		fmt.Fprintln(b, "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
 		for _, model := range target.Models {
 			if model.RateLimit == nil {
-				fmt.Fprintf(b, "| `%s` | N/S | N/S | N/S | N/S | N/S | N/S | N/S |\n", escapeCell(model.ID))
+				fmt.Fprintf(b, "| `%s` | N/S | N/S | N/S | N/S | N/S | N/S | N/S | N/S | N/S | N/S | N/S |\n", escapeCell(model.ID))
 				continue
 			}
 			s := model.RateLimit
-			fmt.Fprintf(b, "| `%s` | %d | %d | %d | %.2f | %dms | %dms | %dms |\n",
-				escapeCell(model.ID), s.SuccessfulRequests, s.RateLimited, s.RetriesRecovered, s.SafeRate,
-				s.MeanLatencyMS, s.P50LatencyMS, s.P95LatencyMS)
+			fmt.Fprintf(b, "| `%s` | %d | %d | %d | %d | %d | %d | %d | %s | %s | %s | %s |\n",
+				escapeCell(model.ID), s.LogicalRequests, s.PhysicalAttempts, s.SuccessfulRequests, s.RateLimited, s.RetryAttempts, s.RetriesRecovered, s.RetriesExhausted, safeRateText(*s), latencyPart(*s, "mean"), latencyPart(*s, "p50"), latencyPart(*s, "p95"))
 		}
 		fmt.Fprintln(b)
 	}
@@ -398,9 +428,9 @@ func writeTargetExtensions(b *strings.Builder, runs []result.ExtensionRun, rateL
 	if rateLimit != nil {
 		fmt.Fprintln(b, "Built-in extension transport counts are separate from native latency percentiles. Safe rate and concurrency show the target pacer's state after extension execution; executable extensions report only validated suite evidence.")
 		fmt.Fprintln(b)
-		fmt.Fprintln(b, "| Successful | 429 | Retries | Backoff | Safe req/s | Concurrency |")
-		fmt.Fprintln(b, "|---:|---:|---:|---:|---:|---:|")
-		fmt.Fprintf(b, "| %d | %d | %d | %dms | %.2f | %d |\n\n", rateLimit.SuccessfulRequests, rateLimit.RateLimited, rateLimit.RetriesRecovered, rateLimit.BackoffMS, rateLimit.SafeRate, rateLimit.SafeConcurrency)
+		fmt.Fprintln(b, "| Logical | Attempts | Successful | 429 | Retry attempts | Recovered | Exhausted | Backoff | Safe req/s | Concurrency |")
+		fmt.Fprintln(b, "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+		fmt.Fprintf(b, "| %d | %d | %d | %d | %d | %d | %d | %dms | %s | %s |\n\n", rateLimit.LogicalRequests, rateLimit.PhysicalAttempts, rateLimit.SuccessfulRequests, rateLimit.RateLimited, rateLimit.RetryAttempts, rateLimit.RetriesRecovered, rateLimit.RetriesExhausted, rateLimit.BackoffMS, safeRateText(*rateLimit), safeConcurrencyText(*rateLimit))
 	}
 	for _, id := range ids {
 		p := provenance[id]

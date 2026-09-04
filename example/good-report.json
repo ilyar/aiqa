@@ -24,9 +24,6 @@
         "id": "google-genai",
         "protocol": "google-genai",
         "base_url": "http://127.0.0.1:8080/genai",
-        "requested_models": [
-          "Ternary-Bonsai-1.7B"
-        ],
         "api_version": "v1beta"
       },
       {
@@ -34,6 +31,9 @@
         "protocol": "openai",
         "base_url": "http://127.0.0.1:8080/openai/v1"
       }
+    ],
+    "requested_models": [
+      "Ternary-Bonsai-1.7B"
     ],
     "timeout": "1m0s",
     "formats": [
@@ -3151,9 +3151,13 @@
         "recommendations": []
       },
       "rate_limit": {
+        "logical_requests": 24,
+        "physical_attempts": 24,
         "successful_requests": 24,
         "rate_limited_responses": 0,
+        "retry_attempts": 0,
         "retries_recovered": 0,
+        "retries_exhausted": 0,
         "backoff_ms": 0,
         "observed_safe_requests_per_second": 7.5,
         "observed_safe_concurrency": 12,
@@ -3163,9 +3167,13 @@
         "p95_latency_ms": 1464
       },
       "extension_rate_limit": {
+        "logical_requests": 11,
+        "physical_attempts": 11,
         "successful_requests": 11,
         "rate_limited_responses": 0,
+        "retry_attempts": 0,
         "retries_recovered": 0,
+        "retries_exhausted": 0,
         "backoff_ms": 0,
         "observed_safe_requests_per_second": 9.23076923076923,
         "observed_safe_concurrency": 12,
@@ -5287,9 +5295,13 @@
         "recommendations": []
       },
       "rate_limit": {
+        "logical_requests": 6,
+        "physical_attempts": 6,
         "successful_requests": 6,
         "rate_limited_responses": 0,
+        "retry_attempts": 0,
         "retries_recovered": 0,
+        "retries_exhausted": 0,
         "backoff_ms": 0,
         "observed_safe_requests_per_second": 3.1578947368421053,
         "observed_safe_concurrency": 6,
@@ -5299,9 +5311,13 @@
         "p95_latency_ms": 716
       },
       "extension_rate_limit": {
+        "logical_requests": 6,
+        "physical_attempts": 6,
         "successful_requests": 6,
         "rate_limited_responses": 0,
+        "retry_attempts": 0,
         "retries_recovered": 0,
+        "retries_exhausted": 0,
         "backoff_ms": 0,
         "observed_safe_requests_per_second": 3.333333333333333,
         "observed_safe_concurrency": 6,
@@ -7409,9 +7425,13 @@
         "recommendations": []
       },
       "rate_limit": {
+        "logical_requests": 20,
+        "physical_attempts": 20,
         "successful_requests": 20,
         "rate_limited_responses": 0,
+        "retry_attempts": 0,
         "retries_recovered": 0,
+        "retries_exhausted": 0,
         "backoff_ms": 0,
         "observed_safe_requests_per_second": 5.625,
         "observed_safe_concurrency": 9,
@@ -7421,9 +7441,13 @@
         "p95_latency_ms": 1840
       },
       "extension_rate_limit": {
+        "logical_requests": 10,
+        "physical_attempts": 10,
         "successful_requests": 10,
         "rate_limited_responses": 0,
+        "retry_attempts": 0,
         "retries_recovered": 0,
+        "retries_exhausted": 0,
         "backoff_ms": 0,
         "observed_safe_requests_per_second": 6.428571428571429,
         "observed_safe_concurrency": 9,

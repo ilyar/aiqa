@@ -64,7 +64,7 @@ func apply(r *result.Report, p profile.Profile, targetID, protocol string) {
 		}
 		addExtensionRunner(items, run, p)
 	}
-	if nativeCoverageSelected(r.Config.Tests) {
+	if nativeCoverageSelected(r.Config.Tests) && len(r.Models) > 0 {
 		materializeProviderCoverage(items, provider, p)
 	}
 
@@ -355,13 +355,6 @@ func materializeModuleCoverage(items map[requirementKey]*result.RequirementAsses
 		modules[module.ID] = module
 	}
 	for _, assessment := range assessments {
-		// Anthropic profiles require complete materialization so an omitted probe
-		// cannot silently become a pass. Legacy OpenAI modules predate that rule
-		// and may place some evidence at provider scope, but their explicit N/A
-		// state is still safe and useful to materialize.
-		if !strings.HasPrefix(assessment.ID, "anthropic.") && assessment.Applicability != result.ApplicabilityNotApplicable {
-			continue
-		}
 		module, ok := modules[assessment.ID]
 		if !ok {
 			continue
@@ -371,6 +364,12 @@ func materializeModuleCoverage(items map[requirementKey]*result.RequirementAsses
 			level := result.RequirementOptional
 			if spec.Required {
 				level = result.RequirementCore
+			}
+			if assessment.Applicability == result.ApplicabilityUnknown {
+				// Inventory-only models have no proven applicable module. Keep the
+				// module state visible on the model, but do not manufacture
+				// requirements or a conformance gap from an unknown route.
+				continue
 			}
 			item := get(items, subject, id, spec.Name, spec.Description, level, module.ID)
 			if len(item.Evidence) != 0 {
@@ -385,15 +384,27 @@ func materializeModuleCoverage(items map[requirementKey]*result.RequirementAsses
 				item.Status = result.RequirementSkip
 			default:
 				item.Applicability = result.ApplicabilityApplicable
-				item.Status = result.RequirementSkip
+				if assessment.Execution == result.ExecutionExecuted {
+					item.Status = result.RequirementError
+					item.FailureKind = "coverage_missing_probe"
+					item.Evidence = append(item.Evidence, result.EvidenceRef{
+						ID: evidenceID("coverage", subject, assessment.ID), Kind: "coverage", Status: result.StatusError,
+						Summary: "module was marked executed but did not return this declared probe",
+						Signals: []result.EvidenceSignal{{Code: "execution.module_probe_missing", RootCause: "module-coverage-missing"}},
+					})
+				} else {
+					item.Status = result.RequirementSkip
+					item.FailureKind = "module_not_executed"
+				}
 			}
+			item.BlockedBy = append(item.BlockedBy, assessment.BlockedBy...)
 		}
 	}
 }
 
 func materializeProviderCoverage(items map[requirementKey]*result.RequirementAssessment, subject result.SubjectRef, p profile.Profile) {
 	for _, module := range p.Modules {
-		if module.Subject != "provider" || !strings.HasPrefix(module.ID, "anthropic.") {
+		if module.Subject != "provider" {
 			continue
 		}
 		for _, id := range module.ProbeIDs {
@@ -407,7 +418,13 @@ func materializeProviderCoverage(items map[requirementKey]*result.RequirementAss
 				level = result.RequirementCore
 			}
 			item := get(items, subject, id, spec.Name, spec.Description, level, module.ID)
-			item.Status = result.RequirementSkip
+			item.Status = result.RequirementError
+			item.FailureKind = "coverage_missing_probe"
+			item.Evidence = append(item.Evidence, result.EvidenceRef{
+				ID: evidenceID("coverage", subject, module.ID), Kind: "coverage", Status: result.StatusError,
+				Summary: "provider module was marked executed but did not return this declared probe",
+				Signals: []result.EvidenceSignal{{Code: "execution.module_probe_missing", RootCause: "module-coverage-missing"}},
+			})
 		}
 	}
 }

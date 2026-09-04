@@ -62,6 +62,10 @@ func probeImageGeneration(parent context.Context, env Environment, model string)
 	var item map[string]any
 	if basic.Status != result.StatusPass {
 		schema.Status, schema.Summary = result.StatusSkip, "schema was not checked because image generation failed"
+		schema.Signals = []result.EvidenceSignal{{
+			Code: "blocked.images.generate.schema", RootCause: "blocked-prerequisite",
+			Parameters: map[string]any{"blocked_by_requirement": "images.generate.basic"},
+		}}
 	} else if data, ok := resp.JSON["data"].([]any); !ok || len(data) == 0 {
 		schema.Status, schema.Summary = result.StatusFail, "image response data is missing, not an array, or empty"
 	} else if item, ok = data[0].(map[string]any); !ok {
@@ -74,6 +78,10 @@ func probeImageGeneration(parent context.Context, env Environment, model string)
 	artifact.DurationMS, artifact.HTTP = resp.Duration.Milliseconds(), imageHTTPObservation(resp)
 	if schema.Status != result.StatusPass {
 		artifact.Status, artifact.Summary = result.StatusSkip, "artifact was not checked because image response schema failed"
+		artifact.Signals = []result.EvidenceSignal{{
+			Code: "blocked.images.generate.artifact", RootCause: "blocked-prerequisite",
+			Parameters: map[string]any{"blocked_by_requirement": "images.generate.schema"},
+		}}
 	} else {
 		artifactCtx, artifactCancel := env.probeContext(parent)
 		observation, artifactErr := inspectImageArtifact(artifactCtx, item)
@@ -94,6 +102,10 @@ func probeImageGeneration(parent context.Context, env Environment, model string)
 	usage.DurationMS, usage.HTTP, usage.Usage = resp.Duration.Milliseconds(), imageHTTPObservation(resp), api.ParseUsage(resp.JSON)
 	if basic.Status != result.StatusPass {
 		usage.Status, usage.Summary = result.StatusSkip, "usage was not checked because image generation failed"
+		usage.Signals = []result.EvidenceSignal{{
+			Code: "blocked.images.generate.usage", RootCause: "blocked-prerequisite",
+			Parameters: map[string]any{"blocked_by_requirement": "images.generate.basic"},
+		}}
 	} else if usage.Usage.TotalTokens > 0 {
 		usage.Status, usage.Summary = result.StatusPass, "image generation reported token usage"
 	} else {

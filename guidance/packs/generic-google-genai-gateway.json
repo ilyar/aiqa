@@ -6,7 +6,7 @@
       "finding_code": "execution.google.interactions.model_selection.error",
       "guidance_level": 3,
       "steps": [
-        {"id": "select-interactions-model", "text": "Select a documented Interactions-capable model with `--google-genai-model` and rerun the modern Google GenAI profile."},
+        {"id": "select-interactions-model", "text": "Select a documented Interactions-capable model with the global `--model` option and rerun the modern Google GenAI profile."},
         {"id": "verify-interactions-metadata", "text": "Confirm that the selected model is intended for the Interactions API; `generateContent` metadata alone does not prove Interactions support."}
       ],
       "workarounds": ["Use the strict `google-genai-generate-content-compat-2026-09.json` profile when the gateway exposes only legacy generateContent."],

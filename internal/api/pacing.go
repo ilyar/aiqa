@@ -9,12 +9,17 @@ import (
 
 // PacingStats describes observed client-side pacing, not a provider guarantee.
 type PacingStats struct {
+	LogicalRequests    int           `json:"logical_requests"`
+	PhysicalAttempts   int           `json:"physical_attempts"`
 	SuccessfulRequests int           `json:"successful_requests"`
 	RateLimited        int           `json:"rate_limited_responses"`
+	RetryAttempts      int           `json:"retry_attempts"`
 	RetriesRecovered   int           `json:"retries_recovered"`
+	RetriesExhausted   int           `json:"retries_exhausted"`
 	Backoff            time.Duration `json:"backoff_duration"`
 	SafeRate           float64       `json:"observed_safe_requests_per_second"`
 	SafeConcurrency    int           `json:"observed_safe_concurrency"`
+	LatencySamples     []int64       `json:"latency_samples_ms"`
 }
 
 type pacer struct {
@@ -110,6 +115,12 @@ func (p *pacer) wait(ctx context.Context, model string) error {
 		}
 		if p.inflight < p.limit {
 			p.inflight++
+			p.stats.PhysicalAttempts++
+			if model != "" {
+				s := p.byModel[model]
+				s.PhysicalAttempts++
+				p.byModel[model] = s
+			}
 			if model != "" {
 				p.inflightByModel[model]++
 			}
@@ -150,13 +161,52 @@ func (p *pacer) release(model string) {
 	p.mu.Unlock()
 }
 
-func (p *pacer) success(model string) {
+func (p *pacer) logical(model string) {
+	p.mu.Lock()
+	p.stats.LogicalRequests++
+	if model != "" {
+		s := p.byModel[model]
+		s.LogicalRequests++
+		p.byModel[model] = s
+	}
+	p.mu.Unlock()
+}
+
+func (p *pacer) retry(model string) {
+	p.mu.Lock()
+	p.stats.RetryAttempts++
+	if model != "" {
+		s := p.byModel[model]
+		s.RetryAttempts++
+		p.byModel[model] = s
+	}
+	p.mu.Unlock()
+}
+
+func (p *pacer) exhausted(model string) {
+	p.mu.Lock()
+	p.stats.RetriesExhausted++
+	if model != "" {
+		s := p.byModel[model]
+		s.RetriesExhausted++
+		p.byModel[model] = s
+	}
+	p.mu.Unlock()
+}
+
+func (p *pacer) success(model string, durations ...time.Duration) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.stats.SuccessfulRequests++
+	if len(durations) > 0 {
+		p.stats.LatencySamples = append(p.stats.LatencySamples, durations[0].Milliseconds())
+	}
 	if model != "" {
 		s := p.byModel[model]
 		s.SuccessfulRequests++
+		if len(durations) > 0 {
+			s.LatencySamples = append(s.LatencySamples, durations[0].Milliseconds())
+		}
 		if p.inflightByModel[model] > s.SafeConcurrency {
 			s.SafeConcurrency = p.inflightByModel[model]
 		}
@@ -225,18 +275,36 @@ func (p *pacer) recovered(model string) {
 	}
 	p.mu.Unlock()
 }
+
+func (p *pacer) backoff(model string, delay time.Duration) {
+	if delay <= 0 {
+		return
+	}
+	p.mu.Lock()
+	p.stats.Backoff += delay
+	if model != "" {
+		s := p.byModel[model]
+		s.Backoff += delay
+		p.byModel[model] = s
+	}
+	p.mu.Unlock()
+}
+
 func (p *pacer) snapshot() PacingStats {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	out := p.stats
-	if p.interval > 0 {
+	if out.SuccessfulRequests > 0 && p.interval > 0 {
 		concurrency := p.maxSuccessfulInFlight
 		if concurrency < 1 {
 			concurrency = 1
 		}
 		out.SafeRate = float64(concurrency) / p.interval.Seconds()
 	}
-	out.SafeConcurrency = p.maxSuccessfulInFlight
+	if out.SuccessfulRequests > 0 {
+		out.SafeConcurrency = p.maxSuccessfulInFlight
+	}
+	out.LatencySamples = append([]int64(nil), p.stats.LatencySamples...)
 	return out
 }
 
@@ -254,12 +322,44 @@ func (p *pacer) snapshotForModel(model string) PacingStats {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	out := p.byModel[model]
-	if p.interval > 0 {
+	if out.SuccessfulRequests > 0 && p.interval > 0 {
 		concurrency := out.SafeConcurrency
 		if concurrency < 1 {
 			concurrency = 1
 		}
 		out.SafeRate = float64(concurrency) / p.interval.Seconds()
+	}
+	if out.SuccessfulRequests == 0 {
+		out.SafeRate = 0
+		out.SafeConcurrency = 0
+	}
+	out.LatencySamples = append([]int64(nil), out.LatencySamples...)
+	return out
+}
+
+// DeltaPacingStats returns counters and latency samples observed after a
+// target-scoped operation. The adaptive safe-rate fields intentionally come
+// from the later snapshot because they describe the current shared pacer
+// state, not a subtractable counter.
+func DeltaPacingStats(before, after PacingStats) PacingStats {
+	out := PacingStats{
+		LogicalRequests:    after.LogicalRequests - before.LogicalRequests,
+		PhysicalAttempts:   after.PhysicalAttempts - before.PhysicalAttempts,
+		SuccessfulRequests: after.SuccessfulRequests - before.SuccessfulRequests,
+		RateLimited:        after.RateLimited - before.RateLimited,
+		RetryAttempts:      after.RetryAttempts - before.RetryAttempts,
+		RetriesRecovered:   after.RetriesRecovered - before.RetriesRecovered,
+		RetriesExhausted:   after.RetriesExhausted - before.RetriesExhausted,
+		Backoff:            after.Backoff - before.Backoff,
+	}
+	if out.SuccessfulRequests > 0 {
+		out.SafeRate = after.SafeRate
+		out.SafeConcurrency = after.SafeConcurrency
+	}
+	if len(after.LatencySamples) >= len(before.LatencySamples) {
+		out.LatencySamples = append([]int64(nil), after.LatencySamples[len(before.LatencySamples):]...)
+	} else {
+		out.LatencySamples = append([]int64(nil), after.LatencySamples...)
 	}
 	return out
 }

@@ -156,3 +156,17 @@ func TestProvider5xxIsInconclusiveAcrossDiscoveryAndChat(t *testing.T) {
 		t.Fatalf("chat status=%s, want error", chat.Status)
 	}
 }
+
+func TestDiscoveryDependentsAreBlockedAfterHTTPFailure(t *testing.T) {
+	p, err := profile.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := DiscoveryTests(p, api.Response{StatusCode: http.StatusBadGateway}, nil, nil)
+	if tests[0].Status != result.StatusError {
+		t.Fatalf("discovery HTTP status=%s, want error", tests[0].Status)
+	}
+	if tests[1].Status != result.StatusSkip || len(tests[1].Signals) != 1 || tests[1].Signals[0].Parameters["blocked_by_requirement"] != "models.list.http" {
+		t.Fatalf("schema was not blocked by discovery HTTP: %+v", tests[1])
+	}
+}

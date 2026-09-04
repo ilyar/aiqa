@@ -43,7 +43,7 @@ jobs:
           OPENAI_MODEL: ${{ vars.AIQA_OPENAI_MODEL }}
         run: |
           test -n "$OPENAI_BASE_URL" && test -n "$OPENAI_API_KEY" && test -n "$OPENAI_MODEL"
-          ./bin/aiqa test=compat --openai-model="$OPENAI_MODEL" --timeout=30 --request-interval=250ms --format=json --name=live-openai
+          ./bin/aiqa test=compat --model="$OPENAI_MODEL" --timeout=30 --request-interval=250ms --format=json --name=live-openai
       - name: Upload sanitized OpenAI report
         if: always()
         uses: actions/upload-artifact@v4
@@ -70,7 +70,7 @@ jobs:
           ANTHROPIC_MODEL: ${{ vars.AIQA_ANTHROPIC_MODEL }}
         run: |
           test -n "$ANTHROPIC_BASE_URL" && test -n "$ANTHROPIC_API_KEY" && test -n "$ANTHROPIC_MODEL"
-          ./bin/aiqa test=compat --anthropic-model="$ANTHROPIC_MODEL" --timeout=30 --request-interval=250ms --format=json --name=live-anthropic
+          ./bin/aiqa test=compat --model="$ANTHROPIC_MODEL" --timeout=30 --request-interval=250ms --format=json --name=live-anthropic
       - name: Upload sanitized Anthropic report
         if: always()
         uses: actions/upload-artifact@v4
@@ -94,10 +94,10 @@ jobs:
         env:
           GOOGLE_GENAI_BASE_URL: ${{ secrets.AIQA_GOOGLE_GENAI_BASE_URL }}
           GOOGLE_GENAI_API_KEY: ${{ secrets.AIQA_GOOGLE_GENAI_API_KEY }}
-          GOOGLE_GENAI_MODEL: ${{ vars.AIQA_GOOGLE_GENAI_MODEL }}
+          AIQA_MODEL: ${{ vars.AIQA_GOOGLE_GENAI_MODEL }}
         run: |
-          test -n "$GOOGLE_GENAI_BASE_URL" && test -n "$GOOGLE_GENAI_API_KEY" && test -n "$GOOGLE_GENAI_MODEL"
-          ./bin/aiqa test=compat,ext-suite --target=google-genai --ext-suite=official-sdk --google-genai-model="$GOOGLE_GENAI_MODEL" --timeout=30 --request-interval=500ms --format=json --name=live-google-genai
+          test -n "$GOOGLE_GENAI_BASE_URL" && test -n "$GOOGLE_GENAI_API_KEY" && test -n "$AIQA_MODEL"
+          ./bin/aiqa test=compat,ext-suite --target=google-genai --ext-suite=official-sdk --model="$AIQA_MODEL" --timeout=30 --request-interval=500ms --format=json --name=live-google-genai
       - name: Upload sanitized Google GenAI report
         if: always()
         uses: actions/upload-artifact@v4
@@ -128,7 +128,7 @@ jobs:
         run: |
           test -n "$OPENAI_BASE_URL" && test -n "$OPENAI_API_KEY" && test -n "$ANTHROPIC_BASE_URL" && test -n "$ANTHROPIC_API_KEY"
           test -n "$OPENAI_MODEL" && test -n "$ANTHROPIC_MODEL"
-          ./bin/aiqa test=compat --openai-model="$OPENAI_MODEL" --anthropic-model="$ANTHROPIC_MODEL" --timeout=30 --request-interval=250ms --format=json --name=live-dual
+          ./bin/aiqa test=compat --model="$OPENAI_MODEL,$ANTHROPIC_MODEL" --timeout=30 --request-interval=250ms --format=json --name=live-dual
       - name: Upload sanitized dual-target report
         if: always()
         uses: actions/upload-artifact@v4

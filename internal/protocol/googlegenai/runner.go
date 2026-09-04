@@ -85,7 +85,8 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 		options.Runtime.Client = client.TransportClient()
 		options.Runtime.Executor = executor
 	}
-	tmp := result.Report{SchemaVersion: "aiqa.report.internal", Profile: profileInfo(p), Config: result.PublicConfig{BaseURL: target.BaseURL, Tests: append([]string(nil), cfg.Tests...), RequestedModels: append([]string(nil), target.Models...), Timeout: cfg.Timeout.String(), Formats: cfg.Formats, ExtSuites: cfg.ExtSuites, FailOn: cfg.FailOn, Guidance: cfg.Guidance, GuidancePack: cfg.GuidancePack, GuidanceLocale: cfg.GuidanceLocale}}
+	requested := requestedModels(cfg, target)
+	tmp := result.Report{SchemaVersion: "aiqa.report.internal", Profile: profileInfo(p), Config: result.PublicConfig{BaseURL: target.BaseURL, Tests: append([]string(nil), cfg.Tests...), RequestedModels: requested, Timeout: cfg.Timeout.String(), Formats: cfg.Formats, ExtSuites: cfg.ExtSuites, FailOn: cfg.FailOn, Guidance: cfg.Guidance, GuidancePack: cfg.GuidancePack, GuidanceLocale: cfg.GuidanceLocale}}
 
 	listCtx, cancel := context.WithTimeout(ctx, cfg.Timeout)
 	models, listResp, paginationResp, listErr := discoverAll(listCtx, client)
@@ -97,64 +98,111 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	if cfg.HasTest("compat") {
 		tmp.Discovery.Tests = append(tmp.Discovery.Tests, discoveryResults(p, listResp, paginationResp, models, listErr)...)
 	}
-	selected, metadata := selectModels(target.Models, models)
+	selected, metadata := selectModels(requested, models)
 	if len(selected) == 0 {
 		reportpkg.Finalize(&tmp)
 		guidance.ExtractArtifacts(&tmp)
 		guidance.QualifyArtifacts(&tmp, target.ID)
 		assessment.ApplyTarget(&tmp, p, target.ID, string(target.Protocol))
-		return toTarget(target, tmp), fmt.Errorf("Google GenAI target returned no models; set --google-genai-model when /models is unavailable")
+		if listErr != nil || !listResp.Is2xx() {
+			if listErr != nil {
+				return toTarget(target, tmp), fmt.Errorf("model discovery failed: %w", listErr)
+			}
+			return toTarget(target, tmp), fmt.Errorf("model discovery returned HTTP %d", listResp.StatusCode)
+		}
+		return toTarget(target, tmp), nil
 	}
 	if options.Logf != nil {
 		options.Logf("[%s] testing %d model(s): %s", target.ID, len(selected), strings.Join(selected, ", "))
 	}
 	modelResults := make([]result.ModelReport, len(selected))
+	preflights := make([]*api.Response, len(selected))
+	preflightErrors := make([]error, len(selected))
+	preflightTests := make([]*result.TestResult, len(selected))
+	routeBlocked := make([]bool, len(selected))
+	classifications := make([]capability.Classification, len(selected))
+	modulePlans := make([][]result.ModuleAssessment, len(selected))
+	for index, model := range selected {
+		unknownPolicy := target.UnknownModel
+		if len(requested) > 0 {
+			unknownPolicy = "inventory"
+		}
+		classification := capability.ClassifyGoogleGenAI(model, metadata[model], capability.Options{BaseURL: target.BaseURL, Overrides: overrides, UnknownPolicy: unknownPolicy})
+		if len(requested) > 0 && classification.Unknown {
+			test, response, preflightErr := runGooglePreflight(ctx, client, cfg.Timeout, p, model)
+			preflightTests[index], preflights[index], preflightErrors[index] = &test, &response, preflightErr
+			switch {
+			case response.Is2xx() && preflightErr == nil:
+				classification.Unknown = false
+				classification.Reason = ""
+				capabilityID := capability.GoogleGenerateText
+				if !strings.Contains(p.ID, "generate-content") {
+					capabilityID = capability.GoogleInteractionsText
+				}
+				classification.Capabilities = append(classification.Capabilities, capability.Evidence{Capability: capabilityID, Source: "preflight", Rule: "google-genai.text.preflight", Confidence: "high", Reason: "minimal Google text preflight accepted the requested model"})
+			case isTransientResponse(response, preflightErr):
+				classification.Reason = "model availability is inconclusive after transient preflight failure"
+				routeBlocked[index] = true
+				markRouteBlockedTest(preflightTests[index], "model availability could not be determined after a transient preflight failure")
+			default:
+				if isModelRouteRejection(response) {
+					classification.Reason = "explicit model route rejection"
+					markRouteRejectionTest(preflightTests[index])
+				} else {
+					classification.Reason = "model availability is inconclusive after validation preflight failure"
+					markRouteBlockedTest(preflightTests[index], "model availability could not be determined from this validation response")
+				}
+				routeBlocked[index] = true
+			}
+		}
+		if interactionEligible(requested, p, model) && (classification.Unknown || classification.Has(capability.GoogleGenerateText) || classification.Has(capability.GoogleInteractionsText)) {
+			// Interactions is selected by explicit/profile policy, not by the
+			// legacy generateContent inventory method.
+			classification.Capabilities = append(classification.Capabilities,
+				capability.Evidence{Capability: capability.GoogleInteractionsText, Source: "profile_allowlist", Rule: "google-genai.interactions.allowlist", Confidence: "high", Reason: "model is explicitly eligible for the selected Interactions surface"},
+				capability.Evidence{Capability: capability.GoogleInteractionsTools, Source: "profile_allowlist", Rule: "google-genai.interactions.allowlist", Confidence: "medium", Reason: "text model is eligible for client-side Interactions tool probing"},
+				capability.Evidence{Capability: capability.GoogleInteractionsStructured, Source: "profile_allowlist", Rule: "google-genai.interactions.allowlist", Confidence: "medium", Reason: "text model is eligible for Interactions structured-output probing"},
+			)
+			if cfg.AllowPersistentResources {
+				classification.Capabilities = append(classification.Capabilities,
+					capability.Evidence{Capability: capability.GoogleInteractionsStateful, Source: "explicit_opt_in", Rule: "google-genai.interactions.stateful.opt_in", Confidence: "high", Reason: "persistent Interaction probing was explicitly authorized"},
+				)
+			}
+		}
+		classification.Capabilities = uniqueEvidence(classification.Capabilities)
+		classifications[index] = classification
+		modulePlans[index] = capability.AssessModules(classification, p.Modules, capability.RoutingOptions{Modules: target.Modules, AllowBillableArtifacts: cfg.AllowBillableArtifacts, AllowHighTokenProbes: cfg.AllowHighTokenProbes, AllowPersistentResources: cfg.AllowPersistentResources})
+		if routeBlocked[index] {
+			for moduleIndex := range modulePlans[index] {
+				if modulePlans[index][moduleIndex].Applicability != result.ApplicabilityNotApplicable {
+					modulePlans[index][moduleIndex].BlockedBy = []string{"google.text.basic"}
+				}
+			}
+		}
+	}
 	var wg sync.WaitGroup
 	for index, model := range selected {
 		index, model := index, model
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			classification := capability.ClassifyGoogleGenAI(model, metadata[model], capability.Options{BaseURL: target.BaseURL, Overrides: overrides, UnknownPolicy: target.UnknownModel})
-			if classification.Unknown && explicitlySelected(target.Models, model) {
-				// An explicit model selection is affirmative applicability evidence
-				// even when /models is unavailable or omits capability metadata.
-				classification = capability.ClassifyGoogleGenAI(model, metadata[model], capability.Options{BaseURL: target.BaseURL, Overrides: overrides, UnknownPolicy: "text"})
-			}
-			// Interactions is selected by the explicit/profile policy, not by the
-			// legacy supportedGenerationMethods field.  An unknown allowlisted
-			// model is still a valid candidate; an embedding-only model remains
-			// excluded because it carries affirmative non-generation evidence.
-			if interactionEligible(target, p, model) && (classification.Unknown || classification.Has(capability.GoogleGenerateText) || classification.Has(capability.GoogleInteractionsText)) {
-				classification.Capabilities = append(classification.Capabilities,
-					capability.Evidence{Capability: capability.GoogleInteractionsText, Source: "profile_allowlist", Rule: "google-genai.interactions.allowlist", Confidence: "high", Reason: "model is explicitly eligible for the selected Interactions surface"},
-					capability.Evidence{Capability: capability.GoogleInteractionsTools, Source: "profile_allowlist", Rule: "google-genai.interactions.allowlist", Confidence: "medium", Reason: "text model is eligible for client-side Interactions tool probing"},
-					capability.Evidence{Capability: capability.GoogleInteractionsStructured, Source: "profile_allowlist", Rule: "google-genai.interactions.allowlist", Confidence: "medium", Reason: "text model is eligible for Interactions structured-output probing"},
-				)
-				if cfg.AllowPersistentResources {
-					classification.Capabilities = append(classification.Capabilities,
-						capability.Evidence{Capability: capability.GoogleInteractionsStateful, Source: "explicit_opt_in", Rule: "google-genai.interactions.stateful.opt_in", Confidence: "high", Reason: "persistent Interaction probing was explicitly authorized"},
-					)
-				}
-			}
-			classification.Capabilities = uniqueEvidence(classification.Capabilities)
-			modules := capability.AssessModules(classification, p.Modules, capability.RoutingOptions{Modules: target.Modules, AllowBillableArtifacts: cfg.AllowBillableArtifacts, AllowHighTokenProbes: cfg.AllowHighTokenProbes, AllowPersistentResources: cfg.AllowPersistentResources})
+			classification := classifications[index]
+			modules := modulePlans[index]
 			mr := result.ModelReport{ID: model, Metadata: cloneMap(metadata[model]), Modules: modules}
 			for _, evidence := range classification.Capabilities {
 				mr.Capabilities = append(mr.Capabilities, result.CapabilityAssessment{ID: evidence.Capability, Source: evidence.Source, Rule: evidence.Rule, Confidence: evidence.Confidence, Reason: evidence.Reason})
 			}
-			if cfg.HasTest("compat") {
-				mr.Compatibility = runModel(ctx, client, cfg, p, model, modules, executor, strings.Contains(p.ID, "generate-content"))
+			if cfg.HasTest("compat") && preflightTests[index] != nil && routeBlocked[index] {
+				mr.Compatibility = append(mr.Compatibility, *preflightTests[index])
+			} else if cfg.HasTest("compat") {
+				mr.Compatibility = runModelWithPreflight(ctx, client, cfg, p, model, modules, executor, strings.Contains(p.ID, "generate-content"), preflights[index], preflightErrors[index])
 			}
 			if cfg.HasTest("model-param") && hasAnyGenerationModule(modules, strings.Contains(p.ID, "generate-content")) {
 				mr.Compatibility = append(mr.Compatibility, runGoogleModelParamNotice(p)...)
 			}
 			sort.Slice(mr.Compatibility, func(i, j int) bool { return mr.Compatibility[i].ID < mr.Compatibility[j].ID })
-			if len(selected) > 1 {
-				stats := client.PacingStatsForModel(model)
-				mr.RateLimit = &result.RateLimitStats{SuccessfulRequests: stats.SuccessfulRequests, RateLimited: stats.RateLimited, RetriesRecovered: stats.RetriesRecovered, BackoffMS: stats.Backoff.Milliseconds(), SafeRate: stats.SafeRate, SafeConcurrency: stats.SafeConcurrency}
-				addModelLatency(mr.RateLimit, mr)
-			}
+			stats := client.PacingStatsForModel(model)
+			mr.RateLimit = protocolpkg.RateLimitStats(stats)
 			modelResults[index] = mr
 		}()
 	}
@@ -180,13 +228,12 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 		} else {
 			selection.Status = result.StatusError
 			selection.Summary = "No eligible Interactions model was selected; core evidence is inconclusive"
-			selection.Error = "select a documented Interactions model with --google-genai-model"
+			selection.Error = "select a documented Interactions model with --model"
 		}
 		tmp.Discovery.Tests = append(tmp.Discovery.Tests, selection)
 	}
 	stats := client.PacingStats()
-	tmp.RateLimit = result.RateLimitStats{SuccessfulRequests: stats.SuccessfulRequests, RateLimited: stats.RateLimited, RetriesRecovered: stats.RetriesRecovered, BackoffMS: stats.Backoff.Milliseconds(), SafeRate: stats.SafeRate, SafeConcurrency: stats.SafeConcurrency}
-	addLatency(&tmp.RateLimit, tmp)
+	tmp.RateLimit = *protocolpkg.RateLimitStats(stats)
 	reportpkg.Finalize(&tmp)
 	guidance.ExtractArtifacts(&tmp)
 	guidance.QualifyArtifacts(&tmp, target.ID)
@@ -208,6 +255,41 @@ func runGoogleModelParamNotice(p profile.Profile) []result.TestResult {
 	t.Status = result.StatusUnsupported
 	t.Summary = "Google model-parameter analysis is not implemented; no parameter calls were made"
 	return []result.TestResult{t}
+}
+
+func runGooglePreflight(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string) (result.TestResult, api.Response, error) {
+	legacy := strings.Contains(p.ID, "generate-content")
+	var resp api.Response
+	var err error
+	if legacy {
+		resp, err = call(parent, timeout, func(ctx context.Context) (api.Response, error) {
+			return client.GenerateContent(ctx, model, generationBody(model, "Reply with exactly AIQA_OK."))
+		})
+	} else {
+		resp, err = call(parent, timeout, func(ctx context.Context) (api.Response, error) {
+			return client.Interaction(ctx, map[string]any{"model": model, "input": "Reply with exactly AIQA_OK.", "store": false})
+		})
+	}
+	id := "google.interactions.basic"
+	if legacy {
+		id = "google.generate-content.basic"
+	}
+	test := testBase(p, id)
+	test.DurationMS, test.HTTP = resp.Duration.Milliseconds(), observation(resp)
+	test.Usage = ParseUsage(resp.JSON)
+	setHTTPStatus(&test, resp, err, false)
+	if test.Status == result.StatusPass {
+		text := interactionText(resp.JSON)
+		if legacy {
+			text = generateText(resp.JSON)
+		}
+		if strings.Contains(text, "AIQA_OK") {
+			test.Summary = "Minimal Google text preflight returned the requested marker"
+		} else {
+			test.Status, test.Summary = result.StatusWarn, "Google text preflight completed but did not return AIQA_OK"
+		}
+	}
+	return test, resp, err
 }
 
 func discoverAll(ctx context.Context, client *Client) ([]api.Model, api.Response, api.Response, error) {
@@ -241,7 +323,11 @@ func discoveryResults(p profile.Profile, resp, paginationResp api.Response, mode
 	schema := testBase(p, "google.models.list.schema")
 	schema.DurationMS, schema.HTTP = httpTest.DurationMS, httpTest.HTTP
 	if httpTest.Status != result.StatusPass {
-		schema.Status, schema.Summary, schema.Error = httpTest.Status, "Model schema could not be evaluated", httpTest.Error
+		schema.Status, schema.Summary, schema.Error = result.StatusSkip, "Model schema could not be evaluated", httpTest.Error
+		schema.Signals = []result.EvidenceSignal{{
+			Code: "blocked.google.models.list.schema", RootCause: "blocked-prerequisite",
+			Parameters: map[string]any{"blocked_by_requirement": "google.models.list.http"},
+		}}
 	} else if problems := ValidateModels(resp.JSON); len(problems) > 0 {
 		schema.Status = result.StatusFail
 		schema.Summary = "Google model-list schema is invalid"
@@ -253,17 +339,26 @@ func discoveryResults(p profile.Profile, resp, paginationResp api.Response, mode
 	unique := testBase(p, "google.models.list.unique_names")
 	unique.DurationMS, unique.HTTP = schema.DurationMS, schema.HTTP
 	seen := map[string]bool{}
-	unique.Status = result.StatusPass
-	for _, model := range models {
-		if seen[model.ID] {
-			unique.Status = result.StatusFail
-		}
-		seen[model.ID] = true
-	}
-	if unique.Status == result.StatusPass {
-		unique.Summary = "Google model names are unique after removing models/ prefix"
+	if schema.Status != result.StatusPass {
+		unique.Status = result.StatusSkip
+		unique.Summary = "Unique model names were not checked because model discovery was incomplete"
+		unique.Signals = []result.EvidenceSignal{{
+			Code: "blocked.google.models.list.unique_names", RootCause: "blocked-prerequisite",
+			Parameters: map[string]any{"blocked_by_requirement": "google.models.list.schema"},
+		}}
 	} else {
-		unique.Summary = "Google model names are duplicated"
+		unique.Status = result.StatusPass
+		for _, model := range models {
+			if seen[model.ID] {
+				unique.Status = result.StatusFail
+			}
+			seen[model.ID] = true
+		}
+		if unique.Status == result.StatusPass {
+			unique.Summary = "Google model names are unique after removing models/ prefix"
+		} else {
+			unique.Summary = "Google model names are duplicated"
+		}
 	}
 	auth := derived(p, "google.auth.x_goog_api_key", httpTest)
 	auth.Summary = "x-goog-api-key authentication was accepted"
@@ -271,7 +366,14 @@ func discoveryResults(p profile.Profile, resp, paginationResp api.Response, mode
 		auth.Signals = []result.EvidenceSignal{{Code: "google.auth.x_goog_api_key.rejected"}}
 	}
 	pagination := testBase(p, "google.models.list.pagination")
-	if token := stringValue(resp.JSON["nextPageToken"]); token == "" {
+	if schema.Status != result.StatusPass {
+		pagination.Status = result.StatusSkip
+		pagination.Summary = "Pagination could not be evaluated because model discovery failed"
+		pagination.Signals = []result.EvidenceSignal{{
+			Code: "blocked.google.models.list.pagination", RootCause: "blocked-prerequisite",
+			Parameters: map[string]any{"blocked_by_requirement": "google.models.list.schema"},
+		}}
+	} else if token := stringValue(resp.JSON["nextPageToken"]); token == "" {
 		pagination.Applicability, pagination.Status = result.ApplicabilityNotApplicable, result.StatusSkip
 		pagination.Summary = "Model inventory fit in one page; pagination was not applicable"
 	} else if err != nil || !paginationResp.Is2xx() {
@@ -291,10 +393,16 @@ func discoveryResults(p profile.Profile, resp, paginationResp api.Response, mode
 }
 
 func runModel(parent context.Context, client *Client, cfg config.Config, p profile.Profile, model string, modules []result.ModuleAssessment, executor *probe.Executor, legacy bool) []result.TestResult {
+	return runModelWithPreflight(parent, client, cfg, p, model, modules, executor, legacy, nil, nil)
+}
+
+func runModelWithPreflight(parent context.Context, client *Client, cfg config.Config, p profile.Profile, model string, modules []result.ModuleAssessment, executor *probe.Executor, legacy bool, preflight *api.Response, preflightErr error) []result.TestResult {
 	tasks := make([]func() []result.TestResult, 0, 12)
 	tasks = append(tasks, func() []result.TestResult { return runModelGet(parent, client, cfg.Timeout, p, model) })
 	if hasModule(modules, "google-genai.interactions") {
-		tasks = append(tasks, func() []result.TestResult { return runInteractions(parent, client, cfg.Timeout, p, model) })
+		tasks = append(tasks, func() []result.TestResult {
+			return runInteractionsWithPreflight(parent, client, cfg.Timeout, p, model, preflight, preflightErr)
+		})
 	}
 	if hasModule(modules, "google-genai.interactions-stream") {
 		tasks = append(tasks, func() []result.TestResult { return runInteractionStream(parent, client, cfg.Timeout, p, model) })
@@ -306,7 +414,9 @@ func runModel(parent context.Context, client *Client, cfg config.Config, p profi
 		tasks = append(tasks, func() []result.TestResult { return runInteractionStructured(parent, client, cfg.Timeout, p, model) })
 	}
 	if hasModule(modules, "google-genai.generate-content") {
-		tasks = append(tasks, func() []result.TestResult { return runGenerateContent(parent, client, cfg.Timeout, p, model) })
+		tasks = append(tasks, func() []result.TestResult {
+			return runGenerateContentWithPreflight(parent, client, cfg.Timeout, p, model, preflight, preflightErr)
+		})
 	}
 	if hasModule(modules, "google-genai.generate-content-stream") {
 		tasks = append(tasks, func() []result.TestResult { return runGenerateStream(parent, client, cfg.Timeout, p, model) })
@@ -346,8 +456,18 @@ func runModel(parent context.Context, client *Client, cfg config.Config, p profi
 }
 
 func runInteractions(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string) []result.TestResult {
-	body := map[string]any{"model": model, "input": "Reply with exactly AIQA_OK.", "store": false}
-	resp, err := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Interaction(ctx, body) })
+	return runInteractionsWithPreflight(parent, client, timeout, p, model, nil, nil)
+}
+
+func runInteractionsWithPreflight(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string, preflight *api.Response, preflightErr error) []result.TestResult {
+	var resp api.Response
+	var err error
+	if preflight != nil {
+		resp, err = *preflight, preflightErr
+	} else {
+		body := map[string]any{"model": model, "input": "Reply with exactly AIQA_OK.", "store": false}
+		resp, err = call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Interaction(ctx, body) })
+	}
 	base := testBase(p, "google.interactions.basic")
 	base.DurationMS, base.HTTP = resp.Duration.Milliseconds(), observation(resp)
 	base.Usage = ParseUsage(resp.JSON)
@@ -483,44 +603,43 @@ func runInteractionStream(parent context.Context, client *Client, timeout time.D
 		syntax.Summary = "Interactions SSE framing and JSON data are valid"
 	}
 	eventTypes := derived(p, "google.interactions.stream.event_type_match", sequence)
-	if hasProblem(validation.Problems, "event name") {
-		eventTypes.Status, eventTypes.Summary = result.StatusFail, "Known SSE event names do not match JSON event types"
-	} else {
-		eventTypes.Summary = "Known SSE event names match JSON event types"
+	if sequence.Status == result.StatusPass {
+		if hasProblem(validation.Problems, "event name") {
+			eventTypes.Status, eventTypes.Summary = result.StatusFail, "Known SSE event names do not match JSON event types"
+		} else {
+			eventTypes.Summary = "Known SSE event names match JSON event types"
+		}
 	}
 	textTest := derived(p, "google.interactions.stream.text", sequence)
 	if sequence.Status == result.StatusPass && !strings.Contains(validation.Text, "AIQA_OK") {
 		textTest.Status, textTest.Summary = result.StatusFail, "Interactions stream did not reconstruct AIQA_OK"
-	} else {
+	} else if sequence.Status == result.StatusPass {
 		textTest.Summary = "Interactions stream reconstructed response text"
 	}
 	completed := derived(p, "google.interactions.stream.completed", sequence)
-	if sequence.Status != result.StatusPass {
-		completed.Status = sequence.Status
-		completed.Summary = "Interactions stream completion evidence is inconclusive because the sequence probe did not pass"
-	} else if validation.SawCompleted {
-		completed.Summary = "Interactions stream contains interaction.completed after step lifecycle"
-	} else {
-		completed.Status, completed.Summary = result.StatusFail, "Interactions stream omitted interaction.completed"
+	if sequence.Status == result.StatusPass {
+		if validation.SawCompleted {
+			completed.Summary = "Interactions stream contains interaction.completed after step lifecycle"
+		} else {
+			completed.Status, completed.Summary = result.StatusFail, "Interactions stream omitted interaction.completed"
+		}
 	}
 	usage := derived(p, "google.interactions.stream.usage", sequence)
 	usage.Usage = validation.Usage
-	if sequence.Status != result.StatusPass {
-		usage.Status = sequence.Status
-		usage.Summary = "Interactions stream usage evidence is inconclusive because the sequence probe did not pass"
-	} else if validation.SawUsage {
-		usage.Summary = "Interactions stream exposed valid final usage"
-	} else {
-		usage.Status, usage.Summary = result.StatusFail, "Interactions stream omitted valid final usage"
+	if sequence.Status == result.StatusPass {
+		if validation.SawUsage {
+			usage.Summary = "Interactions stream exposed valid final usage"
+		} else {
+			usage.Status, usage.Summary = result.StatusFail, "Interactions stream omitted valid final usage"
+		}
 	}
 	done := derived(p, "google.interactions.stream.done", sequence)
-	if sequence.Status != result.StatusPass {
-		done.Status = sequence.Status
-		done.Summary = "Interactions stream terminal-marker evidence is inconclusive because the sequence probe did not pass"
-	} else if validation.SawDone {
-		done.Summary = "Interactions stream ended with [DONE]"
-	} else {
-		done.Status, done.Summary = result.StatusFail, "Interactions stream omitted [DONE]"
+	if sequence.Status == result.StatusPass {
+		if validation.SawDone {
+			done.Summary = "Interactions stream ended with [DONE]"
+		} else {
+			done.Status, done.Summary = result.StatusFail, "Interactions stream omitted [DONE]"
+		}
 	}
 	return []result.TestResult{httpTest, syntax, eventTypes, sequence, textTest, completed, usage, done}
 }
@@ -564,8 +683,18 @@ func runInteractionStructured(parent context.Context, client *Client, timeout ti
 }
 
 func runGenerateContent(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string) []result.TestResult {
-	body := generationBody(model, "Reply with exactly AIQA_OK.")
-	resp, err := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.GenerateContent(ctx, model, body) })
+	return runGenerateContentWithPreflight(parent, client, timeout, p, model, nil, nil)
+}
+
+func runGenerateContentWithPreflight(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string, preflight *api.Response, preflightErr error) []result.TestResult {
+	var resp api.Response
+	var err error
+	if preflight != nil {
+		resp, err = *preflight, preflightErr
+	} else {
+		body := generationBody(model, "Reply with exactly AIQA_OK.")
+		resp, err = call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.GenerateContent(ctx, model, body) })
+	}
 	base := testBase(p, "google.generate-content.basic")
 	base.DurationMS, base.HTTP = resp.Duration.Milliseconds(), observation(resp)
 	base.Usage = ParseUsage(resp.JSON)
@@ -623,38 +752,35 @@ func runGenerateStream(parent context.Context, client *Client, timeout time.Dura
 		}
 	}
 	schema := derived(p, "google.generate-content.stream.schema", sequence)
-	if sequence.Status != result.StatusPass {
-		schema.Status = sequence.Status
-		schema.Summary = "GenerateContent stream schema evidence is inconclusive because the stream probe did not pass"
-	} else if len(validation.Problems) > 0 {
-		schema.Status, schema.Summary, schema.Observation = result.StatusFail, "GenerateContent stream chunk schema is invalid", strings.Join(validation.Problems, "; ")
-	} else {
-		schema.Summary = "GenerateContent stream chunks have valid response shapes"
+	if sequence.Status == result.StatusPass {
+		if len(validation.Problems) > 0 {
+			schema.Status, schema.Summary, schema.Observation = result.StatusFail, "GenerateContent stream chunk schema is invalid", strings.Join(validation.Problems, "; ")
+		} else {
+			schema.Summary = "GenerateContent stream chunks have valid response shapes"
+		}
 	}
 	textTest := derived(p, "google.generate-content.stream.text", sequence)
 	if sequence.Status == result.StatusPass && !strings.Contains(validation.Text, "AIQA_OK") {
 		textTest.Status, textTest.Summary = result.StatusFail, "GenerateContent stream did not reconstruct AIQA_OK"
-	} else {
+	} else if sequence.Status == result.StatusPass {
 		textTest.Summary = "GenerateContent stream reconstructed response text"
 	}
 	finish := derived(p, "google.generate-content.stream.finish_reason", sequence)
-	if sequence.Status != result.StatusPass {
-		finish.Status = sequence.Status
-		finish.Summary = "GenerateContent finish-reason evidence is inconclusive because the sequence probe did not pass"
-	} else if validation.SawFinishReason || len(stream.FinishReasons) > 0 {
-		finish.Summary = "GenerateContent stream exposed a finish reason"
-	} else {
-		finish.Status, finish.Summary = result.StatusWarn, "GenerateContent stream did not expose a finish reason"
+	if sequence.Status == result.StatusPass {
+		if validation.SawFinishReason || len(stream.FinishReasons) > 0 {
+			finish.Summary = "GenerateContent stream exposed a finish reason"
+		} else {
+			finish.Status, finish.Summary = result.StatusWarn, "GenerateContent stream did not expose a finish reason"
+		}
 	}
 	usage := derived(p, "google.generate-content.stream.usage", sequence)
 	usage.Usage = validation.Usage
-	if sequence.Status != result.StatusPass {
-		usage.Status = sequence.Status
-		usage.Summary = "GenerateContent stream usage evidence is inconclusive because the sequence probe did not pass"
-	} else if validation.SawUsage {
-		usage.Summary = "GenerateContent stream exposed valid usage metadata"
-	} else {
-		usage.Status, usage.Summary = result.StatusWarn, "GenerateContent stream did not expose usage metadata"
+	if sequence.Status == result.StatusPass {
+		if validation.SawUsage {
+			usage.Summary = "GenerateContent stream exposed valid usage metadata"
+		} else {
+			usage.Status, usage.Summary = result.StatusWarn, "GenerateContent stream did not expose usage metadata"
+		}
 	}
 	return []result.TestResult{httpTest, schema, sequence, textTest, finish, usage}
 }
@@ -942,8 +1068,8 @@ func usageMap(root map[string]any) map[string]any {
 	return nil
 }
 
-func interactionEligible(target config.TargetConfig, p profile.Profile, model string) bool {
-	for _, explicit := range target.Models {
+func interactionEligible(requested []string, p profile.Profile, model string) bool {
+	for _, explicit := range requested {
 		if NormalizeModelID(explicit) == NormalizeModelID(model) {
 			return true
 		}
@@ -954,15 +1080,6 @@ func interactionEligible(target config.TargetConfig, p profile.Profile, model st
 			return true
 		}
 		if allowed == NormalizeModelID(model) {
-			return true
-		}
-	}
-	return false
-}
-
-func explicitlySelected(requested []string, model string) bool {
-	for _, value := range requested {
-		if NormalizeModelID(value) == NormalizeModelID(model) {
 			return true
 		}
 	}
@@ -995,7 +1112,14 @@ func testBase(p profile.Profile, id string) result.TestResult {
 
 func derived(p profile.Profile, id string, source result.TestResult) result.TestResult {
 	t := testBase(p, id)
-	t.Status, t.DurationMS, t.HTTP, t.Error = source.Status, source.DurationMS, source.HTTP, source.Error
+	t.DurationMS, t.HTTP = source.DurationMS, source.HTTP
+	if source.Status != result.StatusPass {
+		t.Status = result.StatusSkip
+		t.Summary = fmt.Sprintf("skipped because prerequisite %s did not pass", source.RequirementID)
+		t.Signals = []result.EvidenceSignal{{Code: "blocked." + strings.ReplaceAll(id, "_", "."), RootCause: "blocked-prerequisite", Parameters: map[string]any{"blocked_by_requirement": source.RequirementID}}}
+		return t
+	}
+	t.Status = result.StatusPass
 	return t
 }
 
@@ -1114,28 +1238,61 @@ func toTarget(target config.TargetConfig, r result.Report) result.TargetReport {
 	return result.TargetReport{ID: target.ID, Protocol: string(target.Protocol), Profile: r.Profile, Discovery: r.Discovery, Models: r.Models, Requirements: r.Requirements, Summary: r.Summary, Guidance: r.Guidance, RateLimit: r.RateLimit}
 }
 func selectModels(requested []string, discovered []api.Model) ([]string, map[string]map[string]any) {
-	metadata := map[string]map[string]any{}
-	for _, model := range discovered {
-		metadata[model.ID] = model.Raw
-	}
-	if len(requested) > 0 {
-		selected := make([]string, 0, len(requested))
-		for _, raw := range requested {
-			id := NormalizeModelID(raw)
-			selected = append(selected, id)
-			if metadata[id] == nil {
-				metadata[id] = map[string]any{"name": "models/" + id, "source": "--google-genai-model"}
-			}
-		}
-		return selected, metadata
-	}
-	selected := make([]string, 0, len(discovered))
-	for _, model := range discovered {
-		selected = append(selected, model.ID)
-	}
-	sort.Strings(selected)
-	return selected, metadata
+	return protocolpkg.SelectModels(requested, discovered, NormalizeModelID, googleInventoryTrusted)
 }
+
+func requestedModels(cfg config.Config, target config.TargetConfig) []string {
+	if len(cfg.Models) > 0 {
+		return append([]string(nil), cfg.Models...)
+	}
+	return append([]string(nil), target.Models...)
+}
+
+func googleInventoryTrusted(metadata map[string]any) bool {
+	if metadata == nil {
+		return false
+	}
+	name, _ := metadata["name"].(string)
+	return strings.HasPrefix(strings.TrimSpace(name), "models/") && NormalizeModelID(name) != ""
+}
+
+func isTransientResponse(resp api.Response, err error) bool {
+	return (err != nil && resp.StatusCode == 0) || isTransientStatus(resp.StatusCode)
+}
+
+func isModelRouteRejection(resp api.Response) bool {
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone {
+		return true
+	}
+	if resp.StatusCode < 400 || resp.StatusCode >= 500 {
+		return false
+	}
+	text := strings.ToLower(resp.Snippet(2000))
+	for _, marker := range []string{"model not found", "model_not_found", "unknown model", "unsupported model", "model is not", "no such model", "route mismatch", "unsupported route", "does not support this model"} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func markRouteRejectionTest(test *result.TestResult) {
+	if test == nil {
+		return
+	}
+	test.Signals = append(test.Signals, result.EvidenceSignal{Code: "routing.model_route_rejected", RootCause: "model-route-rejection", Parameters: map[string]any{"route_rejection": true}})
+	test.Summary = "The provider explicitly rejected the requested model route"
+}
+
+func markRouteBlockedTest(test *result.TestResult, summary string) {
+	if test == nil {
+		return
+	}
+	test.Status = result.StatusError
+	test.Summary = summary
+	test.Signals = append(test.Signals, result.EvidenceSignal{Code: "execution.model_route_unknown", RootCause: "model-route-availability-unknown"})
+}
+
 func cloneMap(in map[string]any) map[string]any {
 	if in == nil {
 		return nil
@@ -1155,52 +1312,6 @@ func hasProblem(problems []string, fragment string) bool {
 	return false
 }
 
-func addModelLatency(out *result.RateLimitStats, model result.ModelReport) {
-	values := make([]int64, 0)
-	for _, test := range model.Compatibility {
-		if test.HTTP.StatusCode >= 200 && test.HTTP.StatusCode < 300 && test.DurationMS > 0 {
-			values = append(values, test.DurationMS)
-		}
-	}
-	if len(values) == 0 {
-		return
-	}
-	sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
-	var total int64
-	for _, value := range values {
-		total += value
-	}
-	out.LatencySamples, out.MeanLatencyMS = len(values), total/int64(len(values))
-	out.P50LatencyMS = values[(len(values)-1)/2]
-	out.P95LatencyMS = values[(95*len(values)-1)/100]
-}
-func addLatency(out *result.RateLimitStats, report result.Report) {
-	values := make([]int64, 0)
-	add := func(test result.TestResult) {
-		if test.HTTP.StatusCode >= 200 && test.HTTP.StatusCode < 300 && test.DurationMS > 0 {
-			values = append(values, test.DurationMS)
-		}
-	}
-	for _, test := range report.Discovery.Tests {
-		add(test)
-	}
-	for _, model := range report.Models {
-		for _, test := range model.Compatibility {
-			add(test)
-		}
-	}
-	if len(values) == 0 {
-		return
-	}
-	sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
-	var total int64
-	for _, value := range values {
-		total += value
-	}
-	out.LatencySamples, out.MeanLatencyMS = len(values), total/int64(len(values))
-	out.P50LatencyMS = values[(len(values)-1)/2]
-	out.P95LatencyMS = values[(95*len(values)-1)/100]
-}
 func validStructured(text string) bool {
 	var value any
 	if json.Unmarshal([]byte(text), &value) != nil {

@@ -71,8 +71,6 @@ type Config struct {
 	VersionOnly                  bool
 	HelpOnly                     bool
 	TargetSelection              string
-	OpenAIModels                 []string
-	AnthropicModels              []string
 	OpenAIModelCapabilities      []string
 	AnthropicModelCapabilities   []string
 	OpenAICapabilityFile         string
@@ -86,7 +84,6 @@ type Config struct {
 	GoogleGenAIAPIKey            string
 	GoogleGenAIAPIVersion        string
 	GoogleGenAIProfile           string
-	GoogleGenAIModels            []string
 	GoogleGenAIModelCapabilities []string
 	GoogleGenAICapabilityFile    string
 	GoogleGenAIUnknownModel      string
@@ -187,7 +184,7 @@ func Parse(args []string) (Config, error) {
 	if googleGenAIProfile == "" {
 		googleGenAIProfile = "google-genai-compat-2026-09.json"
 	}
-	googleGenAIModels := splitUnique(os.Getenv("GOOGLE_GENAI_MODEL"))
+	googleGenAIModelEnv := strings.TrimSpace(os.Getenv("GOOGLE_GENAI_MODEL"))
 	cfg := Config{
 		BaseURL:                 openAIBaseURL,
 		APIKey:                  openAIAPIKey,
@@ -199,8 +196,8 @@ func Parse(args []string) (Config, error) {
 		Concurrency:             1,
 		ExtSuitePaths:           splitPathList(os.Getenv("AIQA_EXT_SUITE_PATHS")),
 		Modules:                 []string{"auto"},
-		UnknownModel:            "chat",
-		AnthropicUnknownModel:   "messages",
+		UnknownModel:            "inventory",
+		AnthropicUnknownModel:   "inventory",
 		MaxArtifactsPerModel:    1,
 		FailOn:                  "core",
 		Guidance:                "full",
@@ -219,15 +216,18 @@ func Parse(args []string) (Config, error) {
 		GoogleGenAIAPIKey:       googleGenAIAPIKey,
 		GoogleGenAIAPIVersion:   googleGenAIAPIVersion,
 		GoogleGenAIProfile:      googleGenAIProfile,
-		GoogleGenAIModels:       googleGenAIModels,
 		GoogleGenAIUnknownModel: "inventory",
 	}
 
 	args = normalizeTestArgument(args)
+	if removed := removedModelFlag(args); removed != "" {
+		return Config{}, fmt.Errorf("--%s was removed; use the global --model option", removed)
+	}
+	modelFlagProvided := flagProvided(args, "model")
 	fs := flag.NewFlagSet("aiqa", flag.ContinueOnError)
 	fs.SetOutput(new(strings.Builder))
 
-	var tests, models, openAIModels, anthropicModels, googleGenAIModelFlag, formats, modules, modelCapabilities string
+	var tests, models, formats, modules, modelCapabilities string
 	var openAIModelCapabilities, anthropicModelCapabilities, googleGenAIModelCapabilities string
 	extSuitePaths := multiValue{values: append([]string(nil), cfg.ExtSuitePaths...)}
 	extSuiteValues := multiValue{}
@@ -236,9 +236,6 @@ func Parse(args []string) (Config, error) {
 	modules = strings.Join(cfg.Modules, ",")
 	fs.StringVar(&tests, "test", tests, "comma-separated suites: compat,model-param,ext-suite")
 	fs.StringVar(&models, "model", "", "one or more comma-separated model IDs; default: discover via /models")
-	fs.StringVar(&openAIModels, "openai-model", "", "OpenAI model IDs")
-	fs.StringVar(&anthropicModels, "anthropic-model", "", "Anthropic model IDs")
-	fs.StringVar(&googleGenAIModelFlag, "google-genai-model", strings.Join(cfg.GoogleGenAIModels, ","), "Google GenAI model IDs")
 	fs.StringVar(&cfg.TargetSelection, "target", cfg.TargetSelection, "targets: auto,openai,anthropic,google-genai or comma-separated")
 	fs.StringVar(&cfg.OpenAIProfile, "openai-profile", cfg.OpenAIProfile, "embedded OpenAI profile filename")
 	fs.StringVar(&cfg.AnthropicProfile, "anthropic-profile", cfg.AnthropicProfile, "embedded Anthropic profile filename")
@@ -295,10 +292,14 @@ func Parse(args []string) (Config, error) {
 	}
 
 	cfg.Tests = splitUnique(tests)
-	cfg.Models = splitUnique(models)
-	cfg.OpenAIModels = splitUnique(openAIModels)
-	cfg.AnthropicModels = splitUnique(anthropicModels)
-	cfg.GoogleGenAIModels = splitUnique(googleGenAIModelFlag)
+	var modelErr error
+	cfg.Models, modelErr = parseModelList(models)
+	if modelErr != nil {
+		return Config{}, modelErr
+	}
+	if modelFlagProvided && len(cfg.Models) == 0 {
+		return Config{}, errors.New("--model contains an empty model ID at position 1")
+	}
 	cfg.Formats = normalizeFormats(splitUnique(formats))
 	cfg.Modules = splitUnique(modules)
 	cfg.ExtSuites = splitUnique(strings.Join(extSuiteValues.values, ","))
@@ -338,6 +339,9 @@ func Parse(args []string) (Config, error) {
 
 	if err := cfg.configureTargets(openAIBaseURL, openAIAPIKey, anthropicBaseURL, anthropicAPIKey); err != nil {
 		return Config{}, err
+	}
+	if googleGenAIModelEnv != "" && hasProtocolTarget(cfg.Targets, ProtocolGoogleGenAI) && !cfg.HelpOnly && !cfg.VersionOnly {
+		return Config{}, errors.New("GOOGLE_GENAI_MODEL was removed; use the global --model option")
 	}
 
 	if cfg.VersionOnly || cfg.HelpOnly {
@@ -421,6 +425,27 @@ func normalizeTestArgument(args []string) []string {
 	return out
 }
 
+func removedModelFlag(args []string) string {
+	for _, arg := range args {
+		for _, name := range []string{"openai-model", "anthropic-model", "google-genai-model"} {
+			if arg == "--"+name || strings.HasPrefix(arg, "--"+name+"=") {
+				return name
+			}
+		}
+	}
+	return ""
+}
+
+func flagProvided(args []string, name string) bool {
+	prefix := "--" + name
+	for _, arg := range args {
+		if arg == prefix || strings.HasPrefix(arg, prefix+"=") {
+			return true
+		}
+	}
+	return false
+}
+
 func splitUnique(s string) []string {
 	seen := map[string]bool{}
 	var out []string
@@ -433,6 +458,35 @@ func splitUnique(s string) []string {
 		out = append(out, item)
 	}
 	return out
+}
+
+func parseModelList(raw string) ([]string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	seen := map[string]bool{}
+	models := make([]string, 0)
+	for index, item := range strings.Split(raw, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			return nil, fmt.Errorf("--model contains an empty model ID at position %d", index+1)
+		}
+		if seen[item] {
+			continue
+		}
+		seen[item] = true
+		models = append(models, item)
+	}
+	return models, nil
+}
+
+func hasProtocolTarget(targets []TargetConfig, protocol Protocol) bool {
+	for _, target := range targets {
+		if target.Protocol == protocol {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeFormats(in []string) []string {
@@ -634,10 +688,6 @@ func (c *Config) configureTargets(openAIBaseURL, openAIAPIKey, anthropicBaseURL,
 	}
 	configured := map[string]TargetConfig{}
 	if wants("openai") && openAIBaseURL != "" && openAIAPIKey != "" {
-		models := c.OpenAIModels
-		if len(requested) <= 1 && len(models) == 0 {
-			models = c.Models
-		}
 		capabilities, capabilityFile := c.OpenAIModelCapabilities, c.OpenAICapabilityFile
 		if len(requested) <= 1 && len(capabilities) == 0 {
 			capabilities = c.ModelCapabilities
@@ -645,13 +695,9 @@ func (c *Config) configureTargets(openAIBaseURL, openAIAPIKey, anthropicBaseURL,
 		if len(requested) <= 1 && capabilityFile == "" {
 			capabilityFile = c.CapabilityFile
 		}
-		configured["openai"] = TargetConfig{ID: "openai", Protocol: ProtocolOpenAI, BaseURL: openAIBaseURL, APIKey: openAIAPIKey, Models: models, ProfileFile: c.OpenAIProfile, Modules: append([]string(nil), c.Modules...), ModelCapabilities: append([]string(nil), capabilities...), CapabilityFile: capabilityFile, UnknownModel: c.UnknownModel, RequestInterval: c.RequestInterval}
+		configured["openai"] = TargetConfig{ID: "openai", Protocol: ProtocolOpenAI, BaseURL: openAIBaseURL, APIKey: openAIAPIKey, ProfileFile: c.OpenAIProfile, Modules: append([]string(nil), c.Modules...), ModelCapabilities: append([]string(nil), capabilities...), CapabilityFile: capabilityFile, UnknownModel: c.UnknownModel, RequestInterval: c.RequestInterval}
 	}
 	if wants("anthropic") && anthropicBaseURL != "" && anthropicAPIKey != "" {
-		models := c.AnthropicModels
-		if len(requested) <= 1 && len(models) == 0 {
-			models = c.Models
-		}
 		capabilities, capabilityFile := c.AnthropicModelCapabilities, c.AnthropicCapabilityFile
 		if len(requested) <= 1 && len(capabilities) == 0 {
 			capabilities = c.ModelCapabilities
@@ -660,7 +706,7 @@ func (c *Config) configureTargets(openAIBaseURL, openAIAPIKey, anthropicBaseURL,
 			capabilityFile = c.CapabilityFile
 		}
 		normalized := normalizeAnthropicBaseURL(anthropicBaseURL)
-		configured["anthropic"] = TargetConfig{ID: "anthropic", Protocol: ProtocolAnthropic, BaseURL: normalized, BaseURLNormalized: normalized != strings.TrimRight(strings.TrimSpace(anthropicBaseURL), "/"), APIKey: anthropicAPIKey, Models: models, ProfileFile: c.AnthropicProfile, Modules: append([]string(nil), c.Modules...), ModelCapabilities: append([]string(nil), capabilities...), CapabilityFile: capabilityFile, UnknownModel: c.AnthropicUnknownModel, RequestInterval: c.RequestInterval, APIVersion: "2023-06-01"}
+		configured["anthropic"] = TargetConfig{ID: "anthropic", Protocol: ProtocolAnthropic, BaseURL: normalized, BaseURLNormalized: normalized != strings.TrimRight(strings.TrimSpace(anthropicBaseURL), "/"), APIKey: anthropicAPIKey, ProfileFile: c.AnthropicProfile, Modules: append([]string(nil), c.Modules...), ModelCapabilities: append([]string(nil), capabilities...), CapabilityFile: capabilityFile, UnknownModel: c.AnthropicUnknownModel, RequestInterval: c.RequestInterval, APIVersion: "2023-06-01"}
 	}
 	if wants(string(ProtocolGoogleGenAI)) && googleBaseURL != "" && googleAPIKey != "" {
 		version := strings.TrimSpace(c.GoogleGenAIAPIVersion)
@@ -674,10 +720,6 @@ func (c *Config) configureTargets(openAIBaseURL, openAIAPIKey, anthropicBaseURL,
 		if err != nil {
 			return err
 		}
-		models := c.GoogleGenAIModels
-		if len(requested) <= 1 && len(models) == 0 {
-			models = c.Models
-		}
 		capabilities, capabilityFile := c.GoogleGenAIModelCapabilities, c.GoogleGenAICapabilityFile
 		if len(requested) <= 1 && len(capabilities) == 0 {
 			capabilities = c.ModelCapabilities
@@ -685,7 +727,7 @@ func (c *Config) configureTargets(openAIBaseURL, openAIAPIKey, anthropicBaseURL,
 		if len(requested) <= 1 && capabilityFile == "" {
 			capabilityFile = c.CapabilityFile
 		}
-		configured[string(ProtocolGoogleGenAI)] = TargetConfig{ID: "google-genai", Protocol: ProtocolGoogleGenAI, BaseURL: normalized, BaseURLNormalized: changed, APIKey: googleAPIKey, Models: models, ProfileFile: c.GoogleGenAIProfile, Modules: append([]string(nil), c.Modules...), ModelCapabilities: append([]string(nil), capabilities...), CapabilityFile: capabilityFile, UnknownModel: c.GoogleGenAIUnknownModel, RequestInterval: c.RequestInterval, APIVersion: version}
+		configured[string(ProtocolGoogleGenAI)] = TargetConfig{ID: "google-genai", Protocol: ProtocolGoogleGenAI, BaseURL: normalized, BaseURLNormalized: changed, APIKey: googleAPIKey, ProfileFile: c.GoogleGenAIProfile, Modules: append([]string(nil), c.Modules...), ModelCapabilities: append([]string(nil), capabilities...), CapabilityFile: capabilityFile, UnknownModel: c.GoogleGenAIUnknownModel, RequestInterval: c.RequestInterval, APIVersion: version}
 	}
 	order := requested
 	if len(order) == 0 {
@@ -710,14 +752,11 @@ func (c *Config) configureTargets(openAIBaseURL, openAIAPIKey, anthropicBaseURL,
 			}
 		}
 	}
-	if len(c.Targets) > 1 && len(c.Models) > 0 {
-		return errors.New("--model is ambiguous with multiple targets; use protocol-specific model flags")
-	}
 	if len(c.Targets) > 1 && (len(c.ModelCapabilities) > 0 || c.CapabilityFile != "") {
 		return errors.New("--model-capability and --capability-file are ambiguous with multiple targets; use protocol-specific flags")
 	}
 	if len(c.Targets) == 1 {
-		c.BaseURL, c.APIKey, c.Models = c.Targets[0].BaseURL, c.Targets[0].APIKey, append([]string(nil), c.Targets[0].Models...)
+		c.BaseURL, c.APIKey = c.Targets[0].BaseURL, c.Targets[0].APIKey
 	}
 	return nil
 }

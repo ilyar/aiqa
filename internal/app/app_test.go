@@ -326,8 +326,12 @@ func TestMixedNonChatCatalogDoesNotReceiveChatRequests(t *testing.T) {
 		t.Fatalf("inventory lost models: %+v", out.ReportV3.Targets[0].Models)
 	}
 	for _, model := range out.ReportV3.Targets[0].Models {
-		if model.Assessment.Verdict != "not-evaluated" {
-			t.Fatalf("model %s verdict=%q", model.ID, model.Assessment.Verdict)
+		wantVerdict := "not-evaluated"
+		if model.ID == "gpt-image-2" {
+			wantVerdict = "inconclusive"
+		}
+		if model.Assessment.Verdict != wantVerdict {
+			t.Fatalf("model %s verdict=%q, want %q", model.ID, model.Assessment.Verdict, wantVerdict)
 		}
 		chat := moduleByID(model.Modules, "chat-completions")
 		if model.ID == "gpt-image-2" && (chat == nil || chat.Applicability != result.ApplicabilityNotApplicable) {
@@ -347,6 +351,126 @@ func TestMixedNonChatCatalogDoesNotReceiveChatRequests(t *testing.T) {
 	}
 	if !strings.Contains(text, "NOT-EVALUATED") || !strings.Contains(text, "UNKNOWN") {
 		t.Fatalf("inventory-only verdicts are not visible in Markdown:\n%s", text)
+	}
+}
+
+func TestMissingRequestedModelIsSilentAndDoesNotProbe(t *testing.T) {
+	var modelCalls atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]any{"object": "list", "data": []any{
+			map[string]any{"id": "gpt-5.4-mini", "object": "model", "created": 1, "capabilities": []any{"chat.completions.text"}},
+		}})
+	})
+	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
+		modelCalls.Add(1)
+		writeError(w, 500, "unexpected", "missing model must not be probed")
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	withTempWorkingDirectory(t)
+	cfg := testConfig(server.URL+"/v1", []string{"compat"})
+	cfg.Models = []string{"missing-model"}
+	cfg.Formats = nil
+	out, err := Run(context.Background(), cfg, BuildInfo{Version: "test"})
+	if err != nil || out.ExitCode != 0 {
+		t.Fatalf("silent absence changed run result: exit=%d err=%v report=%+v", out.ExitCode, err, out.ReportV3)
+	}
+	if modelCalls.Load() != 0 || len(out.ReportV3.Targets) != 1 || len(out.ReportV3.Targets[0].Models) != 0 {
+		t.Fatalf("missing model was probed or materialized: calls=%d targets=%+v", modelCalls.Load(), out.ReportV3.Targets)
+	}
+	if len(out.ReportV3.Config.RequestedModels) != 1 || out.ReportV3.Config.RequestedModels[0] != "missing-model" {
+		t.Fatalf("global request provenance missing: %+v", out.ReportV3.Config)
+	}
+	for _, requirement := range out.ReportV3.Targets[0].Requirements {
+		if requirement.Subject.Kind == "model" {
+			t.Fatalf("missing model created canonical requirement: %+v", requirement)
+		}
+	}
+}
+
+func TestExplicitAmbiguousModelUsesOnePreflightAndStopsOnRouteRejection(t *testing.T) {
+	var preflightCalls, retrieveCalls atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]any{"object": "list", "data": []any{
+			map[string]any{"id": "ambiguous-model", "object": "model", "created": 1},
+		}})
+	})
+	mux.HandleFunc("/v1/models/", func(w http.ResponseWriter, r *http.Request) {
+		retrieveCalls.Add(1)
+		writeError(w, 500, "unexpected", "retrieve must be blocked after route rejection")
+	})
+	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
+		preflightCalls.Add(1)
+		writeError(w, 404, "model_not_found", "model not found")
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	withTempWorkingDirectory(t)
+	cfg := testConfig(server.URL+"/v1", []string{"compat"})
+	cfg.Models = []string{"ambiguous-model"}
+	cfg.Formats = nil
+	out, err := Run(context.Background(), cfg, BuildInfo{Version: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preflightCalls.Load() != 1 || retrieveCalls.Load() != 0 {
+		t.Fatalf("unexpected ambiguous route calls: preflight=%d retrieve=%d", preflightCalls.Load(), retrieveCalls.Load())
+	}
+	if out.ReportV3 == nil || len(out.ReportV3.Targets) != 1 || len(out.ReportV3.Targets[0].Models) != 1 {
+		t.Fatalf("ambiguous model report is missing: %+v", out.ReportV3)
+	}
+	model := out.ReportV3.Targets[0].Models[0]
+	if len(model.Compatibility) != 1 || model.Compatibility[0].ID != "chat.basic" || model.Compatibility[0].Status != result.StatusFail {
+		t.Fatalf("route rejection did not stop dependent probes: %+v", model.Compatibility)
+	}
+	chat := moduleByID(model.Modules, "chat-completions")
+	if chat == nil || len(chat.BlockedBy) == 0 {
+		t.Fatalf("route rejection is not visible in module planning: %+v", model.Modules)
+	}
+	if out.ReportV3.Summary.Verdict != "fail" || out.ExitCode != 1 {
+		t.Fatalf("route rejection verdict/exit mismatch: verdict=%s exit=%d", out.ReportV3.Summary.Verdict, out.ExitCode)
+	}
+	if len(out.ReportV3.Targets[0].Guidance.Findings) != 1 || out.ReportV3.Targets[0].Guidance.Findings[0].RootCause != "root:model-route-rejection" {
+		t.Fatalf("route rejection root cause was not grouped explicitly: %+v", out.ReportV3.Targets[0].Guidance.Findings)
+	}
+}
+
+func TestExplicitAmbiguousModelTransientPreflightIsInconclusiveAndRetried(t *testing.T) {
+	var preflightCalls atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]any{"object": "list", "data": []any{
+			map[string]any{"id": "ambiguous-model", "object": "model", "created": 1},
+		}})
+	})
+	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
+		preflightCalls.Add(1)
+		writeError(w, 503, "temporarily_unavailable", "retry later")
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	withTempWorkingDirectory(t)
+	cfg := testConfig(server.URL+"/v1", []string{"compat"})
+	cfg.Models = []string{"ambiguous-model"}
+	cfg.Formats = nil
+	out, err := Run(context.Background(), cfg, BuildInfo{Version: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preflightCalls.Load() != 3 {
+		t.Fatalf("transient preflight retry count=%d, want 3", preflightCalls.Load())
+	}
+	if out.ReportV3.Summary.Verdict != "inconclusive" || out.ExitCode != 1 {
+		t.Fatalf("transient preflight verdict/exit mismatch: verdict=%s exit=%d", out.ReportV3.Summary.Verdict, out.ExitCode)
+	}
+	model := out.ReportV3.Targets[0].Models[0]
+	if len(model.Compatibility) != 1 || model.Compatibility[0].Status != result.StatusError {
+		t.Fatalf("transient preflight did not remain a single inconclusive root: %+v", model.Compatibility)
+	}
+	if len(out.ReportV3.Targets[0].Guidance.Findings) != 1 || out.ReportV3.Targets[0].Guidance.Findings[0].RootCause != "root:model-route-availability-unknown" {
+		t.Fatalf("transient route root cause was not preserved: %+v", out.ReportV3.Targets[0].Guidance.Findings)
 	}
 }
 

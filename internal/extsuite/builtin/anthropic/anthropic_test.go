@@ -1,10 +1,12 @@
 package anthropic
 
 import (
+	"encoding/json"
 	"reflect"
 	"runtime/debug"
 	"testing"
 
+	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/ilyar/aiqa/internal/profile"
 )
 
@@ -42,4 +44,31 @@ func TestManifestSuitesAreProfileBoundAndVersionMatchesDependency(t *testing.T) 
 		}
 	}
 	t.Fatal("embedded Anthropic SDK dependency is missing")
+}
+
+func TestToolSuitePromptSchemaAndValidatorShareOneContract(t *testing.T) {
+	if toolPrompt != "Call get_status for resource-alpha." {
+		t.Fatalf("tool prompt=%q", toolPrompt)
+	}
+	definition := toolDefinition()
+	if definition["name"] != "get_status" {
+		t.Fatalf("tool name=%v", definition["name"])
+	}
+	schema, ok := definition["input_schema"].(map[string]any)
+	if !ok || schema["type"] != "object" || schema["additionalProperties"] != false || !reflect.DeepEqual(schema["required"], []string{"resource_id"}) {
+		t.Fatalf("tool input schema=%#v", definition["input_schema"])
+	}
+	properties, ok := schema["properties"].(map[string]any)
+	resource, _ := properties["resource_id"].(map[string]any)
+	if !ok || resource["type"] != "string" {
+		t.Fatalf("resource_id schema=%#v", properties["resource_id"])
+	}
+	valid := &anthropic.Message{Content: []anthropic.ContentBlockUnion{{Type: "tool_use", ID: "toolu_test", Name: "get_status", Input: json.RawMessage(`{"resource_id":"resource-alpha"}`)}}}
+	if _, err := sdkToolUse(valid); err != nil {
+		t.Fatalf("valid tool use rejected: %v", err)
+	}
+	invalid := &anthropic.Message{Content: []anthropic.ContentBlockUnion{{Type: "tool_use", ID: "toolu_test", Name: "get_status", Input: json.RawMessage(`{"resource_id":"resource-beta"}`)}}}
+	if _, err := sdkToolUse(invalid); err == nil {
+		t.Fatal("validator accepted a tool use for the wrong resource")
+	}
 }

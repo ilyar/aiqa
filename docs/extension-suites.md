@@ -38,6 +38,13 @@ An extension manifest declares each suite's target protocol, provider or model s
 
 Provider suites run once per target. Model suites run only when their capability and module are applicable. Unclassified models follow the configured unknown-model policy. Positive non-text evidence never falls back to text suites.
 
+Extensions receive only the resolved model subjects for that target. The
+global `--model` list is intersected with each target's inventory before
+extension planning, so an absent ID is never sent to an SDK and the same ID
+may produce independent OpenAI, Anthropic, and Google subjects. A successful
+inventory with no matches is a valid empty target; a discovery failure stays
+visible as target error/inconclusive evidence.
+
 Suites marked `billable_artifact` require `--allow-billable-artifacts`. An extension-only run needs one available artifact slot per model. A combined native and extension run needs two because the native and SDK suites each create an artifact.
 
 ## Profile bindings

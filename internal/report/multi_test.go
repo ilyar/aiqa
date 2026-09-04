@@ -20,8 +20,8 @@ func TestMarkdownV3RendersTargetActionsAndPerModelTelemetry(t *testing.T) {
 			Profile: result.ProfileInfo{ID: "anthropic-compat", Revision: "2026-09"},
 			Summary: result.Summary{Assessment: &assessment, Usage: result.Usage{InputTokens: 15, OutputTokens: 28, CacheReadInputTokens: 144}},
 			Models: []result.ModelReport{
-				{ID: "model-a", Assessment: result.ModelAssessment{Verdict: "pass"}, RateLimit: &result.RateLimitStats{SuccessfulRequests: 2, SafeRate: 1.5, MeanLatencyMS: 10, P50LatencyMS: 9, P95LatencyMS: 12}},
-				{ID: "model-b", Assessment: result.ModelAssessment{Verdict: "pass"}, RateLimit: &result.RateLimitStats{SuccessfulRequests: 3, SafeRate: 2.5, MeanLatencyMS: 20, P50LatencyMS: 19, P95LatencyMS: 22}},
+				{ID: "model-a", Assessment: result.ModelAssessment{Verdict: "pass"}, RateLimit: &result.RateLimitStats{LogicalRequests: 2, PhysicalAttempts: 2, SuccessfulRequests: 2, LatencySamples: 2, SafeRate: 1.5, MeanLatencyMS: 10, P50LatencyMS: 9, P95LatencyMS: 12}},
+				{ID: "model-b", Assessment: result.ModelAssessment{Verdict: "pass"}, RateLimit: &result.RateLimitStats{LogicalRequests: 3, PhysicalAttempts: 3, SuccessfulRequests: 3, LatencySamples: 3, SafeRate: 2.5, MeanLatencyMS: 20, P50LatencyMS: 19, P95LatencyMS: 22}},
 			},
 			Guidance: result.GuidanceReport{Recommendations: []result.Recommendation{{
 				Title: "Fix message envelope", Priority: "p1", Confidence: "high", Why: "The SDK cannot decode it.",
@@ -31,7 +31,7 @@ func TestMarkdownV3RendersTargetActionsAndPerModelTelemetry(t *testing.T) {
 		}},
 	}
 	markdown := MarkdownV3(report)
-	for _, want := range []string{"| PRI | Recommendation", "**Change or investigate:**", "Requirements: `anthropic.messages.schema`", "#### Per-model rate-limit and latency", "| `model-a` | 2 |", "normalized by removing one trailing `/v1`", "**Service:** [gate.joingonka.ai](https://gate.joingonka.ai)", "| Target | Input | Output | Cache creation | Cache read | Thinking/reasoning | Total |", "| `anthropic` | 15 | 28 | 0 | 144 | 0 | **187** |"} {
+	for _, want := range []string{"| PRI | Recommendation", "**Change or investigate:**", "Requirements: `anthropic.messages.schema`", "#### Per-model rate-limit and latency", "| `model-a` | 2 | 2 | 2 |", "normalized by removing one trailing `/v1`", "**Service:** [gate.joingonka.ai](https://gate.joingonka.ai)", "| Target | Input | Output | Cache creation | Cache read | Thinking/reasoning | Total |", "| `anthropic` | 15 | 28 | 0 | 144 | 0 | **187** |"} {
 		if !strings.Contains(markdown, want) {
 			t.Fatalf("markdown missing %q:\n%s", want, markdown)
 		}

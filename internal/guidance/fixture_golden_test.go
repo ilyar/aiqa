@@ -37,6 +37,10 @@ func runActionableFixture(t *testing.T, report *result.Report) {
 }
 
 func vibecodeActionableFixture() result.Report {
+	providerHTTP := result.TestResult{
+		ID: "models.list.http", Name: "List models: HTTP", Required: true, Status: result.StatusPass,
+		Summary: "model list returned HTTP 200",
+	}
 	providerTest := result.TestResult{
 		ID: "models.list.schema", Name: "List models: schema", Required: true, Status: result.StatusFail,
 		Summary: "model list schema differs from OpenAI",
@@ -44,18 +48,23 @@ func vibecodeActionableFixture() result.Report {
 			"endpoint": "GET /v1/models", "json_pointer": "/data/*/created", "missing_entries": 30, "total_entries": 30,
 		}}},
 	}
+	providerErrors := []result.TestResult{
+		{ID: "chat.error.invalid_auth", Name: "Invalid authentication", Status: result.StatusPass, Summary: "client error"},
+		{ID: "chat.error.invalid_json", Name: "Invalid JSON", Status: result.StatusPass, Summary: "client error"},
+		{ID: "chat.error.invalid_model", Name: "Invalid model", Status: result.StatusPass, Summary: "client error"},
+		{ID: "chat.error.invalid_types", Name: "Invalid types", Status: result.StatusError, Summary: "invalid types returned 502", HTTP: result.HTTPObservation{StatusCode: 502}, Signals: []result.EvidenceSignal{{Code: "contract.chat.invalid_request.upstream_5xx", Parameters: map[string]any{"endpoint": "POST /v1/chat/completions", "status_code": 502}}}},
+	}
 	model := result.ModelReport{
 		ID: "gpt-5.4-mini",
 		Compatibility: []result.TestResult{
 			{ID: "chat.stream.sse", Name: "Streaming SSE", Required: true, Status: result.StatusPass, Summary: "valid stream"},
-			{ID: "chat.error.invalid_types", Name: "Invalid types", Status: result.StatusError, Summary: "invalid types returned 502", HTTP: result.HTTPObservation{StatusCode: 502}, Signals: []result.EvidenceSignal{{Code: "contract.chat.invalid_request.upstream_5xx", Parameters: map[string]any{"endpoint": "POST /v1/chat/completions", "status_code": 502}}}},
 			{ID: "chat.logprobs", Name: "Log probabilities", Status: result.StatusFail, Summary: "request accepted but choices[0].logprobs is missing", Signals: []result.EvidenceSignal{{Code: "behavior.chat.logprobs.accepted_but_missing"}}},
 			{ID: "models.retrieve", Name: "Retrieve model", Status: result.StatusUnsupported, Summary: "GET /models/{model} returned 404", Signals: []result.EvidenceSignal{{Code: "unsupported.models.retrieve"}}},
 		},
 	}
 	return result.Report{
 		Config:    result.PublicConfig{BaseURL: "https://vibecode.example/v1", Guidance: "full"},
-		Discovery: result.Discovery{Tests: []result.TestResult{providerTest}},
+		Discovery: result.Discovery{Tests: []result.TestResult{providerHTTP, providerTest}, Compatibility: providerErrors},
 		Models:    []result.ModelReport{model},
 		Extensions: []result.ExtensionRun{
 			{Provenance: result.ExtensionProvenance{ID: "official-sdk.openai"}, Subject: result.SubjectRef{Kind: "provider", ID: "https://vibecode.example/v1"}, Runner: result.ExtensionRunnerResult{Status: result.StatusError, Output: "extension: model object missing created"}},
@@ -69,13 +78,17 @@ func qwenActionableFixture() result.Report {
 		{ID: "models.list.http", Name: "List models HTTP", Required: true, Status: result.StatusPass, Summary: "pass"},
 		{ID: "models.list.schema", Name: "List models schema", Required: true, Status: result.StatusPass, Summary: "pass"},
 	}
+	providerErrors := []result.TestResult{
+		{ID: "chat.error.invalid_auth", Name: "Invalid authentication", Status: result.StatusPass, Summary: "pass"},
+		{ID: "chat.error.invalid_json", Name: "Invalid JSON", Required: true, Status: result.StatusPass, Summary: "pass"},
+		{ID: "chat.error.invalid_model", Name: "Invalid model", Required: true, Status: result.StatusPass, Summary: "pass"},
+		{ID: "chat.error.invalid_types", Name: "Invalid types", Status: result.StatusPass, Summary: "pass"},
+	}
 	coreModel := []result.TestResult{
 		{ID: "chat.basic", Name: "Basic chat", Required: true, Status: result.StatusPass, Summary: "pass"},
 		{ID: "chat.schema", Name: "Chat schema", Required: true, Status: result.StatusPass, Summary: "pass"},
 		{ID: "chat.usage", Name: "Usage", Required: true, Status: result.StatusPass, Summary: "pass"},
 		{ID: "chat.stream.sse", Name: "Streaming SSE", Required: true, Status: result.StatusPass, Summary: "pass"},
-		{ID: "chat.error.invalid_model", Name: "Invalid model", Required: true, Status: result.StatusPass, Summary: "pass"},
-		{ID: "chat.error.invalid_json", Name: "Invalid JSON", Required: true, Status: result.StatusPass, Summary: "pass"},
 	}
 	for _, item := range []struct{ id, mode string }{
 		{"chat.tools.required", "required"},
@@ -93,7 +106,7 @@ func qwenActionableFixture() result.Report {
 	)
 	return result.Report{
 		Config:    result.PublicConfig{BaseURL: "https://dashscope.example/compatible-mode/v1", Guidance: "full"},
-		Discovery: result.Discovery{Tests: coreProvider},
+		Discovery: result.Discovery{Tests: coreProvider, Compatibility: providerErrors},
 		Models: []result.ModelReport{{
 			ID:            "qwen3.8-flash",
 			Compatibility: coreModel,
