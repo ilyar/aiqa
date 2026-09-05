@@ -180,6 +180,16 @@ func TestGoogleGenerationMethodsDoNotInferInteractions(t *testing.T) {
 	}
 }
 
+func TestGoogleInteractionsMethodIdentifiesInteractionsOnly(t *testing.T) {
+	got := ClassifyGoogleGenAI("local-interactions", map[string]any{
+		"name":                       "models/local-interactions",
+		"supportedGenerationMethods": []any{"interactions"},
+	}, Options{UnknownPolicy: "inventory"})
+	if got.Unknown || !got.Has(GoogleInteractionsText) || got.Has(GoogleGenerateText) {
+		t.Fatalf("Interactions metadata was classified incorrectly: %+v", got)
+	}
+}
+
 func TestGoogleUnknownPolicyAndMetadata(t *testing.T) {
 	unknown := ClassifyGoogleGenAI("opaque", map[string]any{"name": "models/opaque"}, Options{UnknownPolicy: "inventory"})
 	if !unknown.Unknown || unknown.Has(GoogleGenerateText) {

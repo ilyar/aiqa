@@ -153,7 +153,11 @@ func runCase(ctx context.Context, client *anthropicsdk.Client, suiteID, model st
 		}
 		return messageUsage(message), validateSDKMessage(message, true)
 	case "messages.multi-turn":
-		params.Messages = []anthropicsdk.MessageParam{anthropicsdk.NewUserMessage(anthropicsdk.NewTextBlock("Remember AIQA_OK.")), anthropicsdk.NewAssistantMessage(anthropicsdk.NewTextBlock("I remember it.")), anthropicsdk.NewUserMessage(anthropicsdk.NewTextBlock("Return the marker."))}
+		params.Messages = []anthropicsdk.MessageParam{
+			anthropicsdk.NewUserMessage(anthropicsdk.NewTextBlock("Remember the code word AIQA_OK.")),
+			anthropicsdk.NewAssistantMessage(anthropicsdk.NewTextBlock("I will remember that the code word is AIQA_OK.")),
+			anthropicsdk.NewUserMessage(anthropicsdk.NewTextBlock("What is the code word from the first user message? Reply with only that code word.")),
+		}
 		message, err := client.Messages.New(ctx, params)
 		if err != nil {
 			return result.Usage{}, err

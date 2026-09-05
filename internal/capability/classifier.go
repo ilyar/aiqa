@@ -205,6 +205,11 @@ func ClassifyGoogleGenAI(model string, metadata map[string]any, opts Options) Cl
 			Evidence{Capability: GoogleGenerateStructured, Source: "vendor_metadata", Rule: "metadata.supportedGenerationMethods.generateContent", Confidence: "medium", Reason: "generateContent is eligible for local structured-output probing"},
 		)
 	}
+	if has("interactions") {
+		evidence = append(evidence,
+			Evidence{Capability: GoogleInteractionsText, Source: "vendor_metadata", Rule: "metadata.supportedGenerationMethods.interactions", Confidence: "high", Reason: "Google metadata declares Interactions support"},
+		)
+	}
 	if has("countTokens") {
 		evidence = append(evidence, Evidence{Capability: GoogleCountTokens, Source: "vendor_metadata", Rule: "metadata.supportedGenerationMethods.countTokens", Confidence: "high", Reason: "Google metadata declares countTokens support"})
 	}
