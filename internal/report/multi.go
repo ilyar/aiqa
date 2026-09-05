@@ -81,7 +81,7 @@ func MarkdownV3(r result.ReportV3) string {
 	fmt.Fprintln(&b, "## Rate-limit and latency")
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "| Target | Logical | Attempts | Successful | 429 | Retry attempts | Recovered | Exhausted | Backoff | Safe req/s | Concurrency | Mean | P50 | P95 |")
-	fmt.Fprintln(&b, "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+	fmt.Fprintln(&b, "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
 	for _, target := range r.Targets {
 		s := target.RateLimit
 		fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d | %d | %d | %d | %dms | %s | %s | %s | %s | %s |\n", escapeCell(target.ID), s.LogicalRequests, s.PhysicalAttempts, s.SuccessfulRequests, s.RateLimited, s.RetryAttempts, s.RetriesRecovered, s.RetriesExhausted, s.BackoffMS, safeRateText(s), safeConcurrencyText(s), latencyPart(s, "mean"), latencyPart(s, "p50"), latencyPart(s, "p95"))

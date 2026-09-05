@@ -1,11 +1,11 @@
 {
   "schema_version": "aiqa.report.v3",
-  "generated_at": "2026-09-04T15:30:16.836598955Z",
+  "generated_at": "2026-09-05T00:23:35.800330066Z",
   "tool": {
     "name": "aiqa",
     "version": "1.0.0-alpha.4",
-    "commit": "8509ca1",
-    "build_date": "2026-09-04T15:30:03Z",
+    "commit": "e2bf833",
+    "build_date": "2026-09-05T00:23:30Z",
     "go_version": "go1.27.0"
   },
   "config": {
@@ -15,10 +15,21 @@
     ],
     "targets": [
       {
+        "id": "anthropic",
+        "protocol": "anthropic",
+        "base_url": "http://127.0.0.1:8080/anthropic",
+        "api_version": "2023-06-01"
+      },
+      {
         "id": "google-genai",
         "protocol": "google-genai",
         "base_url": "http://127.0.0.1:8080/genai",
         "api_version": "v1beta"
+      },
+      {
+        "id": "openai",
+        "protocol": "openai",
+        "base_url": "http://127.0.0.1:8080/openai/v1"
       }
     ],
     "timeout": "1m0s",
@@ -29,10 +40,608 @@
     "fail_on": "core",
     "guidance": "full",
     "ext_suites": [
+      "official-sdk.openai",
+      "official-sdk.anthropic",
       "official-sdk.google-genai"
     ]
   },
   "targets": [
+    {
+      "id": "anthropic",
+      "protocol": "anthropic",
+      "profile": {
+        "schema_version": "aiqa.profile.v3",
+        "id": "anthropic-compat",
+        "protocol": "anthropic",
+        "revision": "2026-09-01",
+        "api_version": "2023-06-01",
+        "base_url_semantics": "prefix_before_v1",
+        "source": "https://github.com/anthropics/anthropic-sdk-go",
+        "source_commit": "d19dea9ed85bbb5fdb2d6f20fb6f903920ed23fa",
+        "source_ref_revision": "sdk:v1.68.0; anthropic-version:2023-06-01",
+        "scope": "GET /v1/models, GET /v1/models/{model_id}, POST /v1/messages, POST /v1/messages/count_tokens"
+      },
+      "discovery": {
+        "models": [
+          {
+            "created_at": "2026-09-05T00:23:35Z",
+            "display_name": "Ternary-Bonsai-1.7B",
+            "id": "Ternary-Bonsai-1.7B",
+            "type": "model"
+          }
+        ],
+        "tests": [
+          {
+            "id": "anthropic.models.list.http",
+            "requirement_id": "anthropic.models.list.http",
+            "probe_id": "aiqa.native.anthropic.models.list.http",
+            "name": "List models: HTTP",
+            "suite": "compat",
+            "category": "discovery",
+            "required": true,
+            "status": "pass",
+            "summary": "Anthropic Models endpoint returned JSON",
+            "expected": "GET /v1/models returns successful JSON",
+            "http": {
+              "status_code": 200,
+              "content_type": "application/json",
+              "snippet": "{\"data\":[{\"created_at\":\"2026-09-05T00:23:35Z\",\"display_name\":\"Ternary-Bonsai-1.7B\",\"id\":\"Ternary-Bonsai-1.7B\",\"type\":\"model\"}],\"first_id\":\"Ternary-Bonsai-1.7B\",\"has_more\":false,\"last_id\":\"Ternary-Bonsai-1.7B\"}"
+            },
+            "usage": {}
+          },
+          {
+            "id": "anthropic.models.list.schema",
+            "requirement_id": "anthropic.models.list.schema",
+            "probe_id": "aiqa.native.anthropic.models.list.schema",
+            "name": "List models: schema",
+            "suite": "compat",
+            "category": "schema",
+            "required": true,
+            "status": "fail",
+            "summary": "Anthropic model-list schema is invalid",
+            "expected": "The Anthropic model-list envelope and entries are valid",
+            "observation": "data[0].max_input_tokens is missing or not positive; data[0].max_tokens is missing or not positive; data[0].capabilities is missing or not an object",
+            "http": {
+              "status_code": 200,
+              "content_type": "application/json",
+              "snippet": "{\"data\":[{\"created_at\":\"2026-09-05T00:23:35Z\",\"display_name\":\"Ternary-Bonsai-1.7B\",\"id\":\"Ternary-Bonsai-1.7B\",\"type\":\"model\"}],\"first_id\":\"Ternary-Bonsai-1.7B\",\"has_more\":false,\"last_id\":\"Ternary-Bonsai-1.7B\"}"
+            },
+            "usage": {},
+            "signals": [
+              {
+                "code": "anthropic.models.list.invalid_envelope"
+              }
+            ]
+          },
+          {
+            "id": "anthropic.models.list.pagination",
+            "requirement_id": "anthropic.models.list.pagination",
+            "probe_id": "aiqa.native.anthropic.models.list.pagination",
+            "name": "List models: pagination",
+            "suite": "compat",
+            "category": "discovery",
+            "required": false,
+            "status": "skip",
+            "summary": "Pagination could not be evaluated because model discovery failed",
+            "expected": "Cursor pagination returns distinct pages",
+            "http": {},
+            "usage": {},
+            "signals": [
+              {
+                "code": "blocked.anthropic.models.list.pagination",
+                "root_cause": "blocked-prerequisite",
+                "parameters": {
+                  "blocked_by_requirement": "anthropic.models.list.schema"
+                }
+              }
+            ]
+          }
+        ],
+        "model_count": 1
+      },
+      "models": [],
+      "requirements": [
+        {
+          "id": "anthropic.models.list.http",
+          "name": "List models: HTTP",
+          "description": "GET /v1/models returns successful JSON",
+          "level": "core",
+          "subject": {
+            "target_id": "anthropic",
+            "protocol": "anthropic",
+            "kind": "provider",
+            "id": "http://127.0.0.1:8080/anthropic"
+          },
+          "module": "anthropic.discovery",
+          "applicability": "applicable",
+          "status": "pass",
+          "evidence": [
+            {
+              "id": "native:anthropic:provider:http.127.0.0.1.8080.anthropic:aiqa.native.anthropic.models.list.http",
+              "kind": "native",
+              "probe_id": "aiqa.native.anthropic.models.list.http",
+              "status": "pass",
+              "summary": "Anthropic Models endpoint returned JSON",
+              "http_status": 200
+            }
+          ]
+        },
+        {
+          "id": "anthropic.models.list.pagination",
+          "name": "List models: pagination",
+          "description": "Cursor pagination returns distinct pages",
+          "level": "optional",
+          "subject": {
+            "target_id": "anthropic",
+            "protocol": "anthropic",
+            "kind": "provider",
+            "id": "http://127.0.0.1:8080/anthropic"
+          },
+          "module": "anthropic.discovery",
+          "applicability": "applicable",
+          "status": "skip",
+          "evidence": [
+            {
+              "id": "native:anthropic:provider:http.127.0.0.1.8080.anthropic:aiqa.native.anthropic.models.list.pagination",
+              "kind": "native",
+              "probe_id": "aiqa.native.anthropic.models.list.pagination",
+              "status": "skip",
+              "summary": "Pagination could not be evaluated because model discovery failed",
+              "signals": [
+                {
+                  "code": "blocked.anthropic.models.list.pagination",
+                  "root_cause": "blocked-prerequisite",
+                  "parameters": {
+                    "blocked_by_requirement": "anthropic.models.list.schema"
+                  }
+                }
+              ]
+            }
+          ],
+          "blocked_by": [
+            "anthropic.models.list.schema"
+          ]
+        },
+        {
+          "id": "anthropic.models.list.schema",
+          "name": "List models: schema",
+          "description": "The Anthropic model-list envelope and entries are valid",
+          "level": "core",
+          "subject": {
+            "target_id": "anthropic",
+            "protocol": "anthropic",
+            "kind": "provider",
+            "id": "http://127.0.0.1:8080/anthropic"
+          },
+          "module": "anthropic.discovery",
+          "applicability": "applicable",
+          "status": "fail",
+          "evidence": [
+            {
+              "id": "native:anthropic:provider:http.127.0.0.1.8080.anthropic:aiqa.native.anthropic.models.list.schema",
+              "kind": "native",
+              "probe_id": "aiqa.native.anthropic.models.list.schema",
+              "status": "fail",
+              "summary": "Anthropic model-list schema is invalid",
+              "http_status": 200,
+              "signals": [
+                {
+                  "code": "anthropic.models.list.invalid_envelope"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "anthropic.official-sdk.models.list",
+          "name": "SDK: list models",
+          "description": "The Anthropic Go SDK lists models",
+          "level": "optional",
+          "subject": {
+            "target_id": "anthropic",
+            "protocol": "anthropic",
+            "kind": "provider",
+            "id": "http://127.0.0.1:8080/anthropic"
+          },
+          "module": "anthropic.discovery",
+          "applicability": "applicable",
+          "status": "warn",
+          "failure_kind": "evidence_conflict",
+          "evidence": [
+            {
+              "id": "extension:anthropic:provider:http.127.0.0.1.8080.anthropic:official.sdk.anthropic.models.list",
+              "kind": "extension",
+              "suite": "models.list",
+              "status": "pass",
+              "summary": "Anthropic Go SDK sent and parsed the suite",
+              "related_requirement_ids": [
+                "anthropic.models.list.http",
+                "anthropic.models.list.schema"
+              ]
+            },
+            {
+              "id": "native:anthropic:provider:http.127.0.0.1.8080.anthropic:aiqa.native.anthropic.models.list.http",
+              "kind": "native",
+              "probe_id": "aiqa.native.anthropic.models.list.http",
+              "status": "pass",
+              "summary": "Anthropic Models endpoint returned JSON",
+              "http_status": 200
+            },
+            {
+              "id": "native:anthropic:provider:http.127.0.0.1.8080.anthropic:aiqa.native.anthropic.models.list.schema",
+              "kind": "native",
+              "probe_id": "aiqa.native.anthropic.models.list.schema",
+              "status": "fail",
+              "summary": "Anthropic model-list schema is invalid",
+              "http_status": 200,
+              "signals": [
+                {
+                  "code": "anthropic.models.list.invalid_envelope"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "summary": {
+        "pass": 2,
+        "fail": 1,
+        "warn": 0,
+        "unsupported": 0,
+        "skip": 1,
+        "error": 0,
+        "required_pass": 1,
+        "required_fail": 1,
+        "status": "fail",
+        "assessment": {
+          "verdict": "fail",
+          "verdict_reason": "core_failure",
+          "core": {
+            "total": 2,
+            "pass": 1,
+            "fail": 1,
+            "warn": 0,
+            "skip": 0,
+            "error": 0,
+            "percent": 50
+          },
+          "optional": {
+            "total": 2,
+            "pass": 0,
+            "fail": 0,
+            "warn": 1,
+            "skip": 1,
+            "error": 0,
+            "percent": 0
+          },
+          "evidence": {
+            "total": 4,
+            "executed": 3,
+            "conclusive": 2,
+            "execution_percent": 75,
+            "conclusive_percent": 50
+          },
+          "comparison": {
+            "policy": "verdict-core-optional-evidence/v1",
+            "rankable": true,
+            "verdict_rank": 0
+          }
+        },
+        "usage": {}
+      },
+      "guidance": {
+        "schema_version": "aiqa.guidance.v1",
+        "status": "complete",
+        "engine": {
+          "version": "1.0.1",
+          "catalog_revision": "anthropic-messages@2026-09-01.1,generic@2026-09-01.1,google-genai@2026-09-03.1",
+          "packs": [
+            {
+              "id": "generic-anthropic-facade",
+              "revision": "1",
+              "source": "builtin"
+            }
+          ]
+        },
+        "summary": {
+          "eligible_findings": 2,
+          "eligible_requirements": 2,
+          "covered_requirements": 2,
+          "findings": 2,
+          "recommendations": 2,
+          "by_priority": {
+            "p0": 1,
+            "p1": 1,
+            "p2": 0,
+            "p3": 0
+          },
+          "guidance_coverage_percent": 100,
+          "actionable_coverage_percent": 0
+        },
+        "findings": [
+          {
+            "id": "finding:evidence-anthropic-official-sdk-models-list-native-sdk-conflict:7c02853d32b3",
+            "fingerprint": "sha256:7c02853d32b32755b484ca53f2d3d2c3d3f8e7276b295694127fa06ef364c5b6",
+            "code": "evidence.anthropic.official-sdk.models.list.native_sdk_conflict",
+            "root_cause": "code:evidence.anthropic.official-sdk.models.list.native_sdk_conflict\u0000{}",
+            "class": "evidence_conflict",
+            "evidence_state": "conflicting",
+            "confidence": "medium",
+            "title": "anthropic.official-sdk.models.list is warn",
+            "subject": {
+              "target_id": "anthropic",
+              "protocol": "anthropic",
+              "kind": "provider",
+              "id": "http://127.0.0.1:8080/anthropic"
+            },
+            "observed_scope": {},
+            "requirement_ids": [
+              "anthropic.official-sdk.models.list"
+            ],
+            "evidence_refs": [
+              "extension:anthropic:provider:http.127.0.0.1.8080.anthropic:official.sdk.anthropic.models.list",
+              "native:anthropic:provider:http.127.0.0.1.8080.anthropic:aiqa.native.anthropic.models.list.http",
+              "native:anthropic:provider:http.127.0.0.1.8080.anthropic:aiqa.native.anthropic.models.list.schema"
+            ],
+            "expected": "The Anthropic Go SDK lists models",
+            "observed": "Anthropic Go SDK sent and parsed the suite Anthropic Models endpoint returned JSON Anthropic model-list schema is invalid",
+            "attribution": {
+              "component": "unknown",
+              "confidence": "low",
+              "basis": "The evidence sources disagree, so the responsible component is not localized."
+            },
+            "baseline_state": "unknown"
+          },
+          {
+            "id": "finding:requirement-anthropic-models-list-schema-fail:fb0b52781f20",
+            "fingerprint": "sha256:fb0b52781f207b78e604eac682b96eb42f1d88671e9c0d07e2e8e9a64e28d3d9",
+            "code": "requirement.anthropic.models.list.schema.fail",
+            "root_cause": "code:requirement.anthropic.models.list.schema.fail\u0000{}",
+            "class": "behavior_mismatch",
+            "evidence_state": "confirmed",
+            "confidence": "high",
+            "title": "anthropic.models.list.schema is fail",
+            "subject": {
+              "target_id": "anthropic",
+              "protocol": "anthropic",
+              "kind": "provider",
+              "id": "http://127.0.0.1:8080/anthropic"
+            },
+            "observed_scope": {},
+            "requirement_ids": [
+              "anthropic.models.list.schema"
+            ],
+            "evidence_refs": [
+              "native:anthropic:provider:http.127.0.0.1.8080.anthropic:aiqa.native.anthropic.models.list.schema"
+            ],
+            "expected": "The Anthropic model-list envelope and entries are valid",
+            "observed": "Anthropic model-list schema is invalid",
+            "attribution": {
+              "component": "provider_gateway",
+              "confidence": "medium",
+              "basis": "The behavior was observed at a provider-scoped endpoint."
+            },
+            "blocked_requirement_ids": [
+              "anthropic.models.list.pagination"
+            ],
+            "baseline_state": "unknown"
+          }
+        ],
+        "recommendations": [
+          {
+            "id": "recommendation:requirement-anthropic-models-list-schema-fail:e9fe83d6d2bc",
+            "fingerprint": "sha256:e9fe83d6d2bc811a4269f54e19114cb740f17316ce1f26a8ea800d7df03b69e1",
+            "finding_ids": [
+              "finding:requirement-anthropic-models-list-schema-fail:fb0b52781f20"
+            ],
+            "title": "Correct the incompatible behavior",
+            "priority": "p0",
+            "action_kind": "fix",
+            "guidance_level": 1,
+            "confidence": "low",
+            "audiences": [
+              "qa_operator"
+            ],
+            "target": {
+              "target_id": "anthropic",
+              "protocol": "anthropic",
+              "component": "provider_gateway"
+            },
+            "why": "The affected core requirement blocks the authoritative compatibility verdict.",
+            "observed": "Anthropic model-list schema is invalid",
+            "steps": [
+              {
+                "id": "inspect-evidence",
+                "text": "Inspect the linked structured evidence for the first incompatible boundary."
+              },
+              {
+                "id": "correct-behavior",
+                "text": "Make the implementation satisfy the canonical requirement without weakening validation."
+              }
+            ],
+            "verification": [
+              {
+                "target_id": "anthropic",
+                "protocol": "anthropic",
+                "kind": "requirement",
+                "ids": [
+                  "anthropic.models.list.schema"
+                ]
+              }
+            ],
+            "potential_impact": {
+              "blocks_core": true,
+              "core_requirements_recovered": 1,
+              "optional_requirements_recovered": 0,
+              "evidence_requirements_recovered": 0,
+              "current_verdict": "fail",
+              "projected_verdict": "pass-with-gaps",
+              "assumptions": [
+                "Only the affected requirements change to pass",
+                "No other requirement regresses"
+              ]
+            },
+            "references": [
+              {
+                "title": "Selected compatibility profile source",
+                "url": "https://github.com/anthropics/anthropic-sdk-go",
+                "source_kind": "official"
+              }
+            ],
+            "source": {
+              "kind": "heuristic",
+              "id": "no_safe_automated_guidance",
+              "revision": "1.0.1"
+            }
+          },
+          {
+            "id": "recommendation:evidence-anthropic-official-sdk-models-list-native-sdk-conflict:b74f83a76c24",
+            "fingerprint": "sha256:b74f83a76c24eb855cb927c2ce857a9e98e2d884e731251eb5602365db1aa467",
+            "finding_ids": [
+              "finding:evidence-anthropic-official-sdk-models-list-native-sdk-conflict:7c02853d32b3"
+            ],
+            "title": "Investigate the incomplete or conflicting evidence",
+            "priority": "p1",
+            "action_kind": "investigate",
+            "guidance_level": 1,
+            "confidence": "low",
+            "audiences": [
+              "qa_operator"
+            ],
+            "target": {
+              "target_id": "anthropic",
+              "protocol": "anthropic",
+              "component": "unknown"
+            },
+            "why": "Trustworthy evidence sources disagree, so the mismatch must be localized before choosing a fix.",
+            "observed": "Anthropic Go SDK sent and parsed the suite Anthropic Models endpoint returned JSON Anthropic model-list schema is invalid",
+            "steps": [
+              {
+                "id": "compare-evidence",
+                "text": "Compare the structured evidence records and request settings for the affected requirement."
+              },
+              {
+                "id": "localize",
+                "text": "Localize the mismatch before changing the provider or checker."
+              }
+            ],
+            "verification": [
+              {
+                "target_id": "anthropic",
+                "protocol": "anthropic",
+                "kind": "requirement",
+                "ids": [
+                  "anthropic.official-sdk.models.list"
+                ]
+              }
+            ],
+            "caveats": [
+              "Do not attribute or implement a provider fix until the linked evidence becomes conclusive."
+            ],
+            "potential_impact": {
+              "blocks_core": false,
+              "core_requirements_recovered": 0,
+              "optional_requirements_recovered": 1,
+              "evidence_requirements_recovered": 1,
+              "current_verdict": "fail",
+              "projected_verdict": null
+            },
+            "references": [
+              {
+                "title": "Selected compatibility profile source",
+                "url": "https://github.com/anthropics/anthropic-sdk-go",
+                "source_kind": "official"
+              }
+            ],
+            "source": {
+              "kind": "heuristic",
+              "id": "no_safe_automated_guidance",
+              "revision": "1.0.1"
+            }
+          }
+        ]
+      },
+      "rate_limit": {
+        "logical_requests": 0,
+        "physical_attempts": 0,
+        "successful_requests": 0,
+        "rate_limited_responses": 0,
+        "retry_attempts": 0,
+        "retries_recovered": 0,
+        "retries_exhausted": 0,
+        "backoff_ms": 0,
+        "latency_samples": 0,
+        "mean_latency_ms": 0,
+        "p50_latency_ms": 0,
+        "p95_latency_ms": 0
+      },
+      "extension_rate_limit": {
+        "logical_requests": 1,
+        "physical_attempts": 1,
+        "successful_requests": 1,
+        "rate_limited_responses": 0,
+        "retry_attempts": 0,
+        "retries_recovered": 0,
+        "retries_exhausted": 0,
+        "backoff_ms": 0,
+        "observed_safe_requests_per_second": 0.5,
+        "observed_safe_concurrency": 1,
+        "latency_samples": 1,
+        "mean_latency_ms": 0,
+        "p50_latency_ms": 0,
+        "p95_latency_ms": 0
+      },
+      "extensions": [
+        {
+          "provenance": {
+            "id": "official-sdk.anthropic",
+            "name": "Anthropic Go SDK",
+            "version": "v1.68.0",
+            "source": "builtin",
+            "protocol_version": "aiqa.ext.v1"
+          },
+          "target_id": "anthropic",
+          "subject": {
+            "target_id": "anthropic",
+            "protocol": "anthropic",
+            "kind": "provider",
+            "id": "http://127.0.0.1:8080/anthropic"
+          },
+          "runner": {
+            "status": "pass",
+            "startup_duration_ms": 0,
+            "total_duration_ms": 0,
+            "exit_code": 0,
+            "pacing_compliance": "host_enforced",
+            "summary": "Extension runner completed"
+          },
+          "suites": [
+            {
+              "extension_id": "official-sdk.anthropic",
+              "suite_id": "models.list",
+              "subject": {
+                "target_id": "anthropic",
+                "protocol": "anthropic",
+                "kind": "provider",
+                "id": "http://127.0.0.1:8080/anthropic"
+              },
+              "outcome": "pass",
+              "status": "pass",
+              "duration_ms": 0,
+              "summary": "Anthropic Go SDK sent and parsed the suite",
+              "http": {},
+              "usage": {},
+              "requirement_id": "anthropic.official-sdk.models.list",
+              "related_requirement_ids": [
+                "anthropic.models.list.http",
+                "anthropic.models.list.schema"
+              ],
+              "bound": true
+            }
+          ]
+        }
+      ]
+    },
     {
       "id": "google-genai",
       "protocol": "google-genai",
@@ -185,14 +794,14 @@
               "category": "errors",
               "required": true,
               "status": "pass",
-              "duration_ms": 2,
+              "duration_ms": 3,
               "summary": "Three malformed JSON variants returned client errors",
               "expected": "Multiple malformed JSON variants are rejected as client errors",
               "observation": "variant 1: HTTP 400; variant 2: HTTP 400; variant 3: HTTP 400",
               "http": {
                 "status_code": 400,
                 "content_type": "application/json",
-                "request_id": "9089f888-87f4-4dfd-be0c-2db5f6e86a87"
+                "request_id": "102304bd-270a-4e88-a444-ee9edc34c0f2"
               },
               "usage": {}
             },
@@ -239,13 +848,13 @@
               "category": "generate-content",
               "required": true,
               "status": "pass",
-              "duration_ms": 142,
+              "duration_ms": 141,
               "summary": "generateContent returned the requested marker",
               "expected": "Legacy generateContent returns the requested text",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "77354a99-1a03-4240-9f4a-2b5512a5e6fe"
+                "request_id": "9679fefe-3540-4904-bd6b-c5c11afa7de5"
               },
               "usage": {
                 "input_tokens": 19,
@@ -263,13 +872,13 @@
               "category": "generate-content",
               "required": true,
               "status": "pass",
-              "duration_ms": 142,
+              "duration_ms": 141,
               "summary": "GenerateContent output text was extracted",
               "expected": "Legacy output text can be extracted",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "77354a99-1a03-4240-9f4a-2b5512a5e6fe"
+                "request_id": "9679fefe-3540-4904-bd6b-c5c11afa7de5"
               },
               "usage": {}
             },
@@ -282,13 +891,13 @@
               "category": "schema",
               "required": true,
               "status": "pass",
-              "duration_ms": 142,
+              "duration_ms": 141,
               "summary": "GenerateContent response schema is valid",
               "expected": "Legacy GenerateContent candidates and parts are valid",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "77354a99-1a03-4240-9f4a-2b5512a5e6fe"
+                "request_id": "9679fefe-3540-4904-bd6b-c5c11afa7de5"
               },
               "usage": {}
             },
@@ -301,13 +910,13 @@
               "category": "streaming",
               "required": true,
               "status": "pass",
-              "duration_ms": 141,
+              "duration_ms": 132,
               "summary": "GenerateContent stream exposed a finish reason",
               "expected": "Legacy stream exposes a recognized finish reason",
               "http": {
                 "status_code": 200,
                 "content_type": "text/event-stream",
-                "request_id": "6c945543-68a1-44c5-bacd-afe4b0bf9eb5"
+                "request_id": "f932a035-b467-4f54-b9ee-4781bb405f6f"
               },
               "usage": {}
             },
@@ -320,13 +929,13 @@
               "category": "streaming",
               "required": true,
               "status": "pass",
-              "duration_ms": 141,
+              "duration_ms": 132,
               "summary": "GenerateContent stream uses SSE",
               "expected": "Legacy streaming returns text/event-stream",
               "http": {
                 "status_code": 200,
                 "content_type": "text/event-stream",
-                "request_id": "6c945543-68a1-44c5-bacd-afe4b0bf9eb5"
+                "request_id": "f932a035-b467-4f54-b9ee-4781bb405f6f"
               },
               "usage": {}
             },
@@ -339,13 +948,13 @@
               "category": "streaming",
               "required": true,
               "status": "pass",
-              "duration_ms": 141,
+              "duration_ms": 132,
               "summary": "GenerateContent stream chunks have valid response shapes",
               "expected": "Legacy response chunks have valid GenerateContent shapes",
               "http": {
                 "status_code": 200,
                 "content_type": "text/event-stream",
-                "request_id": "6c945543-68a1-44c5-bacd-afe4b0bf9eb5"
+                "request_id": "f932a035-b467-4f54-b9ee-4781bb405f6f"
               },
               "usage": {}
             },
@@ -358,13 +967,13 @@
               "category": "streaming",
               "required": true,
               "status": "pass",
-              "duration_ms": 141,
+              "duration_ms": 132,
               "summary": "GenerateContent stream chunks were parsed to EOF",
               "expected": "Legacy response chunks are parsed independently",
               "http": {
                 "status_code": 200,
                 "content_type": "text/event-stream",
-                "request_id": "6c945543-68a1-44c5-bacd-afe4b0bf9eb5"
+                "request_id": "f932a035-b467-4f54-b9ee-4781bb405f6f"
               },
               "usage": {
                 "input_tokens": 19,
@@ -382,13 +991,13 @@
               "category": "streaming",
               "required": true,
               "status": "pass",
-              "duration_ms": 141,
+              "duration_ms": 132,
               "summary": "GenerateContent stream reconstructed response text",
               "expected": "Legacy stream chunks reconstruct the requested text",
               "http": {
                 "status_code": 200,
                 "content_type": "text/event-stream",
-                "request_id": "6c945543-68a1-44c5-bacd-afe4b0bf9eb5"
+                "request_id": "f932a035-b467-4f54-b9ee-4781bb405f6f"
               },
               "usage": {}
             },
@@ -401,13 +1010,13 @@
               "category": "streaming",
               "required": false,
               "status": "pass",
-              "duration_ms": 141,
+              "duration_ms": 132,
               "summary": "GenerateContent stream exposed valid usage metadata",
               "expected": "Legacy stream exposes valid usage metadata when available",
               "http": {
                 "status_code": 200,
                 "content_type": "text/event-stream",
-                "request_id": "6c945543-68a1-44c5-bacd-afe4b0bf9eb5"
+                "request_id": "f932a035-b467-4f54-b9ee-4781bb405f6f"
               },
               "usage": {
                 "input_tokens": 19,
@@ -425,13 +1034,13 @@
               "category": "structured-output",
               "required": false,
               "status": "pass",
-              "duration_ms": 382,
+              "duration_ms": 392,
               "summary": "GenerateContent structured output conforms to the local JSON schema",
               "expected": "Legacy JSON output conforms to a local schema",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "984fafee-aa52-4dd2-91cb-0d41f7395d36"
+                "request_id": "3ad2347b-6e4a-4b8a-b4c0-2a657bf56094"
               },
               "usage": {
                 "input_tokens": 24,
@@ -449,13 +1058,13 @@
               "category": "tools",
               "required": false,
               "status": "pass",
-              "duration_ms": 935,
+              "duration_ms": 952,
               "summary": "GenerateContent function declaration was accepted and a valid function call was returned",
               "expected": "Legacy function declarations are accepted",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "e28f2496-b3d3-442a-aa74-22c55e318ba1"
+                "request_id": "42c1a8ae-6401-4a11-9a6b-4442902f1fac"
               },
               "usage": {
                 "input_tokens": 156,
@@ -476,13 +1085,13 @@
               "category": "usage",
               "required": true,
               "status": "pass",
-              "duration_ms": 142,
+              "duration_ms": 141,
               "summary": "GenerateContent usage metadata was normalized",
               "expected": "Legacy usageMetadata is normalized",
               "http": {
                 "status_code": 200,
                 "content_type": "application/json",
-                "request_id": "77354a99-1a03-4240-9f4a-2b5512a5e6fe"
+                "request_id": "9679fefe-3540-4904-bd6b-c5c11afa7de5"
               },
               "usage": {
                 "input_tokens": 19,
@@ -576,12 +1185,12 @@
             "retries_recovered": 0,
             "retries_exhausted": 0,
             "backoff_ms": 0,
-            "observed_safe_requests_per_second": 3.1578947368421053,
-            "observed_safe_concurrency": 6,
+            "observed_safe_requests_per_second": 2.6315789473684212,
+            "observed_safe_concurrency": 5,
             "latency_samples": 5,
-            "mean_latency_ms": 320,
-            "p50_latency_ms": 142,
-            "p95_latency_ms": 935
+            "mean_latency_ms": 323,
+            "p50_latency_ms": 141,
+            "p95_latency_ms": 952
           },
           "capabilities": [
             {
@@ -2053,9 +2662,9 @@
         "observed_safe_requests_per_second": 3.1578947368421053,
         "observed_safe_concurrency": 6,
         "latency_samples": 6,
-        "mean_latency_ms": 266,
-        "p50_latency_ms": 141,
-        "p95_latency_ms": 935
+        "mean_latency_ms": 269,
+        "p50_latency_ms": 132,
+        "p95_latency_ms": 952
       },
       "extension_rate_limit": {
         "logical_requests": 6,
@@ -2069,9 +2678,9 @@
         "observed_safe_requests_per_second": 3.333333333333333,
         "observed_safe_concurrency": 6,
         "latency_samples": 6,
-        "mean_latency_ms": 204,
-        "p50_latency_ms": 55,
-        "p95_latency_ms": 669
+        "mean_latency_ms": 206,
+        "p50_latency_ms": 58,
+        "p95_latency_ms": 675
       },
       "extensions": [
         {
@@ -2092,7 +2701,7 @@
           "runner": {
             "status": "pass",
             "startup_duration_ms": 0,
-            "total_duration_ms": 672,
+            "total_duration_ms": 676,
             "exit_code": 0,
             "pacing_compliance": "host_enforced",
             "summary": "Extension runner completed"
@@ -2109,7 +2718,7 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 269,
+              "duration_ms": 59,
               "summary": "Google Gen AI Go SDK sent and parsed the suite",
               "http": {},
               "usage": {
@@ -2139,7 +2748,7 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 57,
+              "duration_ms": 272,
               "summary": "Google Gen AI Go SDK sent and parsed the suite",
               "http": {},
               "usage": {
@@ -2169,7 +2778,7 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 1,
+              "duration_ms": 0,
               "summary": "Google Gen AI Go SDK sent and parsed the suite",
               "http": {},
               "usage": {},
@@ -2187,7 +2796,7 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 235,
+              "duration_ms": 237,
               "summary": "Google Gen AI Go SDK sent and parsed the suite",
               "http": {},
               "usage": {
@@ -2216,7 +2825,7 @@
               },
               "outcome": "pass",
               "status": "pass",
-              "duration_ms": 671,
+              "duration_ms": 676,
               "summary": "Google Gen AI Go SDK sent and parsed the suite",
               "http": {},
               "usage": {
@@ -2288,17 +2897,596 @@
       "notes": [
         "Google Gen AI Go SDK v1.71.0 does not expose public Interactions API methods; no SDK Interactions suite is claimed."
       ]
+    },
+    {
+      "id": "openai",
+      "protocol": "openai",
+      "profile": {
+        "schema_version": "aiqa.profile.v3",
+        "id": "openai-compat",
+        "protocol": "openai",
+        "revision": "2026-09-01",
+        "base_url_semantics": "endpoint_root_includes_v1",
+        "source": "https://github.com/openai/openai-openapi",
+        "source_commit": "690521b1753dce0c6d6b275f583d22537679cff9",
+        "source_ref_revision": "1030392",
+        "scope": "GET /v1/models, GET /v1/models/{model}, POST /v1/chat/completions, POST /v1/images/generations"
+      },
+      "discovery": {
+        "models": [
+          {
+            "created": 1788567817,
+            "id": "prism-ml/Ternary-Bonsai-1.7B",
+            "object": "model",
+            "owned_by": "prism-ml"
+          }
+        ],
+        "tests": [
+          {
+            "id": "models.list.http",
+            "requirement_id": "models.list.http",
+            "probe_id": "aiqa.native.models.list.http",
+            "name": "List models: HTTP",
+            "suite": "compat",
+            "category": "discovery",
+            "required": true,
+            "status": "pass",
+            "summary": "GET /models returned HTTP 200 JSON",
+            "expected": "GET /models returns a successful JSON response",
+            "http": {
+              "status_code": 200,
+              "content_type": "application/json",
+              "snippet": "{\"data\":[{\"created\":1788567817,\"id\":\"prism-ml/Ternary-Bonsai-1.7B\",\"object\":\"model\",\"owned_by\":\"prism-ml\"}],\"object\":\"list\"}"
+            },
+            "usage": {}
+          },
+          {
+            "id": "models.list.schema",
+            "requirement_id": "models.list.schema",
+            "probe_id": "aiqa.native.models.list.schema",
+            "name": "List models: schema",
+            "suite": "compat",
+            "category": "schema",
+            "required": true,
+            "status": "pass",
+            "summary": "model list follows the OpenAI list shape",
+            "expected": "Response follows the OpenAI list object shape",
+            "http": {
+              "status_code": 200,
+              "content_type": "application/json",
+              "snippet": "{\"data\":[{\"created\":1788567817,\"id\":\"prism-ml/Ternary-Bonsai-1.7B\",\"object\":\"model\",\"owned_by\":\"prism-ml\"}],\"object\":\"list\"}"
+            },
+            "usage": {}
+          }
+        ],
+        "compatibility": [
+          {
+            "id": "chat.error.invalid_auth",
+            "requirement_id": "chat.error.invalid_auth",
+            "probe_id": "aiqa.native.chat.error.invalid_auth",
+            "name": "Invalid chat authentication error",
+            "suite": "compat",
+            "category": "errors",
+            "required": false,
+            "applicability": "not_applicable",
+            "status": "skip",
+            "summary": "chat endpoint is not applicable because no selected model has a text capability",
+            "http": {},
+            "usage": {},
+            "signals": [
+              {
+                "code": "skipped.chat.error.invalid.auth.skip",
+                "parameters": {
+                  "http_status": 0
+                }
+              }
+            ]
+          },
+          {
+            "id": "chat.error.invalid_json",
+            "requirement_id": "chat.error.invalid_json",
+            "probe_id": "aiqa.native.chat.error.invalid_json",
+            "name": "Malformed Chat Completions JSON error",
+            "suite": "compat",
+            "category": "errors",
+            "required": true,
+            "applicability": "not_applicable",
+            "status": "skip",
+            "summary": "chat endpoint is not applicable because no selected model has a text capability",
+            "http": {},
+            "usage": {},
+            "signals": [
+              {
+                "code": "skipped.chat.error.invalid.json.skip",
+                "parameters": {
+                  "http_status": 0
+                }
+              }
+            ]
+          },
+          {
+            "id": "chat.error.invalid_model",
+            "requirement_id": "chat.error.invalid_model",
+            "probe_id": "aiqa.native.chat.error.invalid_model",
+            "name": "Invalid chat model error",
+            "suite": "compat",
+            "category": "errors",
+            "required": true,
+            "applicability": "not_applicable",
+            "status": "skip",
+            "summary": "chat endpoint is not applicable because no selected model has a text capability",
+            "http": {},
+            "usage": {},
+            "signals": [
+              {
+                "code": "skipped.chat.error.invalid.model.skip",
+                "parameters": {
+                  "http_status": 0
+                }
+              }
+            ]
+          },
+          {
+            "id": "chat.error.invalid_types",
+            "requirement_id": "chat.error.invalid_types",
+            "probe_id": "aiqa.native.chat.error.invalid_types",
+            "name": "Invalid Chat Completions request types",
+            "suite": "compat",
+            "category": "errors",
+            "required": false,
+            "applicability": "not_applicable",
+            "status": "skip",
+            "summary": "chat endpoint is not applicable because no selected model has a text capability",
+            "http": {},
+            "usage": {},
+            "signals": [
+              {
+                "code": "skipped.chat.error.invalid.types.skip",
+                "parameters": {
+                  "http_status": 0
+                }
+              }
+            ]
+          }
+        ],
+        "model_count": 1
+      },
+      "models": [
+        {
+          "id": "prism-ml/Ternary-Bonsai-1.7B",
+          "metadata": {
+            "created": 1788567817,
+            "id": "prism-ml/Ternary-Bonsai-1.7B",
+            "object": "model",
+            "owned_by": "prism-ml"
+          },
+          "rate_limit": {
+            "logical_requests": 0,
+            "physical_attempts": 0,
+            "successful_requests": 0,
+            "rate_limited_responses": 0,
+            "retry_attempts": 0,
+            "retries_recovered": 0,
+            "retries_exhausted": 0,
+            "backoff_ms": 0,
+            "latency_samples": 0,
+            "mean_latency_ms": 0,
+            "p50_latency_ms": 0,
+            "p95_latency_ms": 0
+          },
+          "modules": [
+            {
+              "id": "chat-completions",
+              "capability": "chat.completions.text",
+              "applicability": "unknown",
+              "execution": "skipped",
+              "reason": "insufficient capability evidence"
+            },
+            {
+              "id": "images-generations",
+              "capability": "images.generations",
+              "applicability": "unknown",
+              "execution": "skipped",
+              "reason": "insufficient capability evidence"
+            }
+          ],
+          "assessment": {
+            "verdict": "not-evaluated"
+          },
+          "summary": {
+            "pass": 0,
+            "fail": 0,
+            "warn": 0,
+            "unsupported": 0,
+            "skip": 0,
+            "error": 0,
+            "required_pass": 0,
+            "required_fail": 0,
+            "status": "not-evaluated",
+            "usage": {}
+          }
+        }
+      ],
+      "requirements": [
+        {
+          "id": "chat.error.invalid_auth",
+          "name": "Invalid chat authentication error",
+          "level": "optional",
+          "subject": {
+            "target_id": "openai",
+            "protocol": "openai",
+            "kind": "provider",
+            "id": "http://127.0.0.1:8080/openai/v1"
+          },
+          "module": "discovery",
+          "applicability": "not_applicable",
+          "status": "not_applicable",
+          "evidence": [
+            {
+              "id": "native:openai:provider:http.127.0.0.1.8080.openai.v1:aiqa.native.chat.error.invalid.auth",
+              "kind": "native",
+              "probe_id": "aiqa.native.chat.error.invalid_auth",
+              "status": "skip",
+              "summary": "chat endpoint is not applicable because no selected model has a text capability",
+              "signals": [
+                {
+                  "code": "skipped.chat.error.invalid.auth.skip",
+                  "parameters": {
+                    "http_status": 0
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "chat.error.invalid_json",
+          "name": "Malformed Chat Completions JSON error",
+          "level": "core",
+          "subject": {
+            "target_id": "openai",
+            "protocol": "openai",
+            "kind": "provider",
+            "id": "http://127.0.0.1:8080/openai/v1"
+          },
+          "module": "discovery",
+          "applicability": "not_applicable",
+          "status": "not_applicable",
+          "evidence": [
+            {
+              "id": "native:openai:provider:http.127.0.0.1.8080.openai.v1:aiqa.native.chat.error.invalid.json",
+              "kind": "native",
+              "probe_id": "aiqa.native.chat.error.invalid_json",
+              "status": "skip",
+              "summary": "chat endpoint is not applicable because no selected model has a text capability",
+              "signals": [
+                {
+                  "code": "skipped.chat.error.invalid.json.skip",
+                  "parameters": {
+                    "http_status": 0
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "chat.error.invalid_model",
+          "name": "Invalid chat model error",
+          "level": "core",
+          "subject": {
+            "target_id": "openai",
+            "protocol": "openai",
+            "kind": "provider",
+            "id": "http://127.0.0.1:8080/openai/v1"
+          },
+          "module": "discovery",
+          "applicability": "not_applicable",
+          "status": "not_applicable",
+          "evidence": [
+            {
+              "id": "native:openai:provider:http.127.0.0.1.8080.openai.v1:aiqa.native.chat.error.invalid.model",
+              "kind": "native",
+              "probe_id": "aiqa.native.chat.error.invalid_model",
+              "status": "skip",
+              "summary": "chat endpoint is not applicable because no selected model has a text capability",
+              "signals": [
+                {
+                  "code": "skipped.chat.error.invalid.model.skip",
+                  "parameters": {
+                    "http_status": 0
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "chat.error.invalid_types",
+          "name": "Invalid Chat Completions request types",
+          "level": "optional",
+          "subject": {
+            "target_id": "openai",
+            "protocol": "openai",
+            "kind": "provider",
+            "id": "http://127.0.0.1:8080/openai/v1"
+          },
+          "module": "discovery",
+          "applicability": "not_applicable",
+          "status": "not_applicable",
+          "evidence": [
+            {
+              "id": "native:openai:provider:http.127.0.0.1.8080.openai.v1:aiqa.native.chat.error.invalid.types",
+              "kind": "native",
+              "probe_id": "aiqa.native.chat.error.invalid_types",
+              "status": "skip",
+              "summary": "chat endpoint is not applicable because no selected model has a text capability",
+              "signals": [
+                {
+                  "code": "skipped.chat.error.invalid.types.skip",
+                  "parameters": {
+                    "http_status": 0
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "models.list.http",
+          "name": "List models: HTTP",
+          "description": "GET /models returns a successful JSON response",
+          "level": "core",
+          "subject": {
+            "target_id": "openai",
+            "protocol": "openai",
+            "kind": "provider",
+            "id": "http://127.0.0.1:8080/openai/v1"
+          },
+          "module": "discovery",
+          "applicability": "applicable",
+          "status": "pass",
+          "evidence": [
+            {
+              "id": "native:openai:provider:http.127.0.0.1.8080.openai.v1:aiqa.native.models.list.http",
+              "kind": "native",
+              "probe_id": "aiqa.native.models.list.http",
+              "status": "pass",
+              "summary": "GET /models returned HTTP 200 JSON",
+              "http_status": 200
+            }
+          ]
+        },
+        {
+          "id": "models.list.schema",
+          "name": "List models: schema",
+          "description": "Response follows the OpenAI list object shape",
+          "level": "core",
+          "subject": {
+            "target_id": "openai",
+            "protocol": "openai",
+            "kind": "provider",
+            "id": "http://127.0.0.1:8080/openai/v1"
+          },
+          "module": "discovery",
+          "applicability": "applicable",
+          "status": "pass",
+          "evidence": [
+            {
+              "id": "native:openai:provider:http.127.0.0.1.8080.openai.v1:aiqa.native.models.list.schema",
+              "kind": "native",
+              "probe_id": "aiqa.native.models.list.schema",
+              "status": "pass",
+              "summary": "model list follows the OpenAI list shape",
+              "http_status": 200
+            }
+          ]
+        },
+        {
+          "id": "official-sdk.openai.models.list",
+          "name": "SDK: list models",
+          "description": "The OpenAI Go SDK lists models",
+          "level": "optional",
+          "subject": {
+            "target_id": "openai",
+            "protocol": "openai",
+            "kind": "provider",
+            "id": "http://127.0.0.1:8080/openai/v1"
+          },
+          "module": "discovery",
+          "applicability": "applicable",
+          "status": "pass",
+          "evidence": [
+            {
+              "id": "extension:openai:provider:http.127.0.0.1.8080.openai.v1:official.sdk.openai.models.list",
+              "kind": "extension",
+              "suite": "models.list",
+              "status": "pass",
+              "summary": "OpenAI Go SDK sent and parsed the suite",
+              "related_requirement_ids": [
+                "models.list.http",
+                "models.list.schema"
+              ]
+            }
+          ]
+        }
+      ],
+      "summary": {
+        "pass": 3,
+        "fail": 0,
+        "warn": 0,
+        "unsupported": 0,
+        "skip": 0,
+        "error": 0,
+        "required_pass": 2,
+        "required_fail": 0,
+        "status": "not-evaluated",
+        "assessment": {
+          "verdict": "pass",
+          "verdict_reason": "all_applicable_requirements_passed",
+          "core": {
+            "total": 2,
+            "pass": 2,
+            "fail": 0,
+            "warn": 0,
+            "skip": 0,
+            "error": 0,
+            "percent": 100
+          },
+          "optional": {
+            "total": 1,
+            "pass": 1,
+            "fail": 0,
+            "warn": 0,
+            "skip": 0,
+            "error": 0,
+            "percent": 100
+          },
+          "evidence": {
+            "total": 3,
+            "executed": 3,
+            "conclusive": 3,
+            "execution_percent": 100,
+            "conclusive_percent": 100
+          },
+          "comparison": {
+            "policy": "verdict-core-optional-evidence/v1",
+            "rankable": true,
+            "verdict_rank": 3
+          }
+        },
+        "usage": {}
+      },
+      "guidance": {
+        "schema_version": "aiqa.guidance.v1",
+        "status": "complete",
+        "engine": {
+          "version": "1.0.1",
+          "catalog_revision": "anthropic-messages@2026-09-01.1,generic@2026-09-01.1,google-genai@2026-09-03.1",
+          "packs": [
+            {
+              "id": "generic-openai-gateway",
+              "revision": "1",
+              "source": "builtin",
+              "detection_source": "default",
+              "confidence": "high"
+            }
+          ]
+        },
+        "summary": {
+          "eligible_findings": 0,
+          "eligible_requirements": 0,
+          "covered_requirements": 0,
+          "findings": 0,
+          "recommendations": 0,
+          "by_priority": {
+            "p0": 0,
+            "p1": 0,
+            "p2": 0,
+            "p3": 0
+          },
+          "guidance_coverage_percent": 100,
+          "actionable_coverage_percent": 100
+        },
+        "findings": [],
+        "recommendations": []
+      },
+      "rate_limit": {
+        "logical_requests": 1,
+        "physical_attempts": 1,
+        "successful_requests": 1,
+        "rate_limited_responses": 0,
+        "retry_attempts": 0,
+        "retries_recovered": 0,
+        "retries_exhausted": 0,
+        "backoff_ms": 0,
+        "observed_safe_requests_per_second": 0.5,
+        "observed_safe_concurrency": 1,
+        "latency_samples": 1,
+        "mean_latency_ms": 0,
+        "p50_latency_ms": 0,
+        "p95_latency_ms": 0
+      },
+      "extension_rate_limit": {
+        "logical_requests": 1,
+        "physical_attempts": 1,
+        "successful_requests": 1,
+        "rate_limited_responses": 0,
+        "retry_attempts": 0,
+        "retries_recovered": 0,
+        "retries_exhausted": 0,
+        "backoff_ms": 0,
+        "observed_safe_requests_per_second": 0.5,
+        "observed_safe_concurrency": 1,
+        "latency_samples": 1,
+        "mean_latency_ms": 0,
+        "p50_latency_ms": 0,
+        "p95_latency_ms": 0
+      },
+      "extensions": [
+        {
+          "provenance": {
+            "id": "official-sdk.openai",
+            "name": "OpenAI Go SDK",
+            "version": "v3.54.0",
+            "source": "builtin",
+            "protocol_version": "aiqa.ext.v1"
+          },
+          "target_id": "openai",
+          "subject": {
+            "target_id": "openai",
+            "protocol": "openai",
+            "kind": "provider",
+            "id": "http://127.0.0.1:8080/openai/v1"
+          },
+          "runner": {
+            "status": "pass",
+            "startup_duration_ms": 0,
+            "total_duration_ms": 0,
+            "exit_code": 0,
+            "pacing_compliance": "host_enforced",
+            "summary": "Extension runner completed"
+          },
+          "suites": [
+            {
+              "extension_id": "official-sdk.openai",
+              "suite_id": "models.list",
+              "subject": {
+                "target_id": "openai",
+                "protocol": "openai",
+                "kind": "provider",
+                "id": "http://127.0.0.1:8080/openai/v1"
+              },
+              "outcome": "pass",
+              "status": "pass",
+              "duration_ms": 0,
+              "summary": "OpenAI Go SDK sent and parsed the suite",
+              "http": {},
+              "usage": {},
+              "requirement_id": "official-sdk.openai.models.list",
+              "related_requirement_ids": [
+                "models.list.http",
+                "models.list.schema"
+              ],
+              "bound": true
+            }
+          ]
+        }
+      ]
     }
   ],
   "summary": {
-    "verdict": "pass",
-    "verdict_reason": "all_targets_passed",
+    "verdict": "fail",
+    "verdict_reason": "one_or_more_targets_failed_core_conformance",
     "target_counts": {
-      "fail": 0,
+      "fail": 1,
       "inconclusive": 0,
       "partial": 0,
-      "pass": 1,
+      "pass": 2,
       "pass-with-gaps": 0
-    }
+    },
+    "blocking_targets": [
+      "anthropic"
+    ]
   }
 }

@@ -73,6 +73,23 @@ func TestMarkdownV3RendersServiceOriginWithoutAPIPath(t *testing.T) {
 	}
 }
 
+func TestMarkdownV3RateLimitTableHasMatchingColumns(t *testing.T) {
+	report := result.ReportV3{
+		Targets: []result.TargetReport{{ID: "google-genai", Protocol: "google-genai", RateLimit: result.RateLimitStats{LogicalRequests: 10, PhysicalAttempts: 10, SuccessfulRequests: 6}}},
+	}
+	markdown := MarkdownV3(report)
+	section := strings.SplitN(markdown, "## Rate-limit and latency\n\n", 2)
+	if len(section) != 2 {
+		t.Fatalf("rate-limit section is missing:\n%s", markdown)
+	}
+	lines := strings.SplitN(section[1], "\n\n", 2)[0]
+	for _, line := range strings.Split(lines, "\n") {
+		if got := strings.Count(line, "|") - 1; got != 14 {
+			t.Fatalf("rate-limit table line has %d cells, want 14: %s", got, line)
+		}
+	}
+}
+
 func TestMarkdownV3NormalizesAndTotalsCrossProtocolUsage(t *testing.T) {
 	report := result.ReportV3{
 		Targets: []result.TargetReport{
