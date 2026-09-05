@@ -1,15 +1,20 @@
 # Verified project context
 
-Status: not yet adapted. Keep this document short (target: under 150 lines).
-On the first substantive task, validate the observations in
-`project-observed.json` against source files and CI, then update this document.
-For routine commit/status tasks, do not bootstrap the entire project.
+Status: adapted 2026-09-05 from the checked-in CI and manifests. Keep this
+document short (target: under 150 lines). Revalidate after relevant CI,
+manifest, or architecture changes.
 
 ## Purpose and architecture
 
-- Purpose: unknown
-- Important modules and ownership: unknown
-- Critical invariants and sensitive paths: unknown
+- Purpose: test OpenAI-, Anthropic-, and Google GenAI-compatible provider
+  behavior and produce a versioned JSON/Markdown compatibility report.
+- Important modules: `internal/protocol/*` executes target-local probes;
+  `internal/capability` selects model modules; `internal/assessment` derives
+  canonical conformance; `internal/report` serializes and renders it.
+- Critical invariants: exact inventory intersection is target-local; report
+  verdict comes from canonical assessment, not guidance; rate-limit telemetry
+  is transport-owned; live credentials and billable/persistent probes require
+  explicit gates.
 
 ## Commands
 
@@ -19,7 +24,10 @@ command is a candidate until verified. Never invent a passing test result.
 
 | Scope | Command | Source | Observed result |
 | --- | --- | --- | --- |
-| — | — | — | not verified |
+| Full local check | `make check` | `.github/workflows/ci.yml` | not run in this task yet |
+| Race suite | `make race` | `.github/workflows/ci.yml` | not run in this task yet |
+| Security gate | `make security-check` | `.github/workflows/ci.yml` | not run in this task yet |
+| Build | `make build VERSION=ci COMMIT=... DATE=ci` | `.github/workflows/ci.yml` | not run in this task yet |
 
 ## Skills and tools
 

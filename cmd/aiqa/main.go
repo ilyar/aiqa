@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	version = "1.0.0-alpha.4"
+	version = "1.0.0-alpha.5"
 	commit  = "unknown"
 	date    = "unknown"
 )

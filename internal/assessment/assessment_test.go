@@ -148,7 +148,7 @@ func TestNonApplicableModuleDoesNotEnterMeasures(t *testing.T) {
 	p.Modules = []profile.Module{chatModule}
 	r := result.Report{Config: result.PublicConfig{BaseURL: "https://example.test/v1"}, Models: []result.ModelReport{{
 		ID:      "image-model",
-		Modules: []result.ModuleAssessment{{ID: "chat-completions", Applicability: result.ApplicabilityNotApplicable}},
+		Modules: []result.ModuleAssessment{{ID: "chat-completions", Requested: true, Applicability: result.ApplicabilityNotApplicable}},
 	}}}
 	Apply(&r, p)
 	assessment := r.Summary.Assessment
@@ -169,7 +169,7 @@ func TestTargetModelVerdictIncludesMaterializedProfileGaps(t *testing.T) {
 	}
 	r := result.Report{Config: result.PublicConfig{BaseURL: "https://example.test"}, Models: []result.ModelReport{{
 		ID: "model-a", Assessment: result.ModelAssessment{Verdict: "pass"},
-		Modules: []result.ModuleAssessment{{ID: "anthropic.messages", Applicability: result.ApplicabilityApplicable, Execution: result.ExecutionExecuted}},
+		Modules: []result.ModuleAssessment{{ID: "anthropic.messages", Requested: true, Applicability: result.ApplicabilityApplicable, Execution: result.ExecutionExecuted}},
 	}}}
 	ApplyTarget(&r, p, "anthropic", "anthropic")
 	if r.Models[0].Assessment.Verdict != "inconclusive" {
@@ -211,7 +211,7 @@ func TestUnselectedModelParameterProbeDoesNotCreateCoverageGap(t *testing.T) {
 		Config: result.PublicConfig{BaseURL: "https://example.test", Tests: []string{"compat"}},
 		Models: []result.ModelReport{{
 			ID:      "model-a",
-			Modules: []result.ModuleAssessment{{ID: module.ID, Applicability: result.ApplicabilityApplicable, Execution: result.ExecutionExecuted}},
+			Modules: []result.ModuleAssessment{{ID: module.ID, Requested: true, Applicability: result.ApplicabilityApplicable, Execution: result.ExecutionExecuted}},
 		}},
 	}
 	Apply(&r, p)
@@ -226,5 +226,39 @@ func reportWithTest(test result.TestResult) result.Report {
 	return result.Report{
 		Config:    result.PublicConfig{BaseURL: "https://example.test/v1", Tests: []string{"ext-suite"}},
 		Discovery: result.Discovery{Tests: []result.TestResult{test}},
+	}
+}
+
+func TestUnknownRequestedCoreCoverageIsInconclusiveAndNotRankable(t *testing.T) {
+	p, err := profile.LoadFile("openai-compat-2026-09.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := result.Report{Config: result.PublicConfig{BaseURL: "https://example.test/v1", Tests: []string{"compat"}}, Models: []result.ModelReport{{
+		ID: "new-provider/arbitrary-model-937", Modules: []result.ModuleAssessment{{
+			ID: "chat-completions", Requested: true, Applicability: result.ApplicabilityUnknown, Execution: result.ExecutionSkipped, Reason: "insufficient capability evidence",
+		}},
+	}}}
+	ApplyTarget(&r, p, "one", "openai")
+	got := r.Summary.Assessment
+	if got.Verdict != "inconclusive" || got.Comparison.Rankable || got.Coverage != (result.CoverageMeasure{Expected: 1, Unresolved: 1, CoreUnresolved: 1}) {
+		t.Fatalf("unknown requested coverage was not preserved: %+v", got)
+	}
+	if r.Models[0].Assessment.Verdict != "inconclusive" || r.Summary.Status != "inconclusive" {
+		t.Fatalf("canonical target/model verdict not synchronized: model=%+v target=%+v", r.Models[0].Assessment, r.Summary)
+	}
+}
+
+func TestUnknownUnrequestedModuleDoesNotCreateCoverageGap(t *testing.T) {
+	p, err := profile.LoadFile("openai-compat-2026-09.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := result.Report{Config: result.PublicConfig{BaseURL: "https://example.test/v1", Tests: []string{"sdk"}}, Models: []result.ModelReport{{
+		ID: "arbitrary", Modules: []result.ModuleAssessment{{ID: "images-generations", Applicability: result.ApplicabilityUnknown, Execution: result.ExecutionSkipped}},
+	}}}
+	ApplyTarget(&r, p, "one", "openai")
+	if got := r.Summary.Assessment; got.Verdict != "pass" || got.Coverage.Expected != 0 || len(r.Requirements) != 0 {
+		t.Fatalf("unrequested unknown module affected coverage: assessment=%+v requirements=%+v", got, r.Requirements)
 	}
 }

@@ -165,7 +165,11 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 			// inventory-only selection. Mark them N/A instead of manufacturing a
 			// provider evidence gap that would make an otherwise valid image run
 			// inconclusive.
-			tmp.Discovery.Compatibility = append(tmp.Discovery.Compatibility, chatEndpointNotApplicable(p)...)
+			if hasUnknownRequestedModule(modulePlans, capability.ModuleChat) {
+				tmp.Discovery.Compatibility = append(tmp.Discovery.Compatibility, chatEndpointUnknown(p)...)
+			} else {
+				tmp.Discovery.Compatibility = append(tmp.Discovery.Compatibility, chatEndpointNotApplicable(p)...)
+			}
 		}
 		suites.SortTests(tmp.Discovery.Compatibility)
 	}
@@ -228,6 +232,16 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 	tmp.RateLimit = *protocolpkg.RateLimitStats(client.PacingStats())
 	finish(&tmp, p, target)
 	return protocolpkg.RunResult{Target: toTarget(target, tmp), Runtime: runtime}, nil
+}
+
+func hasUnknownRequestedModule(plans [][]result.ModuleAssessment, moduleID string) bool {
+	for _, plan := range plans {
+		module := capability.Module(plan, moduleID)
+		if module != nil && module.Requested && module.Applicability == result.ApplicabilityUnknown && module.Reason == "insufficient capability evidence" {
+			return true
+		}
+	}
+	return false
 }
 
 func finish(report *result.Report, p profile.Profile, target config.TargetConfig) {
@@ -330,6 +344,15 @@ func chatEndpointNotApplicable(p profile.Profile) []result.TestResult {
 			Status:  result.StatusSkip,
 			Summary: "chat endpoint is not applicable because no selected model has a text capability",
 		})
+	}
+	return tests
+}
+
+func chatEndpointUnknown(p profile.Profile) []result.TestResult {
+	tests := chatEndpointNotApplicable(p)
+	for index := range tests {
+		tests[index].Applicability = result.ApplicabilityUnknown
+		tests[index].Summary = "chat endpoint applicability is unknown because selected model capability evidence is unavailable"
 	}
 	return tests
 }

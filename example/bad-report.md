@@ -2,9 +2,9 @@
 
 _measures observed API behavior, a passing report is not a security audit or an official certification_
 
-- **Generated:** 2026-09-05 02:53:09Z
-- **Tool:** `aiqa 1.0.0-alpha.4`
-- **Service:** [127.0.0.1:32787](http://127.0.0.1:32787)
+- **Generated:** 2026-09-05 16:56:58Z
+- **Tool:** `aiqa 1.0.0-alpha.5`
+- **Service:** [127.0.0.1:32770](http://127.0.0.1:32770)
 - **Suites:** `compat,sdk`
 - **Requested models:** `wiremock-broken-model` (one global list; each target reports only its selected inventory intersection)
 - **Timeout:** `1m0s` per request
@@ -14,9 +14,9 @@ _measures observed API behavior, a passing report is not a security audit or an 
 
 | Target | Verdict | Core | Optional | Evidence | Models | Actions |
 |---|---:|---:|---:|---:|---:|---:|
-| `anthropic` | FAIL | 1/3 (33.3%) | 0/2 (0.0%) | 2/5 (40.0%) | 1 | 3 |
+| `anthropic` | FAIL | 1/14 (7.1%) | 0/38 (0.0%) | 2/52 (3.8%) | 1 | 3 |
 | `google-genai` | INCONCLUSIVE | 5/22 (22.7%) | 1/29 (3.4%) | 6/51 (11.8%) | 1 | 20 |
-| `openai` | INCONCLUSIVE | 2/3 (66.7%) | 1/1 (100.0%) | 3/4 (75.0%) | 1 | 1 |
+| `openai` | INCONCLUSIVE | 2/6 (33.3%) | 1/16 (6.3%) | 3/22 (13.6%) | 1 | 1 |
 
 **Run verdict:** FAIL
 
@@ -26,14 +26,15 @@ Targets are assessed independently. Percentages are not combined into a cross-pr
 
 | Target | Logical | Attempts | Successful | 429 | Retry attempts | Recovered | Exhausted | Backoff | Safe req/s | Concurrency | Mean | P50 | P95 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| `anthropic` | 2 | 4 | 1 | 0 | 2 | 0 | 1 | 300ms | 0.50 req/s | 1 | 30ms | 30ms | 30ms |
-| `google-genai` | 16 | 46 | 1 | 0 | 30 | 0 | 15 | 4500ms | 0.50 req/s | 1 | 4ms | 4ms | 4ms |
+| `anthropic` | 2 | 4 | 1 | 0 | 2 | 0 | 1 | 300ms | 0.50 req/s | 1 | 28ms | 28ms | 28ms |
+| `google-genai` | 16 | 46 | 1 | 0 | 30 | 0 | 15 | 4500ms | 0.50 req/s | 1 | 5ms | 5ms | 5ms |
 | `openai` | 2 | 4 | 1 | 0 | 2 | 0 | 1 | 300ms | 0.50 req/s | 1 | 3ms | 3ms | 3ms |
 
 ## Target: Anthropic
 
 - **Target ID:** `anthropic`
 - **Profile:** `anthropic-compat@2026-09-01`
+- **Requested coverage:** 5 routes; 0 executed, 5 unresolved (1 core, 4 optional), 0 excluded.
 - **API version:** `2023-06-01`
 - **External checks:** [Anthropic Go SDK v1.68.0](https://github.com/anthropics/anthropic-sdk-go/releases/tag/v1.68.0)
 - **Discovered models:** 1
@@ -96,10 +97,57 @@ Targets are assessed independently. Percentages are not combined into a cross-pr
 
 | Status | Level | Subject | Requirement | Evidence | Blocked by |
 |---:|---:|---|---|---:|---|
+| SKIP | CORE | `model:wiremock-broken-model` | `anthropic.auth.x_api_key` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.error.invalid_auth` | 0 | anthropic.messages.basic |
+| SKIP | CORE | `model:wiremock-broken-model` | `anthropic.error.invalid_json` | 0 | anthropic.messages.basic |
+| SKIP | CORE | `model:wiremock-broken-model` | `anthropic.error.invalid_model` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.error.invalid_types` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.error.request_id` | 0 | anthropic.messages.basic |
+| SKIP | CORE | `model:wiremock-broken-model` | `anthropic.error.shape` | 0 | anthropic.messages.basic |
+| SKIP | CORE | `model:wiremock-broken-model` | `anthropic.header.version.accepted` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.header.version.invalid` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.header.version.required` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.messages.assistant_prefill` | 0 | anthropic.messages.basic |
 | ERROR | CORE | `model:wiremock-broken-model` | `anthropic.messages.basic` | 1 |  |
-| SKIP | OPTIONAL | `provider:http://127.0.0.1:32787/anthropic` | `anthropic.models.list.pagination` | 1 | anthropic.models.list.schema |
-| FAIL | CORE | `provider:http://127.0.0.1:32787/anthropic` | `anthropic.models.list.schema` | 1 |  |
-| WARN | OPTIONAL | `provider:http://127.0.0.1:32787/anthropic` | `anthropic.official-sdk.models.list` | 3 |  |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.messages.content.string` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.messages.content.text_blocks` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.messages.max_tokens` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.messages.metadata` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.messages.multi_turn` | 0 | anthropic.messages.basic |
+| SKIP | CORE | `model:wiremock-broken-model` | `anthropic.messages.schema` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.messages.stop_sequences` | 0 | anthropic.messages.basic |
+| SKIP | CORE | `model:wiremock-broken-model` | `anthropic.messages.stream.event_type_match` | 0 | anthropic.messages.basic |
+| SKIP | CORE | `model:wiremock-broken-model` | `anthropic.messages.stream.http` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.messages.stream.no_done_sentinel` | 0 | anthropic.messages.basic |
+| SKIP | CORE | `model:wiremock-broken-model` | `anthropic.messages.stream.sequence` | 0 | anthropic.messages.basic |
+| SKIP | CORE | `model:wiremock-broken-model` | `anthropic.messages.stream.text` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.messages.stream.usage` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.messages.system.top_level` | 0 | anthropic.messages.basic |
+| SKIP | CORE | `model:wiremock-broken-model` | `anthropic.messages.usage` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.models.retrieve` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.structured.json_schema` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.structured.stop_reason` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.tokens.count.basic` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.tokens.count.consistency` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.tokens.count.schema` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.tokens.count.system` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.tokens.count.tools` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.tools.any` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.tools.auto` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.tools.continuation` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.tools.input_schema` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.tools.none` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.tools.parallel` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.tools.specific` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.tools.stream` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.tools.strict` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.tools.strict_schema` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.vision.image_base64` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.vision.image_schema` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.vision.usage` | 0 | anthropic.messages.basic |
+| SKIP | OPTIONAL | `provider:http://127.0.0.1:32770/anthropic` | `anthropic.models.list.pagination` | 1 | anthropic.models.list.schema |
+| FAIL | CORE | `provider:http://127.0.0.1:32770/anthropic` | `anthropic.models.list.schema` | 1 |  |
+| WARN | OPTIONAL | `provider:http://127.0.0.1:32770/anthropic` | `anthropic.official-sdk.models.list` | 3 |  |
 
 ### Models
 
@@ -109,14 +157,14 @@ Targets are assessed independently. Percentages are not combined into a cross-pr
 
 #### Model details: `wiremock-broken-model`
 
-| Module | Capability | Applicability | Execution | Reason |
-|---|---|---:|---:|---|
-| `anthropic.messages` | `anthropic.messages.text` | UNKNOWN | SKIPPED | model availability is inconclusive after transient preflight failure |
-| `anthropic.tools` | `anthropic.messages.tools` | UNKNOWN | SKIPPED | model availability is inconclusive after transient preflight failure |
-| `anthropic.token-counting` | `anthropic.messages.text` | UNKNOWN | SKIPPED | model availability is inconclusive after transient preflight failure |
-| `anthropic.structured-output` | `anthropic.messages.structured_output` | UNKNOWN | SKIPPED | model availability is inconclusive after transient preflight failure |
-| `anthropic.vision` | `anthropic.messages.image_input` | UNKNOWN | SKIPPED | model availability is inconclusive after transient preflight failure |
-| `anthropic.thinking` | `anthropic.messages.thinking.adaptive,anthropic.messages.thinking.manual` | UNKNOWN | SKIPPED | model availability is inconclusive after transient preflight failure |
+| Module | Capability | Requested | Applicability | Execution | Reason |
+|---|---|---:|---:|---:|---|
+| `anthropic.messages` | `anthropic.messages.text` | true | UNKNOWN | SKIPPED | model availability is inconclusive after transient preflight failure |
+| `anthropic.tools` | `anthropic.messages.tools` | true | UNKNOWN | SKIPPED | model availability is inconclusive after transient preflight failure |
+| `anthropic.token-counting` | `anthropic.messages.text` | true | UNKNOWN | SKIPPED | model availability is inconclusive after transient preflight failure |
+| `anthropic.structured-output` | `anthropic.messages.structured_output` | true | UNKNOWN | SKIPPED | model availability is inconclusive after transient preflight failure |
+| `anthropic.vision` | `anthropic.messages.image_input` | true | UNKNOWN | SKIPPED | model availability is inconclusive after transient preflight failure |
+| `anthropic.thinking` | `anthropic.messages.thinking.adaptive,anthropic.messages.thinking.manual` | false | UNKNOWN | SKIPPED | model availability is inconclusive after transient preflight failure |
 
 ### Extension suites
 
@@ -130,12 +178,13 @@ Built-in extension transport counts are separate from native latency percentiles
 
 | Suite | Subject | Status | Duration | Summary |
 |---|---|---:|---:|---|
-| `models.list` | `provider:http://127.0.0.1:32787/anthropic` | PASS | 4ms | Anthropic Go SDK sent and parsed the suite |
+| `models.list` | `provider:http://127.0.0.1:32770/anthropic` | PASS | 4ms | Anthropic Go SDK sent and parsed the suite |
 
 ## Target: Google GenAI
 
 - **Target ID:** `google-genai`
 - **Profile:** `google-genai-compat@2026-09-03`
+- **Requested coverage:** 12 routes; 10 executed, 0 unresolved (0 core, 0 optional), 2 excluded.
 - **API version:** `v1beta`
 - **External checks:** [Google Gen AI Go SDK v1.71.0](https://github.com/googleapis/go-genai/releases/tag/v1.71.0)
 - **Note:** Google Gen AI Go SDK v1.71.0 does not expose public Interactions API methods; no SDK Interactions suite is claimed.
@@ -523,23 +572,23 @@ Built-in extension transport counts are separate from native latency percentiles
 
 #### Model details: `wiremock-broken-model`
 
-| Module | Capability | Applicability | Execution | Reason |
-|---|---|---:|---:|---|
-| `google-genai.interactions` | `google-genai.interactions.text` | APPLICABLE | EXECUTED | model is explicitly eligible for the selected Interactions surface |
-| `google-genai.interactions-stream` | `google-genai.interactions.text` | APPLICABLE | EXECUTED | model is explicitly eligible for the selected Interactions surface |
-| `google-genai.interactions-tools` | `google-genai.interactions.tools` | APPLICABLE | EXECUTED | text model is eligible for client-side Interactions tool probing |
-| `google-genai.interactions-structured-output` | `google-genai.interactions.structured-output` | APPLICABLE | EXECUTED | text model is eligible for Interactions structured-output probing |
-| `google-genai.interactions-vision` | `google-genai.interactions.image-input` | NOT-APPLICABLE | – | classified capabilities do not include google-genai.interactions.image-input: google-genai.count-tokens, google-genai.embed-content, google-genai.generate-content.structured-output, google-genai.generate-content.text, google-genai.generate-content.tools, google-genai.interactions.structured-output, google-genai.interactions.text, google-genai.interactions.tools |
-| `google-genai.interactions-thinking` | `google-genai.interactions.thinking` | NOT-APPLICABLE | – | classified capabilities do not include google-genai.interactions.thinking: google-genai.count-tokens, google-genai.embed-content, google-genai.generate-content.structured-output, google-genai.generate-content.text, google-genai.generate-content.tools, google-genai.interactions.structured-output, google-genai.interactions.text, google-genai.interactions.tools |
-| `google-genai.interactions-stateful` | `google-genai.interactions.stateful` | NOT-APPLICABLE | – | classified capabilities do not include google-genai.interactions.stateful: google-genai.count-tokens, google-genai.embed-content, google-genai.generate-content.structured-output, google-genai.generate-content.text, google-genai.generate-content.tools, google-genai.interactions.structured-output, google-genai.interactions.text, google-genai.interactions.tools |
-| `google-genai.generate-content` | `google-genai.generate-content.text` | APPLICABLE | EXECUTED | Google metadata declares generateContent support |
-| `google-genai.generate-content-stream` | `google-genai.generate-content.text` | APPLICABLE | EXECUTED | Google metadata declares generateContent support |
-| `google-genai.generate-content-tools` | `google-genai.generate-content.tools` | APPLICABLE | EXECUTED | generateContent is eligible for client-side tool probing |
-| `google-genai.generate-content-structured-output` | `google-genai.generate-content.structured-output` | APPLICABLE | EXECUTED | generateContent is eligible for local structured-output probing |
-| `google-genai.token-counting` | `google-genai.count-tokens` | APPLICABLE | EXECUTED | Google metadata declares countTokens support |
-| `google-genai.embeddings` | `google-genai.embed-content` | APPLICABLE | EXECUTED | Google metadata declares embedContent support |
-| `google-genai.vision` | `google-genai.generate-content.image-input` | NOT-APPLICABLE | – | classified capabilities do not include google-genai.generate-content.image-input: google-genai.count-tokens, google-genai.embed-content, google-genai.generate-content.structured-output, google-genai.generate-content.text, google-genai.generate-content.tools, google-genai.interactions.structured-output, google-genai.interactions.text, google-genai.interactions.tools |
-| `google-genai.thinking` | `google-genai.generate-content.thinking` | NOT-APPLICABLE | – | classified capabilities do not include google-genai.generate-content.thinking: google-genai.count-tokens, google-genai.embed-content, google-genai.generate-content.structured-output, google-genai.generate-content.text, google-genai.generate-content.tools, google-genai.interactions.structured-output, google-genai.interactions.text, google-genai.interactions.tools |
+| Module | Capability | Requested | Applicability | Execution | Reason |
+|---|---|---:|---:|---:|---|
+| `google-genai.interactions` | `google-genai.interactions.text` | true | APPLICABLE | EXECUTED | model is explicitly eligible for the selected Interactions surface |
+| `google-genai.interactions-stream` | `google-genai.interactions.text` | true | APPLICABLE | EXECUTED | model is explicitly eligible for the selected Interactions surface |
+| `google-genai.interactions-tools` | `google-genai.interactions.tools` | true | APPLICABLE | EXECUTED | text model is eligible for client-side Interactions tool probing |
+| `google-genai.interactions-structured-output` | `google-genai.interactions.structured-output` | true | APPLICABLE | EXECUTED | text model is eligible for Interactions structured-output probing |
+| `google-genai.interactions-vision` | `google-genai.interactions.image-input` | true | NOT-APPLICABLE | – | classified capabilities do not include google-genai.interactions.image-input: google-genai.count-tokens, google-genai.embed-content, google-genai.generate-content.structured-output, google-genai.generate-content.text, google-genai.generate-content.tools, google-genai.interactions.structured-output, google-genai.interactions.text, google-genai.interactions.tools |
+| `google-genai.interactions-thinking` | `google-genai.interactions.thinking` | false | NOT-APPLICABLE | – | classified capabilities do not include google-genai.interactions.thinking: google-genai.count-tokens, google-genai.embed-content, google-genai.generate-content.structured-output, google-genai.generate-content.text, google-genai.generate-content.tools, google-genai.interactions.structured-output, google-genai.interactions.text, google-genai.interactions.tools |
+| `google-genai.interactions-stateful` | `google-genai.interactions.stateful` | false | NOT-APPLICABLE | – | classified capabilities do not include google-genai.interactions.stateful: google-genai.count-tokens, google-genai.embed-content, google-genai.generate-content.structured-output, google-genai.generate-content.text, google-genai.generate-content.tools, google-genai.interactions.structured-output, google-genai.interactions.text, google-genai.interactions.tools |
+| `google-genai.generate-content` | `google-genai.generate-content.text` | true | APPLICABLE | EXECUTED | Google metadata declares generateContent support |
+| `google-genai.generate-content-stream` | `google-genai.generate-content.text` | true | APPLICABLE | EXECUTED | Google metadata declares generateContent support |
+| `google-genai.generate-content-tools` | `google-genai.generate-content.tools` | true | APPLICABLE | EXECUTED | generateContent is eligible for client-side tool probing |
+| `google-genai.generate-content-structured-output` | `google-genai.generate-content.structured-output` | true | APPLICABLE | EXECUTED | generateContent is eligible for local structured-output probing |
+| `google-genai.token-counting` | `google-genai.count-tokens` | true | APPLICABLE | EXECUTED | Google metadata declares countTokens support |
+| `google-genai.embeddings` | `google-genai.embed-content` | true | APPLICABLE | EXECUTED | Google metadata declares embedContent support |
+| `google-genai.vision` | `google-genai.generate-content.image-input` | true | NOT-APPLICABLE | – | classified capabilities do not include google-genai.generate-content.image-input: google-genai.count-tokens, google-genai.embed-content, google-genai.generate-content.structured-output, google-genai.generate-content.text, google-genai.generate-content.tools, google-genai.interactions.structured-output, google-genai.interactions.text, google-genai.interactions.tools |
+| `google-genai.thinking` | `google-genai.generate-content.thinking` | false | NOT-APPLICABLE | – | classified capabilities do not include google-genai.generate-content.thinking: google-genai.count-tokens, google-genai.embed-content, google-genai.generate-content.structured-output, google-genai.generate-content.text, google-genai.generate-content.tools, google-genai.interactions.structured-output, google-genai.interactions.text, google-genai.interactions.tools |
 
 ### Extension suites
 
@@ -547,25 +596,26 @@ Built-in extension transport counts are separate from native latency percentiles
 
 | Logical | Attempts | Successful | 429 | Retry attempts | Recovered | Exhausted | Backoff | Safe req/s | Concurrency |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 8 | 22 | 1 | 0 | 14 | 0 | 7 | 2100ms | 0.50 req/s | 1 |
+| 8 | 22 | 1 | 0 | 14 | 0 | 7 | 2100ms | 1.00 req/s | 2 |
 
 #### Google Gen AI Go SDK v1.71.0
 
 | Suite | Subject | Status | Duration | Summary |
 |---|---|---:|---:|---|
 | `count-tokens` | `model:wiremock-broken-model` | ERROR | 2003ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
-| `embeddings` | `model:wiremock-broken-model` | ERROR | 2004ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
+| `embeddings` | `model:wiremock-broken-model` | ERROR | 2003ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
 | `generate-content` | `model:wiremock-broken-model` | ERROR | 3378ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
 | `generate-content-stream` | `model:wiremock-broken-model` | ERROR | 3378ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
-| `models.get` | `model:wiremock-broken-model` | ERROR | 1997ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
-| `structured-output` | `model:wiremock-broken-model` | ERROR | 3374ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
-| `tools` | `model:wiremock-broken-model` | ERROR | 3378ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
-| `models.list` | `provider:http://127.0.0.1:32787/google` | PASS | 4ms | Google Gen AI Go SDK sent and parsed the suite |
+| `models.get` | `model:wiremock-broken-model` | ERROR | 1998ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
+| `structured-output` | `model:wiremock-broken-model` | ERROR | 3373ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
+| `tools` | `model:wiremock-broken-model` | ERROR | 3377ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
+| `models.list` | `provider:http://127.0.0.1:32770/google` | PASS | 4ms | Google Gen AI Go SDK sent and parsed the suite |
 
 ## Target: OpenAI
 
 - **Target ID:** `openai`
 - **Profile:** `openai-compat@2026-09-01`
+- **Requested coverage:** 1 routes; 0 executed, 1 unresolved (1 core, 0 optional), 0 excluded.
 - **External checks:** [OpenAI Go SDK v3.54.0](https://github.com/openai/openai-go/releases/tag/v3.54.0)
 - **Discovered models:** 1
 - **Selected models:** `wiremock-broken-model`
@@ -596,6 +646,24 @@ Built-in extension transport counts are separate from native latency percentiles
 | Status | Level | Subject | Requirement | Evidence | Blocked by |
 |---:|---:|---|---|---:|---|
 | ERROR | CORE | `model:wiremock-broken-model` | `chat.basic` | 1 |  |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `chat.content_parts.text` | 0 | chat.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `chat.logprobs` | 0 | chat.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `chat.multi_turn` | 0 | chat.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `chat.role.developer` | 0 | chat.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `chat.role.system` | 0 | chat.basic |
+| SKIP | CORE | `model:wiremock-broken-model` | `chat.schema` | 0 | chat.basic |
+| SKIP | CORE | `model:wiremock-broken-model` | `chat.stream.sse` | 0 | chat.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `chat.stream.usage` | 0 | chat.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `chat.structured.json_object` | 0 | chat.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `chat.structured.json_schema` | 0 | chat.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `chat.tools.auto` | 0 | chat.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `chat.tools.continuation` | 0 | chat.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `chat.tools.forced` | 0 | chat.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `chat.tools.none` | 0 | chat.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `chat.tools.required` | 0 | chat.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `chat.tools.stream` | 0 | chat.basic |
+| SKIP | CORE | `model:wiremock-broken-model` | `chat.usage` | 0 | chat.basic |
+| SKIP | OPTIONAL | `model:wiremock-broken-model` | `models.retrieve` | 0 | chat.basic |
 
 ### Models
 
@@ -605,10 +673,10 @@ Built-in extension transport counts are separate from native latency percentiles
 
 #### Model details: `wiremock-broken-model`
 
-| Module | Capability | Applicability | Execution | Reason |
-|---|---|---:|---:|---|
-| `chat-completions` | `chat.completions.text` | UNKNOWN | SKIPPED | model availability is inconclusive after transient preflight failure |
-| `images-generations` | `images.generations` | UNKNOWN | SKIPPED | model availability is inconclusive after transient preflight failure |
+| Module | Capability | Requested | Applicability | Execution | Reason |
+|---|---|---:|---:|---:|---|
+| `chat-completions` | `chat.completions.text` | true | UNKNOWN | SKIPPED | model availability is inconclusive after transient preflight failure |
+| `images-generations` | `images.generations` | false | UNKNOWN | SKIPPED | model availability is inconclusive after transient preflight failure |
 
 ### Extension suites
 
@@ -622,7 +690,7 @@ Built-in extension transport counts are separate from native latency percentiles
 
 | Suite | Subject | Status | Duration | Summary |
 |---|---|---:|---:|---|
-| `models.list` | `provider:http://127.0.0.1:32787/openai/v1` | PASS | 4ms | OpenAI Go SDK sent and parsed the suite |
+| `models.list` | `provider:http://127.0.0.1:32770/openai/v1` | PASS | 2ms | OpenAI Go SDK sent and parsed the suite |
 
 ## Observed API usage
 

@@ -108,8 +108,23 @@ func TestDualTargetCommandWritesIndependentV3Report(t *testing.T) {
 			t.Fatalf("full mock left requirement %s skipped", requirement.ID)
 		}
 	}
+	requestedModules := map[string]bool{}
+	for _, module := range anthropicTarget.Models[0].Modules {
+		requestedModules[module.ID] = module.Requested
+	}
 	for _, probe := range contract.Probes {
 		if probe.Executor == "extension" {
+			continue
+		}
+		moduleID := ""
+		for _, module := range contract.Modules {
+			for _, id := range module.ProbeIDs {
+				if id == probe.ID {
+					moduleID = module.ID
+				}
+			}
+		}
+		if moduleID != "" && !requestedModules[moduleID] {
 			continue
 		}
 		if !covered[probe.ID] {

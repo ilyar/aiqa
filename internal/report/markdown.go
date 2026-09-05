@@ -35,6 +35,10 @@ func Markdown(r result.Report) string {
 	fmt.Fprintln(&b, "## Summary")
 	fmt.Fprintln(&b)
 	writeExecutiveSummary(&b, r)
+	if assessment := r.Summary.Assessment; assessment != nil {
+		coverage := assessment.Coverage
+		fmt.Fprintf(&b, "\n- **Requested coverage:** %d routes; %d executed, %d unresolved, %d excluded.\n", coverage.Expected, coverage.Executed, coverage.Unresolved, coverage.Excluded)
+	}
 	fmt.Fprintln(&b)
 	writeRateLimit(&b, r.RateLimit)
 	writeGuidance(&b, r)
@@ -102,10 +106,10 @@ func Markdown(r result.Report) string {
 		if len(m.Modules) > 0 {
 			fmt.Fprintln(&b, "### Module applicability")
 			fmt.Fprintln(&b)
-			fmt.Fprintln(&b, "| Module | Capability | Applicability | Execution | Reason |")
-			fmt.Fprintln(&b, "|---|---|---:|---:|---|")
+			fmt.Fprintln(&b, "| Module | Capability | Requested | Applicability | Execution | Reason |")
+			fmt.Fprintln(&b, "|---|---|---:|---:|---:|---|")
 			for _, module := range m.Modules {
-				fmt.Fprintf(&b, "| `%s` | `%s` | %s | %s | %s |\n", escapeCell(module.ID), escapeCell(module.Capability), applicabilityCell(module.Applicability), executionCell(module.Execution), escapeCell(module.Reason))
+				fmt.Fprintf(&b, "| `%s` | `%s` | %t | %s | %s | %s |\n", escapeCell(module.ID), escapeCell(module.Capability), module.Requested, applicabilityCell(module.Applicability), executionCell(module.Execution), escapeCell(module.Reason))
 			}
 			fmt.Fprintln(&b)
 		}

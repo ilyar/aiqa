@@ -88,6 +88,8 @@ Reports show three independent measures:
 - **Optional coverage**: passed optional requirements divided by applicable optional requirements.
 - **Evidence completeness**: conclusive requirements divided by all applicable requirements; execution coverage is also preserved in JSON.
 
+They also show requested module-route coverage (`expected`, `executed`, `unresolved`, and `excluded`). Unknown capability evidence in a requested core route is `INCONCLUSIVE`; an optional-only unknown route is `PASS-WITH-GAPS`. Inventory-only discovery may avoid model requests, but cannot claim generation coverage.
+
 `INCONCLUSIVE` is not rankable. Other reports compare by verdict first, then core conformance, optional coverage, and evidence completeness. AIQA emits no overall numeric compatibility score. Raw status counts remain diagnostic, and percentages describe only their named core, optional, or evidence dimension.
 
 ## Findings and recommendations

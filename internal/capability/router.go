@@ -42,7 +42,9 @@ func AssessModules(classification Classification, definitions []profile.Module, 
 		if definition.Subject != "model" {
 			continue
 		}
-		assessment := result.ModuleAssessment{ID: definition.ID, Capability: strings.Join(definition.Capabilities, ",")}
+		billable := strings.HasPrefix(definition.CostClass, "billable-")
+		requested := enabled[definition.ID] || (auto && (definition.DefaultEnabled || billable && opts.AllowBillableArtifacts))
+		assessment := result.ModuleAssessment{ID: definition.ID, Capability: strings.Join(definition.Capabilities, ","), Requested: requested}
 		matchedCapability := firstMatchedCapability(classification, definition.Capabilities)
 		switch {
 		case classification.Unknown:
@@ -52,8 +54,7 @@ func AssessModules(classification Classification, definitions []profile.Module, 
 		case matchedCapability != "":
 			assessment.Applicability = result.ApplicabilityApplicable
 			assessment.Reason, assessment.Source, assessment.Confidence = capabilityReason(classification, matchedCapability)
-			billable := strings.HasPrefix(definition.CostClass, "billable-")
-			moduleEnabled := enabled[definition.ID] || (auto && (definition.DefaultEnabled || billable && opts.AllowBillableArtifacts))
+			moduleEnabled := requested
 			highToken := definition.CostClass == "high-token"
 			persistent := definition.CostClass == "persistent-resource"
 			switch {

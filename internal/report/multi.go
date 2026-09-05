@@ -92,6 +92,10 @@ func MarkdownV3(r result.ReportV3) string {
 		fmt.Fprintf(&b, "## Target: %s\n\n", protocolName(target.Protocol))
 		fmt.Fprintf(&b, "- **Target ID:** `%s`\n", escapeInline(target.ID))
 		fmt.Fprintf(&b, "- **Profile:** `%s@%s`\n", escapeInline(target.Profile.ID), escapeInline(target.Profile.Revision))
+		if assessment := target.Summary.Assessment; assessment != nil {
+			coverage := assessment.Coverage
+			fmt.Fprintf(&b, "- **Requested coverage:** %d routes; %d executed, %d unresolved (%d core, %d optional), %d excluded.\n", coverage.Expected, coverage.Executed, coverage.Unresolved, coverage.CoreUnresolved, coverage.OptionalUnresolved, coverage.Excluded)
+		}
 		if targetConfigNormalized(r.Config.Targets, target.ID) {
 			switch target.Protocol {
 			case "anthropic":
@@ -417,15 +421,15 @@ func writeTargetModels(b *strings.Builder, target result.TargetReport) {
 			continue
 		}
 		fmt.Fprintf(b, "#### Model details: `%s`\n\n", escapeInline(model.ID))
-		fmt.Fprintln(b, "| Module | Capability | Applicability | Execution | Reason |")
-		fmt.Fprintln(b, "|---|---|---:|---:|---|")
+		fmt.Fprintln(b, "| Module | Capability | Requested | Applicability | Execution | Reason |")
+		fmt.Fprintln(b, "|---|---|---:|---:|---:|---|")
 		for _, module := range model.Modules {
 			applicability := strings.ToUpper(strings.ReplaceAll(string(module.Applicability), "_", "-"))
 			execution := strings.ToUpper(strings.ReplaceAll(string(module.Execution), "_", "-"))
 			if execution == "" {
 				execution = "–"
 			}
-			fmt.Fprintf(b, "| `%s` | `%s` | %s | %s | %s |\n", escapeCell(module.ID), escapeCell(module.Capability), applicability, execution, escapeCell(module.Reason))
+			fmt.Fprintf(b, "| `%s` | `%s` | %t | %s | %s | %s |\n", escapeCell(module.ID), escapeCell(module.Capability), module.Requested, applicability, execution, escapeCell(module.Reason))
 		}
 		fmt.Fprintln(b)
 	}

@@ -326,9 +326,10 @@ func TestRunModelParametersFindsContextBoundary(t *testing.T) {
 }
 
 func TestMixedNonChatCatalogDoesNotReceiveChatRequests(t *testing.T) {
-	var chatRequests atomic.Int32
+	var modelListRequests, chatRequests atomic.Int32
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
+		modelListRequests.Add(1)
 		writeJSON(w, 200, map[string]any{"object": "list", "data": []any{
 			map[string]any{"id": "gpt-image-2", "object": "model", "created": 1, "is_image": true},
 			map[string]any{"id": "opaque-model", "object": "model", "created": 1},
@@ -349,12 +350,15 @@ func TestMixedNonChatCatalogDoesNotReceiveChatRequests(t *testing.T) {
 	if got := chatRequests.Load(); got != 0 {
 		t.Fatalf("non-chat catalog received %d chat requests", got)
 	}
+	if got := modelListRequests.Load(); got != 1 {
+		t.Fatalf("inventory-only catalog used %d model-list requests, want 1", got)
+	}
 	if len(out.ReportV3.Targets[0].Models) != 2 {
 		t.Fatalf("inventory lost models: %+v", out.ReportV3.Targets[0].Models)
 	}
 	for _, model := range out.ReportV3.Targets[0].Models {
 		wantVerdict := "not-evaluated"
-		if model.ID == "gpt-image-2" {
+		if model.ID == "opaque-model" {
 			wantVerdict = "inconclusive"
 		}
 		if model.Assessment.Verdict != wantVerdict {
@@ -368,12 +372,19 @@ func TestMixedNonChatCatalogDoesNotReceiveChatRequests(t *testing.T) {
 			t.Fatalf("unknown model chat applicability: %+v", chat)
 		}
 	}
+	assessment := out.ReportV3.Targets[0].Summary.Assessment
+	if assessment == nil || assessment.Verdict != "inconclusive" || assessment.Comparison.Rankable || assessment.Coverage.Unresolved != 1 {
+		t.Fatalf("unknown inventory coverage was not reflected in target verdict: %+v", assessment)
+	}
+	if out.ExitCode != 1 {
+		t.Fatalf("core policy must fail inconclusive coverage: exit=%d", out.ExitCode)
+	}
 	markdown, err := os.ReadFile("report.md")
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(markdown)
-	if !strings.Contains(text, "#### Model details: `gpt-image-2`") || !strings.Contains(text, "| `chat-completions` | `chat.completions.text` | NOT-APPLICABLE | – | classified capabilities do not include chat.completions.text") {
+	if !strings.Contains(text, "#### Model details: `gpt-image-2`") || !strings.Contains(text, "| `chat-completions` | `chat.completions.text` | true | NOT-APPLICABLE | – | classified capabilities do not include chat.completions.text") {
 		t.Fatalf("mixed-catalog routing is not visible in Markdown:\n%s", text)
 	}
 	if !strings.Contains(text, "NOT-EVALUATED") || !strings.Contains(text, "UNKNOWN") {

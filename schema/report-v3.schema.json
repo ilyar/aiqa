@@ -126,7 +126,18 @@
     },
     "model": {
       "type": "object", "required": ["id", "assessment", "summary"],
-      "properties": {"id": {"type": "string"}, "metadata": {"type": "object"}, "compatibility": {"type": "array", "items": {"type": "object"}}, "parameters": {"type": "array", "items": {"type": "object"}}, "context": {"type": "object"}, "rate_limit": {"$ref": "#/$defs/rateLimit"}, "capabilities": {"type": "array", "items": {"type": "object"}}, "modules": {"type": "array", "items": {"type": "object"}}, "assessment": {"type": "object"}, "summary": {"type": "object"}},
+      "properties": {"id": {"type": "string"}, "metadata": {"type": "object"}, "compatibility": {"type": "array", "items": {"type": "object"}}, "parameters": {"type": "array", "items": {"type": "object"}}, "context": {"type": "object"}, "rate_limit": {"$ref": "#/$defs/rateLimit"}, "capabilities": {"type": "array", "items": {"type": "object"}}, "modules": {"type": "array", "items": {"$ref": "#/$defs/moduleAssessment"}}, "assessment": {"type": "object"}, "summary": {"type": "object"}},
+      "additionalProperties": false
+    },
+    "moduleAssessment": {
+      "type": "object",
+      "required": ["id", "capability", "applicability", "reason"],
+      "properties": {
+        "id": {"type": "string"}, "capability": {"type": "string"}, "requested": {"type": "boolean"},
+        "applicability": {"enum": ["applicable", "not_applicable", "unknown"]}, "execution": {"enum": ["executed", "skipped"]},
+        "reason": {"type": "string"}, "source": {"type": "string"}, "confidence": {"type": "string"},
+        "blocked_by": {"type": "array", "items": {"type": "string"}}, "test_ids": {"type": "array", "items": {"type": "string"}}, "summary": {"type": "object"}
+      },
       "additionalProperties": false
     },
     "target": {

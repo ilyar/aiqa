@@ -78,6 +78,18 @@ type EvidenceMeasure struct {
 	ConclusivePercent *float64 `json:"conclusive_percent"`
 }
 
+// CoverageMeasure records the intended module scope separately from probe
+// evidence. Its unit is one selected target/model/module route, so a passing
+// route can never close an unknown route for another model or target.
+type CoverageMeasure struct {
+	Expected           int `json:"expected"`
+	Executed           int `json:"executed"`
+	Unresolved         int `json:"unresolved"`
+	CoreUnresolved     int `json:"core_unresolved"`
+	OptionalUnresolved int `json:"optional_unresolved"`
+	Excluded           int `json:"excluded"`
+}
+
 type ComparisonPolicy struct {
 	Policy      string `json:"policy"`
 	Rankable    bool   `json:"rankable"`
@@ -90,6 +102,7 @@ type ConformanceAssessment struct {
 	Core          RequirementMeasure `json:"core"`
 	Optional      RequirementMeasure `json:"optional"`
 	Evidence      EvidenceMeasure    `json:"evidence"`
+	Coverage      CoverageMeasure    `json:"coverage"`
 	Comparison    ComparisonPolicy   `json:"comparison"`
 }
 

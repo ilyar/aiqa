@@ -153,6 +153,7 @@ type CapabilityAssessment struct {
 type ModuleAssessment struct {
 	ID            string         `json:"id"`
 	Capability    string         `json:"capability"`
+	Requested     bool           `json:"requested"`
 	Applicability Applicability  `json:"applicability"`
 	Execution     ExecutionState `json:"execution,omitempty"`
 	Reason        string         `json:"reason"`

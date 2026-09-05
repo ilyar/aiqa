@@ -150,6 +150,8 @@ The conformance verdict is derived only from applicable canonical requirements:
 
 `not_applicable` requirements do not enter the core, optional, or evidence denominators. An inconclusive report is deliberately not rankable. Other reports expose an ordinal verdict rank, followed by core coverage, optional coverage, and evidence completeness; no single percentage can override that ordering.
 
+Before execution, each target/model/module route records whether it was requested by the selected suites and module configuration. The assessment keeps that scope even when capability classification is unknown. Requested unknown core routes are coverage gaps (`inconclusive`); optional-only gaps are `pass-with-gaps`; a direct core failure remains `fail`. Coverage does not create transport requests or telemetry samples.
+
 ## Findings and actionable guidance
 
 `internal/guidance` consumes canonical requirements and typed evidence signals. It does not parse prose summaries to decide what happened. The engine groups repeated observations by finding code and subject, assigns stable fingerprints, records evidence and artifact references, and emits deterministic recommendations with priority, target component, confidence, verification targets, references, and conditional impact. Verification targets are requirement or SDK suite IDs; the current engine does not emit broad shell commands.

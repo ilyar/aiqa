@@ -88,9 +88,36 @@ func apply(r *result.Report, p profile.Profile, targetID, protocol string) {
 	})
 	r.Requirements = requirements
 	assessment := summarize(requirements)
+	assessment.Coverage = coverageForModels(r.Models)
+	applyCoverageLevels(&assessment, requirements)
+	applyCoverageVerdict(&assessment)
 	r.Summary.Assessment = &assessment
 	if targetID != "" {
 		applyModelAssessments(r, requirements)
+		// Assessment is the canonical target verdict. Raw summaries remain on
+		// individual models, where not-evaluated is still meaningful.
+		r.Summary.Status = assessment.Verdict
+	}
+}
+
+func applyCoverageLevels(assessment *result.ConformanceAssessment, requirements []result.RequirementAssessment) {
+	core, optional := map[string]bool{}, map[string]bool{}
+	for _, requirement := range requirements {
+		if requirement.Subject.Kind != "model" || requirement.Applicability != result.ApplicabilityUnknown {
+			continue
+		}
+		key := requirement.Subject.TargetID + "\x00" + requirement.Subject.ID + "\x00" + requirement.Module
+		if requirement.Level == result.RequirementCore {
+			core[key] = true
+		} else {
+			optional[key] = true
+		}
+	}
+	assessment.Coverage.CoreUnresolved = len(core)
+	for key := range optional {
+		if !core[key] {
+			assessment.Coverage.OptionalUnresolved++
+		}
 	}
 }
 
@@ -117,9 +144,15 @@ func applyModelAssessments(r *result.Report, requirements []result.RequirementAs
 	for index := range r.Models {
 		modelRequirements := byModel[r.Models[index].ID]
 		if len(modelRequirements) == 0 {
+			if coverageForModels([]result.ModelReport{r.Models[index]}).Unresolved > 0 {
+				r.Models[index].Assessment.Verdict = "not-evaluated"
+			}
 			continue
 		}
-		r.Models[index].Assessment.Verdict = summarize(modelRequirements).Verdict
+		assessment := summarize(modelRequirements)
+		assessment.Coverage = coverageForModels([]result.ModelReport{r.Models[index]})
+		applyCoverageVerdict(&assessment)
+		r.Models[index].Assessment.Verdict = assessment.Verdict
 	}
 }
 
@@ -355,6 +388,9 @@ func materializeModuleCoverage(items map[requirementKey]*result.RequirementAsses
 		modules[module.ID] = module
 	}
 	for _, assessment := range assessments {
+		if !assessment.Requested {
+			continue
+		}
 		module, ok := modules[assessment.ID]
 		if !ok {
 			continue
@@ -367,12 +403,6 @@ func materializeModuleCoverage(items map[requirementKey]*result.RequirementAsses
 			level := result.RequirementOptional
 			if spec.Required {
 				level = result.RequirementCore
-			}
-			if assessment.Applicability == result.ApplicabilityUnknown {
-				// Inventory-only models have no proven applicable module. Keep the
-				// module state visible on the model, but do not manufacture
-				// requirements or a conformance gap from an unknown route.
-				continue
 			}
 			item := get(items, subject, id, spec.Name, spec.Description, level, module.ID)
 			if len(item.Evidence) != 0 {
@@ -403,6 +433,47 @@ func materializeModuleCoverage(items map[requirementKey]*result.RequirementAsses
 			item.BlockedBy = append(item.BlockedBy, assessment.BlockedBy...)
 		}
 	}
+}
+
+func coverageForModels(models []result.ModelReport) result.CoverageMeasure {
+	var out result.CoverageMeasure
+	for _, model := range models {
+		for _, module := range model.Modules {
+			if !module.Requested {
+				continue
+			}
+			out.Expected++
+			switch module.Applicability {
+			case result.ApplicabilityUnknown:
+				out.Unresolved++
+			case result.ApplicabilityNotApplicable:
+				out.Excluded++
+			case result.ApplicabilityApplicable:
+				if module.Execution == result.ExecutionExecuted {
+					out.Executed++
+				} else {
+					out.Unresolved++
+				}
+			}
+		}
+	}
+	return out
+}
+
+func applyCoverageVerdict(assessment *result.ConformanceAssessment) {
+	if assessment.Coverage.Unresolved == 0 {
+		return
+	}
+	assessment.Comparison.Rankable = false
+	assessment.Comparison.VerdictRank = nil
+	if assessment.Core.Fail > 0 {
+		return
+	}
+	if assessment.Coverage.CoreUnresolved > 0 || assessment.Core.Skip > 0 || assessment.Core.Warn > 0 || assessment.Core.Error > 0 {
+		assessment.Verdict, assessment.VerdictReason = "inconclusive", "core_coverage_unresolved"
+		return
+	}
+	assessment.Verdict, assessment.VerdictReason = "pass-with-gaps", "optional_coverage_unresolved"
 }
 
 func nativeProbeSelected(spec profile.Probe, tests []string) bool {
