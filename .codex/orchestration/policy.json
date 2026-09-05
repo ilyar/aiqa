@@ -1,0 +1,15 @@
+{
+  "version": "1.0.0",
+  "researched_at": "2026-09-05",
+  "root": {"model": "gpt-5.6-terra", "effort": "low"},
+  "fast": {"model": "gpt-5.6-luna", "effort": "low"},
+  "baseline": {"model": "gpt-5.6-sol", "effort": "medium"},
+  "max_subagents_per_task": 6,
+  "max_rework_cycles": 1,
+  "max_research_branches": 2,
+  "handoff_word_limit": 600,
+  "observe_rollouts": true,
+  "rollout_max_bytes": 33554432,
+  "memory_limit": 5,
+  "memory_ttl_days": 30
+}
