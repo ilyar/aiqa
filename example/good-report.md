@@ -2,7 +2,7 @@
 
 _measures observed API behavior, a passing report is not a security audit or an official certification_
 
-- **Generated:** 2026-09-05 00:23:35Z
+- **Generated:** 2026-09-05 02:53:06Z
 - **Tool:** `aiqa 1.0.0-alpha.4`
 - **Service:** [127.0.0.1:8080](http://127.0.0.1:8080)
 - **Suites:** `compat,sdk`
@@ -26,7 +26,7 @@ Targets are assessed independently. Percentages are not combined into a cross-pr
 | Target | Logical | Attempts | Successful | 429 | Retry attempts | Recovered | Exhausted | Backoff | Safe req/s | Concurrency | Mean | P50 | P95 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | `anthropic` | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0ms | N/S | N/S | N/S | N/S | N/S |
-| `google-genai` | 10 | 10 | 6 | 0 | 0 | 0 | 0 | 0ms | 3.16 req/s | 6 | 269ms | 132ms | 952ms |
+| `google-genai` | 10 | 10 | 6 | 0 | 0 | 0 | 0 | 0ms | 3.16 req/s | 6 | 270ms | 106ms | 953ms |
 | `openai` | 1 | 1 | 1 | 0 | 0 | 0 | 0 | 0ms | 0.50 req/s | 1 | 0ms | 0ms | 0ms |
 
 ## Target: Anthropic
@@ -149,12 +149,12 @@ Built-in extension transport counts are separate from native latency percentiles
 
 | Suite | Subject | Status | Duration | Summary |
 |---|---|---:|---:|---|
-| `generate-content` | `model:Ternary-Bonsai-1.7B` | PASS | 59ms | Google Gen AI Go SDK sent and parsed the suite |
-| `generate-content-stream` | `model:Ternary-Bonsai-1.7B` | PASS | 272ms | Google Gen AI Go SDK sent and parsed the suite |
+| `generate-content` | `model:Ternary-Bonsai-1.7B` | PASS | 234ms | Google Gen AI Go SDK sent and parsed the suite |
+| `generate-content-stream` | `model:Ternary-Bonsai-1.7B` | PASS | 687ms | Google Gen AI Go SDK sent and parsed the suite |
 | `models.get` | `model:Ternary-Bonsai-1.7B` | PASS | 0ms | Google Gen AI Go SDK sent and parsed the suite |
-| `structured-output` | `model:Ternary-Bonsai-1.7B` | PASS | 237ms | Google Gen AI Go SDK sent and parsed the suite |
-| `tools` | `model:Ternary-Bonsai-1.7B` | PASS | 676ms | Google Gen AI Go SDK sent and parsed the suite |
-| `models.list` | `provider:http://127.0.0.1:8080/genai` | PASS | 1ms | Google Gen AI Go SDK sent and parsed the suite |
+| `structured-output` | `model:Ternary-Bonsai-1.7B` | PASS | 200ms | Google Gen AI Go SDK sent and parsed the suite |
+| `tools` | `model:Ternary-Bonsai-1.7B` | PASS | 642ms | Google Gen AI Go SDK sent and parsed the suite |
+| `models.list` | `provider:http://127.0.0.1:8080/genai` | PASS | 0ms | Google Gen AI Go SDK sent and parsed the suite |
 
 ## Target: OpenAI
 

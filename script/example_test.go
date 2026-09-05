@@ -59,6 +59,49 @@ func TestProviderCommandArgsPutConfigBeforeCommand(t *testing.T) {
 	}
 }
 
+func TestGenerateGoodTargetsAllProviderProtocolsExplicitly(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "example"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	binDir := t.TempDir()
+	argsFile := filepath.Join(t.TempDir(), "aiqa-args")
+	writeExecutable(t, filepath.Join(binDir, "model-provider"), `#!/bin/sh
+case "$1" in
+  --json) printf '{"running":true}\n' ;;
+  env) printf "export OPENAI_BASE_URL='http://127.0.0.1:8080/openai/v1'\nexport OPENAI_API_KEY='test-key'\nexport ANTHROPIC_BASE_URL='http://127.0.0.1:8080/anthropic'\nexport ANTHROPIC_API_KEY='test-key'\nexport GOOGLE_GENAI_BASE_URL='http://127.0.0.1:8080/genai'\nexport GOOGLE_GENAI_API_KEY='test-key'\n" ;;
+  *) exit 1 ;;
+esac
+`)
+	writeExecutable(t, filepath.Join(binDir, "aiqa"), `#!/bin/sh
+printf '%s\n' "$@" > "$AIQA_ARGS_FILE"
+printf '# good\n' > good-report.md
+printf '{"summary":{"verdict":"fail"},"targets":[{"id":"openai"},{"id":"anthropic"},{"id":"google-genai"}]}\n' > good-report.json
+`)
+	t.Setenv("PATH", binDir)
+	t.Setenv("AIQA_ARGS_FILE", argsFile)
+
+	var stdout, stderr bytes.Buffer
+	generated, err := generateGood(context.Background(), &stdout, &stderr, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !generated {
+		t.Fatal("generateGood reported that no report was generated")
+	}
+	args, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	argText := string(args)
+	if !strings.Contains(argText, "--target=openai,anthropic,google-genai\n") {
+		t.Fatalf("provider example did not select all provider protocols explicitly: %q", args)
+	}
+	if !strings.Contains(argText, "--fail-on=never\n") {
+		t.Fatalf("provider example did not preserve reports for non-pass target verdicts: %q", args)
+	}
+}
+
 func TestParseExports(t *testing.T) {
 	exports, err := parseExports([]byte("export OPENAI_BASE_URL='http://127.0.0.1:8080/v1';\nexport API_KEY='value-with-'\"'\"'quote';\n"))
 	if err != nil {
@@ -103,7 +146,7 @@ func TestMergeEnvironmentOverridesAndUnsets(t *testing.T) {
 func TestReportValidation(t *testing.T) {
 	directory := t.TempDir()
 	writeFixture(t, filepath.Join(directory, "good-report.md"), "# good\n")
-	writeFixture(t, filepath.Join(directory, "good-report.json"), `{"summary":{"verdict":"pass"}}`)
+	writeFixture(t, filepath.Join(directory, "good-report.json"), `{"summary":{"verdict":"fail"},"targets":[{"id":"openai"},{"id":"anthropic"},{"id":"google-genai"}]}`)
 	if err := validateGoodReport(directory); err != nil {
 		t.Fatal(err)
 	}

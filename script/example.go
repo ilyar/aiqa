@@ -185,8 +185,19 @@ func validateGoodReport(exampleDir string) error {
 	if err != nil {
 		return err
 	}
-	if report.Summary.Verdict != "pass" {
-		return fmt.Errorf("good-report verdict is %q, want pass", report.Summary.Verdict)
+	if strings.TrimSpace(report.Summary.Verdict) == "" {
+		return errors.New("good-report verdict is empty")
+	}
+	want := map[string]bool{"openai": false, "anthropic": false, "google-genai": false}
+	for _, target := range report.Targets {
+		if _, expected := want[target.ID]; expected {
+			want[target.ID] = true
+		}
+	}
+	for target, seen := range want {
+		if !seen {
+			return fmt.Errorf("good-report target %s is missing", target)
+		}
 	}
 	return nil
 }

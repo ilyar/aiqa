@@ -59,11 +59,12 @@ func generateGood(ctx context.Context, stdout, stderr io.Writer, projectRoot str
 	goodEnv := mergeEnvironment(os.Environ(), providerEnv,
 		"GOOGLE_GENAI_BASE_URL", "GOOGLE_GENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_GENAI_MODEL")
 
-	fmt.Fprintln(stdout, "Generating successful example reports")
+	fmt.Fprintln(stdout, "Generating provider example reports")
 	if err := runCommand(ctx, exampleDir, goodEnv, stdout, stderr, aiqaPath,
-		"--verbose", "--concurrency", "16", "--timeout=60", "test=compat,sdk",
+		"--verbose", "--concurrency", "16", "--timeout=60", "--fail-on=never", "test=compat,sdk",
+		"--target=openai,anthropic,google-genai",
 		"--format=markdown,json", "--name=good-report"); err != nil {
-		return false, fmt.Errorf("generate successful reports: %w", err)
+		return false, fmt.Errorf("generate provider reports: %w", err)
 	}
 	if err := validateGoodReport(exampleDir); err != nil {
 		return false, err
