@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ilyar/aiqa/internal/config"
 	"github.com/ilyar/aiqa/internal/result"
@@ -572,7 +574,7 @@ func writeTargetExtensions(b *strings.Builder, runs []result.ExtensionRun, rateL
 		fmt.Fprintln(b, "|---|---|---:|---:|---|")
 		for _, run := range groups[id] {
 			for _, suite := range run.Suites {
-				fmt.Fprintf(b, "| `%s` | `%s:%s` | %s | %dms | %s |\n", escapeCell(suite.SuiteID), escapeCell(suite.Subject.Kind), escapeCell(suite.Subject.ID), statusLabel(suite.Status), suite.DurationMS, extensionSummary(suite))
+				fmt.Fprintf(b, "| `%s` | `%s:%s` | %s | %s | %s |\n", escapeCell(suite.SuiteID), escapeCell(suite.Subject.Kind), escapeCell(suite.Subject.ID), statusLabel(suite.Status), formatExtensionDuration(suite.DurationNS, suite.DurationMS), extensionSummary(suite))
 			}
 		}
 		fmt.Fprintln(b)
@@ -591,6 +593,44 @@ func writeTargetExtensions(b *strings.Builder, runs []result.ExtensionRun, rateL
 			fmt.Fprintln(b)
 		}
 	}
+}
+
+func formatExtensionDuration(durationNS, durationMS int64) string {
+	if durationNS > 0 {
+		return formatMeasuredDuration(durationNS)
+	}
+	if durationMS > 0 {
+		return fmt.Sprintf("%dms", durationMS)
+	}
+	// Legacy executable extensions report only integer milliseconds. A zero
+	// therefore means an observed duration below that resolution, not no time.
+	return "<1ms"
+}
+
+// formatMeasuredDuration keeps a report column stable: use the largest unit
+// at or below the measured Go-clock duration and retain at most three
+// significant digits. Go measures only to nanoseconds, so ps is intentionally
+// never fabricated.
+func formatMeasuredDuration(ns int64) string {
+	for _, unit := range []struct {
+		ns     int64
+		suffix string
+	}{{int64(time.Millisecond), "ms"}, {int64(time.Microsecond), "µs"}, {1, "ns"}} {
+		if ns >= unit.ns {
+			value := float64(ns) / float64(unit.ns)
+			digits := len(strconv.FormatInt(int64(value), 10))
+			precision := 3 - digits
+			if precision < 0 {
+				precision = 0
+			}
+			formatted := strconv.FormatFloat(value, 'f', precision, 64)
+			if precision > 0 {
+				formatted = strings.TrimRight(strings.TrimRight(formatted, "0"), ".")
+			}
+			return formatted + unit.suffix
+		}
+	}
+	return "<1ns"
 }
 
 // extensionSummary keeps the compact table useful for passing suites while

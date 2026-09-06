@@ -256,6 +256,7 @@ type ExtensionSuiteResult struct {
 	Outcome               ExtensionOutcome `json:"outcome"`
 	Status                Status           `json:"status"`
 	DurationMS            int64            `json:"duration_ms"`
+	DurationNS            int64            `json:"duration_ns,omitempty"`
 	Summary               string           `json:"summary"`
 	HTTP                  HTTPObservation  `json:"http,omitempty"`
 	Usage                 Usage            `json:"usage,omitempty"`

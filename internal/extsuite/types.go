@@ -116,12 +116,16 @@ type SuiteEvent struct {
 	Subject       result.SubjectRef       `json:"subject"`
 	Outcome       result.ExtensionOutcome `json:"outcome"`
 	DurationMS    int64                   `json:"duration_ms"`
-	Summary       string                  `json:"summary"`
-	ErrorKind     string                  `json:"error_kind,omitempty"`
-	HTTP          result.HTTPObservation  `json:"http,omitempty"`
-	Usage         result.Usage            `json:"usage,omitempty"`
-	Signals       []result.EvidenceSignal `json:"signals,omitempty"`
-	Error         string                  `json:"error,omitempty"`
+	// DurationNS is optional for backward compatibility with extension v2.
+	// Built-in suites populate it from Go's monotonic clock so Markdown does
+	// not turn a completed sub-millisecond call into the misleading "0ms".
+	DurationNS int64                   `json:"duration_ns,omitempty"`
+	Summary    string                  `json:"summary"`
+	ErrorKind  string                  `json:"error_kind,omitempty"`
+	HTTP       result.HTTPObservation  `json:"http,omitempty"`
+	Usage      result.Usage            `json:"usage,omitempty"`
+	Signals    []result.EvidenceSignal `json:"signals,omitempty"`
+	Error      string                  `json:"error,omitempty"`
 }
 
 // TraceEvent is a safe, cooperative lifecycle record emitted by executable

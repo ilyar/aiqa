@@ -84,7 +84,7 @@
       "type": "object", "required": ["schema_version", "type", "run_id", "extension_id", "suite_id", "subject", "outcome", "duration_ms", "summary"],
       "properties": {
         "schema_version": {"const": "aiqa.ext.v2"}, "type": {"const": "suite_result"}, "run_id": {"type": "string"}, "extension_id": {"$ref": "#/$defs/stableID"}, "suite_id": {"$ref": "#/$defs/stableID"}, "subject": {"$ref": "#/$defs/subject"},
-        "outcome": {"enum": ["pass", "assertion_failed", "request_rejected", "execution_error", "skip"]}, "duration_ms": {"type": "integer", "minimum": 0}, "summary": {"type": "string", "minLength": 1},
+        "outcome": {"enum": ["pass", "assertion_failed", "request_rejected", "execution_error", "skip"]}, "duration_ms": {"type": "integer", "minimum": 0}, "duration_ns": {"type": "integer", "minimum": 1}, "summary": {"type": "string", "minLength": 1},
         "error_kind": {"const": "capability_rejection"}, "http": {"$ref": "#/$defs/httpObservation"}, "usage": {"$ref": "#/$defs/usage"}, "signals": {"type": "array", "items": {"$ref": "#/$defs/signal"}}, "error": {"type": "string"}
       },
       "additionalProperties": false

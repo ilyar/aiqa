@@ -274,6 +274,7 @@ func (c *Collector) emit(ctx context.Context, event SuiteEvent) error {
 		Outcome:     event.Outcome,
 		Status:      deriveStatus(event, binding, bound, c.profile),
 		DurationMS:  event.DurationMS,
+		DurationNS:  event.DurationNS,
 		Summary:     redact(event.Summary, c.secret),
 		HTTP:        event.HTTP,
 		Usage:       event.Usage,

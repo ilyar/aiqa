@@ -170,7 +170,9 @@ func runSuite(ctx context.Context, client *openaisdk.Client, request extsuite.Ru
 	default:
 		err = fmt.Errorf("unknown OpenAI SDK suite %q", suiteID)
 	}
-	event.DurationMS = time.Since(started).Milliseconds()
+	duration := time.Since(started)
+	event.DurationMS = duration.Milliseconds()
+	event.DurationNS = duration.Nanoseconds()
 	if err == nil {
 		event.Outcome = result.ExtensionOutcomePass
 		event.Summary = "OpenAI Go SDK sent and parsed the suite"

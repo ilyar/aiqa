@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ilyar/aiqa/internal/config"
 	"github.com/ilyar/aiqa/internal/result"
@@ -263,6 +264,27 @@ func TestMarkdownV3GroupsExtensionSuitesWithoutExecutablePath(t *testing.T) {
 	}
 	if strings.Contains(markdown, "/private/bin") || strings.Contains(markdown, "Runner issues") {
 		t.Fatalf("Markdown exposed transport detail or a successful runner issue:\n%s", markdown)
+	}
+}
+
+func TestFormatExtensionDurationUsesMeasuredPrecisionOrLegacyBound(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		ns   int64
+		ms   int64
+		want string
+	}{
+		{name: "milliseconds", ns: int64(12 * time.Millisecond), want: "12ms"},
+		{name: "milliseconds rounded", ns: int64(1798 * time.Microsecond), want: "1.8ms"},
+		{name: "microseconds", ns: int64(125 * time.Microsecond), want: "125µs"},
+		{name: "nanoseconds", ns: 125, want: "125ns"},
+		{name: "legacy submillisecond", want: "<1ms"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := formatExtensionDuration(test.ns, test.ms); got != test.want {
+				t.Fatalf("formatExtensionDuration(%d, %d) = %q, want %q", test.ns, test.ms, got, test.want)
+			}
+		})
 	}
 }
 

@@ -133,7 +133,7 @@
       "properties": {
         "extension_id": {"type": "string"}, "suite_id": {"type": "string"}, "subject": {"$ref": "#/$defs/subject"},
         "outcome": {"enum": ["pass", "assertion_failed", "request_rejected", "execution_error", "skip"]}, "status": {"$ref": "#/$defs/status"},
-        "duration_ms": {"type": "integer", "minimum": 0}, "summary": {"type": "string", "minLength": 1}, "http": {"$ref": "#/$defs/httpObservation"}, "usage": {"$ref": "#/$defs/usage"},
+        "duration_ms": {"type": "integer", "minimum": 0}, "duration_ns": {"type": "integer", "minimum": 1}, "summary": {"type": "string", "minLength": 1}, "http": {"$ref": "#/$defs/httpObservation"}, "usage": {"$ref": "#/$defs/usage"},
         "signals": {"type": "array", "items": {"$ref": "#/$defs/signal"}}, "requirement_id": {"type": "string"}, "related_requirement_ids": {"type": "array", "items": {"type": "string"}},
         "bound": {"type": "boolean"}, "artifact_ref": {"type": "string"}, "error": {"type": "string"},
         "error_kind": {"enum": ["deadline_exceeded", "cancelled", "transport", "assertion", "process", "capability_rejection"]}, "error_code": {"type": "string"}, "classification": {"$ref": "#/$defs/classification"}

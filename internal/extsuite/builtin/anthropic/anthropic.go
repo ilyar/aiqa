@@ -84,7 +84,9 @@ func runSuite(ctx context.Context, client *anthropicsdk.Client, request extsuite
 		defer cancel()
 	}
 	usage, err := runCase(ctx, client, suiteID, request.Subject.ID)
-	event.DurationMS = time.Since(started).Milliseconds()
+	duration := time.Since(started)
+	event.DurationMS = duration.Milliseconds()
+	event.DurationNS = duration.Nanoseconds()
 	event.Usage = usage
 	if err == nil {
 		event.Outcome = result.ExtensionOutcomePass
