@@ -15,7 +15,6 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 
 	"github.com/ilyar/aiqa/internal/extsuite"
-	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/result"
 )
 
@@ -70,21 +69,10 @@ func (e *Extension) Run(ctx context.Context, request extsuite.RunRequest, sink e
 		clientOptions = append(clientOptions, option.WithHTTPClient(request.Runtime.HTTPClient))
 	}
 	client := anthropicsdk.NewClient(clientOptions...)
-	executor := request.Runtime.Executor
-	if executor == nil {
-		executor = probe.NewExecutor(1)
-	}
-	tasks := make([]func() extsuite.SuiteEvent, 0, len(request.SuiteIDs))
-	for _, suiteID := range request.SuiteIDs {
-		suiteID := suiteID
-		tasks = append(tasks, func() extsuite.SuiteEvent { return runSuite(ctx, &client, request, suiteID) })
-	}
-	for _, event := range probe.Map(executor, tasks...) {
-		if err := sink.Emit(event); err != nil {
-			return extsuite.RunnerTelemetry{TotalDuration: time.Since(started)}, err
-		}
-	}
-	return extsuite.RunnerTelemetry{TotalDuration: time.Since(started)}, nil
+	err := extsuite.ExecuteBuiltinSuites(ctx, request, extensionID, sink, func(suiteCtx context.Context, suiteID string) extsuite.SuiteEvent {
+		return runSuite(suiteCtx, &client, request, suiteID)
+	})
+	return extsuite.RunnerTelemetry{TotalDuration: time.Since(started)}, err
 }
 
 func runSuite(ctx context.Context, client *anthropicsdk.Client, request extsuite.RunRequest, suiteID string) extsuite.SuiteEvent {

@@ -33,14 +33,26 @@ type paramCall struct {
 
 func RunModelParameters(ctx context.Context, env Environment, model string, metadata map[string]any) ([]result.ParameterResult, *result.ContextProbeResult) {
 	var out []result.ParameterResult
-
-	env.logf(logging.Trace, "[%s] model-param: output limits", model)
-	baseline := runParamChat(ctx, env, model, map[string]any{}, longOutputPrompt(), 0)
+	ctx, suiteOp := env.startSuite(ctx, "model-param", logging.Fields{"model": model})
+	defer endOperation(suiteOp, "completed", nil)
+	baselineCtx, baselineOp := env.startProbe(ctx, model, "model-param", "model-param.baseline")
+	baseline := runParamChat(baselineCtx, env, model, map[string]any{}, longOutputPrompt(), 0)
+	baselineOutcome := "response"
+	if baseline.Err != nil && baseline.Resp.StatusCode == 0 {
+		baselineOutcome = "error"
+	}
+	endOperation(baselineOp, baselineOutcome, logging.Fields{"probe": "model-param.baseline", "http_status": baseline.Resp.StatusCode, "duration_ms": baseline.Resp.Duration.Milliseconds()})
 	outputLimits := probe.Map(env.Probes,
 		func() result.ParameterResult {
-			return probeOutputLimit(ctx, env, model, "max_completion_tokens", baseline)
+			return env.runParameterProbe(ctx, model, "max_completion_tokens", func(probeCtx context.Context) result.ParameterResult {
+				return probeOutputLimit(probeCtx, env, model, "max_completion_tokens", baseline)
+			})
 		},
-		func() result.ParameterResult { return probeOutputLimit(ctx, env, model, "max_tokens", baseline) },
+		func() result.ParameterResult {
+			return env.runParameterProbe(ctx, model, "max_tokens", func(probeCtx context.Context) result.ParameterResult {
+				return probeOutputLimit(probeCtx, env, model, "max_tokens", baseline)
+			})
+		},
 	)
 	maxCompletion, maxTokens := outputLimits[0], outputLimits[1]
 	// Count the shared unlimited baseline exactly once in aggregate usage.
@@ -50,43 +62,72 @@ func RunModelParameters(ctx context.Context, env Environment, model string, meta
 	out = append(out, maxCompletion, maxTokens)
 	limit := chooseOutputLimit(maxCompletion, maxTokens)
 
-	env.logf(logging.Trace, "[%s] model-param: scheduling independent probes", model)
 	type group struct {
 		parameters []result.ParameterResult
 		context    *result.ContextProbeResult
 	}
 	groups := probe.Map(env.Probes,
-		func() group { return group{context: ProbeContextWindow(ctx, env, model, metadata, limit.Parameter)} },
-		func() group { return group{parameters: probeReasoningControls(ctx, env, model, limit.Parameter)} },
 		func() group {
-			return group{parameters: []result.ParameterResult{probeVerbosity(ctx, env, model, limit.Parameter)}}
+			probeCtx, op := env.startProbe(ctx, model, "model-param", "context-window")
+			value := ProbeContextWindow(probeCtx, env, model, metadata, limit.Parameter)
+			endOperation(op, string(value.Status), logging.Fields{"probe": "context-window", "status": string(value.Status), "sample_count": value.ProbeCount})
+			return group{context: value}
 		},
 		func() group {
-			return group{parameters: []result.ParameterResult{probeTemperature(ctx, env, model, limit.Parameter)}}
+			probeCtx, op := env.startProbe(ctx, model, "model-param", "reasoning-controls")
+			values := probeReasoningControls(probeCtx, env, model, limit.Parameter)
+			endOperation(op, "completed", logging.Fields{"probe": "reasoning-controls", "test_count": len(values)})
+			return group{parameters: values}
 		},
 		func() group {
-			return group{parameters: []result.ParameterResult{probeTopP(ctx, env, model, limit.Parameter)}}
+			return group{parameters: []result.ParameterResult{env.runParameterProbe(ctx, model, "verbosity", func(probeCtx context.Context) result.ParameterResult {
+				return probeVerbosity(probeCtx, env, model, limit.Parameter)
+			})}}
 		},
 		func() group {
-			return group{parameters: []result.ParameterResult{probeSeed(ctx, env, model, limit.Parameter)}}
+			return group{parameters: []result.ParameterResult{env.runParameterProbe(ctx, model, "temperature", func(probeCtx context.Context) result.ParameterResult {
+				return probeTemperature(probeCtx, env, model, limit.Parameter)
+			})}}
 		},
 		func() group {
-			return group{parameters: []result.ParameterResult{probeStop(ctx, env, model, limit.Parameter)}}
+			return group{parameters: []result.ParameterResult{env.runParameterProbe(ctx, model, "top_p", func(probeCtx context.Context) result.ParameterResult {
+				return probeTopP(probeCtx, env, model, limit.Parameter)
+			})}}
 		},
 		func() group {
-			return group{parameters: []result.ParameterResult{probeN(ctx, env, model, limit.Parameter)}}
+			return group{parameters: []result.ParameterResult{env.runParameterProbe(ctx, model, "seed", func(probeCtx context.Context) result.ParameterResult {
+				return probeSeed(probeCtx, env, model, limit.Parameter)
+			})}}
 		},
 		func() group {
-			return group{parameters: []result.ParameterResult{probeParallelToolCalls(ctx, env, model, limit.Parameter)}}
+			return group{parameters: []result.ParameterResult{env.runParameterProbe(ctx, model, "stop", func(probeCtx context.Context) result.ParameterResult {
+				return probeStop(probeCtx, env, model, limit.Parameter)
+			})}}
 		},
 		func() group {
-			return group{parameters: []result.ParameterResult{probeSimpleValidatedParameter(ctx, env, model, limit.Parameter, "presence_penalty", 0.5, 3.0)}}
+			return group{parameters: []result.ParameterResult{env.runParameterProbe(ctx, model, "n", func(probeCtx context.Context) result.ParameterResult {
+				return probeN(probeCtx, env, model, limit.Parameter)
+			})}}
 		},
 		func() group {
-			return group{parameters: []result.ParameterResult{probeSimpleValidatedParameter(ctx, env, model, limit.Parameter, "frequency_penalty", 0.5, 3.0)}}
+			return group{parameters: []result.ParameterResult{env.runParameterProbe(ctx, model, "parallel_tool_calls", func(probeCtx context.Context) result.ParameterResult {
+				return probeParallelToolCalls(probeCtx, env, model, limit.Parameter)
+			})}}
 		},
 		func() group {
-			return group{parameters: []result.ParameterResult{probeLogprobsParameter(ctx, env, model, limit.Parameter)}}
+			return group{parameters: []result.ParameterResult{env.runParameterProbe(ctx, model, "presence_penalty", func(probeCtx context.Context) result.ParameterResult {
+				return probeSimpleValidatedParameter(probeCtx, env, model, limit.Parameter, "presence_penalty", 0.5, 3.0)
+			})}}
+		},
+		func() group {
+			return group{parameters: []result.ParameterResult{env.runParameterProbe(ctx, model, "frequency_penalty", func(probeCtx context.Context) result.ParameterResult {
+				return probeSimpleValidatedParameter(probeCtx, env, model, limit.Parameter, "frequency_penalty", 0.5, 3.0)
+			})}}
+		},
+		func() group {
+			return group{parameters: []result.ParameterResult{env.runParameterProbe(ctx, model, "logprobs/top_logprobs", func(probeCtx context.Context) result.ParameterResult {
+				return probeLogprobsParameter(probeCtx, env, model, limit.Parameter)
+			})}}
 		},
 	)
 	var contextResult *result.ContextProbeResult

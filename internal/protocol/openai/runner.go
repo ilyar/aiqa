@@ -19,6 +19,7 @@ import (
 	reportpkg "github.com/ilyar/aiqa/internal/report"
 	"github.com/ilyar/aiqa/internal/result"
 	"github.com/ilyar/aiqa/internal/suites"
+	"github.com/ilyar/aiqa/internal/telemetry"
 )
 
 // RunTarget executes one OpenAI-compatible target through the common protocol
@@ -52,7 +53,14 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 		return protocolpkg.RunResult{}, err
 	}
 	client.SetConcurrency(cfg.Concurrency)
+	client.SetLogger(options.Logger)
+	client.SetLogFields(logging.Fields{"target": target.ID, "protocol": string(target.Protocol)})
 	executor := probe.NewExecutor(cfg.Concurrency)
+	executor.SetLogger(options.Logger)
+	executor.SetLogFields(logging.Fields{"target": target.ID, "protocol": string(target.Protocol)})
+	client.SetTelemetry(options.Telemetry)
+	client.SetOTelPropagationAllowlist(cfg.OTelPropagationTo)
+	executor.SetTelemetry(options.Telemetry)
 	runtime := protocolpkg.Runtime{Client: client, Executor: executor}
 	tmp := result.Report{
 		SchemaVersion: "aiqa.report.internal",
@@ -71,24 +79,47 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 	if logf == nil {
 		logf = func(logging.Level, string, ...any) {}
 	}
-	env := suites.Environment{Client: client, Config: cfg, Profile: p, Logf: logf, Probes: executor}
+	env := suites.Environment{TargetID: target.ID, Client: client, Config: cfg, Profile: p, Logf: logf, Probes: executor, Telemetry: options.Telemetry}
 
-	listCtx, cancel := context.WithTimeout(ctx, cfg.Timeout)
+	// Discovery is a provider-scoped native test, not an unowned transport
+	// setup call. Keep its concrete probe live through derivation of every
+	// report-visible discovery result.
+	discoveryCtx := ctx
+	var discoveryProvider, discoverySuite, discoveryProbe interface{ End(string, logging.Fields) }
+	if options.Telemetry != nil {
+		var providerCtx, suiteCtx context.Context
+		providerCtx, discoveryProvider = options.Telemetry.Start(logging.Scope(ctx, target.ID, "", "", "", ""), "provider", logging.Fields{"target": target.ID})
+		suiteCtx, discoverySuite = options.Telemetry.Start(logging.Scope(providerCtx, target.ID, "", "discovery", "", ""), "suite", logging.Fields{"suite": "discovery"})
+		discoveryCtx, discoveryProbe = options.Telemetry.Start(logging.Scope(suiteCtx, target.ID, "", "discovery", "models.list.http", ""), "probe", logging.Fields{"probe": "aiqa.native.models.list.http"})
+	}
+	listCtx, cancel := context.WithTimeout(discoveryCtx, cfg.Timeout)
 	models, listResp, listErr := client.ListModels(listCtx)
 	cancel()
 	tmp.Discovery.ModelCount = len(models)
 	for _, model := range models {
 		tmp.Discovery.Models = append(tmp.Discovery.Models, cloneMap(model.Raw))
 	}
+	discoveryTests := suites.DiscoveryTests(p, listResp, models, listErr)
+	if discoveryProbe != nil {
+		outcome := protocolpkg.AggregateTestOutcome(discoveryTests)
+		for _, test := range discoveryTests {
+			discoveryProbe.(interface {
+				Event(logging.Level, string, logging.Fields)
+			}).Event(logging.Trace, "validator", logging.Fields{"result_id": test.ID, "status": string(test.Status), "http_status": test.HTTP.StatusCode, "duration_ms": test.DurationMS, "error_present": test.Error != ""})
+		}
+		discoveryProbe.End(outcome, logging.Fields{"status": outcome, "result_count": len(discoveryTests)})
+		discoverySuite.End(outcome, logging.Fields{"status": outcome})
+		discoveryProvider.End(outcome, logging.Fields{"status": outcome})
+	}
 	if cfg.HasTest("compat") {
-		tmp.Discovery.Tests = append(tmp.Discovery.Tests, suites.DiscoveryTests(p, listResp, models, listErr)...)
+		tmp.Discovery.Tests = append(tmp.Discovery.Tests, discoveryTests...)
 	}
 
 	requested := requestedModels(cfg, target)
 	selected, metadata := selectModels(requested, models)
 	if len(selected) == 0 {
 		if !cfg.HasTest("compat") {
-			tmp.Discovery.Tests = append(tmp.Discovery.Tests, suites.DiscoveryTests(p, listResp, models, listErr)...)
+			tmp.Discovery.Tests = append(tmp.Discovery.Tests, discoveryTests...)
 		}
 		finish(&tmp, p, target)
 		out := protocolpkg.RunResult{Target: toTarget(target, tmp), Runtime: runtime}
@@ -119,7 +150,17 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 		}
 		classifications[index] = capability.Classify(model, metadata[model], capability.Options{BaseURL: target.BaseURL, Overrides: overrides, UnknownPolicy: unknownPolicy})
 		if explicit && classifications[index].Unknown {
-			test, response, preflightErr := suites.RunChatPreflight(ctx, env, model)
+			preflightCtx := logging.Scope(ctx, target.ID, model, "", "", "")
+			var modelEnd func(string, logging.Fields)
+			if options.Telemetry != nil {
+				var modelOp *telemetry.Operation
+				preflightCtx, modelOp = options.Telemetry.Start(preflightCtx, "model", logging.Fields{"model": model})
+				modelEnd = modelOp.End
+			} else {
+				modelEnd = func(string, logging.Fields) {}
+			}
+			test, response, preflightErr := suites.RunChatPreflight(preflightCtx, env, model)
+			modelEnd(string(test.Status), logging.Fields{"status": string(test.Status), "http_status": test.HTTP.StatusCode})
 			preflightTests[index], preflights[index], preflightErrors[index] = &test, &response, preflightErr
 			switch {
 			case response.Is2xx() && preflightErr == nil:
@@ -191,7 +232,15 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 			defer wg.Done()
 			for index := range jobs {
 				model := selected[index]
-				logf(logging.Debug, "[%s/%s] start", target.ID, model)
+				modelCtx := logging.Scope(ctx, target.ID, model, "", "", "")
+				var modelEnd func(string, logging.Fields)
+				if options.Telemetry != nil {
+					var modelOp interface{ End(string, logging.Fields) }
+					modelCtx, modelOp = options.Telemetry.Start(modelCtx, "model", logging.Fields{"model": model})
+					modelEnd = modelOp.End
+				} else {
+					modelEnd = func(string, logging.Fields) {}
+				}
 				mr := result.ModelReport{ID: model, Metadata: cloneMap(metadata[model]), Modules: modulePlans[index]}
 				for _, evidence := range classifications[index].Capabilities {
 					mr.Capabilities = append(mr.Capabilities, result.CapabilityAssessment{ID: evidence.Capability, Source: evidence.Source, Rule: evidence.Rule, Confidence: evidence.Confidence, Reason: evidence.Reason})
@@ -201,18 +250,23 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 				if cfg.HasTest("compat") && preflightTests[index] != nil && routeBlocked[index] {
 					mr.Compatibility = append(mr.Compatibility, *preflightTests[index])
 				} else if cfg.HasTest("compat") && chatModule != nil && chatModule.Execution == result.ExecutionExecuted {
-					mr.Compatibility = suites.RunModelCompatWithPreflight(ctx, env, model, preflights[index], preflightErrors[index])
+					mr.Compatibility = suites.RunModelCompatWithPreflight(modelCtx, env, model, preflights[index], preflightErrors[index])
 				}
 				if cfg.HasTest("compat") && imageModule != nil && imageModule.Execution == result.ExecutionExecuted {
-					mr.Compatibility = append(mr.Compatibility, suites.RunImageCompat(ctx, env, model)...)
+					mr.Compatibility = append(mr.Compatibility, suites.RunImageCompat(modelCtx, env, model)...)
 				}
 				suites.SortTests(mr.Compatibility)
+				if routeBlocked[index] && options.Telemetry != nil {
+					protocolpkg.LogTestResultsWithTelemetry(modelCtx, options.Telemetry, target.ID, model, mr.Compatibility)
+				} else if routeBlocked[index] {
+					protocolpkg.LogTestResults(logf, target.ID, model, mr.Compatibility)
+				}
 				if cfg.HasTest("model-param") && chatModule != nil && chatModule.Execution == result.ExecutionExecuted {
-					mr.Parameters, mr.Context = suites.RunModelParameters(ctx, env, model, metadata[model])
+					mr.Parameters, mr.Context = suites.RunModelParameters(modelCtx, env, model, metadata[model])
 				}
 				stats := client.PacingStatsForModel(model)
 				mr.RateLimit = protocolpkg.RateLimitStats(stats)
-				logf(logging.Debug, "[%s/%s] done", target.ID, model)
+				modelEnd("completed", logging.Fields{"status": "completed"})
 				modelResults <- modelItem{index: index, report: mr}
 			}
 		}()

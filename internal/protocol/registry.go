@@ -15,6 +15,7 @@ import (
 	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/profile"
 	"github.com/ilyar/aiqa/internal/result"
+	"github.com/ilyar/aiqa/internal/telemetry"
 )
 
 // RunOptions is the protocol-neutral portion of a native target invocation.
@@ -24,6 +25,10 @@ type RunOptions struct {
 	Profile   profile.Profile
 	UserAgent string
 	Logf      func(logging.Level, string, ...any)
+	// Logger is the private diagnostic sink shared with the target transport.
+	// Logf remains for compatibility with protocol implementations and tests.
+	Logger    *logging.Logger
+	Telemetry *telemetry.Provider
 }
 
 // Runtime is the protocol-neutral execution state shared with extension

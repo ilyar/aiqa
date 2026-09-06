@@ -57,7 +57,6 @@ GET {{base}}/models
     } else {
         request.variables.set("path", "chat/completions")
     }
-    // TODO set content to client
     const key = request.environment.get("key")
     if (kind === "genai") {
         client.global.headers.set("X-goog-api-key", key)

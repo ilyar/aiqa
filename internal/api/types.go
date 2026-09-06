@@ -23,6 +23,7 @@ type Response struct {
 	Body        []byte
 	JSON        map[string]any
 	Duration    time.Duration
+	TraceID     string
 }
 
 func (r Response) Is2xx() bool { return r.StatusCode >= 200 && r.StatusCode < 300 }
@@ -48,6 +49,7 @@ type StreamResponse struct {
 	InvalidEvents []string
 	ToolCalls     []map[string]any
 	RawSnippet    string
+	TraceID       string
 }
 
 func (r StreamResponse) Is2xx() bool { return r.StatusCode >= 200 && r.StatusCode < 300 }

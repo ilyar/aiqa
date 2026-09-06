@@ -24,6 +24,7 @@ import (
 	protocolpkg "github.com/ilyar/aiqa/internal/protocol"
 	reportpkg "github.com/ilyar/aiqa/internal/report"
 	"github.com/ilyar/aiqa/internal/result"
+	"github.com/ilyar/aiqa/internal/telemetry"
 )
 
 type RunOptions struct {
@@ -32,6 +33,8 @@ type RunOptions struct {
 	Profile   profile.Profile
 	UserAgent string
 	Logf      func(logging.Level, string, ...any)
+	Logger    *logging.Logger
+	Telemetry *telemetry.Provider
 	Runtime   *Runtime
 }
 
@@ -49,7 +52,7 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 	runtime := &Runtime{}
 	target, err := Run(ctx, RunOptions{
 		Target: options.Target, Config: options.Config, Profile: options.Profile,
-		UserAgent: options.UserAgent, Logf: options.Logf, Runtime: runtime,
+		UserAgent: options.UserAgent, Logf: options.Logf, Logger: options.Logger, Telemetry: options.Telemetry, Runtime: runtime,
 	})
 	return protocolpkg.RunResult{
 		Target:  target,
@@ -92,7 +95,14 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 		return result.TargetReport{}, err
 	}
 	client.SetConcurrency(cfg.Concurrency)
+	client.TransportClient().SetLogger(options.Logger)
+	client.TransportClient().SetLogFields(logging.Fields{"target": target.ID, "protocol": string(target.Protocol)})
 	probeExecutor := probe.NewExecutor(cfg.Concurrency)
+	probeExecutor.SetLogger(options.Logger)
+	probeExecutor.SetLogFields(logging.Fields{"target": target.ID, "protocol": string(target.Protocol)})
+	client.TransportClient().SetTelemetry(options.Telemetry)
+	client.TransportClient().SetOTelPropagationAllowlist(cfg.OTelPropagationTo)
+	probeExecutor.SetTelemetry(options.Telemetry)
 	if options.Runtime != nil {
 		options.Runtime.Client = client.TransportClient()
 		options.Runtime.Executor = probeExecutor
@@ -100,16 +110,36 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	requested := requestedModels(cfg, target)
 	tmp := result.Report{SchemaVersion: "aiqa.report.internal", Profile: profileInfo(p), Config: result.PublicConfig{BaseURL: target.BaseURL, Tests: cfg.Tests, RequestedModels: requested, Timeout: cfg.Timeout.String(), Formats: cfg.Formats, ExtSuites: cfg.ExtSuites, FailOn: cfg.FailOn, Guidance: cfg.Guidance, GuidancePack: cfg.GuidancePack, GuidanceLocale: cfg.GuidanceLocale}}
 
-	listCtx, cancel := context.WithTimeout(ctx, cfg.Timeout)
+	discoveryCtx := ctx
+	var discoveryProvider, discoverySuite, discoveryProbe interface{ End(string, logging.Fields) }
+	if options.Telemetry != nil {
+		var providerCtx, suiteCtx context.Context
+		providerCtx, discoveryProvider = options.Telemetry.Start(logging.Scope(ctx, target.ID, "", "", "", ""), "provider", logging.Fields{"target": target.ID})
+		suiteCtx, discoverySuite = options.Telemetry.Start(logging.Scope(providerCtx, target.ID, "", "discovery", "", ""), "suite", logging.Fields{"suite": "discovery"})
+		discoveryCtx, discoveryProbe = options.Telemetry.Start(logging.Scope(suiteCtx, target.ID, "", "discovery", "anthropic.models.list.http", ""), "probe", logging.Fields{"probe": "aiqa.native.anthropic.models.list.http"})
+	}
+	listCtx, cancel := context.WithTimeout(discoveryCtx, cfg.Timeout)
 	models, listResp, listErr := client.ListModels(listCtx)
 	cancel()
 	tmp.Discovery.ModelCount = len(models)
 	for _, model := range models {
 		tmp.Discovery.Models = append(tmp.Discovery.Models, cloneMap(model.Raw))
 	}
+	discoveryTests := discoveryResults(p, listResp, models, listErr)
+	if discoveryProbe != nil {
+		outcome := protocolpkg.AggregateTestOutcome(discoveryTests)
+		for _, test := range discoveryTests {
+			discoveryProbe.(interface {
+				Event(logging.Level, string, logging.Fields)
+			}).Event(logging.Trace, "validator", logging.Fields{"result_id": test.ID, "status": string(test.Status), "http_status": test.HTTP.StatusCode, "duration_ms": test.DurationMS, "error_present": test.Error != ""})
+		}
+		discoveryProbe.End(outcome, logging.Fields{"status": outcome, "result_count": len(discoveryTests)})
+		discoverySuite.End(outcome, logging.Fields{"status": outcome})
+		discoveryProvider.End(outcome, logging.Fields{"status": outcome})
+	}
 	if cfg.HasTest("compat") {
-		tmp.Discovery.Tests = append(tmp.Discovery.Tests, discoveryResults(p, listResp, models, listErr)...)
-		tmp.Discovery.Tests = append(tmp.Discovery.Tests, paginationResult(ctx, client, cfg.Timeout, p, listResp, models, listErr))
+		tmp.Discovery.Tests = append(tmp.Discovery.Tests, discoveryTests...)
+		tmp.Discovery.Tests = append(tmp.Discovery.Tests, paginationResult(ctx, client, cfg.Timeout, p, listResp, models, listErr, options.Telemetry))
 	}
 	selected, metadata := selectModels(requested, models)
 	if len(selected) == 0 {
@@ -148,7 +178,25 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 		}
 		classifications[index] = capability.ClassifyAnthropic(model, metadata[model], capability.Options{BaseURL: target.BaseURL, Overrides: overrides, UnknownPolicy: unknownPolicy})
 		if len(requested) > 0 && classifications[index].Unknown {
-			test, response, preflightErr := runMessagesPreflight(ctx, client, cfg.Timeout, p, model)
+			var test result.TestResult
+			var response api.Response
+			var preflightErr error
+			preflightCtx := logging.Scope(ctx, target.ID, model, "", "", "")
+			var modelEnd func(string, logging.Fields)
+			if options.Telemetry != nil {
+				var modelOp *telemetry.Operation
+				preflightCtx, modelOp = options.Telemetry.Start(preflightCtx, "model", logging.Fields{"model": model})
+				modelEnd = modelOp.End
+			} else {
+				modelEnd = func(string, logging.Fields) {}
+			}
+			// The preflight is itself the report-visible basic-message test. Its
+			// request and validator must therefore share one concrete lifecycle.
+			runNativeProbe(preflightCtx, options.Telemetry, "anthropic.messages.basic", func(probeCtx context.Context) result.TestResult {
+				test, response, preflightErr = runMessagesPreflight(probeCtx, client, cfg.Timeout, p, model)
+				return test
+			})
+			modelEnd(string(test.Status), logging.Fields{"status": string(test.Status), "http_status": test.HTTP.StatusCode})
 			preflightTests[index], preflights[index], preflightErrors[index] = &test, &response, preflightErr
 			switch {
 			case response.Is2xx() && preflightErr == nil:
@@ -197,8 +245,14 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 			defer wg.Done()
 			for index := range jobs {
 				model := selected[index]
-				if options.Logf != nil {
-					options.Logf(logging.Debug, "[%s/%s] start", target.ID, model)
+				modelCtx := logging.Scope(ctx, target.ID, model, "", "", "")
+				var modelEnd func(string, logging.Fields)
+				if options.Telemetry != nil {
+					_, modelOp := options.Telemetry.Start(modelCtx, "model", logging.Fields{"model": model})
+					modelCtx = modelOp.Context()
+					modelEnd = modelOp.End
+				} else {
+					modelEnd = func(string, logging.Fields) {}
 				}
 				classification := classifications[index]
 				modules := modulePlans[index]
@@ -209,14 +263,17 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 				if cfg.HasTest("compat") && preflightTests[index] != nil && routeBlocked[index] {
 					mr.Compatibility = append(mr.Compatibility, *preflightTests[index])
 				} else if cfg.HasTest("compat") {
-					mr.Compatibility = runModelWithPreflight(ctx, client, cfg, p, model, modules, probeExecutor, preflights[index], preflightErrors[index])
+					mr.Compatibility = runModelWithPreflight(modelCtx, client, cfg, p, model, modules, probeExecutor, options.Telemetry, preflights[index], preflightErrors[index])
 				}
 				sort.Slice(mr.Compatibility, func(i, j int) bool { return mr.Compatibility[i].ID < mr.Compatibility[j].ID })
+				if options.Telemetry != nil {
+					protocolpkg.LogTestResultsWithTelemetry(modelCtx, options.Telemetry, target.ID, model, mr.Compatibility)
+				} else {
+					protocolpkg.LogTestResults(options.Logf, target.ID, model, mr.Compatibility)
+				}
 				stats := client.PacingStatsForModel(model)
 				mr.RateLimit = rateLimitStats(stats)
-				if options.Logf != nil {
-					options.Logf(logging.Debug, "[%s/%s] done", target.ID, model)
-				}
+				modelEnd("completed", logging.Fields{"status": "completed"})
 				modelResults <- modelItem{index: index, report: mr}
 			}
 		}()
@@ -271,8 +328,8 @@ func discoveryResults(p profile.Profile, resp api.Response, models []api.Model, 
 	return []result.TestResult{httpTest, schema}
 }
 
-func paginationResult(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, first api.Response, models []api.Model, listErr error) result.TestResult {
-	test := testBase(p, "anthropic.models.list.pagination")
+func paginationResult(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, first api.Response, models []api.Model, listErr error, telemetryProvider *telemetry.Provider) (test result.TestResult) {
+	test = testBase(p, "anthropic.models.list.pagination")
 	if listErr != nil || !first.Is2xx() || len(ValidateModels(first.JSON)) != 0 {
 		test.Status = result.StatusSkip
 		test.Summary = "Pagination could not be evaluated because model discovery failed"
@@ -295,9 +352,25 @@ func paginationResult(parent context.Context, client *Client, timeout time.Durat
 		test.Summary = "has_more=true without a last_id cursor"
 		return test
 	}
-	ctx, cancel := context.WithTimeout(parent, timeout)
-	defer cancel()
-	next, resp, err := client.ListModelsPage(ctx, lastID, 1)
+	probeCtx := parent
+	var suite, probeOp *telemetry.Operation
+	if telemetryProvider != nil {
+		var suiteCtx context.Context
+		suiteCtx, suite = telemetryProvider.Start(logging.Scope(parent, "", "", "discovery", "", ""), "suite", logging.Fields{"suite": "discovery"})
+		probeCtx, probeOp = telemetryProvider.Start(logging.Scope(suiteCtx, "", "", "discovery", "anthropic.models.list.pagination", ""), "probe", logging.Fields{"probe": "aiqa.native.anthropic.models.list.pagination"})
+		defer func() {
+			fields := logging.Fields{"result_id": test.ID, "status": string(test.Status), "http_status": test.HTTP.StatusCode, "duration_ms": test.DurationMS, "error_present": test.Error != ""}
+			probeOp.Event(logging.Trace, "validator", fields)
+			probeOp.End(string(test.Status), fields)
+			suite.End(string(test.Status), logging.Fields{"status": string(test.Status)})
+		}()
+	}
+	var next []api.Model
+	var resp api.Response
+	var err error
+	ctx, cancel := context.WithTimeout(probeCtx, timeout)
+	next, resp, err = client.ListModelsPage(ctx, lastID, 1)
+	cancel()
 	test.DurationMS = resp.Duration.Milliseconds()
 	test.HTTP = observation(resp)
 	setHTTPStatus(&test, resp, err, true)
@@ -326,39 +399,39 @@ func paginationResult(parent context.Context, client *Client, timeout time.Durat
 }
 
 func runModel(parent context.Context, client *Client, cfg config.Config, p profile.Profile, model string, modules []result.ModuleAssessment, executor *probe.Executor) []result.TestResult {
-	return runModelWithPreflight(parent, client, cfg, p, model, modules, executor, nil, nil)
+	return runModelWithPreflight(parent, client, cfg, p, model, modules, executor, nil, nil, nil)
 }
 
-func runModelWithPreflight(parent context.Context, client *Client, cfg config.Config, p profile.Profile, model string, modules []result.ModuleAssessment, executor *probe.Executor, preflight *api.Response, preflightErr error) []result.TestResult {
+func runModelWithPreflight(parent context.Context, client *Client, cfg config.Config, p profile.Profile, model string, modules []result.ModuleAssessment, executor *probe.Executor, telemetryProvider *telemetry.Provider, preflight *api.Response, preflightErr error) []result.TestResult {
 	timeout := cfg.Timeout
 	var out []result.TestResult
 	retrieve := probe.Map(executor, func() result.TestResult {
-		retrieveResp, retrieveErr := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.RetrieveModel(ctx, model) })
-		test := testBase(p, "anthropic.models.retrieve")
-		test.DurationMS, test.HTTP = retrieveResp.Duration.Milliseconds(), observation(retrieveResp)
-		setHTTPStatus(&test, retrieveResp, retrieveErr, true)
-		if test.Status == result.StatusPass && stringValue(retrieveResp.JSON["id"]) != model {
-			test.Status, test.Summary = result.StatusFail, "Retrieved model ID does not match the request"
-		} else if test.Status == result.StatusPass {
-			test.Summary = "Retrieved model ID matches the request"
-		}
-		return test
+		return runNativeProbe(parent, telemetryProvider, "anthropic.models.retrieve", func(probeCtx context.Context) result.TestResult {
+			retrieveResp, retrieveErr := call(probeCtx, timeout, func(ctx context.Context) (api.Response, error) { return client.RetrieveModel(ctx, model) })
+			test := testBase(p, "anthropic.models.retrieve")
+			test.DurationMS, test.HTTP = retrieveResp.Duration.Milliseconds(), observation(retrieveResp)
+			setHTTPStatus(&test, retrieveResp, retrieveErr, true)
+			if test.Status == result.StatusPass && stringValue(retrieveResp.JSON["id"]) != model {
+				test.Status, test.Summary = result.StatusFail, "Retrieved model ID does not match the request"
+			} else if test.Status == result.StatusPass {
+				test.Summary = "Retrieved model ID matches the request"
+			}
+			return test
+		})
 	})[0]
 	out = append(out, retrieve)
 	if !moduleExecuted(modules, "anthropic.messages") {
-		return append(out, flattenProbeGroups(probe.Map(executor, optionalModelTasks(parent, client, cfg, p, model, modules, 0)...))...)
+		return append(out, flattenProbeGroups(probe.Map(executor, optionalModelTasks(parent, client, cfg, p, model, modules, 0, telemetryProvider)...))...)
 	}
 	body := basicBody(model)
-	type basicPhase struct {
-		response api.Response
-		test     result.TestResult
-	}
-	phase := probe.Map(executor, func() basicPhase {
+	var basicDerived []result.TestResult
+	var observedInputTokens int64
+	basicResults := runNativeProbeResults(parent, telemetryProvider, "anthropic.messages.basic", func(probeCtx context.Context) []result.TestResult {
 		resp, err := api.Response{}, preflightErr
 		if preflight != nil {
 			resp = *preflight
 		} else {
-			resp, err = call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, body) })
+			resp, err = call(probeCtx, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, body) })
 		}
 		basic := testBase(p, "anthropic.messages.basic")
 		basic.DurationMS = resp.Duration.Milliseconds()
@@ -373,120 +446,142 @@ func runModelWithPreflight(parent context.Context, client *Client, cfg config.Co
 				basic.Observation = truncate(Text(resp.JSON), 200)
 			}
 		}
-		return basicPhase{response: resp, test: basic}
-	})[0]
-	resp, basic := phase.response, phase.test
-	out = append(out, basic)
-	schema := derived(p, "anthropic.messages.schema", basic)
-	if basic.Status == result.StatusPass {
-		if problems := ValidateMessage(resp.JSON); len(problems) > 0 {
-			schema.Status = result.StatusFail
-			schema.Summary = "Anthropic Message schema is invalid"
-			schema.Observation = strings.Join(problems, "; ")
-			schema.Signals = []result.EvidenceSignal{{Code: "anthropic.message.invalid_envelope"}}
-		} else {
-			schema.Status = result.StatusPass
-			schema.Summary = "Anthropic Message schema is valid"
+		schema := derived(p, "anthropic.messages.schema", basic)
+		if basic.Status == result.StatusPass {
+			if problems := ValidateMessage(resp.JSON); len(problems) > 0 {
+				schema.Status, schema.Summary, schema.Observation = result.StatusFail, "Anthropic Message schema is invalid", strings.Join(problems, "; ")
+				schema.Signals = []result.EvidenceSignal{{Code: "anthropic.message.invalid_envelope"}}
+			} else {
+				schema.Status, schema.Summary = result.StatusPass, "Anthropic Message schema is valid"
+			}
 		}
-	}
-	out = append(out, schema)
-	usage := derived(p, "anthropic.messages.usage", basic)
-	usage.Usage = ParseUsage(resp.JSON)
-	if basic.Status == result.StatusPass {
-		if problems := ValidateUsage(usage.Usage); len(problems) > 0 {
-			usage.Status = result.StatusFail
-			usage.Summary = "Anthropic usage is invalid"
-			usage.Observation = strings.Join(problems, "; ")
-		} else {
-			usage.Status = result.StatusPass
-			usage.Summary = "Anthropic input/output usage is valid"
+		usage := derived(p, "anthropic.messages.usage", basic)
+		usage.Usage = ParseUsage(resp.JSON)
+		observedInputTokens = usage.Usage.InputTokens
+		if basic.Status == result.StatusPass {
+			if problems := ValidateUsage(usage.Usage); len(problems) > 0 {
+				usage.Status, usage.Summary, usage.Observation = result.StatusFail, "Anthropic usage is invalid", strings.Join(problems, "; ")
+			} else {
+				usage.Status, usage.Summary = result.StatusPass, "Anthropic input/output usage is valid"
+			}
 		}
-	}
-	out = append(out, usage)
-	accepted := derived(p, "anthropic.header.version.accepted", basic)
-	accepted.Summary = "anthropic-version 2023-06-01 was accepted"
-	if accepted.Status != result.StatusPass {
-		accepted.Signals = []result.EvidenceSignal{{Code: "anthropic.header.version.rejected"}}
-	}
-	out = append(out, accepted)
-	auth := derived(p, "anthropic.auth.x_api_key", basic)
-	auth.Summary = "x-api-key authentication was accepted"
-	if auth.Status != result.StatusPass {
-		auth.Signals = []result.EvidenceSignal{{Code: "anthropic.auth.x_api_key.rejected"}}
-	}
-	out = append(out, auth)
-	stringContent := derived(p, "anthropic.messages.content.string", basic)
-	stringContent.Summary = "String-form message content is accepted"
-	out = append(out, stringContent)
+		accepted := derived(p, "anthropic.header.version.accepted", basic)
+		accepted.Summary = "anthropic-version 2023-06-01 was accepted"
+		if accepted.Status != result.StatusPass {
+			accepted.Signals = []result.EvidenceSignal{{Code: "anthropic.header.version.rejected"}}
+		}
+		auth := derived(p, "anthropic.auth.x_api_key", basic)
+		auth.Summary = "x-api-key authentication was accepted"
+		if auth.Status != result.StatusPass {
+			auth.Signals = []result.EvidenceSignal{{Code: "anthropic.auth.x_api_key.rejected"}}
+		}
+		stringContent := derived(p, "anthropic.messages.content.string", basic)
+		stringContent.Summary = "String-form message content is accepted"
+		basicDerived = []result.TestResult{schema, usage, accepted, auth, stringContent}
+		return append([]result.TestResult{basic}, basicDerived...)
+	})
+	out = append(out, basicResults...)
 
 	tasks := []func() []result.TestResult{
 		func() []result.TestResult {
-			test := credentialProbe(parent, client, timeout, p, "anthropic.header.version.required", body, client.apiKey, "")
+			test := runNativeProbe(parent, telemetryProvider, "anthropic.header.version.required", func(probeCtx context.Context) result.TestResult {
+				return credentialProbe(probeCtx, client, timeout, p, "anthropic.header.version.required", body, client.apiKey, "")
+			})
 			if test.Status != result.StatusPass {
 				test.Signals = []result.EvidenceSignal{{Code: "anthropic.header.version.missing"}}
 			}
 			return []result.TestResult{test}
 		},
 		func() []result.TestResult {
-			return []result.TestResult{credentialProbe(parent, client, timeout, p, "anthropic.header.version.invalid", body, client.apiKey, "1900-01-01")}
+			return []result.TestResult{runNativeProbe(parent, telemetryProvider, "anthropic.header.version.invalid", func(probeCtx context.Context) result.TestResult {
+				return credentialProbe(probeCtx, client, timeout, p, "anthropic.header.version.invalid", body, client.apiKey, "1900-01-01")
+			})}
 		},
 		func() []result.TestResult {
-			return []result.TestResult{credentialProbe(parent, client, timeout, p, "anthropic.error.invalid_auth", body, "aiqa-invalid-key", StableAPIVersion)}
+			return []result.TestResult{runNativeProbe(parent, telemetryProvider, "anthropic.error.invalid_auth", func(probeCtx context.Context) result.TestResult {
+				return credentialProbe(probeCtx, client, timeout, p, "anthropic.error.invalid_auth", body, "aiqa-invalid-key", StableAPIVersion)
+			})}
 		},
 		func() []result.TestResult {
 			blocksBody := basicBody(model)
 			blocksBody["messages"] = []any{map[string]any{"role": "user", "content": []any{map[string]any{"type": "text", "text": "Reply with exactly AIQA_OK."}}}}
-			return []result.TestResult{simpleMarkerProbe(parent, client, timeout, p, "anthropic.messages.content.text_blocks", blocksBody)}
+			return []result.TestResult{runNativeProbe(parent, telemetryProvider, "anthropic.messages.content.text_blocks", func(probeCtx context.Context) result.TestResult {
+				return simpleMarkerProbe(probeCtx, client, timeout, p, "anthropic.messages.content.text_blocks", blocksBody)
+			})}
 		},
 		func() []result.TestResult {
 			systemBody := basicBody(model)
 			systemBody["system"] = "Always answer with exactly AIQA_OK."
-			return []result.TestResult{simpleMarkerProbe(parent, client, timeout, p, "anthropic.messages.system.top_level", systemBody)}
+			return []result.TestResult{runNativeProbe(parent, telemetryProvider, "anthropic.messages.system.top_level", func(probeCtx context.Context) result.TestResult {
+				return simpleMarkerProbe(probeCtx, client, timeout, p, "anthropic.messages.system.top_level", systemBody)
+			})}
 		},
 		func() []result.TestResult {
 			multiBody := basicBody(model)
 			multiBody["messages"] = []any{map[string]any{"role": "user", "content": "Remember AIQA_OK."}, map[string]any{"role": "assistant", "content": "I will remember it."}, map[string]any{"role": "user", "content": "Reply with only the remembered marker."}}
-			return []result.TestResult{simpleMarkerProbe(parent, client, timeout, p, "anthropic.messages.multi_turn", multiBody)}
+			return []result.TestResult{runNativeProbe(parent, telemetryProvider, "anthropic.messages.multi_turn", func(probeCtx context.Context) result.TestResult {
+				return simpleMarkerProbe(probeCtx, client, timeout, p, "anthropic.messages.multi_turn", multiBody)
+			})}
 		},
 		func() []result.TestResult {
-			return []result.TestResult{runAssistantPrefill(parent, client, timeout, p, model)}
+			return []result.TestResult{runNativeProbe(parent, telemetryProvider, "anthropic.messages.assistant_prefill", func(probeCtx context.Context) result.TestResult {
+				return runAssistantPrefill(probeCtx, client, timeout, p, model)
+			})}
 		},
 		func() []result.TestResult {
-			return []result.TestResult{runStopSequence(parent, client, timeout, p, model)}
+			return []result.TestResult{runNativeProbe(parent, telemetryProvider, "anthropic.messages.stop_sequences", func(probeCtx context.Context) result.TestResult {
+				return runStopSequence(probeCtx, client, timeout, p, model)
+			})}
 		},
 		func() []result.TestResult {
-			return []result.TestResult{runMaxTokens(parent, client, timeout, p, model)}
+			return []result.TestResult{runNativeProbe(parent, telemetryProvider, "anthropic.messages.max_tokens", func(probeCtx context.Context) result.TestResult {
+				return runMaxTokens(probeCtx, client, timeout, p, model)
+			})}
 		},
 		func() []result.TestResult {
 			metadataBody := basicBody(model)
 			metadataBody["metadata"] = map[string]any{"user_id": "aiqa-compat-probe"}
-			return []result.TestResult{simpleMarkerProbe(parent, client, timeout, p, "anthropic.messages.metadata", metadataBody)}
+			return []result.TestResult{runNativeProbe(parent, telemetryProvider, "anthropic.messages.metadata", func(probeCtx context.Context) result.TestResult {
+				return simpleMarkerProbe(probeCtx, client, timeout, p, "anthropic.messages.metadata", metadataBody)
+			})}
 		},
-		func() []result.TestResult { return runErrors(parent, client, timeout, p, model) },
-		func() []result.TestResult { return runStream(parent, client, timeout, p, model) },
+		func() []result.TestResult {
+			return runErrors(parent, client, timeout, p, model, telemetryProvider)
+		},
+		func() []result.TestResult {
+			return runStream(parent, client, timeout, p, model, telemetryProvider)
+		},
 	}
-	tasks = append(tasks, optionalModelTasks(parent, client, cfg, p, model, modules, usage.Usage.InputTokens)...)
+	tasks = append(tasks, optionalModelTasks(parent, client, cfg, p, model, modules, observedInputTokens, telemetryProvider)...)
 	return append(out, flattenProbeGroups(probe.Map(executor, tasks...))...)
 }
 
-func optionalModelTasks(parent context.Context, client *Client, cfg config.Config, p profile.Profile, model string, modules []result.ModuleAssessment, observedInputTokens int64) []func() []result.TestResult {
+func optionalModelTasks(parent context.Context, client *Client, cfg config.Config, p profile.Profile, model string, modules []result.ModuleAssessment, observedInputTokens int64, telemetryProvider *telemetry.Provider) []func() []result.TestResult {
 	var tasks []func() []result.TestResult
 	if moduleExecuted(modules, "anthropic.tools") {
-		tasks = append(tasks, func() []result.TestResult { return runTools(parent, client, cfg.Timeout, p, model) })
+		tasks = append(tasks, func() []result.TestResult {
+			return runTools(parent, client, cfg.Timeout, p, model, telemetryProvider)
+		})
 	}
 	if moduleExecuted(modules, "anthropic.token-counting") {
 		tasks = append(tasks, func() []result.TestResult {
-			return runCountTokens(parent, client, cfg.Timeout, p, model, observedInputTokens)
+			return runCountTokens(parent, client, cfg.Timeout, p, model, observedInputTokens, telemetryProvider)
 		})
 	}
 	if moduleExecuted(modules, "anthropic.structured-output") {
-		tasks = append(tasks, func() []result.TestResult { return runStructured(parent, client, cfg.Timeout, p, model) })
+		tasks = append(tasks, func() []result.TestResult {
+			return runStructured(parent, client, cfg.Timeout, p, model, telemetryProvider)
+		})
 	}
 	if moduleExecuted(modules, "anthropic.vision") {
-		tasks = append(tasks, func() []result.TestResult { return runVision(parent, client, cfg.Timeout, p, model) })
+		tasks = append(tasks, func() []result.TestResult {
+			return runVision(parent, client, cfg.Timeout, p, model, telemetryProvider)
+		})
 	}
 	if moduleExecuted(modules, "anthropic.thinking") && cfg.AllowHighTokenProbes {
-		tasks = append(tasks, func() []result.TestResult { return runThinking(parent, client, cfg.Timeout, p, model) })
+		tasks = append(tasks, func() []result.TestResult {
+			return runThinking(parent, client, cfg.Timeout, p, model, telemetryProvider)
+		})
 	}
 	return tasks
 }
@@ -497,6 +592,47 @@ func flattenProbeGroups(groups [][]result.TestResult) []result.TestResult {
 		out = append(out, group...)
 	}
 	return out
+}
+
+// runNativeProbe establishes the concrete probe scope before any request is
+// constructed. The transport inherits this context, so logical_request and
+// attempt spans are children of the test that caused them rather than a
+// post-hoc result record. Validation runs inside fn and therefore completes
+// before the probe and suite terminals.
+func runNativeProbe(parent context.Context, provider *telemetry.Provider, id string, fn func(context.Context) result.TestResult) result.TestResult {
+	if provider == nil {
+		return fn(parent)
+	}
+	suiteCtx, suite := provider.Start(logging.Scope(parent, "", "", "compat", "", ""), "suite", logging.Fields{"suite": "compat"})
+	probeCtx, probeOp := provider.Start(logging.Scope(suiteCtx, "", "", "compat", "aiqa.native."+id, ""), "probe", logging.Fields{"probe": "aiqa.native." + id})
+	test := fn(probeCtx)
+	fields := logging.Fields{"status": string(test.Status), "http_status": test.HTTP.StatusCode, "duration_ms": test.DurationMS, "error_present": test.Error != ""}
+	probeOp.Event(logging.Trace, "validator", fields)
+	probeOp.End(string(test.Status), fields)
+	suite.End(string(test.Status), logging.Fields{"status": string(test.Status)})
+	return test
+}
+
+// runNativeProbeResults keeps a composite native probe alive through every
+// derived report result produced from the same HTTP observation.
+func runNativeProbeResults(parent context.Context, provider *telemetry.Provider, id string, fn func(context.Context) []result.TestResult) []result.TestResult {
+	if provider == nil {
+		return fn(parent)
+	}
+	suiteCtx, suite := provider.Start(logging.Scope(parent, "", "", "compat", "", ""), "suite", logging.Fields{"suite": "compat"})
+	probeCtx, probeOp := provider.Start(logging.Scope(suiteCtx, "", "", "compat", "aiqa.native."+id, ""), "probe", logging.Fields{"probe": "aiqa.native." + id})
+	tests := fn(probeCtx)
+	outcome := protocolpkg.AggregateTestOutcome(tests)
+	for _, test := range tests {
+		fields := logging.Fields{"result_id": test.ID, "status": string(test.Status), "http_status": test.HTTP.StatusCode, "duration_ms": test.DurationMS, "error_present": test.Error != ""}
+		if test.DerivedFrom != "" {
+			fields["derived_from"] = test.DerivedFrom
+		}
+		probeOp.Event(logging.Trace, "validator", fields)
+	}
+	probeOp.End(outcome, logging.Fields{"status": outcome, "result_count": len(tests)})
+	suite.End(outcome, logging.Fields{"status": outcome})
+	return tests
 }
 
 func runAssistantPrefill(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string) result.TestResult {
@@ -558,89 +694,103 @@ func runMaxTokens(parent context.Context, client *Client, timeout time.Duration,
 	return test
 }
 
-func runErrors(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string) []result.TestResult {
+func runErrors(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string, telemetryProvider *telemetry.Provider) []result.TestResult {
 	missing := "aiqa-missing-" + fmt.Sprint(time.Now().UnixNano())
-	resp, err := call(parent, timeout, func(ctx context.Context) (api.Response, error) {
-		b := basicBody(missing)
-		return client.Message(ctx, b)
+	invalidModelResults := runNativeProbeResults(parent, telemetryProvider, "anthropic.error.invalid_model", func(probeCtx context.Context) []result.TestResult {
+		resp, err := call(probeCtx, timeout, func(ctx context.Context) (api.Response, error) {
+			b := basicBody(missing)
+			return client.Message(ctx, b)
+		})
+		test := testBase(p, "anthropic.error.invalid_model")
+		test.DurationMS, test.HTTP, test.Usage = resp.Duration.Milliseconds(), observation(resp), ParseUsage(resp.JSON)
+		setExpectedError(&test, resp, err)
+		if test.Status == result.StatusPass {
+			test.Summary = "Invalid model returned a client-side Anthropic error"
+		}
+		shape := derived(p, "anthropic.error.shape", test)
+		if test.Status == result.StatusPass {
+			if problems := ValidateError(resp.JSON); len(problems) > 0 {
+				shape.Status = result.StatusFail
+				shape.Summary = "Error envelope is not Anthropic-compatible"
+				shape.Observation = strings.Join(problems, "; ")
+			} else {
+				shape.Status = result.StatusPass
+				shape.Summary = "Error envelope is Anthropic-compatible"
+			}
+		}
+		requestID := derived(p, "anthropic.error.request_id", test)
+		if test.Status == result.StatusPass {
+			if resp.RequestID != "" || stringValue(resp.JSON["request_id"]) != "" {
+				requestID.Status = result.StatusPass
+				requestID.Summary = "Error exposes a request ID"
+			} else {
+				requestID.Status = result.StatusWarn
+				requestID.Summary = "Error did not expose a request ID"
+			}
+		}
+		return []result.TestResult{test, shape, requestID}
 	})
-	invalidModel := testBase(p, "anthropic.error.invalid_model")
-	invalidModel.DurationMS = resp.Duration.Milliseconds()
-	invalidModel.HTTP = observation(resp)
-	invalidModel.Usage = ParseUsage(resp.JSON)
-	setExpectedError(&invalidModel, resp, err)
-	if invalidModel.Status == result.StatusPass {
-		invalidModel.Summary = "Invalid model returned a client-side Anthropic error"
-	}
-	shape := derived(p, "anthropic.error.shape", invalidModel)
-	if invalidModel.Status == result.StatusPass {
-		if problems := ValidateError(resp.JSON); len(problems) > 0 {
-			shape.Status = result.StatusFail
-			shape.Summary = "Error envelope is not Anthropic-compatible"
-			shape.Observation = strings.Join(problems, "; ")
-		} else {
-			shape.Status = result.StatusPass
-			shape.Summary = "Error envelope is Anthropic-compatible"
-		}
-	}
-	requestID := derived(p, "anthropic.error.request_id", invalidModel)
-	if invalidModel.Status == result.StatusPass {
-		if resp.RequestID != "" || stringValue(resp.JSON["request_id"]) != "" {
-			requestID.Status = result.StatusPass
-			requestID.Summary = "Error exposes a request ID"
-		} else {
-			requestID.Status = result.StatusWarn
-			requestID.Summary = "Error did not expose a request ID"
-		}
-	}
 	variants := [][]byte{[]byte(`{"model":`), []byte(`{"messages":[}`), []byte(`{"model":"` + model + `"} trailing`)}
-	invalidJSON := testBase(p, "anthropic.error.invalid_json")
-	invalidJSON.Status = result.StatusPass
-	var observations []string
-	for i, raw := range variants {
-		r, e := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.MessageRawForModel(ctx, raw, model) })
-		invalidJSON.DurationMS += r.Duration.Milliseconds()
-		invalidJSON.Usage = invalidJSON.Usage.Add(ParseUsage(r.JSON))
-		if i == 0 {
-			invalidJSON.HTTP = observation(r)
+	invalidJSON := runNativeProbe(parent, telemetryProvider, "anthropic.error.invalid_json", func(probeCtx context.Context) result.TestResult {
+		test := testBase(p, "anthropic.error.invalid_json")
+		test.Status = result.StatusPass
+		var observations []string
+		for i, raw := range variants {
+			r, e := call(probeCtx, timeout, func(ctx context.Context) (api.Response, error) { return client.MessageRawForModel(ctx, raw, model) })
+			test.DurationMS += r.Duration.Milliseconds()
+			test.Usage = test.Usage.Add(ParseUsage(r.JSON))
+			if i == 0 {
+				test.HTTP = observation(r)
+			}
+			if e != nil && r.StatusCode == 0 {
+				test.Status = result.StatusError
+				observations = append(observations, e.Error())
+				continue
+			}
+			if isTransientStatus(r.StatusCode) {
+				test.Status = result.StatusError
+			} else if r.StatusCode < 400 {
+				test.Status = result.StatusFail
+			}
+			observations = append(observations, fmt.Sprintf("variant %d: HTTP %d", i+1, r.StatusCode))
 		}
-		if e != nil && r.StatusCode == 0 {
-			invalidJSON.Status = result.StatusError
-			observations = append(observations, e.Error())
-			continue
+		test.Summary = "Three malformed JSON variants returned client errors"
+		if test.Status != result.StatusPass {
+			test.Summary = "Malformed JSON handling is not consistently client-side"
 		}
-		if isTransientStatus(r.StatusCode) {
-			invalidJSON.Status = result.StatusError
-		} else if r.StatusCode < 400 {
-			invalidJSON.Status = result.StatusFail
-		}
-		observations = append(observations, fmt.Sprintf("variant %d: HTTP %d", i+1, r.StatusCode))
-	}
-	invalidJSON.Summary = "Three malformed JSON variants returned client errors"
-	if invalidJSON.Status != result.StatusPass {
-		invalidJSON.Summary = "Malformed JSON handling is not consistently client-side"
-	}
-	invalidJSON.Observation = strings.Join(observations, "; ")
+		test.Observation = strings.Join(observations, "; ")
+		return test
+	})
 	wrong := basicBody(model)
 	wrong["max_tokens"] = "32"
-	r, e := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, wrong) })
-	invalidTypes := testBase(p, "anthropic.error.invalid_types")
-	invalidTypes.DurationMS = r.Duration.Milliseconds()
-	invalidTypes.HTTP = observation(r)
-	invalidTypes.Usage = ParseUsage(r.JSON)
-	setExpectedError(&invalidTypes, r, e)
-	invalidTypes.Summary = "Invalid field types are rejected with a client error"
-	return []result.TestResult{invalidModel, shape, requestID, invalidJSON, invalidTypes}
+	invalidTypes := runNativeProbe(parent, telemetryProvider, "anthropic.error.invalid_types", func(probeCtx context.Context) result.TestResult {
+		r, e := call(probeCtx, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, wrong) })
+		test := testBase(p, "anthropic.error.invalid_types")
+		test.DurationMS, test.HTTP, test.Usage = r.Duration.Milliseconds(), observation(r), ParseUsage(r.JSON)
+		setExpectedError(&test, r, e)
+		test.Summary = "Invalid field types are rejected with a client error"
+		return test
+	})
+	return append(invalidModelResults, invalidJSON, invalidTypes)
 }
 
-func runStream(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string) []result.TestResult {
-	ctx, cancel := context.WithTimeout(parent, timeout)
-	defer cancel()
-	stream, err := client.StreamMessage(ctx, basicBody(model))
-	validation := ValidateStream(stream)
+func runStream(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string, telemetryProvider *telemetry.Provider) []result.TestResult {
+	return runNativeProbeResults(parent, telemetryProvider, "anthropic.messages.stream.http", func(probeCtx context.Context) []result.TestResult {
+		ctx, cancel := context.WithTimeout(probeCtx, timeout)
+		defer cancel()
+		stream, err := client.StreamMessage(ctx, basicBody(model))
+		base := streamHTTPTest(p, stream, err)
+		// Validate the received SSE structure while its concrete HTTP probe is
+		// still active, so validator lifecycle cannot outlive the request span.
+		return streamResults(p, base, stream, ValidateStream(stream))
+	})
+}
+
+func streamHTTPTest(p profile.Profile, stream api.StreamResponse, err error) result.TestResult {
 	base := testBase(p, "anthropic.messages.stream.http")
 	base.DurationMS = stream.Duration.Milliseconds()
-	base.HTTP = result.HTTPObservation{StatusCode: stream.StatusCode, ContentType: stream.ContentType, RequestID: stream.RequestID, Snippet: truncate(stream.RawSnippet, 1000)}
+	base.HTTP = result.HTTPObservation{StatusCode: stream.StatusCode, ContentType: stream.ContentType, RequestID: stream.RequestID, Snippet: truncate(stream.RawSnippet, 1000), TraceID: stream.TraceID}
+	base.Metrics = map[string]any{"sse_event_types": streamEventTypes(stream)}
 	if err != nil {
 		if stream.StatusCode == 0 || stream.StatusCode >= 200 && stream.StatusCode < 300 || isTransientStatus(stream.StatusCode) {
 			base.Status = result.StatusError
@@ -659,7 +809,12 @@ func runStream(parent context.Context, client *Client, timeout time.Duration, p 
 		base.Status = result.StatusPass
 		base.Summary = "Streaming response uses SSE"
 	}
+	return base
+}
+
+func streamResults(p profile.Profile, base result.TestResult, stream api.StreamResponse, validation StreamValidation) []result.TestResult {
 	sequence := derived(p, "anthropic.messages.stream.sequence", base)
+	sequence.Metrics = map[string]any{"sse_event_types": streamEventTypes(stream)}
 	if base.Status == result.StatusPass {
 		if validation.ProviderError {
 			sequence.Status = result.StatusError
@@ -704,11 +859,11 @@ func runStream(parent context.Context, client *Client, timeout time.Duration, p 
 	return []result.TestResult{base, sequence, typeMatch, textProbe, usage, noDone}
 }
 
-func runTools(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string) []result.TestResult {
+func runTools(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string, telemetryProvider *telemetry.Provider) []result.TestResult {
 	tool := map[string]any{"name": "get_status", "description": "Return status for a resource.", "input_schema": map[string]any{"type": "object", "properties": map[string]any{"resource_id": map[string]any{"type": "string"}}, "required": []any{"resource_id"}, "additionalProperties": false}}
-	auto := runToolChoiceProbe(parent, client, timeout, p, model, "anthropic.tools.auto", tool, map[string]any{"type": "auto"}, false)
-	anyProbe := runToolChoiceProbe(parent, client, timeout, p, model, "anthropic.tools.any", tool, map[string]any{"type": "any"}, true)
-	none := runToolChoiceProbe(parent, client, timeout, p, model, "anthropic.tools.none", tool, map[string]any{"type": "none"}, false)
+	auto := runToolChoiceProbe(parent, client, timeout, p, model, "anthropic.tools.auto", tool, map[string]any{"type": "auto"}, false, telemetryProvider)
+	anyProbe := runToolChoiceProbe(parent, client, timeout, p, model, "anthropic.tools.any", tool, map[string]any{"type": "any"}, true, telemetryProvider)
+	none := runToolChoiceProbe(parent, client, timeout, p, model, "anthropic.tools.none", tool, map[string]any{"type": "none"}, false, telemetryProvider)
 	if none.Status == result.StatusPass && none.Metrics["tool_use_count"].(int) != 0 {
 		none.Status = result.StatusFail
 		none.Summary = "tool_choice=none still emitted a tool_use block"
@@ -719,31 +874,35 @@ func runTools(parent context.Context, client *Client, timeout time.Duration, p p
 	body["tools"] = []any{tool}
 	body["tool_choice"] = map[string]any{"type": "tool", "name": "get_status"}
 	body["messages"] = []any{map[string]any{"role": "user", "content": "Call get_status for resource-alpha. Do not answer directly."}}
-	resp, err := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, body) })
-	specific := testBase(p, "anthropic.tools.specific")
-	specific.DurationMS = resp.Duration.Milliseconds()
-	specific.HTTP = observation(resp)
-	specific.Usage = ParseUsage(resp.JSON)
-	setHTTPStatus(&specific, resp, err, true)
+	var resp api.Response
+	specificResults := runNativeProbeResults(parent, telemetryProvider, "anthropic.tools.specific", func(probeCtx context.Context) []result.TestResult {
+		var err error
+		resp, err = call(probeCtx, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, body) })
+		test := testBase(p, "anthropic.tools.specific")
+		test.DurationMS, test.HTTP, test.Usage = resp.Duration.Milliseconds(), observation(resp), ParseUsage(resp.JSON)
+		setHTTPStatus(&test, resp, err, true)
+		uses := ToolUses(resp.JSON)
+		if test.Status == result.StatusPass {
+			if len(uses) == 0 || stringValue(uses[0]["name"]) != "get_status" {
+				test.Status, test.Summary = result.StatusFail, "Forced tool did not return get_status"
+			} else {
+				test.Summary = "Forced named tool returned a valid tool_use block"
+			}
+		}
+		inputSchema := derived(p, "anthropic.tools.input_schema", test)
+		if test.Status == result.StatusPass && len(uses) > 0 {
+			input, _ := uses[0]["input"].(map[string]any)
+			if stringValue(input["resource_id"]) == "" {
+				inputSchema.Status = result.StatusFail
+				inputSchema.Summary = "Tool input violates its required schema"
+			} else {
+				inputSchema.Summary = "Tool input conforms to the requested schema"
+			}
+		}
+		return []result.TestResult{test, inputSchema}
+	})
+	specific := specificResults[0]
 	uses := ToolUses(resp.JSON)
-	if specific.Status == result.StatusPass {
-		if len(uses) == 0 || stringValue(uses[0]["name"]) != "get_status" {
-			specific.Status = result.StatusFail
-			specific.Summary = "Forced tool did not return get_status"
-		} else {
-			specific.Summary = "Forced named tool returned a valid tool_use block"
-		}
-	}
-	inputSchema := derived(p, "anthropic.tools.input_schema", specific)
-	if specific.Status == result.StatusPass && len(uses) > 0 {
-		input, _ := uses[0]["input"].(map[string]any)
-		if stringValue(input["resource_id"]) == "" {
-			inputSchema.Status = result.StatusFail
-			inputSchema.Summary = "Tool input violates its required schema"
-		} else {
-			inputSchema.Summary = "Tool input conforms to the requested schema"
-		}
-	}
 	continuation := testBase(p, "anthropic.tools.continuation")
 	if specific.Status != result.StatusPass || len(uses) == 0 {
 		continuation.Status = result.StatusSkip
@@ -753,125 +912,128 @@ func runTools(parent context.Context, client *Client, timeout time.Duration, p p
 		id := stringValue(uses[0]["id"])
 		cont := basicBody(model)
 		cont["messages"] = []any{body["messages"].([]any)[0], map[string]any{"role": "assistant", "content": resp.JSON["content"]}, map[string]any{"role": "user", "content": []any{map[string]any{"type": "tool_result", "tool_use_id": id, "content": "resource-alpha is available"}}}}
-		r, e := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, cont) })
-		continuation.DurationMS = r.Duration.Milliseconds()
-		continuation.HTTP = observation(r)
-		continuation.Usage = ParseUsage(r.JSON)
-		setHTTPStatus(&continuation, r, e, true)
-		if continuation.Status == result.StatusPass && strings.Contains(strings.ToLower(Text(r.JSON)), "available") {
-			continuation.Summary = "tool_result was accepted and used in the final answer"
-		} else if continuation.Status == result.StatusPass {
-			continuation.Status = result.StatusWarn
-			continuation.Summary = "tool_result was accepted but semantic use was not demonstrated"
-		}
+		continuation = runNativeProbe(parent, telemetryProvider, "anthropic.tools.continuation", func(probeCtx context.Context) result.TestResult {
+			r, e := call(probeCtx, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, cont) })
+			test := testBase(p, "anthropic.tools.continuation")
+			test.DurationMS, test.HTTP, test.Usage = r.Duration.Milliseconds(), observation(r), ParseUsage(r.JSON)
+			setHTTPStatus(&test, r, e, true)
+			if test.Status == result.StatusPass && strings.Contains(strings.ToLower(Text(r.JSON)), "available") {
+				test.Summary = "tool_result was accepted and used in the final answer"
+			} else if test.Status == result.StatusPass {
+				test.Status, test.Summary = result.StatusWarn, "tool_result was accepted but semantic use was not demonstrated"
+			}
+			return test
+		})
 	}
-	ctx, cancel := context.WithTimeout(parent, timeout)
-	stream, streamErr := client.StreamMessage(ctx, body)
-	cancel()
-	streamProbe := testBase(p, "anthropic.tools.stream")
-	streamProbe.DurationMS = stream.Duration.Milliseconds()
-	streamProbe.HTTP = result.HTTPObservation{StatusCode: stream.StatusCode, ContentType: stream.ContentType, RequestID: stream.RequestID, Snippet: truncate(stream.RawSnippet, 1000)}
-	validation := ValidateStream(stream)
-	streamProbe.Usage = validation.Usage
-	if streamErr != nil {
-		if stream.StatusCode == 0 || stream.StatusCode >= 200 && stream.StatusCode < 300 || isTransientStatus(stream.StatusCode) {
-			streamProbe.Status = result.StatusError
-		} else if stream.StatusCode == 400 || stream.StatusCode == 404 || stream.StatusCode == 422 {
-			streamProbe.Status = result.StatusUnsupported
+	var stream api.StreamResponse
+	var streamErr error
+	streamProbe := runNativeProbe(parent, telemetryProvider, "anthropic.tools.stream", func(probeCtx context.Context) result.TestResult {
+		ctx, cancel := context.WithTimeout(probeCtx, timeout)
+		defer cancel()
+		stream, streamErr = client.StreamMessage(ctx, body)
+		test := testBase(p, "anthropic.tools.stream")
+		test.DurationMS = stream.Duration.Milliseconds()
+		test.HTTP = result.HTTPObservation{StatusCode: stream.StatusCode, ContentType: stream.ContentType, RequestID: stream.RequestID, Snippet: truncate(stream.RawSnippet, 1000), TraceID: stream.TraceID}
+		validation := ValidateStream(stream)
+		test.Usage = validation.Usage
+		test.Metrics = map[string]any{"sse_event_types": streamEventTypes(stream)}
+		if streamErr != nil {
+			if stream.StatusCode == 0 || stream.StatusCode >= 200 && stream.StatusCode < 300 || isTransientStatus(stream.StatusCode) {
+				test.Status = result.StatusError
+			} else if stream.StatusCode == 400 || stream.StatusCode == 404 || stream.StatusCode == 422 {
+				test.Status = result.StatusUnsupported
+			} else {
+				test.Status = result.StatusFail
+			}
+			test.Summary, test.Error = "Streaming tool call could not be evaluated", streamErr.Error()
+		} else if validation.ProviderError {
+			test.Status, test.Summary = result.StatusError, "Provider emitted a stream error during tool use"
+		} else if len(validation.Problems) > 0 {
+			test.Status, test.Summary, test.Observation = result.StatusFail, "Streaming tool input is invalid", strings.Join(validation.Problems, "; ")
+		} else if validation.Incomplete {
+			test.Status, test.Summary = result.StatusError, "Streaming tool call ended before message_stop"
+		} else if len(validation.ToolInputs) == 0 {
+			test.Status, test.Summary = result.StatusFail, "Stream contained no tool input deltas"
 		} else {
-			streamProbe.Status = result.StatusFail
+			test.Status, test.Summary = result.StatusPass, "Streamed tool input reconstructed as valid JSON"
 		}
-		streamProbe.Summary = "Streaming tool call could not be evaluated"
-		streamProbe.Error = streamErr.Error()
-	} else if validation.ProviderError {
-		streamProbe.Status = result.StatusError
-		streamProbe.Summary = "Provider emitted a stream error during tool use"
-	} else if len(validation.Problems) > 0 {
-		streamProbe.Status = result.StatusFail
-		streamProbe.Summary = "Streaming tool input is invalid"
-		streamProbe.Observation = strings.Join(validation.Problems, "; ")
-	} else if validation.Incomplete {
-		streamProbe.Status = result.StatusError
-		streamProbe.Summary = "Streaming tool call ended before message_stop"
-	} else if len(validation.ToolInputs) == 0 {
-		streamProbe.Status = result.StatusFail
-		streamProbe.Summary = "Stream contained no tool input deltas"
-	} else {
-		streamProbe.Status = result.StatusPass
-		streamProbe.Summary = "Streamed tool input reconstructed as valid JSON"
-	}
+		return test
+	})
 	parallelTool := map[string]any{"name": "get_owner", "description": "Return an owner.", "input_schema": map[string]any{"type": "object", "properties": map[string]any{"resource_id": map[string]any{"type": "string"}}, "required": []any{"resource_id"}, "additionalProperties": false}}
 	parallelBody := basicBody(model)
 	parallelBody["tools"] = []any{tool, parallelTool}
 	parallelBody["tool_choice"] = map[string]any{"type": "any", "disable_parallel_tool_use": false}
 	parallelBody["messages"] = []any{map[string]any{"role": "user", "content": "Call get_status and get_owner for resource-alpha before answering."}}
-	parallelResp, parallelErr := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, parallelBody) })
-	parallel := testBase(p, "anthropic.tools.parallel")
-	parallel.DurationMS, parallel.HTTP = parallelResp.Duration.Milliseconds(), observation(parallelResp)
-	parallel.Usage = ParseUsage(parallelResp.JSON)
-	setHTTPStatus(&parallel, parallelResp, parallelErr, true)
-	parallelUses := ToolUses(parallelResp.JSON)
-	if parallel.Status == result.StatusPass {
-		ids := map[string]bool{}
-		for _, use := range parallelUses {
-			if id := stringValue(use["id"]); id != "" {
-				ids[id] = true
+	parallel := runNativeProbe(parent, telemetryProvider, "anthropic.tools.parallel", func(probeCtx context.Context) result.TestResult {
+		parallelResp, parallelErr := call(probeCtx, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, parallelBody) })
+		test := testBase(p, "anthropic.tools.parallel")
+		test.DurationMS, test.HTTP, test.Usage = parallelResp.Duration.Milliseconds(), observation(parallelResp), ParseUsage(parallelResp.JSON)
+		setHTTPStatus(&test, parallelResp, parallelErr, true)
+		parallelUses := ToolUses(parallelResp.JSON)
+		if test.Status == result.StatusPass {
+			ids := map[string]bool{}
+			for _, use := range parallelUses {
+				if id := stringValue(use["id"]); id != "" {
+					ids[id] = true
+				}
+			}
+			if len(parallelUses) < 2 || len(ids) != len(parallelUses) {
+				test.Status, test.Summary = result.StatusWarn, "Parallel tool use was accepted but two distinct calls were not demonstrated"
+			} else {
+				test.Summary = "Parallel tool use returned distinct tool_use IDs"
 			}
 		}
-		if len(parallelUses) < 2 || len(ids) != len(parallelUses) {
-			parallel.Status = result.StatusWarn
-			parallel.Summary = "Parallel tool use was accepted but two distinct calls were not demonstrated"
-		} else {
-			parallel.Summary = "Parallel tool use returned distinct tool_use IDs"
-		}
-	}
+		return test
+	})
 
 	strictTool := map[string]any{"name": "get_status", "description": "Return status for a resource.", "strict": true, "input_schema": tool["input_schema"]}
-	strict := runToolChoiceProbe(parent, client, timeout, p, model, "anthropic.tools.strict", strictTool, map[string]any{"type": "tool", "name": "get_status"}, true)
+	strict := runToolChoiceProbe(parent, client, timeout, p, model, "anthropic.tools.strict", strictTool, map[string]any{"type": "tool", "name": "get_status"}, true, telemetryProvider)
 	if strict.Status == result.StatusPass {
 		strict.Summary = "Strict tool choice returned schema-conforming input"
 	}
-	return []result.TestResult{auto, anyProbe, none, specific, inputSchema, continuation, parallel, streamProbe, strict}
+	return append([]result.TestResult{auto, anyProbe, none}, append(specificResults, continuation, parallel, streamProbe, strict)...)
 }
 
-func runToolChoiceProbe(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model, id string, tool, choice map[string]any, requireUse bool) result.TestResult {
+func runToolChoiceProbe(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model, id string, tool, choice map[string]any, requireUse bool, telemetryProvider *telemetry.Provider) result.TestResult {
 	body := basicBody(model)
 	body["tools"] = []any{tool}
 	body["tool_choice"] = choice
 	body["messages"] = []any{map[string]any{"role": "user", "content": "Call get_status for resource-alpha before answering."}}
-	resp, err := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, body) })
-	test := testBase(p, id)
-	test.DurationMS, test.HTTP = resp.Duration.Milliseconds(), observation(resp)
-	test.Usage = ParseUsage(resp.JSON)
-	setHTTPStatus(&test, resp, err, true)
-	uses := ToolUses(resp.JSON)
-	test.Metrics = map[string]any{"tool_use_count": len(uses)}
-	if test.Status != result.StatusPass {
-		return test
-	}
-	if requireUse && len(uses) == 0 {
-		test.Status = result.StatusFail
-		test.Summary = p.Probe(id).Name + " did not emit tool_use"
-		return test
-	}
-	if len(uses) > 0 {
-		input, _ := uses[0]["input"].(map[string]any)
-		if stringValue(uses[0]["id"]) == "" || stringValue(uses[0]["name"]) != "get_status" || stringValue(input["resource_id"]) == "" {
-			test.Status = result.StatusFail
-			test.Summary = p.Probe(id).Name + " returned an invalid tool_use block"
+	return runNativeProbe(parent, telemetryProvider, id, func(probeCtx context.Context) result.TestResult {
+		resp, err := call(probeCtx, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, body) })
+		test := testBase(p, id)
+		test.DurationMS, test.HTTP = resp.Duration.Milliseconds(), observation(resp)
+		test.Usage = ParseUsage(resp.JSON)
+		setHTTPStatus(&test, resp, err, true)
+		uses := ToolUses(resp.JSON)
+		test.Metrics = map[string]any{"tool_use_count": len(uses)}
+		if test.Status != result.StatusPass {
 			return test
 		}
-		test.Summary = p.Probe(id).Name + " returned a valid tool_use block"
-	} else {
-		test.Summary = p.Probe(id).Name + " was accepted without selecting a tool"
-	}
-	return test
+		if requireUse && len(uses) == 0 {
+			test.Status = result.StatusFail
+			test.Summary = p.Probe(id).Name + " did not emit tool_use"
+			return test
+		}
+		if len(uses) > 0 {
+			input, _ := uses[0]["input"].(map[string]any)
+			if stringValue(uses[0]["id"]) == "" || stringValue(uses[0]["name"]) != "get_status" || stringValue(input["resource_id"]) == "" {
+				test.Status = result.StatusFail
+				test.Summary = p.Probe(id).Name + " returned an invalid tool_use block"
+				return test
+			}
+			test.Summary = p.Probe(id).Name + " returned a valid tool_use block"
+		} else {
+			test.Summary = p.Probe(id).Name + " was accepted without selecting a tool"
+		}
+		return test
+	})
 }
 
-func runCountTokens(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string, observed int64) []result.TestResult {
+func runCountTokens(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string, observed int64, telemetryProvider *telemetry.Provider) []result.TestResult {
 	body := basicBody(model)
 	delete(body, "max_tokens")
-	basic, count := countTokensProbe(parent, client, timeout, p, "anthropic.tokens.count.basic", body)
+	basic, count := countTokensProbe(parent, client, timeout, p, "anthropic.tokens.count.basic", body, telemetryProvider)
 	if basic.Status == result.StatusUnsupported {
 		basic.Signals = []result.EvidenceSignal{{Code: "anthropic.tokens.endpoint_missing"}}
 	}
@@ -879,14 +1041,14 @@ func runCountTokens(parent context.Context, client *Client, timeout time.Duratio
 	schema.Summary = "Count Tokens response has a positive integer input_tokens"
 	systemBody := cloneMap(body)
 	systemBody["system"] = "Always answer tersely."
-	systemProbe, systemCount := countTokensProbe(parent, client, timeout, p, "anthropic.tokens.count.system", systemBody)
+	systemProbe, systemCount := countTokensProbe(parent, client, timeout, p, "anthropic.tokens.count.system", systemBody, telemetryProvider)
 	if systemProbe.Status == result.StatusPass && systemCount <= count {
 		systemProbe.Status = result.StatusWarn
 		systemProbe.Summary = "System content was accepted but did not increase the reported count"
 	}
 	toolsBody := cloneMap(body)
 	toolsBody["tools"] = []any{map[string]any{"name": "get_status", "description": "Return status.", "input_schema": map[string]any{"type": "object", "properties": map[string]any{"resource_id": map[string]any{"type": "string"}}, "required": []any{"resource_id"}}}}
-	toolsProbe, toolsCount := countTokensProbe(parent, client, timeout, p, "anthropic.tokens.count.tools", toolsBody)
+	toolsProbe, toolsCount := countTokensProbe(parent, client, timeout, p, "anthropic.tokens.count.tools", toolsBody, telemetryProvider)
 	if toolsProbe.Status == result.StatusPass && toolsCount <= count {
 		toolsProbe.Status = result.StatusWarn
 		toolsProbe.Summary = "Tool schema was accepted but did not increase the reported count"
@@ -912,54 +1074,56 @@ func runCountTokens(parent context.Context, client *Client, timeout time.Duratio
 	return []result.TestResult{basic, schema, systemProbe, toolsProbe, consistency}
 }
 
-func countTokensProbe(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, id string, body map[string]any) (result.TestResult, int64) {
-	resp, err := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.CountTokens(ctx, body) })
-	test := testBase(p, id)
-	test.DurationMS, test.HTTP = resp.Duration.Milliseconds(), observation(resp)
-	setHTTPStatus(&test, resp, err, true)
-	count := int64Value(resp.JSON["input_tokens"])
-	if test.Status == result.StatusPass && count <= 0 {
-		test.Status = result.StatusFail
-		test.Summary = "Count Tokens returned no positive input_tokens"
-	} else if test.Status == result.StatusPass {
-		test.Summary = fmt.Sprintf("Count Tokens returned %d input tokens", count)
-	}
+func countTokensProbe(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, id string, body map[string]any, telemetryProvider *telemetry.Provider) (result.TestResult, int64) {
+	var count int64
+	test := runNativeProbe(parent, telemetryProvider, id, func(probeCtx context.Context) result.TestResult {
+		resp, err := call(probeCtx, timeout, func(ctx context.Context) (api.Response, error) { return client.CountTokens(ctx, body) })
+		test := testBase(p, id)
+		test.DurationMS, test.HTTP = resp.Duration.Milliseconds(), observation(resp)
+		setHTTPStatus(&test, resp, err, true)
+		count = int64Value(resp.JSON["input_tokens"])
+		if test.Status == result.StatusPass && count <= 0 {
+			test.Status, test.Summary = result.StatusFail, "Count Tokens returned no positive input_tokens"
+		} else if test.Status == result.StatusPass {
+			test.Summary = fmt.Sprintf("Count Tokens returned %d input tokens", count)
+		}
+		return test
+	})
 	return test, count
 }
 
-func runStructured(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string) []result.TestResult {
+func runStructured(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string, telemetryProvider *telemetry.Provider) []result.TestResult {
 	body := basicBody(model)
 	body["messages"] = []any{map[string]any{"role": "user", "content": "Return JSON with ok=true and value=AIQA_OK."}}
 	body["output_config"] = map[string]any{"format": map[string]any{"type": "json_schema", "schema": map[string]any{"type": "object", "properties": map[string]any{"ok": map[string]any{"type": "boolean"}, "value": map[string]any{"type": "string"}}, "required": []any{"ok", "value"}, "additionalProperties": false}}}
-	resp, err := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, body) })
-	probe := testBase(p, "anthropic.structured.json_schema")
-	probe.DurationMS = resp.Duration.Milliseconds()
-	probe.HTTP = observation(resp)
-	probe.Usage = ParseUsage(resp.JSON)
-	setHTTPStatus(&probe, resp, err, true)
-	if probe.Status == result.StatusPass {
-		if !validStructuredOutput(Text(resp.JSON)) {
-			probe.Status = result.StatusFail
-			probe.Summary = "Structured output is not schema-conforming JSON"
-			probe.Signals = []result.EvidenceSignal{{Code: "anthropic.structured.schema_violation"}}
-		} else {
-			probe.Summary = "Structured output conforms to the requested JSON schema"
+	structuredResults := runNativeProbeResults(parent, telemetryProvider, "anthropic.structured.json_schema", func(probeCtx context.Context) []result.TestResult {
+		resp, err := call(probeCtx, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, body) })
+		test := testBase(p, "anthropic.structured.json_schema")
+		test.DurationMS, test.HTTP, test.Usage = resp.Duration.Milliseconds(), observation(resp), ParseUsage(resp.JSON)
+		setHTTPStatus(&test, resp, err, true)
+		if test.Status == result.StatusPass {
+			if !validStructuredOutput(Text(resp.JSON)) {
+				test.Status, test.Summary, test.Signals = result.StatusFail, "Structured output is not schema-conforming JSON", []result.EvidenceSignal{{Code: "anthropic.structured.schema_violation"}}
+			} else {
+				test.Summary = "Structured output conforms to the requested JSON schema"
+			}
 		}
-	}
-	stop := derived(p, "anthropic.structured.stop_reason", probe)
-	reason := stringValue(resp.JSON["stop_reason"])
-	if probe.Status == result.StatusPass && (reason == "max_tokens" || reason == "refusal") {
-		stop.Status = result.StatusWarn
-		stop.Summary = "Structured output ended with " + reason
-	} else {
-		stop.Summary = "Structured output completed with compatible stop semantics"
-	}
+		stop := derived(p, "anthropic.structured.stop_reason", test)
+		reason := stringValue(resp.JSON["stop_reason"])
+		if test.Status == result.StatusPass && (reason == "max_tokens" || reason == "refusal") {
+			stop.Status = result.StatusWarn
+			stop.Summary = "Structured output ended with " + reason
+		} else {
+			stop.Summary = "Structured output completed with compatible stop semantics"
+		}
+		return []result.TestResult{test, stop}
+	})
 	strictTool := map[string]any{"name": "get_status", "description": "Return status.", "strict": true, "input_schema": map[string]any{"type": "object", "properties": map[string]any{"resource_id": map[string]any{"type": "string"}}, "required": []any{"resource_id"}, "additionalProperties": false}}
-	strict := runToolChoiceProbe(parent, client, timeout, p, model, "anthropic.tools.strict_schema", strictTool, map[string]any{"type": "tool", "name": "get_status"}, true)
+	strict := runToolChoiceProbe(parent, client, timeout, p, model, "anthropic.tools.strict_schema", strictTool, map[string]any{"type": "tool", "name": "get_status"}, true, telemetryProvider)
 	if strict.Status == result.StatusPass {
 		strict.Summary = "Strict tool input conforms to the local schema"
 	}
-	return []result.TestResult{probe, stop, strict}
+	return append(structuredResults, strict)
 }
 
 func validStructuredOutput(text string) bool {
@@ -973,115 +1137,97 @@ func validStructuredOutput(text string) bool {
 	return ok
 }
 
-func runThinking(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string) []result.TestResult {
+func runThinking(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string, telemetryProvider *telemetry.Provider) []result.TestResult {
 	adaptiveBody := basicBody(model)
 	adaptiveBody["max_tokens"] = 2048
 	adaptiveBody["thinking"] = map[string]any{"type": "adaptive"}
-	adaptiveResp, adaptiveErr := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, adaptiveBody) })
-	adaptive := testBase(p, "anthropic.thinking.adaptive")
-	adaptive.DurationMS = adaptiveResp.Duration.Milliseconds()
-	adaptive.HTTP = metadataOnlyObservation(adaptiveResp)
-	adaptive.Usage = ParseUsage(adaptiveResp.JSON)
-	setHTTPStatus(&adaptive, adaptiveResp, adaptiveErr, true)
-	if adaptive.Status == result.StatusUnsupported {
-		adaptive.Signals = []result.EvidenceSignal{{Code: "anthropic.thinking.unsupported", Parameters: map[string]any{"mode": "adaptive"}}}
-	}
-	if adaptive.Status == result.StatusPass {
-		adaptive.Summary = "Adaptive thinking returned a compatible message; thinking content was not retained"
-	}
+	adaptive := thinkingMessageProbe(parent, client, timeout, p, "anthropic.thinking.adaptive", adaptiveBody, "adaptive", "Adaptive thinking returned a compatible message; thinking content was not retained", telemetryProvider)
 	effortBody := cloneMap(adaptiveBody)
 	effortBody["output_config"] = map[string]any{"effort": "high"}
-	effortResp, effortErr := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, effortBody) })
-	effort := testBase(p, "anthropic.thinking.effort")
-	effort.DurationMS = effortResp.Duration.Milliseconds()
-	effort.HTTP = metadataOnlyObservation(effortResp)
-	effort.Usage = ParseUsage(effortResp.JSON)
-	setHTTPStatus(&effort, effortResp, effortErr, true)
-	if effort.Status == result.StatusUnsupported {
-		effort.Signals = []result.EvidenceSignal{{Code: "anthropic.thinking.unsupported", Parameters: map[string]any{"mode": "effort"}}}
-	}
-	if effort.Status == result.StatusPass {
-		effort.Summary = "High thinking effort was accepted"
-	}
+	effort := thinkingMessageProbe(parent, client, timeout, p, "anthropic.thinking.effort", effortBody, "effort", "High thinking effort was accepted", telemetryProvider)
 	manualBody := basicBody(model)
 	manualBody["max_tokens"] = 2048
 	manualBody["thinking"] = map[string]any{"type": "enabled", "budget_tokens": 1024}
-	manualResp, manualErr := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, manualBody) })
-	manual := testBase(p, "anthropic.thinking.manual")
-	manual.DurationMS = manualResp.Duration.Milliseconds()
-	manual.HTTP = metadataOnlyObservation(manualResp)
-	manual.Usage = ParseUsage(manualResp.JSON)
-	setHTTPStatus(&manual, manualResp, manualErr, true)
-	if manual.Status == result.StatusUnsupported {
-		manual.Signals = []result.EvidenceSignal{{Code: "anthropic.thinking.unsupported", Parameters: map[string]any{"mode": "manual"}}}
-	}
-	if manual.Status == result.StatusPass {
-		manual.Summary = "Manual thinking budget was accepted; thinking content was not retained"
-	}
+	manual := thinkingMessageProbe(parent, client, timeout, p, "anthropic.thinking.manual", manualBody, "manual", "Manual thinking budget was accepted; thinking content was not retained", telemetryProvider)
 	invalidBody := basicBody(model)
 	invalidBody["thinking"] = map[string]any{"type": "enabled", "budget_tokens": 1}
-	invalidResp, invalidErr := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, invalidBody) })
-	validation := testBase(p, "anthropic.thinking.manual.validation")
-	validation.DurationMS = invalidResp.Duration.Milliseconds()
-	validation.HTTP = metadataOnlyObservation(invalidResp)
-	setExpectedError(&validation, invalidResp, invalidErr)
-	if validation.Status == result.StatusPass {
-		validation.Summary = "Invalid manual thinking budget was rejected"
-	}
-	ctx, cancel := context.WithTimeout(parent, timeout)
-	stream, streamErr := client.StreamMessage(ctx, manualBody)
-	cancel()
-	streamProbe := testBase(p, "anthropic.thinking.stream")
-	streamProbe.DurationMS = stream.Duration.Milliseconds()
-	streamProbe.HTTP = result.HTTPObservation{StatusCode: stream.StatusCode, ContentType: stream.ContentType, RequestID: stream.RequestID}
-	streamValidation := ValidateStream(stream)
-	streamProbe.Usage = streamValidation.Usage
-	if streamErr != nil {
-		streamProbe.Status = result.StatusError
-		streamProbe.Summary = "Thinking stream could not be evaluated"
-		streamProbe.Error = streamErr.Error()
-	} else if streamValidation.ProviderError {
-		streamProbe.Status = result.StatusError
-		streamProbe.Summary = "Provider emitted an error during thinking stream"
-	} else if len(streamValidation.Problems) > 0 {
-		streamProbe.Status = result.StatusFail
-		streamProbe.Summary = "Thinking stream sequence is invalid"
-		streamProbe.Observation = strings.Join(streamValidation.Problems, "; ")
-	} else if streamValidation.Incomplete {
-		streamProbe.Status = result.StatusError
-		streamProbe.Summary = "Thinking stream ended before message_stop"
-	} else {
-		streamProbe.Status = result.StatusPass
-		streamProbe.Summary = "Thinking stream used a legal Anthropic event sequence; thinking content was not retained"
-	}
+	validation := runNativeProbe(parent, telemetryProvider, "anthropic.thinking.manual.validation", func(probeCtx context.Context) result.TestResult {
+		invalidResp, invalidErr := call(probeCtx, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, invalidBody) })
+		test := testBase(p, "anthropic.thinking.manual.validation")
+		test.DurationMS, test.HTTP = invalidResp.Duration.Milliseconds(), metadataOnlyObservation(invalidResp)
+		setExpectedError(&test, invalidResp, invalidErr)
+		if test.Status == result.StatusPass {
+			test.Summary = "Invalid manual thinking budget was rejected"
+		}
+		return test
+	})
+	streamProbe := runNativeProbe(parent, telemetryProvider, "anthropic.thinking.stream", func(probeCtx context.Context) result.TestResult {
+		ctx, cancel := context.WithTimeout(probeCtx, timeout)
+		defer cancel()
+		stream, streamErr := client.StreamMessage(ctx, manualBody)
+		test := testBase(p, "anthropic.thinking.stream")
+		test.DurationMS = stream.Duration.Milliseconds()
+		test.HTTP = result.HTTPObservation{StatusCode: stream.StatusCode, ContentType: stream.ContentType, RequestID: stream.RequestID, TraceID: stream.TraceID}
+		streamValidation := ValidateStream(stream)
+		test.Usage = streamValidation.Usage
+		if streamErr != nil {
+			test.Status, test.Summary, test.Error = result.StatusError, "Thinking stream could not be evaluated", streamErr.Error()
+		} else if streamValidation.ProviderError {
+			test.Status, test.Summary = result.StatusError, "Provider emitted an error during thinking stream"
+		} else if len(streamValidation.Problems) > 0 {
+			test.Status, test.Summary, test.Observation = result.StatusFail, "Thinking stream sequence is invalid", strings.Join(streamValidation.Problems, "; ")
+		} else if streamValidation.Incomplete {
+			test.Status, test.Summary = result.StatusError, "Thinking stream ended before message_stop"
+		} else {
+			test.Status, test.Summary = result.StatusPass, "Thinking stream used a legal Anthropic event sequence; thinking content was not retained"
+		}
+		return test
+	})
 	return []result.TestResult{adaptive, effort, manual, validation, streamProbe}
 }
 
-func runVision(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string) []result.TestResult {
+func thinkingMessageProbe(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, id string, body map[string]any, mode, success string, telemetryProvider *telemetry.Provider) result.TestResult {
+	return runNativeProbe(parent, telemetryProvider, id, func(probeCtx context.Context) result.TestResult {
+		resp, err := call(probeCtx, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, body) })
+		test := testBase(p, id)
+		test.DurationMS, test.HTTP, test.Usage = resp.Duration.Milliseconds(), metadataOnlyObservation(resp), ParseUsage(resp.JSON)
+		setHTTPStatus(&test, resp, err, true)
+		if test.Status == result.StatusUnsupported {
+			test.Signals = []result.EvidenceSignal{{Code: "anthropic.thinking.unsupported", Parameters: map[string]any{"mode": mode}}}
+		}
+		if test.Status == result.StatusPass {
+			test.Summary = success
+		}
+		return test
+	})
+}
+
+func runVision(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string, telemetryProvider *telemetry.Provider) []result.TestResult {
 	const encoded = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
 	body := basicBody(model)
 	body["messages"] = []any{map[string]any{"role": "user", "content": []any{map[string]any{"type": "image", "source": map[string]any{"type": "base64", "media_type": "image/png", "data": encoded}}, map[string]any{"type": "text", "text": "Reply with exactly AIQA_OK."}}}}
-	resp, err := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, body) })
-	probe := testBase(p, "anthropic.vision.image_base64")
-	probe.DurationMS = resp.Duration.Milliseconds()
-	probe.HTTP = observation(resp)
-	setHTTPStatus(&probe, resp, err, true)
-	decoded, _ := base64.StdEncoding.DecodeString(encoded)
-	digest := sha256.Sum256(decoded)
-	probe.Artifacts = []result.ArtifactObservation{{Kind: "input_fixture", Source: "embedded", MediaType: "image/png", Format: "png", Bytes: int64(len(decoded)), SHA256: hex.EncodeToString(digest[:]), Width: 1, Height: 1}}
-	if probe.Status == result.StatusPass && strings.Contains(Text(resp.JSON), "AIQA_OK") {
-		probe.Summary = "Embedded PNG was accepted and produced the requested semantic answer"
-	} else if probe.Status == result.StatusPass {
-		probe.Status = result.StatusWarn
-		probe.Summary = "Embedded PNG was accepted but semantic use was not demonstrated"
-	}
-	schema := derived(p, "anthropic.vision.image_schema", probe)
-	schema.Artifacts = append([]result.ArtifactObservation(nil), probe.Artifacts...)
-	schema.Summary = "Anthropic base64 image block was accepted"
-	usage := derived(p, "anthropic.vision.usage", probe)
-	usage.Usage = ParseUsage(resp.JSON)
-	usage.Summary = "Vision usage is non-negative"
-	return []result.TestResult{probe, schema, usage}
+	visionResults := runNativeProbeResults(parent, telemetryProvider, "anthropic.vision.image_base64", func(probeCtx context.Context) []result.TestResult {
+		resp, err := call(probeCtx, timeout, func(ctx context.Context) (api.Response, error) { return client.Message(ctx, body) })
+		test := testBase(p, "anthropic.vision.image_base64")
+		test.DurationMS, test.HTTP = resp.Duration.Milliseconds(), observation(resp)
+		setHTTPStatus(&test, resp, err, true)
+		if test.Status == result.StatusPass && strings.Contains(Text(resp.JSON), "AIQA_OK") {
+			test.Summary = "Embedded PNG was accepted and produced the requested semantic answer"
+		} else if test.Status == result.StatusPass {
+			test.Status, test.Summary = result.StatusWarn, "Embedded PNG was accepted but semantic use was not demonstrated"
+		}
+		decoded, _ := base64.StdEncoding.DecodeString(encoded)
+		digest := sha256.Sum256(decoded)
+		test.Artifacts = []result.ArtifactObservation{{Kind: "input_fixture", Source: "embedded", MediaType: "image/png", Format: "png", Bytes: int64(len(decoded)), SHA256: hex.EncodeToString(digest[:]), Width: 1, Height: 1}}
+		schema := derived(p, "anthropic.vision.image_schema", test)
+		schema.Artifacts = append([]result.ArtifactObservation(nil), test.Artifacts...)
+		schema.Summary = "Anthropic base64 image block was accepted"
+		usage := derived(p, "anthropic.vision.usage", test)
+		usage.Usage = ParseUsage(resp.JSON)
+		usage.Summary = "Vision usage is non-negative"
+		return []result.TestResult{test, schema, usage}
+	})
+	return visionResults
 }
 
 func basicBody(model string) map[string]any {
@@ -1122,6 +1268,7 @@ func testBase(p profile.Profile, id string) result.TestResult {
 }
 func derived(p profile.Profile, id string, source result.TestResult) result.TestResult {
 	t := testBase(p, id)
+	t.DerivedFrom = source.ID
 	t.DurationMS = source.DurationMS
 	t.HTTP = source.HTTP
 	if source.Status != result.StatusPass {
@@ -1193,11 +1340,29 @@ func setExpectedError(t *result.TestResult, resp api.Response, err error) {
 func isTransientStatus(status int) bool {
 	return status == 408 || status == 429 || status >= 500
 }
+
+func streamEventTypes(stream api.StreamResponse) []string {
+	values := make([]string, 0, len(stream.Events))
+	for _, event := range stream.Events {
+		kind := event.Event
+		if event.Data == "[DONE]" {
+			kind = "[DONE]"
+		}
+		if kind == "" {
+			kind = stringValue(event.JSON["type"])
+		}
+		if kind == "" {
+			kind = "<unnamed>"
+		}
+		values = append(values, kind)
+	}
+	return values
+}
 func observation(resp api.Response) result.HTTPObservation {
-	return result.HTTPObservation{StatusCode: resp.StatusCode, ContentType: resp.ContentType, RequestID: resp.RequestID, Snippet: truncate(resp.Snippet(1000), 1000)}
+	return result.HTTPObservation{StatusCode: resp.StatusCode, ContentType: resp.ContentType, RequestID: resp.RequestID, Snippet: truncate(resp.Snippet(1000), 1000), TraceID: resp.TraceID}
 }
 func metadataOnlyObservation(resp api.Response) result.HTTPObservation {
-	return result.HTTPObservation{StatusCode: resp.StatusCode, ContentType: resp.ContentType, RequestID: resp.RequestID}
+	return result.HTTPObservation{StatusCode: resp.StatusCode, ContentType: resp.ContentType, RequestID: resp.RequestID, TraceID: resp.TraceID}
 }
 func profileInfo(p profile.Profile) result.ProfileInfo {
 	return result.ProfileInfo{SchemaVersion: p.SchemaVersion, ID: p.ID, Protocol: p.Protocol, Revision: p.Revision, APIVersion: p.APIVersion, BaseURLSemantics: p.BaseURLSemantics, Source: p.Source, SourceCommit: p.SourceCommit, SourceRefRevision: p.SourceRefRevision, Scope: p.Scope}

@@ -130,6 +130,7 @@ connection and diagnostics:
   --allow-http             permit plaintext outside loopback
   --verbose[=N], -v...     diagnostics: 0 quiet; 1 WARN; 2 INFO; 3 DEBUG; 4 TRACE
                             --verbose is level 1; -v through -vvvv select levels 1 through 4
+                            level 4 writes private trace/verdict diagnostics; they do not change compatibility verdict or exit policy
   --version                print version
   --help, -h               print this help`)
 }

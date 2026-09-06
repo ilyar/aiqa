@@ -13,9 +13,11 @@ import (
 
 	"github.com/ilyar/aiqa/internal/api"
 	"github.com/ilyar/aiqa/internal/config"
+	"github.com/ilyar/aiqa/internal/logging"
 	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/profile"
 	"github.com/ilyar/aiqa/internal/result"
+	"github.com/ilyar/aiqa/internal/telemetry"
 )
 
 func RegisterExecutables(ctx context.Context, registry *Registry, cfg config.Config, host HostInfo) error {
@@ -53,10 +55,107 @@ type invocation struct {
 	suiteIDs  []string
 }
 
+// ExecuteBuiltinSuites runs each built-in SDK suite under a distinct suite and
+// named probe operation. The callback is invoked with that probe context, so
+// the SDK's HTTP transport inherits the concrete suite ID instead of an
+// invocation-wide context. Results are emitted before either operation ends,
+// which keeps collector diagnostics and validator lifecycle within the same
+// trace branch.
+func ExecuteBuiltinSuites(ctx context.Context, request RunRequest, extensionID string, sink EventSink, run func(context.Context, string) SuiteEvent) error {
+	executor := request.Runtime.Executor
+	if executor == nil {
+		executor = probe.NewExecutor(1)
+	}
+	type execution struct {
+		ctx   context.Context
+		suite *telemetry.Operation
+		probe *telemetry.Operation
+		event SuiteEvent
+	}
+	tasks := make([]func() execution, 0, len(request.SuiteIDs))
+	for _, suiteID := range request.SuiteIDs {
+		suiteID := suiteID
+		tasks = append(tasks, func() execution {
+			suiteCtx, suiteOp := startBuiltinOperation(ctx, request, "suite", logging.Fields{
+				"extension": extensionID,
+				"suite":     suiteID,
+				"subject":   diagnosticSubjectRef(request.Subject),
+			})
+			probeCtx, probeOp := startBuiltinOperation(suiteCtx, request, "probe", logging.Fields{
+				"extension": extensionID,
+				"suite":     suiteID,
+				"probe":     extensionID + "." + suiteID,
+				"subject":   diagnosticSubjectRef(request.Subject),
+			})
+			return execution{ctx: probeCtx, suite: suiteOp, probe: probeOp, event: run(probeCtx, suiteID)}
+		})
+	}
+	var firstErr error
+	for _, executed := range probe.Map(executor, tasks...) {
+		outcome := string(executed.event.Outcome)
+		fields := logging.Fields{"extension": extensionID, "suite": executed.event.SuiteID, "outcome": outcome, "http_status": executed.event.HTTP.StatusCode, "duration_ms": executed.event.DurationMS, "error_present": executed.event.Error != ""}
+		if executed.probe != nil {
+			executed.probe.Event(logging.Trace, "validator", fields)
+		}
+		if err := emitSuiteEvent(executed.ctx, sink, executed.event); err != nil {
+			if executed.probe != nil {
+				executed.probe.End("error", logging.Fields{"reason": "collector_emit"})
+			}
+			if executed.suite != nil {
+				executed.suite.End("error", logging.Fields{"reason": "collector_emit"})
+			}
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		if executed.probe != nil {
+			executed.probe.End(outcome, fields)
+		}
+		if executed.suite != nil {
+			executed.suite.End(outcome, fields)
+		}
+	}
+	return firstErr
+}
+
+func startBuiltinOperation(ctx context.Context, request RunRequest, name string, fields logging.Fields) (context.Context, *telemetry.Operation) {
+	if request.Runtime.Telemetry == nil {
+		return ctx, nil
+	}
+	return request.Runtime.Telemetry.Start(ctx, name, fields)
+}
+
+func emitSuiteEvent(ctx context.Context, sink EventSink, event SuiteEvent) error {
+	if contextual, ok := sink.(interface {
+		EmitContext(context.Context, SuiteEvent) error
+	}); ok {
+		return contextual.EmitContext(ctx, event)
+	}
+	return sink.Emit(event)
+}
+
 const maxExtensionDeadline = time.Hour
 const extensionRetryLimit = 2
 
 func ExecuteTarget(ctx context.Context, registry *Registry, cfg config.Config, target config.TargetConfig, p profile.Profile, models []result.ModelReport, client *api.Client, executor *probe.Executor) []result.ExtensionRun {
+	return ExecuteTargetWithDiagnostics(ctx, registry, cfg, target, p, models, client, executor, nil)
+}
+
+// ExecuteTargetWithDiagnostics executes extension suites and emits a safe,
+// host-owned timeline. It is additive so existing callers retain the original
+// API until they opt into private verbose logging.
+func ExecuteTargetWithDiagnostics(ctx context.Context, registry *Registry, cfg config.Config, target config.TargetConfig, p profile.Profile, models []result.ModelReport, client *api.Client, executor *probe.Executor, logger DiagnosticLogger) []result.ExtensionRun {
+	return executeTarget(ctx, registry, cfg, target, p, models, client, executor, logger, nil)
+}
+
+// ExecuteTargetWithTelemetry adds local-only operation correlation to extension
+// invocations while preserving the legacy diagnostics API for direct callers.
+func ExecuteTargetWithTelemetry(ctx context.Context, registry *Registry, cfg config.Config, target config.TargetConfig, p profile.Profile, models []result.ModelReport, client *api.Client, executor *probe.Executor, logger DiagnosticLogger, provider *telemetry.Provider) []result.ExtensionRun {
+	return executeTarget(ctx, registry, cfg, target, p, models, client, executor, logger, provider)
+}
+
+func executeTarget(ctx context.Context, registry *Registry, cfg config.Config, target config.TargetConfig, p profile.Profile, models []result.ModelReport, client *api.Client, executor *probe.Executor, logger DiagnosticLogger, provider *telemetry.Provider) []result.ExtensionRun {
 	invocations := planTarget(registry, cfg, target, p, models)
 	if len(invocations) == 0 {
 		return nil
@@ -76,6 +175,30 @@ func ExecuteTarget(ctx context.Context, registry *Registry, cfg config.Config, t
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			invocationCtx := logging.Scope(ctx, target.ID, subjectModel(planned.subject), "", "", "")
+			var invocationEnd func(string, logging.Fields)
+			var subjectEnd func(string, logging.Fields)
+			if provider != nil {
+				// SDK suites are still target-local tests. Establish the report
+				// subject boundary before the runner grouping operation so the
+				// graph remains target -> provider/model -> suite -> probe.
+				subjectName := "provider"
+				if planned.subject.Kind == "model" {
+					subjectName = "model"
+				}
+				var subjectOp *telemetry.Operation
+				invocationCtx, subjectOp = provider.Start(invocationCtx, subjectName, logging.Fields{"target": target.ID, "model": subjectModel(planned.subject)})
+				subjectEnd = subjectOp.End
+				var invocationOp *telemetry.Operation
+				// An invocation only groups the runner process. Each planned SDK
+				// suite below creates its own `suite` span; do not mislabel this
+				// shared operation as a suite in the forensic graph.
+				invocationCtx, invocationOp = provider.Start(invocationCtx, "extension.invocation", logging.Fields{"target": target.ID, "extension": planned.manifest.Extension.ID, "suite_count": len(planned.suiteIDs), "source": planned.extension.Provenance().Source})
+				invocationEnd = invocationOp.End
+			} else {
+				invocationEnd = func(string, logging.Fields) {}
+				subjectEnd = func(string, logging.Fields) {}
+			}
 			allowedConcurrency := cfg.Concurrency
 			if planned.extension.Provenance().Source == "executable" {
 				allowedConcurrency = declaredSlots(planned.manifest, planned.suiteIDs, cfg.Concurrency)
@@ -104,12 +227,17 @@ func ExecuteTarget(ctx context.Context, registry *Registry, cfg config.Config, t
 					MaxOutputBytes:                maxStdoutBytes,
 				},
 				Credential: Credential{Type: "api_key", Value: target.APIKey},
-				Runtime:    RuntimeServices{Executor: executor},
+				Runtime:    RuntimeServices{Executor: executor, DiagnosticLogger: logger, Telemetry: provider, InvocationContext: invocationCtx},
 			}
 			if client != nil {
 				request.Runtime.HTTPClient = client.PacedHTTPClient(planned.subject.ID)
 			}
-			collector, err := NewCollector(planned.manifest, request, p)
+			logDiagnostic(logger, logging.Debug, "extsuite.invocation.started", logging.Fields{"target": target.ID, "extension": planned.manifest.Extension.ID, "source": planned.extension.Provenance().Source, "subject_kind": planned.subject.Kind, "subject_ref": diagnosticSubjectRef(planned.subject), "suite_count": len(planned.suiteIDs), "deadline_ms": deadline.Milliseconds(), "max_concurrency": allowedConcurrency})
+			logDiagnostic(logger, logging.Trace, "extsuite.invocation.plan", logging.Fields{"target": target.ID, "extension": planned.manifest.Extension.ID, "subject_ref": diagnosticSubjectRef(planned.subject), "suites": append([]string(nil), planned.suiteIDs...), "request_timeout_ms": request.Limits.RequestTimeoutMS, "request_interval_ms": request.Limits.RequestIntervalMS, "retry_limit": request.Limits.RetryLimit, "pacing_safe_rps": request.Limits.ObservedSafeRequestsPerSecond, "pacing_safe_concurrency": request.Limits.ObservedSafeConcurrency})
+			for _, suiteID := range planned.suiteIDs {
+				logDiagnostic(logger, logging.Debug, "extsuite.suite.scheduled", logging.Fields{"extension": planned.manifest.Extension.ID, "suite": suiteID, "subject_ref": diagnosticSubjectRef(planned.subject)})
+			}
+			collector, err := NewCollectorWithDiagnostics(planned.manifest, request, p, logger)
 			started := time.Now()
 			if err != nil {
 				provenance := planned.extension.Provenance()
@@ -118,9 +246,12 @@ func ExecuteTarget(ctx context.Context, registry *Registry, cfg config.Config, t
 					pacingCompliance = "extension_required_unverified"
 				}
 				runs[index] = result.ExtensionRun{Provenance: provenance, TargetID: target.ID, Subject: planned.subject, Runner: result.ExtensionRunnerResult{Status: result.StatusError, PacingCompliance: pacingCompliance, Summary: "Extension invocation could not be validated", Error: err.Error()}}
+				logDiagnostic(logger, logging.Error, "extsuite.invocation.rejected", logging.Fields{"target": target.ID, "extension": planned.manifest.Extension.ID, "subject_ref": diagnosticSubjectRef(planned.subject), "reason": "collector_validation"})
+				invocationEnd("error", logging.Fields{"status": "error", "error_present": true, "error_kind": "collector_validation"})
+				subjectEnd("error", logging.Fields{"status": "error", "error_present": true, "error_kind": "collector_validation"})
 				return
 			}
-			runCtx, cancel := context.WithTimeout(ctx, deadline)
+			runCtx, cancel := context.WithTimeout(invocationCtx, deadline)
 			defer cancel()
 			var telemetry RunnerTelemetry
 			var runErr error
@@ -138,10 +269,23 @@ func ExecuteTarget(ctx context.Context, registry *Registry, cfg config.Config, t
 				runErr = fmt.Errorf("extension deadline exceeded: %w", runCtx.Err())
 			}
 			runs[index] = collector.Finish(planned.extension.Provenance(), telemetry, runErr, started)
+			fields := logging.Fields{"status": string(runs[index].Runner.Status), "total_ms": runs[index].Runner.TotalDurationMS, "exit_code": runs[index].Runner.ExitCode, "error_present": runErr != nil}
+			if runErr != nil {
+				fields["error_kind"] = "extension_runner"
+			}
+			invocationEnd(string(runs[index].Runner.Status), fields)
+			subjectEnd(string(runs[index].Runner.Status), fields)
 		}()
 	}
 	wg.Wait()
 	return runs
+}
+
+func subjectModel(subject result.SubjectRef) string {
+	if subject.Kind == "model" {
+		return subject.ID
+	}
+	return ""
 }
 
 func extensionDeadline(timeout time.Duration, suites int) time.Duration {

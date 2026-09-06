@@ -217,7 +217,7 @@ aiqa test=ext-suite \
   --ext-suite-path=/opt/aiqa/aiqa-acme-ext-suite
 ```
 
-AIQA passes credentials to executables only through stdin. Executables are not sandboxed and run with the user's OS privileges. See [`docs/extension-suites.md`](docs/extension-suites.md) for discovery, `aiqa.ext.v1`, profile bindings, status derivation, security limits, and the author fixture.
+AIQA passes credentials to executables only through stdin. Executables are not sandboxed and run with the user's OS privileges. See [`docs/extension-suites.md`](docs/extension-suites.md) for discovery, `aiqa.ext.v2`, profile bindings, status derivation, security limits, cooperative forensic tracing, and the author fixture.
 
 ## `test=model-param`
 
@@ -335,7 +335,7 @@ Guidance is deterministic and uses no additional API calls:
 --guidance-locale=en
 ```
 
-The public schemas are [`schema/report-v3.schema.json`](schema/report-v3.schema.json), [`schema/profile-v3.schema.json`](schema/profile-v3.schema.json), and [`schema/ext-v1.schema.json`](schema/ext-v1.schema.json). See [`docs/reports.md`](docs/reports.md) for exact verdict, status, priority, confidence, and multi-target semantics.
+The public schemas are [`schema/report-v3.schema.json`](schema/report-v3.schema.json), [`schema/profile-v3.schema.json`](schema/profile-v3.schema.json), and [`schema/ext-v2.schema.json`](schema/ext-v2.schema.json). See [`docs/reports.md`](docs/reports.md) for exact verdict, status, priority, confidence, and multi-target semantics.
 
 ## Full CLI reference
 
@@ -361,17 +361,21 @@ Main additional options:
 --guidance-locale en
 ```
 
-`--concurrency` limits concurrently executing native and built-in extension requests and reserves capacity for executable extensions. Independent checks run in parallel, while checks with data dependencies remain ordered. The adaptive pacer may temporarily reduce the active request count after rate-limit responses. `--verbose` is equivalent to `--verbose=1` or `-v`; use `-vv`, `-vvv`, or `-vvvv` for INFO, DEBUG, or TRACE. Level 0 is quiet apart from critical errors.
+`--concurrency` limits concurrently executing native and built-in extension requests and reserves capacity for executable extensions. Independent checks run in parallel, while checks with data dependencies remain ordered. The adaptive pacer may temporarily reduce the active request count after rate-limit responses. `--verbose` is equivalent to `--verbose=1` or `-v`; use `-vv`, `-vvv`, or `-vvvv` for INFO, DEBUG, or TRACE. Level 4 writes a JSONL, sequence-numbered forensic trace of `run → target → model → suite → probe → request/attempt`, including local OpenTelemetry trace/span and operation IDs, plus a private `aiqa.trace-verdict.v1` sidecar produced by offline validation. It excludes prompts, provider output, credentials, headers, URLs, and query strings. Trace context remains local: AIQA does not forward `traceparent`, `tracestate`, or baggage to provider APIs by default. The precise contract and extension limitation are documented in [docs/trace-contract.md](docs/trace-contract.md). Level 0 is quiet apart from critical errors.
 
 Plain HTTP is automatically allowed only for loopback, any other address requires explicit `--allow-http`
 
 ## Development
 
 ```bash
-make check
-make race
-make build
+make qa
 ```
+
+`make qa` is the required local gate before committing to the main branch. It
+combines formatting, schemas/profiles, unit and integration tests, security and
+SBOM checks, race tests, a reproducible local build/version check, and
+`git diff --check`. It uses only local fixtures and does not call real model
+providers.
 
 Integration tests run a deterministic mock endpoint and check:
 

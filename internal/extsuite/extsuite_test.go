@@ -9,15 +9,18 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/ilyar/aiqa/internal/api"
 	"github.com/ilyar/aiqa/internal/config"
+	"github.com/ilyar/aiqa/internal/logging"
 	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/profile"
 	"github.com/ilyar/aiqa/internal/result"
+	"github.com/ilyar/aiqa/internal/telemetry"
 )
 
 func TestCollectorDerivesProfileStatusesAndPreservesPartialResults(t *testing.T) {
@@ -61,6 +64,118 @@ func TestCollectorTreatsRateLimitAsError(t *testing.T) {
 	run := collector.Finish(result.ExtensionProvenance{}, RunnerTelemetry{}, nil, time.Now())
 	if run.Suites[0].Status != result.StatusError {
 		t.Fatalf("429 status=%s, want error", run.Suites[0].Status)
+	}
+}
+
+func TestCollectorDiagnosticTimelineIsStructuredAndSecretFree(t *testing.T) {
+	p, err := profile.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := testManifest("fixture.diagnostics", "openai", SuiteDescriptor{ID: "echo", Subject: "model", Cost: "text", InternalConcurrency: 1})
+	subject := result.SubjectRef{TargetID: "openai", Protocol: "openai", Kind: "model", ID: "model-secret-token"}
+	logger := logging.New(4)
+	collector, err := NewCollectorWithDiagnostics(manifest, RunRequest{SchemaVersion: ProtocolVersion, Type: "run_request", RunID: "run", Subject: subject, SuiteIDs: []string{"echo"}, Credential: Credential{Type: "api_key", Value: "secret-token"}}, p, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := SuiteEvent{SchemaVersion: ProtocolVersion, Type: "suite_result", RunID: "run", ExtensionID: "fixture.diagnostics", SuiteID: "echo", Subject: subject, Outcome: result.ExtensionOutcomeRequestRejected, DurationMS: 7, Summary: "response body secret-token", Error: "Authorization: Bearer secret-token", ErrorKind: "capability_rejection", HTTP: result.HTTPObservation{StatusCode: 429, Snippet: "secret-token"}, Signals: []result.EvidenceSignal{{Code: "transport.rate-limited"}}}
+	if err := collector.Emit(event); err != nil {
+		t.Fatal(err)
+	}
+	_ = collector.Finish(result.ExtensionProvenance{ID: "fixture.diagnostics", Source: "builtin"}, RunnerTelemetry{TotalDuration: 9 * time.Millisecond}, nil, time.Now())
+	lines := strings.Join(logger.Lines(), "\n")
+	for _, forbidden := range []string{"secret-token", "response body", "Authorization", "model-secret-token"} {
+		if strings.Contains(lines, forbidden) {
+			t.Fatalf("diagnostic leaked %q: %s", forbidden, lines)
+		}
+	}
+	for _, required := range []string{`"level":"TRACE"`, `"event":"extsuite.suite.result_parsed"`, "http_status", `"level":"DEBUG"`, `"event":"extsuite.suite.completed"`, `"status":"error"`, `"event":"extsuite.runner.telemetry"`} {
+		if !strings.Contains(lines, required) {
+			t.Fatalf("diagnostic omitted %q: %s", required, lines)
+		}
+	}
+}
+
+func TestExecuteBuiltinSuitesCreatesNamedSuiteProbeBranches(t *testing.T) {
+	p, err := profile.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := testManifest("fixture.trace", "openai",
+		SuiteDescriptor{ID: "first", Subject: "model", Cost: "text", InternalConcurrency: 1},
+		SuiteDescriptor{ID: "second", Subject: "model", Cost: "text", InternalConcurrency: 1},
+	)
+	subject := result.SubjectRef{TargetID: "target", Protocol: "openai", Kind: "model", ID: "model"}
+	logger := logging.New(4)
+	tracing := telemetry.New(logger)
+	defer tracing.Shutdown(context.Background())
+	rootCtx, root := tracing.Start(context.Background(), "run", nil)
+	defer root.End("completed", nil)
+	request := RunRequest{SchemaVersion: ProtocolVersion, Type: "run_request", RunID: "run", Subject: subject, SuiteIDs: []string{"first", "second"}, Runtime: RuntimeServices{Executor: probe.NewExecutor(2), Telemetry: tracing, DiagnosticLogger: logger}}
+	collector, err := NewCollectorWithDiagnostics(manifest, request, p, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]string{}
+	var seenMu sync.Mutex
+	err = ExecuteBuiltinSuites(rootCtx, request, "fixture.trace", collector, func(ctx context.Context, suiteID string) SuiteEvent {
+		fields := logging.FieldsFromContext(ctx)
+		probeID, _ := fields["probe"].(string)
+		seenMu.Lock()
+		seen[suiteID] = probeID
+		seenMu.Unlock()
+		logger.LogContext(ctx, logging.Trace, "fixture.http_called", logging.Fields{"suite": suiteID})
+		return SuiteEvent{SchemaVersion: ProtocolVersion, Type: "suite_result", RunID: "run", ExtensionID: "fixture.trace", SuiteID: suiteID, Subject: subject, Outcome: result.ExtensionOutcomePass, DurationMS: 1, Summary: "ok"}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for suiteID, probeID := range seen {
+		if probeID != "fixture.trace."+suiteID {
+			t.Fatalf("suite %q received probe %q", suiteID, probeID)
+		}
+	}
+	var records []map[string]any
+	for _, line := range logger.Lines() {
+		var record map[string]any
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			t.Fatal(err)
+		}
+		records = append(records, record)
+	}
+	for _, suiteID := range request.SuiteIDs {
+		probeID := "fixture.trace." + suiteID
+		var suiteSpan, probeSpan string
+		for _, record := range records {
+			if record["event"] != "suite.start" || record["suite"] != suiteID {
+				continue
+			}
+			suiteSpan, _ = record["span_id"].(string)
+		}
+		for _, record := range records {
+			if record["event"] != "probe.start" || record["probe"] != probeID {
+				continue
+			}
+			probeSpan, _ = record["span_id"].(string)
+			if record["parent_span_id"] != suiteSpan {
+				t.Fatalf("probe %q parent=%q, want suite span %q", probeID, record["parent_span_id"], suiteSpan)
+			}
+		}
+		if suiteSpan == "" || probeSpan == "" {
+			t.Fatalf("missing suite/probe starts for %q: %s", suiteID, strings.Join(logger.Lines(), "\n"))
+		}
+		for _, event := range []string{"fixture.http_called", "extsuite.suite.result_parsed", "extsuite.suite.completed", "probe.validator"} {
+			matched := false
+			for _, record := range records {
+				if record["event"] == event && record["suite"] == suiteID && record["span_id"] == probeSpan {
+					matched = true
+				}
+			}
+			if !matched {
+				t.Fatalf("missing correlated %s for suite %q", event, suiteID)
+			}
+		}
 	}
 }
 
@@ -247,11 +362,81 @@ func TestExecutableFixturePreservesValidResultBeforeTimeout(t *testing.T) {
 }
 
 func FuzzDecodeSuiteEvent(f *testing.F) {
-	f.Add([]byte(`{"schema_version":"aiqa.ext.v1","type":"suite_result","run_id":"r","extension_id":"fixture.contract","suite_id":"echo","subject":{"kind":"model","id":"m"},"outcome":"pass","duration_ms":1,"summary":"ok"}`))
+	f.Add([]byte(`{"schema_version":"aiqa.ext.v2","type":"suite_result","run_id":"r","extension_id":"fixture.contract","suite_id":"echo","subject":{"kind":"model","id":"m"},"outcome":"pass","duration_ms":1,"summary":"ok"}`))
 	f.Add([]byte("not-json"))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		_, _ = decodeSuiteEvent(data)
 	})
+}
+
+func TestCollectorMapsCooperativeExecutableTraceUnderHostInvocation(t *testing.T) {
+	p, err := profile.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger := logging.New(4)
+	provider := telemetry.New(logger)
+	ctx, invocation := provider.Start(context.Background(), "extension.invocation", logging.Fields{"extension": "fixture.trace", "source": "executable"})
+	defer invocation.End("pass", nil)
+	subject := result.SubjectRef{TargetID: "openai", Protocol: "openai", Kind: "model", ID: "model-a"}
+	request := RunRequest{SchemaVersion: ProtocolVersion, Type: "run_request", RunID: "trace-run", Subject: subject, SuiteIDs: []string{"echo"}, Runtime: RuntimeServices{Telemetry: provider, InvocationContext: ctx}}
+	collector, err := NewCollector(testManifest("fixture.trace", "openai", SuiteDescriptor{ID: "echo", Subject: "model", Cost: "text", InternalConcurrency: 1}), request, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := []TraceEvent{
+		{SchemaVersion: ProtocolVersion, Type: "trace_event", RunID: "trace-run", ExtensionID: "fixture.trace", SuiteID: "echo", EventID: "suite-1", Operation: "suite", Phase: "start"},
+		{SchemaVersion: ProtocolVersion, Type: "trace_event", RunID: "trace-run", ExtensionID: "fixture.trace", SuiteID: "echo", EventID: "probe-1", ParentEventID: "suite-1", Operation: "probe", Phase: "start"},
+		{SchemaVersion: ProtocolVersion, Type: "trace_event", RunID: "trace-run", ExtensionID: "fixture.trace", SuiteID: "echo", EventID: "request-1", ParentEventID: "probe-1", Operation: "logical_request", Phase: "start", Method: "POST"},
+		{SchemaVersion: ProtocolVersion, Type: "trace_event", RunID: "trace-run", ExtensionID: "fixture.trace", SuiteID: "echo", EventID: "attempt-1", ParentEventID: "request-1", Operation: "attempt", Phase: "start", Method: "POST", Attempt: 1},
+		{SchemaVersion: ProtocolVersion, Type: "trace_event", RunID: "trace-run", ExtensionID: "fixture.trace", SuiteID: "echo", EventID: "attempt-1", Operation: "attempt", Phase: "end", Status: 200, DurationMS: 1, Outcome: "pass"},
+		{SchemaVersion: ProtocolVersion, Type: "trace_event", RunID: "trace-run", ExtensionID: "fixture.trace", SuiteID: "echo", EventID: "request-1", Operation: "logical_request", Phase: "end", DurationMS: 1, Outcome: "pass"},
+		{SchemaVersion: ProtocolVersion, Type: "trace_event", RunID: "trace-run", ExtensionID: "fixture.trace", SuiteID: "echo", EventID: "validator-1", ParentEventID: "probe-1", Operation: "probe", Phase: "validator", Outcome: "pass"},
+		{SchemaVersion: ProtocolVersion, Type: "trace_event", RunID: "trace-run", ExtensionID: "fixture.trace", SuiteID: "echo", EventID: "probe-1", Operation: "probe", Phase: "end", Outcome: "pass"},
+		{SchemaVersion: ProtocolVersion, Type: "trace_event", RunID: "trace-run", ExtensionID: "fixture.trace", SuiteID: "echo", EventID: "suite-1", Operation: "suite", Phase: "end", Outcome: "pass"},
+	}
+	for _, event := range events {
+		if err := collector.EmitTrace(event); err != nil {
+			t.Fatalf("EmitTrace(%s/%s): %v", event.Operation, event.Phase, err)
+		}
+	}
+	if err := collector.Emit(SuiteEvent{SchemaVersion: ProtocolVersion, Type: "suite_result", RunID: "trace-run", ExtensionID: "fixture.trace", SuiteID: "echo", Subject: subject, Outcome: result.ExtensionOutcomePass, DurationMS: 1, Summary: "ok"}); err != nil {
+		t.Fatal(err)
+	}
+	run := collector.Finish(result.ExtensionProvenance{Source: "executable"}, RunnerTelemetry{}, nil, time.Now())
+	if run.Runner.Status != result.StatusPass {
+		t.Fatalf("runner=%+v", run.Runner)
+	}
+	joined := strings.Join(logger.Lines(), "\n")
+	for _, want := range []string{"suite.start", "probe.start", "sdk.logical_request.start", "sdk.http_attempt.start", "probe.validator"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("missing host-mapped lifecycle %q in %s", want, joined)
+		}
+	}
+}
+
+func TestCollectorRejectsUnsafeAndUnfinishedCooperativeTrace(t *testing.T) {
+	p, _ := profile.Load()
+	subject := result.SubjectRef{Kind: "model", ID: "model-a"}
+	request := RunRequest{SchemaVersion: ProtocolVersion, Type: "run_request", RunID: "run", Subject: subject, SuiteIDs: []string{"echo"}}
+	collector, err := NewCollector(testManifest("fixture.trace", "openai", SuiteDescriptor{ID: "echo", Subject: "model", Cost: "text", InternalConcurrency: 1}), request, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeTraceEvent([]byte(`{"schema_version":"aiqa.ext.v2","type":"trace_event","run_id":"run","extension_id":"fixture.trace","suite_id":"echo","event_id":"x","operation":"suite","phase":"start","url":"https://secret.example"}`)); err == nil {
+		t.Fatal("trace decoder accepted unsafe unknown field")
+	}
+	start := TraceEvent{SchemaVersion: ProtocolVersion, Type: "trace_event", RunID: "run", ExtensionID: "fixture.trace", SuiteID: "echo", EventID: "suite-1", Operation: "suite", Phase: "start"}
+	if err := collector.EmitTrace(start); err != nil {
+		t.Fatal(err)
+	}
+	if err := collector.Emit(SuiteEvent{SchemaVersion: ProtocolVersion, Type: "suite_result", RunID: "run", ExtensionID: "fixture.trace", SuiteID: "echo", Subject: subject, Outcome: result.ExtensionOutcomePass, DurationMS: 1, Summary: "ok"}); err == nil {
+		t.Fatal("terminal result accepted unfinished extension trace")
+	}
+	run := collector.Finish(result.ExtensionProvenance{Source: "executable"}, RunnerTelemetry{}, nil, time.Now())
+	if run.Runner.Status != result.StatusError || !strings.Contains(run.Runner.Error, "extension trace") {
+		t.Fatalf("unfinished trace did not become runner evidence: %+v", run.Runner)
+	}
 }
 
 type testExtension struct {
@@ -421,11 +606,21 @@ func TestExecutableReservationsShareGlobalExecutorAndReceiveCurrentLimits(t *tes
 		t.Fatal(err)
 	}
 	client.SetConcurrency(2)
-	runs := ExecuteTarget(context.Background(), registry, config.Config{Tests: []string{"sdk", "ext-suite"}, Timeout: time.Second, Concurrency: 2}, config.TargetConfig{ID: "openai", Protocol: config.ProtocolOpenAI, BaseURL: "https://example.test/v1", APIKey: "secret", RequestInterval: time.Millisecond}, p, nil, client, probe.NewExecutor(2))
+	logger := logging.New(4)
+	runs := ExecuteTargetWithDiagnostics(context.Background(), registry, config.Config{Tests: []string{"sdk", "ext-suite"}, Timeout: time.Second, Concurrency: 2}, config.TargetConfig{ID: "openai", Protocol: config.ProtocolOpenAI, BaseURL: "https://example.test/v1", APIKey: "secret", RequestInterval: time.Millisecond}, p, nil, client, probe.NewExecutor(2), logger)
 	if len(runs) != 2 || maximum.Load() > 2 {
 		t.Fatalf("runs=%d maximum concurrency=%d, want two runs and ceiling 2", len(runs), maximum.Load())
 	}
 	if received.MaxConcurrency != 2 || received.RetryLimit != 2 || received.ObservedSafeRequestsPerSecond <= 0 || received.ObservedSafeConcurrency != 2 {
 		t.Fatalf("external limits do not describe current host policy: %+v", received)
+	}
+	lines := strings.Join(logger.Lines(), "\n")
+	for _, event := range []string{"extsuite.invocation.started", "extsuite.invocation.plan", "extsuite.suite.scheduled", "extsuite.suite.result_parsed", "extsuite.suite.completed", "extsuite.runner.telemetry", "extsuite.invocation.completed"} {
+		if !strings.Contains(lines, event) {
+			t.Fatalf("missing diagnostic event %q: %s", event, lines)
+		}
+	}
+	if strings.Contains(lines, "https://example.test") || strings.Contains(lines, "secret") {
+		t.Fatalf("timeline leaked sensitive runtime data: %s", lines)
 	}
 }

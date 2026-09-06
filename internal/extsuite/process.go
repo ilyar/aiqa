@@ -78,46 +78,57 @@ func (e *Executable) Provenance() result.ExtensionProvenance {
 
 func (e *Executable) Run(ctx context.Context, request RunRequest, sink EventSink) (RunnerTelemetry, error) {
 	started := time.Now()
-	stdout, stderr, telemetry, runErr := executeJSON(ctx, e.path, request, maxStdoutBytes)
-	telemetry.TotalDuration = time.Since(started)
-	telemetry.Stderr = sanitizeDiagnostic(stderr, request.Credential.Value)
 	problems := []string{}
-	if runErr != nil {
-		problems = append(problems, runErr.Error())
-	}
-	scanner := bufio.NewScanner(bytes.NewReader(stdout))
-	scanner.Buffer(make([]byte, 4096), maxLineBytes)
-	lineNumber := 0
-	for scanner.Scan() {
-		lineNumber++
-		if lineNumber > maxResultRecords {
-			problems = append(problems, "extension emitted too many result records")
-			break
-		}
-		line := bytes.TrimSpace(scanner.Bytes())
-		if len(line) == 0 {
-			continue
-		}
-		if !utf8.Valid(line) {
-			problems = append(problems, fmt.Sprintf("line %d is not valid UTF-8", lineNumber))
-			continue
-		}
-		event, err := decodeSuiteEvent(line)
+	telemetry, runErr := executeStreamingJSON(ctx, e.path, request, maxStdoutBytes, func(line []byte, lineNumber int) {
+		record, err := decodeExtensionRecord(line)
 		if err != nil {
 			problems = append(problems, fmt.Sprintf("line %d: %v", lineNumber, err))
-			continue
+			return
 		}
-		if err := sink.Emit(event); err != nil {
-			problems = append(problems, fmt.Sprintf("line %d: %v", lineNumber, err))
+		switch value := record.(type) {
+		case SuiteEvent:
+			if err := sink.Emit(value); err != nil {
+				problems = append(problems, fmt.Sprintf("line %d: %v", lineNumber, err))
+			}
+		case TraceEvent:
+			traceSink, ok := sink.(TraceEventSink)
+			if !ok {
+				problems = append(problems, fmt.Sprintf("line %d: extension trace sink is unavailable", lineNumber))
+				return
+			}
+			if err := traceSink.EmitTrace(value); err != nil {
+				problems = append(problems, fmt.Sprintf("line %d: %v", lineNumber, err))
+			}
 		}
-	}
-	if err := scanner.Err(); err != nil {
-		problems = append(problems, err.Error())
+	})
+	telemetry.TotalDuration = time.Since(started)
+	if runErr != nil {
+		problems = append(problems, runErr.Error())
 	}
 	if len(problems) > 0 {
 		return telemetry, errors.New(strings.Join(problems, "; "))
 	}
 	return telemetry, nil
+}
+
+func decodeExtensionRecord(line []byte) (any, error) {
+	if !utf8.Valid(line) {
+		return nil, fmt.Errorf("record is not valid UTF-8")
+	}
+	var envelope struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(line, &envelope); err != nil {
+		return nil, err
+	}
+	switch envelope.Type {
+	case "suite_result":
+		return decodeSuiteEvent(line)
+	case "trace_event":
+		return decodeTraceEvent(line)
+	default:
+		return nil, fmt.Errorf("unsupported extension record type %q", envelope.Type)
+	}
 }
 
 func decodeSuiteEvent(line []byte) (SuiteEvent, error) {
@@ -132,6 +143,19 @@ func decodeSuiteEvent(line []byte) (SuiteEvent, error) {
 	}
 	if err := ensureJSONEOF(decoder); err != nil {
 		return SuiteEvent{}, err
+	}
+	return event, nil
+}
+
+func decodeTraceEvent(line []byte) (TraceEvent, error) {
+	var event TraceEvent
+	decoder := json.NewDecoder(bytes.NewReader(line))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&event); err != nil {
+		return TraceEvent{}, err
+	}
+	if err := ensureJSONEOF(decoder); err != nil {
+		return TraceEvent{}, err
 	}
 	return event, nil
 }
@@ -279,6 +303,74 @@ func executeJSON(ctx context.Context, path string, request any, stdoutLimit int6
 		err = errors.Join(err, ctx.Err())
 	}
 	return stdout.Bytes(), stderr.Bytes(), telemetry, err
+}
+
+// executeStreamingJSON consumes stdout while the child is still running. A
+// result or trace event parsed before a timeout/exit is retained by Collector;
+// the old buffered implementation could not make that guarantee.
+func executeStreamingJSON(ctx context.Context, path string, request any, stdoutLimit int64, consume func([]byte, int)) (RunnerTelemetry, error) {
+	input, err := json.Marshal(request)
+	if err != nil {
+		return RunnerTelemetry{}, err
+	}
+	input = append(input, '\n')
+	cmd := exec.CommandContext(ctx, path)
+	configureProcess(cmd)
+	cmd.Env = cleanEnvironment()
+	cmd.Stdin = bytes.NewReader(input)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return RunnerTelemetry{}, err
+	}
+	stderr := &boundedBuffer{limit: maxStderrBytes}
+	cmd.Stderr = stderr
+	started := time.Now()
+	if err := cmd.Start(); err != nil {
+		return RunnerTelemetry{StartupDuration: time.Since(started), TotalDuration: time.Since(started), ExitCode: -1}, err
+	}
+	startupDuration := time.Since(started)
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 4096), maxLineBytes)
+	lineNumber := 0
+	var outputBytes int64
+	var scanErr error
+	for scanner.Scan() {
+		lineNumber++
+		outputBytes += int64(len(scanner.Bytes())) + 1
+		if outputBytes > stdoutLimit {
+			scanErr = fmt.Errorf("extension output exceeded configured limit")
+			continue
+		}
+		if lineNumber > maxResultRecords {
+			scanErr = fmt.Errorf("extension emitted too many result records")
+			continue
+		}
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) > 0 {
+			consume(append([]byte(nil), line...), lineNumber)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		scanErr = err
+	}
+	err = cmd.Wait()
+	if stderr.overflow {
+		err = errors.Join(err, fmt.Errorf("extension output exceeded configured limit"))
+	}
+	if scanErr != nil {
+		err = errors.Join(err, scanErr)
+	}
+	if ctx.Err() != nil {
+		err = errors.Join(err, ctx.Err())
+	}
+	return RunnerTelemetry{StartupDuration: startupDuration, TotalDuration: time.Since(started), ExitCode: processExitCode(err), Stderr: sanitizeDiagnostic(stderr.Bytes(), credentialFromRequest(request))}, err
+}
+
+func credentialFromRequest(request any) string {
+	if value, ok := request.(RunRequest); ok {
+		return value.Credential.Value
+	}
+	return ""
 }
 
 type boundedBuffer struct {

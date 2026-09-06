@@ -137,12 +137,23 @@ Failed extension-runner diagnostics are redacted, truncated, stored once in `gui
 ## CLI controls
 
 When `--verbose` is set, AIQA also writes `<name>.log` next to the requested
-report files. This private `0600` sidecar records safe lifecycle and probe
-progress observations to aid diagnosis; it is not part of `aiqa.report.v3`.
+report files and creates the private `0600` sidecar before execution begins.
+It records a streamed JSONL, structured, sequence-numbered diagnostic timeline;
+it is not part of `aiqa.report.v3`. Every record has `time`, `level`, `event`,
+`seq`, `trace_id`, `span_id`, and `parent_span_id` (the correlation fields are
+empty for an unscoped application message). At level 3 it records
+model, probe, suite, retry, and terminal-result lifecycle. At level 4 it adds
+executor scheduling, transport attempts, pacing, SSE event structure, and
+validator diagnostics, so one can reconstruct the observed test flow.
 `--verbose` and `-v` select WARN (level 1); level 2 adds INFO, level 3 adds
 DEBUG, and level 4 adds TRACE (`-vv`, `-vvv`, `-vvvv`). Level 0 is quiet and
 does not create a sidecar. The writer redacts configured credentials,
-credential-like fields, and URLs before the sidecar is committed atomically.
+credential-like fields, and URLs before each record is written to the sidecar.
+It never records prompts, generated output, thought content, tool arguments,
+request or response bodies, headers, URL query strings, or media payloads.
+OpenTelemetry spans are local-only. AIQA does not send `traceparent`,
+`tracestate`, or baggage to providers unless an explicitly configured,
+allowlisted controlled endpoint enables propagation.
 
 Guidance is local and deterministic; it sends no additional provider requests and uses no LLM.
 

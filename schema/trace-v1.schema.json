@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/aiqa/schema/trace-v1.schema.json",
+  "title": "AIQA private forensic trace v1 record",
+  "type": "object",
+  "required": ["schema_version", "time", "seq", "level", "event", "trace_id", "span_id", "parent_span_id", "operation_id"],
+  "properties": {
+    "schema_version": {"const": "aiqa.trace.v1"},
+    "time": {"type": "string", "format": "date-time"},
+    "seq": {"type": "integer", "minimum": 1},
+    "level": {"enum": ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"]},
+    "event": {"type": "string", "pattern": "^[a-z][a-z0-9._-]*$"},
+    "trace_id": {"type": "string"},
+    "span_id": {"type": "string"},
+    "parent_span_id": {"type": "string"},
+    "operation_id": {"type": "string"}
+  },
+  "additionalProperties": true
+}

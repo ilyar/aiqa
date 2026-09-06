@@ -13,8 +13,10 @@ import (
 
 	"github.com/ilyar/aiqa/internal/api"
 	"github.com/ilyar/aiqa/internal/config"
+	"github.com/ilyar/aiqa/internal/logging"
 	"github.com/ilyar/aiqa/internal/profile"
 	"github.com/ilyar/aiqa/internal/result"
+	"github.com/ilyar/aiqa/internal/telemetry"
 )
 
 // TestRunAgainstDeterministicFixture exercises the native runner through a
@@ -59,6 +61,75 @@ func TestRunAgainstDeterministicFixture(t *testing.T) {
 		if seen[id] != result.StatusPass {
 			t.Fatalf("probe %s=%q, want pass; all=%v", id, seen[id], seen)
 		}
+	}
+}
+
+// TestNativeTraceUsesConcreteProbeIDsBeforeHTTP protects the native trace
+// invariant for composite Google checks: no capability-wide wrapper may own
+// requests whose result row has a more specific probe ID.
+func TestNativeTraceUsesConcreteProbeIDsBeforeHTTP(t *testing.T) {
+	server := newGoogleFixture(t)
+	defer server.Close()
+	p, err := profile.LoadFile("google-genai-compat-2026-09.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger := logging.New(4)
+	telemetryProvider := telemetry.New(logger)
+	defer func() { _ = telemetryProvider.Shutdown(context.Background()) }()
+	target := config.TargetConfig{ID: "google-genai", Protocol: config.ProtocolGoogleGenAI, BaseURL: server.URL, APIKey: "fixture-key", APIVersion: "v1beta", Models: []string{"fixture-text"}, Modules: []string{"auto", "google-genai.interactions-stateful"}, RequestInterval: time.Millisecond}
+	cfg := config.Config{Tests: []string{"compat"}, Timeout: 3 * time.Second, Concurrency: 2, Modules: []string{"auto"}, FailOn: "core", Guidance: "off", MaxArtifactsPerModel: 1, AllowPersistentResources: true}
+	if _, err := Run(context.Background(), RunOptions{Target: target, Config: cfg, Profile: p, Logger: logger, Telemetry: telemetryProvider}); err != nil {
+		t.Fatal(err)
+	}
+
+	type record map[string]any
+	var records []record
+	for _, line := range logger.Lines() {
+		var record record
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			t.Fatalf("decode trace record: %v", err)
+		}
+		records = append(records, record)
+	}
+	probeSpans := map[string]string{}
+	probeEnd := map[string]bool{}
+	logicalChildren := map[string]int{}
+	for _, record := range records {
+		event, _ := record["event"].(string)
+		probeID, _ := record["probe"].(string)
+		if event == "probe.start" && probeID != "" {
+			probeSpans[probeID], _ = record["span_id"].(string)
+		}
+		if event == "probe.end" && probeID != "" {
+			probeEnd[probeID] = true
+		}
+		if event == "http.logical_request.start" || event == "http.stream_logical_request.start" {
+			parent, _ := record["parent_span_id"].(string)
+			logicalChildren[parent]++
+		}
+	}
+	for _, id := range []string{
+		"google.interactions.stream.http",
+		"google.tokens.count.basic",
+		"google.error.invalid_model",
+		"google.error.invalid_json",
+		"google.interactions.stateful.cleanup",
+	} {
+		probeID := "aiqa.native." + id
+		span := probeSpans[probeID]
+		if span == "" {
+			t.Fatalf("missing concrete probe %q", probeID)
+		}
+		if logicalChildren[span] == 0 {
+			t.Fatalf("probe %q has no direct logical request child", probeID)
+		}
+		if !probeEnd[probeID] {
+			t.Fatalf("probe %q has no terminal event", probeID)
+		}
+	}
+	if probeSpans["aiqa.native.google.interactions.stream"] != "" || probeSpans["aiqa.native.google.errors"] != "" {
+		t.Fatalf("found legacy capability-wide composite probes: %#v", probeSpans)
 	}
 }
 

@@ -22,6 +22,7 @@ import (
 	protocolpkg "github.com/ilyar/aiqa/internal/protocol"
 	reportpkg "github.com/ilyar/aiqa/internal/report"
 	"github.com/ilyar/aiqa/internal/result"
+	"github.com/ilyar/aiqa/internal/telemetry"
 )
 
 type RunOptions struct {
@@ -30,6 +31,8 @@ type RunOptions struct {
 	Profile   profile.Profile
 	UserAgent string
 	Logf      func(logging.Level, string, ...any)
+	Logger    *logging.Logger
+	Telemetry *telemetry.Provider
 	Runtime   *Runtime
 }
 
@@ -44,7 +47,7 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 	runtime := &Runtime{}
 	target, err := Run(ctx, RunOptions{
 		Target: options.Target, Config: options.Config, Profile: options.Profile,
-		UserAgent: options.UserAgent, Logf: options.Logf, Runtime: runtime,
+		UserAgent: options.UserAgent, Logf: options.Logf, Logger: options.Logger, Telemetry: options.Telemetry, Runtime: runtime,
 	})
 	target.Notes = []string{"Google Gen AI Go SDK v1.71.0 does not expose public Interactions API methods; no SDK Interactions suite is claimed."}
 	return protocolpkg.RunResult{
@@ -81,7 +84,14 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 		return result.TargetReport{}, err
 	}
 	client.SetConcurrency(cfg.Concurrency)
+	client.TransportClient().SetLogger(options.Logger)
+	client.TransportClient().SetLogFields(logging.Fields{"target": target.ID, "protocol": string(target.Protocol)})
 	executor := probe.NewExecutor(cfg.Concurrency)
+	executor.SetLogger(options.Logger)
+	executor.SetLogFields(logging.Fields{"target": target.ID, "protocol": string(target.Protocol)})
+	client.TransportClient().SetTelemetry(options.Telemetry)
+	client.TransportClient().SetOTelPropagationAllowlist(cfg.OTelPropagationTo)
+	executor.SetTelemetry(options.Telemetry)
 	if options.Runtime != nil {
 		options.Runtime.Client = client.TransportClient()
 		options.Runtime.Executor = executor
@@ -89,15 +99,35 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	requested := requestedModels(cfg, target)
 	tmp := result.Report{SchemaVersion: "aiqa.report.internal", Profile: profileInfo(p), Config: result.PublicConfig{BaseURL: target.BaseURL, Tests: append([]string(nil), cfg.Tests...), RequestedModels: requested, Timeout: cfg.Timeout.String(), Formats: cfg.Formats, ExtSuites: cfg.ExtSuites, FailOn: cfg.FailOn, Guidance: cfg.Guidance, GuidancePack: cfg.GuidancePack, GuidanceLocale: cfg.GuidanceLocale}}
 
-	listCtx, cancel := context.WithTimeout(ctx, cfg.Timeout)
+	discoveryCtx := ctx
+	var discoveryProvider, discoverySuite, discoveryProbe interface{ End(string, logging.Fields) }
+	if options.Telemetry != nil {
+		var providerCtx, suiteCtx context.Context
+		providerCtx, discoveryProvider = options.Telemetry.Start(logging.Scope(ctx, target.ID, "", "", "", ""), "provider", logging.Fields{"target": target.ID})
+		suiteCtx, discoverySuite = options.Telemetry.Start(logging.Scope(providerCtx, target.ID, "", "discovery", "", ""), "suite", logging.Fields{"suite": "discovery"})
+		discoveryCtx, discoveryProbe = options.Telemetry.Start(logging.Scope(suiteCtx, target.ID, "", "discovery", "google.models.list.http", ""), "probe", logging.Fields{"probe": "aiqa.native.google.models.list.http"})
+	}
+	listCtx, cancel := context.WithTimeout(discoveryCtx, cfg.Timeout)
 	models, listResp, paginationResp, listErr := discoverAll(listCtx, client)
 	cancel()
 	tmp.Discovery.ModelCount = len(models)
 	for _, model := range models {
 		tmp.Discovery.Models = append(tmp.Discovery.Models, cloneMap(model.Raw))
 	}
+	discoveryTests := discoveryResults(p, listResp, paginationResp, models, listErr)
+	if discoveryProbe != nil {
+		outcome := protocolpkg.AggregateTestOutcome(discoveryTests)
+		for _, test := range discoveryTests {
+			discoveryProbe.(interface {
+				Event(logging.Level, string, logging.Fields)
+			}).Event(logging.Trace, "validator", logging.Fields{"result_id": test.ID, "status": string(test.Status), "http_status": test.HTTP.StatusCode, "duration_ms": test.DurationMS, "error_present": test.Error != ""})
+		}
+		discoveryProbe.End(outcome, logging.Fields{"status": outcome, "result_count": len(discoveryTests)})
+		discoverySuite.End(outcome, logging.Fields{"status": outcome})
+		discoveryProvider.End(outcome, logging.Fields{"status": outcome})
+	}
 	if cfg.HasTest("compat") {
-		tmp.Discovery.Tests = append(tmp.Discovery.Tests, discoveryResults(p, listResp, paginationResp, models, listErr)...)
+		tmp.Discovery.Tests = append(tmp.Discovery.Tests, discoveryTests...)
 	}
 	selected, metadata := selectModels(requested, models)
 	if len(selected) == 0 {
@@ -130,7 +160,27 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 		}
 		classification := capability.ClassifyGoogleGenAI(model, metadata[model], capability.Options{BaseURL: target.BaseURL, Overrides: overrides, UnknownPolicy: unknownPolicy})
 		if len(requested) > 0 && classification.Unknown {
-			test, response, preflightErr := runGooglePreflight(ctx, client, cfg.Timeout, p, model)
+			var test result.TestResult
+			var response api.Response
+			var preflightErr error
+			preflightCtx := logging.Scope(ctx, target.ID, model, "", "", "")
+			var modelOp, suiteOp *telemetry.Operation
+			if options.Telemetry != nil {
+				preflightCtx, modelOp = options.Telemetry.Start(preflightCtx, "model", logging.Fields{"model": model})
+				preflightCtx, suiteOp = options.Telemetry.Start(logging.Scope(preflightCtx, target.ID, model, "compat", "", ""), "suite", logging.Fields{"suite": "compat"})
+			}
+			preflightProbeID := "google.interactions.basic"
+			if strings.Contains(p.ID, "generate-content") {
+				preflightProbeID = "google.generate-content.basic"
+			}
+			nativeChildProbe(preflightCtx, options.Telemetry, preflightProbeID, func(probeCtx context.Context) result.TestResult {
+				test, response, preflightErr = runGooglePreflight(probeCtx, client, cfg.Timeout, p, model)
+				return test
+			})
+			if suiteOp != nil {
+				suiteOp.End(string(test.Status), logging.Fields{"status": string(test.Status), "http_status": test.HTTP.StatusCode})
+				modelOp.End(string(test.Status), logging.Fields{"status": string(test.Status), "http_status": test.HTTP.StatusCode})
+			}
 			preflightTests[index], preflights[index], preflightErrors[index] = &test, &response, preflightErr
 			switch {
 			case response.Is2xx() && preflightErr == nil:
@@ -187,8 +237,14 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if options.Logf != nil {
-				options.Logf(logging.Debug, "[%s/%s] start", target.ID, model)
+			modelCtx := logging.Scope(ctx, target.ID, model, "", "", "")
+			var modelEnd func(string, logging.Fields)
+			if options.Telemetry != nil {
+				_, modelOp := options.Telemetry.Start(modelCtx, "model", logging.Fields{"model": model})
+				modelCtx = modelOp.Context()
+				modelEnd = modelOp.End
+			} else {
+				modelEnd = func(string, logging.Fields) {}
 			}
 			classification := classifications[index]
 			modules := modulePlans[index]
@@ -199,18 +255,19 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 			if cfg.HasTest("compat") && preflightTests[index] != nil && routeBlocked[index] {
 				mr.Compatibility = append(mr.Compatibility, *preflightTests[index])
 			} else if cfg.HasTest("compat") {
-				mr.Compatibility = runModelWithPreflight(ctx, client, cfg, p, model, modules, executor, strings.Contains(p.ID, "generate-content"), preflights[index], preflightErrors[index])
+				mr.Compatibility = runModelWithPreflight(modelCtx, client, cfg, p, model, modules, executor, options.Telemetry, strings.Contains(p.ID, "generate-content"), preflights[index], preflightErrors[index])
 			}
 			if cfg.HasTest("model-param") && hasAnyGenerationModule(modules, strings.Contains(p.ID, "generate-content")) {
 				mr.Compatibility = append(mr.Compatibility, runGoogleModelParamNotice(p)...)
 			}
 			sort.Slice(mr.Compatibility, func(i, j int) bool { return mr.Compatibility[i].ID < mr.Compatibility[j].ID })
+			if options.Telemetry == nil {
+				protocolpkg.LogTestResults(options.Logf, target.ID, model, mr.Compatibility)
+			}
 			stats := client.PacingStatsForModel(model)
 			mr.RateLimit = protocolpkg.RateLimitStats(stats)
 			modelResults[index] = mr
-			if options.Logf != nil {
-				options.Logf(logging.Debug, "[%s/%s] done", target.ID, model)
-			}
+			modelEnd("completed", logging.Fields{"status": "completed"})
 		}()
 	}
 	wg.Wait()
@@ -400,66 +457,143 @@ func discoveryResults(p profile.Profile, resp, paginationResp api.Response, mode
 }
 
 func runModel(parent context.Context, client *Client, cfg config.Config, p profile.Profile, model string, modules []result.ModuleAssessment, executor *probe.Executor, legacy bool) []result.TestResult {
-	return runModelWithPreflight(parent, client, cfg, p, model, modules, executor, legacy, nil, nil)
+	return runModelWithPreflight(parent, client, cfg, p, model, modules, executor, nil, legacy, nil, nil)
 }
 
-func runModelWithPreflight(parent context.Context, client *Client, cfg config.Config, p profile.Profile, model string, modules []result.ModuleAssessment, executor *probe.Executor, legacy bool, preflight *api.Response, preflightErr error) []result.TestResult {
+func runModelWithPreflight(parent context.Context, client *Client, cfg config.Config, p profile.Profile, model string, modules []result.ModuleAssessment, executor *probe.Executor, telemetryProvider *telemetry.Provider, legacy bool, preflight *api.Response, preflightErr error) []result.TestResult {
 	tasks := make([]func() []result.TestResult, 0, 12)
-	tasks = append(tasks, func() []result.TestResult { return runModelGet(parent, client, cfg.Timeout, p, model) })
+	tasks = append(tasks, nativeTask(parent, telemetryProvider, "google.models.get", func(ctx context.Context) []result.TestResult { return runModelGet(ctx, client, cfg.Timeout, p, model) }))
 	if hasModule(modules, "google-genai.interactions") {
-		tasks = append(tasks, func() []result.TestResult {
-			return runInteractionsWithPreflight(parent, client, cfg.Timeout, p, model, preflight, preflightErr)
-		})
+		tasks = append(tasks, nativeTask(parent, telemetryProvider, "google.interactions.basic", func(ctx context.Context) []result.TestResult {
+			return runInteractionsWithPreflight(ctx, client, cfg.Timeout, p, model, preflight, preflightErr)
+		}))
 	}
 	if hasModule(modules, "google-genai.interactions-stream") {
-		tasks = append(tasks, func() []result.TestResult { return runInteractionStream(parent, client, cfg.Timeout, p, model) })
+		tasks = append(tasks, nativeTask(parent, telemetryProvider, "google.interactions.stream.http", func(ctx context.Context) []result.TestResult {
+			return runInteractionStream(ctx, client, cfg.Timeout, p, model)
+		}))
 	}
 	if hasModule(modules, "google-genai.interactions-tools") {
-		tasks = append(tasks, func() []result.TestResult { return runInteractionTools(parent, client, cfg.Timeout, p, model) })
+		tasks = append(tasks, nativeTask(parent, telemetryProvider, "google.interactions.tools", func(ctx context.Context) []result.TestResult {
+			return runInteractionTools(ctx, client, cfg.Timeout, p, model)
+		}))
 	}
 	if hasModule(modules, "google-genai.interactions-structured-output") {
-		tasks = append(tasks, func() []result.TestResult { return runInteractionStructured(parent, client, cfg.Timeout, p, model) })
+		tasks = append(tasks, nativeTask(parent, telemetryProvider, "google.interactions.structured_output", func(ctx context.Context) []result.TestResult {
+			return runInteractionStructured(ctx, client, cfg.Timeout, p, model)
+		}))
 	}
 	if hasModule(modules, "google-genai.generate-content") {
-		tasks = append(tasks, func() []result.TestResult {
-			return runGenerateContentWithPreflight(parent, client, cfg.Timeout, p, model, preflight, preflightErr)
-		})
+		tasks = append(tasks, nativeTask(parent, telemetryProvider, "google.generate_content.basic", func(ctx context.Context) []result.TestResult {
+			return runGenerateContentWithPreflight(ctx, client, cfg.Timeout, p, model, preflight, preflightErr)
+		}))
 	}
 	if hasModule(modules, "google-genai.generate-content-stream") {
-		tasks = append(tasks, func() []result.TestResult { return runGenerateStream(parent, client, cfg.Timeout, p, model) })
+		tasks = append(tasks, nativeTask(parent, telemetryProvider, "google.generate-content.stream.http", func(ctx context.Context) []result.TestResult {
+			return runGenerateStream(ctx, client, cfg.Timeout, p, model)
+		}))
 	}
 	if hasModule(modules, "google-genai.generate-content-tools") {
-		tasks = append(tasks, func() []result.TestResult { return runGenerateTools(parent, client, cfg.Timeout, p, model) })
+		tasks = append(tasks, nativeTask(parent, telemetryProvider, "google.generate_content.tools", func(ctx context.Context) []result.TestResult {
+			return runGenerateTools(ctx, client, cfg.Timeout, p, model)
+		}))
 	}
 	if hasModule(modules, "google-genai.generate-content-structured-output") {
-		tasks = append(tasks, func() []result.TestResult { return runGenerateStructured(parent, client, cfg.Timeout, p, model) })
+		tasks = append(tasks, nativeTask(parent, telemetryProvider, "google.generate_content.structured_output", func(ctx context.Context) []result.TestResult {
+			return runGenerateStructured(ctx, client, cfg.Timeout, p, model)
+		}))
 	}
 	if hasModule(modules, "google-genai.token-counting") {
-		tasks = append(tasks, func() []result.TestResult { return runCountTokens(parent, client, cfg.Timeout, p, model) })
+		tasks = append(tasks, nativeTask(parent, telemetryProvider, "google.tokens.count.basic", func(ctx context.Context) []result.TestResult {
+			return runCountTokens(ctx, client, cfg.Timeout, p, model)
+		}))
 	}
 	if hasModule(modules, "google-genai.embeddings") {
-		tasks = append(tasks, func() []result.TestResult { return runEmbedding(parent, client, cfg.Timeout, p, model) })
+		tasks = append(tasks, nativeTask(parent, telemetryProvider, "google.embeddings", func(ctx context.Context) []result.TestResult { return runEmbedding(ctx, client, cfg.Timeout, p, model) }))
 	}
 	if hasModule(modules, "google-genai.interactions-thinking") || hasModule(modules, "google-genai.thinking") {
-		tasks = append(tasks, func() []result.TestResult { return runThinking(parent, client, cfg.Timeout, p, model, legacy) })
+		thinkingProbe := "google.interactions.thinking"
+		if legacy {
+			thinkingProbe = "google.generate-content.thinking.basic"
+		}
+		tasks = append(tasks, nativeTask(parent, telemetryProvider, thinkingProbe, func(ctx context.Context) []result.TestResult {
+			return runThinking(ctx, client, cfg.Timeout, p, model, legacy)
+		}))
 	}
 	if hasModule(modules, "google-genai.interactions-stateful") {
-		tasks = append(tasks, func() []result.TestResult { return runInteractionStateful(parent, client, cfg.Timeout, p, model) })
+		tasks = append(tasks, nativeTask(parent, telemetryProvider, "google.interactions.stateful", func(ctx context.Context) []result.TestResult {
+			return runInteractionStateful(ctx, client, cfg.Timeout, p, model, telemetryProvider)
+		}))
 	}
 	if hasModule(modules, "google-genai.interactions-vision") {
-		tasks = append(tasks, func() []result.TestResult { return runInteractionVision(parent, client, cfg.Timeout, p, model) })
+		tasks = append(tasks, nativeTask(parent, telemetryProvider, "google.interactions.vision", func(ctx context.Context) []result.TestResult {
+			return runInteractionVision(ctx, client, cfg.Timeout, p, model)
+		}))
 	}
 	if hasModule(modules, "google-genai.vision") {
-		tasks = append(tasks, func() []result.TestResult { return runGenerateVision(parent, client, cfg.Timeout, p, model) })
+		tasks = append(tasks, nativeTask(parent, telemetryProvider, "google.generate_content.vision", func(ctx context.Context) []result.TestResult {
+			return runGenerateVision(ctx, client, cfg.Timeout, p, model)
+		}))
 	}
 	if (legacy && hasModule(modules, "google-genai.generate-content")) || (!legacy && hasModule(modules, "google-genai.interactions")) {
-		tasks = append(tasks, func() []result.TestResult { return runGoogleErrors(parent, client, cfg.Timeout, p, model, legacy) })
+		tasks = append(tasks,
+			nativeTask(parent, telemetryProvider, "google.error.invalid_model", func(ctx context.Context) []result.TestResult {
+				return runGoogleInvalidModel(ctx, client, cfg.Timeout, p, model, legacy)
+			}),
+			nativeTask(parent, telemetryProvider, "google.error.invalid_json", func(ctx context.Context) []result.TestResult {
+				return []result.TestResult{runGoogleInvalidJSON(ctx, client, cfg.Timeout, p, model, legacy)}
+			}),
+		)
 	}
 	var out []result.TestResult
 	for _, group := range probe.Map(executor, tasks...) {
 		out = append(out, group...)
 	}
 	return out
+}
+
+// nativeTask creates the suite and concrete probe before its function makes
+// any HTTP call. Transport telemetry therefore becomes a child of the actual
+// native test instead of a post-hoc result-only span. A composite probe stays
+// open until all of its requests and validations complete.
+func nativeTask(parent context.Context, provider *telemetry.Provider, id string, fn func(context.Context) []result.TestResult) func() []result.TestResult {
+	return func() []result.TestResult {
+		if provider == nil {
+			return fn(parent)
+		}
+		suiteCtx, suite := provider.Start(logging.Scope(parent, "", "", "compat", "", ""), "suite", logging.Fields{"suite": "compat"})
+		probeCtx, probeOp := provider.Start(logging.Scope(suiteCtx, "", "", "compat", "aiqa.native."+id, ""), "probe", logging.Fields{"probe": "aiqa.native." + id})
+		tests := fn(probeCtx)
+		outcome := protocolpkg.AggregateTestOutcome(tests)
+		for _, test := range tests {
+			probeOp.Event(logging.Trace, "validator", logging.Fields{
+				"result_id": test.ID, "status": string(test.Status),
+				"http_status": test.HTTP.StatusCode, "duration_ms": test.DurationMS,
+				"error_present": test.Error != "",
+			})
+		}
+		fields := logging.Fields{"status": outcome, "result_count": len(tests)}
+		probeOp.End(outcome, fields)
+		suite.End(outcome, logging.Fields{"status": outcome})
+		return tests
+	}
+}
+
+// nativeChildProbe is used when one logical lifecycle result performs a
+// separately reported HTTP operation. The child starts before that request,
+// preserving the concrete result ID without ending its owning composite probe
+// before all lifecycle work (including cleanup) has completed.
+func nativeChildProbe(parent context.Context, provider *telemetry.Provider, id string, fn func(context.Context) result.TestResult) result.TestResult {
+	if provider == nil {
+		return fn(parent)
+	}
+	probeID := "aiqa.native." + id
+	probeCtx, probeOp := provider.Start(logging.Scope(parent, "", "", "compat", probeID, ""), "probe", logging.Fields{"probe": probeID})
+	test := fn(probeCtx)
+	fields := logging.Fields{"status": string(test.Status), "http_status": test.HTTP.StatusCode, "duration_ms": test.DurationMS, "error_present": test.Error != ""}
+	probeOp.Event(logging.Trace, "validator", fields)
+	probeOp.End(string(test.Status), fields)
+	return test
 }
 
 func runInteractions(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string) []result.TestResult {
@@ -582,6 +716,7 @@ func runInteractionStream(parent context.Context, client *Client, timeout time.D
 	httpTest := testBase(p, "google.interactions.stream.http")
 	httpTest.DurationMS = stream.Duration.Milliseconds()
 	httpTest.HTTP = streamObservation(stream)
+	httpTest.Metrics = map[string]any{"sse_event_types": streamEventTypes(stream)}
 	if err != nil {
 		setStreamError(&httpTest, err, stream.StatusCode, !p.Probe(httpTest.ID).Required)
 	} else if stream.StatusCode < 200 || stream.StatusCode >= 300 || !strings.Contains(strings.ToLower(stream.ContentType), "text/event-stream") {
@@ -591,6 +726,7 @@ func runInteractionStream(parent context.Context, client *Client, timeout time.D
 	}
 	sequence := derived(p, "google.interactions.stream.sequence", httpTest)
 	sequence.Usage = validation.Usage
+	sequence.Metrics = map[string]any{"sse_event_types": streamEventTypes(stream)}
 	if httpTest.Status == result.StatusPass {
 		switch {
 		case validation.ProviderError:
@@ -740,6 +876,7 @@ func runGenerateStream(parent context.Context, client *Client, timeout time.Dura
 	validation := ValidateGenerateContentStream(stream)
 	httpTest := testBase(p, "google.generate-content.stream.http")
 	httpTest.DurationMS, httpTest.HTTP = stream.Duration.Milliseconds(), streamObservation(stream)
+	httpTest.Metrics = map[string]any{"sse_event_types": streamEventTypes(stream)}
 	if err != nil {
 		setStreamError(&httpTest, err, stream.StatusCode, !p.Probe(httpTest.ID).Required)
 	} else if stream.StatusCode < 200 || stream.StatusCode >= 300 || !strings.Contains(strings.ToLower(stream.ContentType), "text/event-stream") {
@@ -749,6 +886,7 @@ func runGenerateStream(parent context.Context, client *Client, timeout time.Dura
 	}
 	sequence := derived(p, "google.generate-content.stream.sequence", httpTest)
 	sequence.Usage = validation.Usage
+	sequence.Metrics = map[string]any{"sse_event_types": streamEventTypes(stream)}
 	if httpTest.Status == result.StatusPass {
 		if validation.ProviderError {
 			sequence.Status, sequence.Summary = result.StatusError, "Provider emitted an error during GenerateContent stream"
@@ -890,7 +1028,7 @@ func runThinking(parent context.Context, client *Client, timeout time.Duration, 
 	return []result.TestResult{t}
 }
 
-func runInteractionStateful(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string) []result.TestResult {
+func runInteractionStateful(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string, telemetryProvider *telemetry.Provider) []result.TestResult {
 	created := testBase(p, "google.interactions.stateful")
 	createBody := map[string]any{"model": model, "input": "Remember the token AIQA_STATEFUL_OK.", "store": true}
 	resp, err := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Interaction(ctx, createBody) })
@@ -919,23 +1057,26 @@ func runInteractionStateful(parent context.Context, client *Client, timeout time
 			created.Summary = "Stateful Interaction did not continue the stored context"
 		}
 	}
-	cleanupResp, cleanupErr := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.DeleteInteraction(ctx, model, id) })
-	cleanup.DurationMS = cleanupResp.Duration.Milliseconds()
-	cleanup.HTTP = metadataObservation(cleanupResp)
-	if cleanupErr != nil && cleanupResp.StatusCode == 0 {
-		cleanup.Status, cleanup.Summary, cleanup.Error = result.StatusError, "Stateful Interaction cleanup could not be completed", cleanupErr.Error()
-	} else if cleanupResp.Is2xx() || cleanupResp.StatusCode == 404 {
-		// A 404 means the provider already expired/deleted the resource; it is
-		// safe from AIQA's point of view and is explicitly recorded.
-		cleanup.Status = result.StatusPass
-		cleanup.Summary = "Every AIQA-created stateful resource was deleted or was already absent"
-		cleanup.Metrics = map[string]any{"interaction_id_sha256_12": shortHash(id)}
-	} else {
-		cleanup.Status = result.StatusFail
-		cleanup.Summary = "Stateful Interaction cleanup failed (P0 operational finding)"
-		cleanup.Error = fmt.Sprintf("cleanup returned HTTP %d", cleanupResp.StatusCode)
-		cleanup.Signals = []result.EvidenceSignal{{Code: "contract.google.interactions.stateful.cleanup", Parameters: map[string]any{"endpoint": "interactions/{id}", "status_code": cleanupResp.StatusCode}}}
-	}
+	cleanup = nativeChildProbe(parent, telemetryProvider, cleanup.ID, func(cleanupCtx context.Context) result.TestResult {
+		cleanupResp, cleanupErr := call(cleanupCtx, timeout, func(ctx context.Context) (api.Response, error) { return client.DeleteInteraction(ctx, model, id) })
+		cleanup.DurationMS = cleanupResp.Duration.Milliseconds()
+		cleanup.HTTP = metadataObservation(cleanupResp)
+		if cleanupErr != nil && cleanupResp.StatusCode == 0 {
+			cleanup.Status, cleanup.Summary, cleanup.Error = result.StatusError, "Stateful Interaction cleanup could not be completed", cleanupErr.Error()
+		} else if cleanupResp.Is2xx() || cleanupResp.StatusCode == 404 {
+			// A 404 means the provider already expired/deleted the resource; it is
+			// safe from AIQA's point of view and is explicitly recorded.
+			cleanup.Status = result.StatusPass
+			cleanup.Summary = "Every AIQA-created stateful resource was deleted or was already absent"
+			cleanup.Metrics = map[string]any{"interaction_id_sha256_12": shortHash(id)}
+		} else {
+			cleanup.Status = result.StatusFail
+			cleanup.Summary = "Stateful Interaction cleanup failed (P0 operational finding)"
+			cleanup.Error = fmt.Sprintf("cleanup returned HTTP %d", cleanupResp.StatusCode)
+			cleanup.Signals = []result.EvidenceSignal{{Code: "contract.google.interactions.stateful.cleanup", Parameters: map[string]any{"endpoint": "interactions/{id}", "status_code": cleanupResp.StatusCode}}}
+		}
+		return cleanup
+	})
 	return []result.TestResult{created, cleanup}
 }
 
@@ -966,7 +1107,11 @@ func runGenerateVision(parent context.Context, client *Client, timeout time.Dura
 	return []result.TestResult{t}
 }
 
-func runGoogleErrors(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string, legacy bool) []result.TestResult {
+// runGoogleInvalidModel owns the malformed-model request and its derived error
+// shape validator. Keeping it separate from malformed JSON is important for
+// the execution trace: both operations have distinct result IDs and HTTP
+// requests, so neither may hide beneath a capability-wide probe.
+func runGoogleInvalidModel(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string, legacy bool) []result.TestResult {
 	missing := "aiqa-missing-model"
 	var resp api.Response
 	var err error
@@ -994,6 +1139,13 @@ func runGoogleErrors(parent context.Context, client *Client, timeout time.Durati
 			shape.Summary = "Google error envelope is valid"
 		}
 	}
+	return []result.TestResult{t, shape}
+}
+
+// runGoogleInvalidJSON owns all malformed-document variants. They are one
+// logical concrete test (`google.error.invalid_json`) and therefore share a
+// single named probe while retaining their individual transport attempts.
+func runGoogleInvalidJSON(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string, legacy bool) result.TestResult {
 	variants := [][]byte{[]byte(`{"model":`), []byte(`{"contents":[}`), []byte(`{"model":"` + model + `"} trailing`)}
 	invalid := testBase(p, "google.error.invalid_json")
 	invalid.Status = result.StatusPass
@@ -1023,7 +1175,7 @@ func runGoogleErrors(parent context.Context, client *Client, timeout time.Durati
 		invalid.Summary = "Malformed JSON handling is not consistently client-side"
 	}
 	invalid.Observation = strings.Join(obs, "; ")
-	return []result.TestResult{t, shape, invalid}
+	return invalid
 }
 
 func generationBody(model, prompt string) map[string]any {
@@ -1119,6 +1271,7 @@ func testBase(p profile.Profile, id string) result.TestResult {
 
 func derived(p profile.Profile, id string, source result.TestResult) result.TestResult {
 	t := testBase(p, id)
+	t.DerivedFrom = source.ID
 	t.DurationMS, t.HTTP = source.DurationMS, source.HTTP
 	if source.Status != result.StatusPass {
 		t.Status = result.StatusSkip
@@ -1196,17 +1349,17 @@ func observation(resp api.Response) result.HTTPObservation {
 	// arguments, or inline media.  Keep the report structural; summaries,
 	// status, usage, and validators carry the compatibility signal without
 	// copying provider-generated content into evidence.
-	return result.HTTPObservation{StatusCode: resp.StatusCode, ContentType: resp.ContentType, RequestID: resp.RequestID}
+	return result.HTTPObservation{StatusCode: resp.StatusCode, ContentType: resp.ContentType, RequestID: resp.RequestID, TraceID: resp.TraceID}
 }
 func metadataObservation(resp api.Response) result.HTTPObservation {
-	return result.HTTPObservation{StatusCode: resp.StatusCode, ContentType: resp.ContentType, RequestID: resp.RequestID}
+	return result.HTTPObservation{StatusCode: resp.StatusCode, ContentType: resp.ContentType, RequestID: resp.RequestID, TraceID: resp.TraceID}
 }
 func streamObservation(resp api.StreamResponse) result.HTTPObservation {
 	// Stream snippets contain provider-generated text and can include private
 	// thought content or echoed media.  Keep Google stream evidence structural;
 	// parsed marker/usage assertions above carry the compatibility signal without
 	// rendering raw model output into reports.
-	return result.HTTPObservation{StatusCode: resp.StatusCode, ContentType: resp.ContentType, RequestID: resp.RequestID}
+	return result.HTTPObservation{StatusCode: resp.StatusCode, ContentType: resp.ContentType, RequestID: resp.RequestID, TraceID: resp.TraceID}
 }
 func setStreamError(t *result.TestResult, err error, status int, optional bool) {
 	t.Status, t.Summary, t.Error = result.StatusError, "Google stream could not be evaluated", err.Error()
@@ -1233,6 +1386,27 @@ func setStreamHTTPStatus(t *result.TestResult, status int, optional bool, summar
 		return
 	}
 	t.Status, t.Summary = result.StatusFail, summary
+}
+
+func streamEventTypes(stream api.StreamResponse) []string {
+	values := make([]string, 0, len(stream.Events))
+	for _, event := range stream.Events {
+		kind := event.Event
+		if event.Data == "[DONE]" {
+			kind = "[DONE]"
+		}
+		if kind == "" {
+			kind = stringValue(event.JSON["event_type"])
+		}
+		if kind == "" {
+			kind = stringValue(event.JSON["type"])
+		}
+		if kind == "" {
+			kind = "<unnamed>"
+		}
+		values = append(values, kind)
+	}
+	return values
 }
 
 func isOptionalRejection(status int) bool {

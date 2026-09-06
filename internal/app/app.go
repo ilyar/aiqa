@@ -2,12 +2,14 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"runtime"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/ilyar/aiqa/internal/api"
@@ -27,6 +29,8 @@ import (
 	protocolopenai "github.com/ilyar/aiqa/internal/protocol/openai"
 	reportpkg "github.com/ilyar/aiqa/internal/report"
 	"github.com/ilyar/aiqa/internal/result"
+	"github.com/ilyar/aiqa/internal/telemetry"
+	"github.com/ilyar/aiqa/internal/traceverify"
 )
 
 type BuildInfo struct {
@@ -39,6 +43,12 @@ type RunResult struct {
 	ReportV3 *result.ReportV3
 	Paths    []string
 	ExitCode int
+}
+
+// attachForensicSink is a narrow seam for deterministic sidecar write-failure
+// tests. Production always streams to the pre-opened 0600 file.
+var attachForensicSink = func(logger *logging.Logger, file *os.File) (*logging.Sink, error) {
+	return logger.AddSink(file, logging.SinkOptions{MaxBytes: -1})
 }
 
 func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, error) {
@@ -57,13 +67,125 @@ func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, er
 	return runMultiTarget(ctx, cfg, build)
 }
 
-func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, error) {
+func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (out RunResult, runErr error) {
 	logger := logging.New(cfg.Verbosity)
+	// The sidecar is deliberately opened before emitting the first lifecycle
+	// event. O_EXCL prevents a pre-existing path (including a symlink) from
+	// receiving private diagnostics; callers must explicitly rotate an old log.
+	var sidecarPath, verdictPath string
+	var verdictFile *os.File
+	var sidecarWriteErr error
+	var publicReport *result.ReportV3
+	var reportsWritten bool
+	var finalVerdict *traceverify.Verdict
+	if cfg.Verbosity > 0 {
+		sidecarPath = cfg.Name + ".log"
+		file, err := os.OpenFile(sidecarPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			return RunResult{ExitCode: 2}, fmt.Errorf("create private diagnostic log %q: %w", sidecarPath, err)
+		}
+		// A forensic execution trace must not silently omit its tail. The
+		// application therefore opts into the explicit unbounded sink; the
+		// logging package retains a defensive bounded default for embedders.
+		sink, err := attachForensicSink(logger, file)
+		if err != nil {
+			_ = file.Close()
+			return RunResult{ExitCode: 2}, fmt.Errorf("attach private diagnostic log %q: %w", sidecarPath, err)
+		}
+		if cfg.Verbosity >= 4 {
+			verdictPath = cfg.Name + ".trace-verdict.json"
+			verdictFile, err = os.OpenFile(verdictPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+			if err != nil {
+				_ = sink.Close()
+				_ = file.Close()
+				return RunResult{ExitCode: 2}, fmt.Errorf("create private trace verdict %q: %w", verdictPath, err)
+			}
+		}
+		defer func() {
+			if err := errors.Join(sink.Close(), file.Close()); err != nil {
+				sidecarWriteErr = err
+				err = fmt.Errorf("write private diagnostic log %q: %w", sidecarPath, err)
+				if runErr == nil {
+					runErr = err
+					out.ExitCode = 2
+				} else {
+					runErr = errors.Join(runErr, err)
+				}
+			}
+			if verdictFile == nil {
+				return
+			}
+			trace, err := os.Open(sidecarPath)
+			if err == nil {
+				verdict := traceverify.Verify(trace)
+				if sidecarWriteErr != nil {
+					verdict.Status = traceverify.Inconclusive
+					verdict.Violations = append(verdict.Violations, traceverify.Violation{
+						Code: "trace_write_failed", Severity: "error",
+						Remediation: "restore private trace sidecar writes before using forensic evidence",
+					})
+				}
+				finalVerdict = &verdict
+				err = trace.Close()
+				if err == nil {
+					data, marshalErr := json.MarshalIndent(verdict, "", "  ")
+					if marshalErr != nil {
+						err = marshalErr
+					} else if _, writeErr := verdictFile.Write(append(data, '\n')); writeErr != nil {
+						err = writeErr
+					} else {
+						err = verdictFile.Sync()
+					}
+				}
+			}
+			if closeErr := verdictFile.Close(); err == nil {
+				err = closeErr
+			}
+			if err != nil {
+				err = fmt.Errorf("write private trace verdict %q: %w", verdictPath, err)
+				if runErr == nil {
+					runErr = err
+					out.ExitCode = 2
+				} else {
+					runErr = errors.Join(runErr, err)
+				}
+				return
+			}
+			if publicReport != nil && reportsWritten {
+				// Public reports expose only the private verdict filename and its
+				// final status. Rewriting after finalization prevents a stale
+				// "pending" claim while retaining the trace's confidentiality.
+				if finalVerdict == nil {
+					runErr = errors.Join(runErr, errors.New("private trace verdict was not produced"))
+					out.ExitCode = 2
+					return
+				}
+				publicReport.ForensicTrace = &result.ForensicTrace{VerdictPath: verdictPath, Status: string(finalVerdict.Status)}
+				if _, writeErr := reportpkg.WriteV3(*publicReport, cfg); writeErr != nil {
+					runErr = errors.Join(runErr, fmt.Errorf("update report with forensic trace verdict: %w", writeErr))
+					out.ExitCode = 2
+				}
+			}
+		}()
+	}
+	tracing := telemetry.New(logger)
+	defer tracing.Shutdown(context.Background())
+	forensicRunID, err := newForensicRunID()
+	if err != nil {
+		return RunResult{ExitCode: 2}, fmt.Errorf("generate forensic trace run id: %w", err)
+	}
+	ctx = logging.WithLogger(ctx, logger)
+	ctx, runOp := tracing.Start(ctx, "run", logging.Fields{"run_id": forensicRunID, "suite_count": len(cfg.Tests), "target": "all"})
+	runOutcome := "completed"
+	runFields := logging.Fields{}
+	// This defer is deliberately registered before target defers. On an early
+	// return Go closes targets first (LIFO), then the run, preserving the graph
+	// invariant that no child outlives its parent.
+	defer func() { runOp.End(runOutcome, runFields) }()
 	logf := func(level logging.Level, format string, args ...any) {
-		if logger.Logf(level, format, args...) {
+		if line, recorded := logger.LogfLine(level, format, args...); recorded {
 			// Application messages use fixed text and identifiers, never request
 			// payloads or credentials. The sidecar sanitizes again before writing.
-			line := "[" + string(level) + "] " + strings.TrimRight(fmt.Sprintf(format, args...), "\n")
 			fmt.Fprintf(os.Stderr, "aiqa: %s\n", line)
 		}
 	}
@@ -82,22 +204,28 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (Ru
 			AllowHighTokenProbes: cfg.AllowHighTokenProbes, AllowPersistentResources: cfg.AllowPersistentResources,
 		},
 	}
-	writeVerboseLog := func(out *RunResult) error {
-		logPaths, err := reportpkg.WriteVerboseLog(cfg, logger.Lines())
-		if err != nil {
-			return fmt.Errorf("write verbose log: %w", err)
+	publicReport = &r
+	addSidecarPath := func(result *RunResult) {
+		if sidecarPath != "" {
+			result.Paths = append(result.Paths, sidecarPath)
 		}
-		out.Paths = append(out.Paths, logPaths...)
-		return nil
+		if verdictPath != "" {
+			// The file is created before the first provider action. The deferred
+			// finalizer fills it only after every lifecycle span has ended.
+			result.Paths = append(result.Paths, verdictPath)
+		}
 	}
 	fatal := func(out RunResult, cause error) (RunResult, error) {
 		// Runtime failures are emitted through the same filtered logger as every
 		// other application message. This keeps stderr and the verbose sidecar in
 		// sync, and intentionally leaves parse/configuration failures to main.
-		logf(logging.Fatal, "%v", cause)
-		if logErr := writeVerboseLog(&out); logErr != nil {
-			return out, errors.Join(cause, logErr)
-		}
+		// Provider errors can contain response bodies, request URLs or echoed
+		// credentials. The trace records only this fixed safe category; the
+		// returned error remains available to the interactive caller.
+		logf(logging.Fatal, "run failed; inspect public report or safe error classification")
+		runOutcome = "error"
+		runFields = logging.Fields{"status": "error", "error_present": true, "error_kind": "run_failure"}
+		addSidecarPath(&out)
 		return out, cause
 	}
 	extRegistry, err := extsuite.NewRegistry(extopenai.New(), extanthropic.New(), extgoogle.New())
@@ -117,12 +245,14 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (Ru
 		}
 	}
 	var runErrors []error
-	logf(logging.Info, "run started: %d target(s), tests=%s", len(cfg.Targets), strings.Join(cfg.Tests, ","))
+	runOp.Event(logging.Info, "plan", logging.Fields{"suite_count": len(cfg.Tests), "target": "all"})
 	runnerLogf := func(level logging.Level, format string, args ...any) { logf(level, format, args...) }
 	targets := append([]config.TargetConfig(nil), cfg.Targets...)
 	sort.Slice(targets, func(i, j int) bool { return targets[i].ID < targets[j].ID })
 	for _, target := range targets {
-		logf(logging.Info, "[%s] target started (%s)", target.ID, target.Protocol)
+		targetCtx := logging.Scope(ctx, target.ID, "", "", "", "")
+		targetCtx, targetOp := tracing.Start(targetCtx, "target", logging.Fields{"target": target.ID, "protocol": string(target.Protocol)})
+		defer targetOp.End("interrupted", logging.Fields{"status": "interrupted", "error_present": true, "error_kind": "run_interrupted"})
 		r.Config.Targets = append(r.Config.Targets, result.TargetPublicConfig{ID: target.ID, Protocol: string(target.Protocol), BaseURL: target.BaseURL, BaseURLNormalized: target.BaseURLNormalized, APIVersion: target.APIVersion})
 		p, err := profile.LoadFile(target.ProfileFile)
 		if err != nil {
@@ -135,15 +265,21 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (Ru
 		if !ok {
 			return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("unsupported target protocol %s", target.Protocol))
 		}
-		logf(logging.Trace, "[%s] native compatibility plan: profile=%s, modules=%s", target.ID, p.ID, strings.Join(target.Modules, ","))
-		native, runErr := runner(ctx, protocolpkg.RunOptions{Target: target, Config: cfg, Profile: p, UserAgent: "aiqa/" + build.Version, Logf: runnerLogf})
+		targetOp.Event(logging.Trace, "plan", logging.Fields{
+			"target": target.ID, "protocol": string(target.Protocol),
+			"native_selected": cfg.HasTest("compat") || cfg.HasTest("model-param"),
+			"sdk_selected":    cfg.HasTest("sdk"), "extension_selected": cfg.HasTest("ext-suite"),
+		})
+		native, runErr := runner(targetCtx, protocolpkg.RunOptions{Target: target, Config: cfg, Profile: p, UserAgent: "aiqa/" + build.Version, Logf: runnerLogf, Logger: logger, Telemetry: tracing})
 		if native.Target.ID == "" {
 			if runErr == nil {
 				runErr = errors.New("native runner returned no target report")
 			}
+			targetOp.End("error", logging.Fields{"status": "error", "error_present": true, "error_kind": "native_runner"})
 			return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("run %s target: %w", target.Protocol, runErr))
 		}
 		targetReport := native.Target
+		var extensionErr error
 		tmp := reportFromTarget(targetReport, target.BaseURL)
 		guidance.Apply(&tmp, p, guidance.Options{Mode: cfg.Guidance, Pack: cfg.GuidancePack, Locale: cfg.GuidanceLocale})
 		targetReport.Guidance = tmp.Guidance
@@ -151,33 +287,41 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (Ru
 			logf(logging.Error, "[%s] target runner returned an error", target.ID)
 			runErrors = append(runErrors, fmt.Errorf("run %s target %s: %w", target.Protocol, target.ID, runErr))
 		} else {
-			var extErr error
-			targetReport, extErr = finishTargetExtensions(ctx, extensionCfg, target, p, targetReport, extRegistry, native.Runtime.Client, native.Runtime.Executor)
-			if extErr != nil {
+			targetReport, extensionErr = finishTargetExtensions(targetCtx, extensionCfg, target, p, targetReport, extRegistry, native.Runtime.Client, native.Runtime.Executor, logger, tracing)
+			if extensionErr != nil {
 				logf(logging.Error, "[%s] extension suites returned an error", target.ID)
-				runErrors = append(runErrors, fmt.Errorf("run extension suites for target %s: %w", target.ID, extErr))
+				runErrors = append(runErrors, fmt.Errorf("run extension suites for target %s: %w", target.ID, extensionErr))
 			}
 		}
 		r.Targets = append(r.Targets, targetReport)
-		logf(logging.Info, "[%s] target completed", target.ID)
+		outcome := "completed"
+		if runErr != nil || extensionErr != nil {
+			outcome = "error"
+		}
+		targetOp.End(outcome, logging.Fields{"status": outcome, "error_present": outcome == "error"})
 	}
 	r.Summary = summarizeRun(r.Targets)
 	paths, err := reportpkg.WriteV3(r, cfg)
 	if err != nil {
 		return fatal(RunResult{ReportV3: &r, Paths: paths, ExitCode: 2}, err)
 	}
-	logf(logging.Info, "report serialization completed")
-	out := RunResult{ReportV3: &r, Paths: paths, ExitCode: multiExitCode(cfg, r.Summary)}
+	reportsWritten = true
+	runOp.Event(logging.Info, "report_serialized", logging.Fields{"status": "completed"})
+	out = RunResult{ReportV3: &r, Paths: paths, ExitCode: multiExitCode(cfg, r.Summary)}
+	addSidecarPath(&out)
 	if len(runErrors) > 0 {
 		out.ExitCode = 2
 		return fatal(out, errors.Join(runErrors...))
 	}
-	if err := writeVerboseLog(&out); err != nil {
-		logf(logging.Fatal, "%v", err)
-		out.ExitCode = 2
-		return out, err
-	}
 	return out, nil
+}
+
+func newForensicRunID() (string, error) {
+	bytes := make([]byte, 16)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return "run-" + hex.EncodeToString(bytes), nil
 }
 
 func newProtocolRegistry() (*protocolpkg.Registry, error) {
@@ -201,7 +345,7 @@ func reportFromTarget(target result.TargetReport, baseURL string) result.Report 
 	return result.Report{SchemaVersion: "aiqa.report.internal", Profile: target.Profile, Config: result.PublicConfig{BaseURL: baseURL}, Discovery: target.Discovery, Models: target.Models, Requirements: target.Requirements, Summary: target.Summary, Guidance: target.Guidance, RateLimit: target.RateLimit, ExtensionRateLimit: target.ExtensionRateLimit, Extensions: target.Extensions}
 }
 
-func finishTargetExtensions(ctx context.Context, cfg config.Config, target config.TargetConfig, p profile.Profile, targetReport result.TargetReport, registry *extsuite.Registry, client *api.Client, executor *probe.Executor) (result.TargetReport, error) {
+func finishTargetExtensions(ctx context.Context, cfg config.Config, target config.TargetConfig, p profile.Profile, targetReport result.TargetReport, registry *extsuite.Registry, client *api.Client, executor *probe.Executor, logger *logging.Logger, tracing *telemetry.Provider) (result.TargetReport, error) {
 	if !cfg.HasExtensionTests() {
 		return targetReport, nil
 	}
@@ -209,7 +353,7 @@ func finishTargetExtensions(ctx context.Context, cfg config.Config, target confi
 		return targetReport, fmt.Errorf("prepare %s extension runtime: native target runtime is unavailable", target.ID)
 	}
 	before := client.PacingStats()
-	targetReport.Extensions = extsuite.ExecuteTarget(ctx, registry, cfg, target, p, targetReport.Models, client, executor)
+	targetReport.Extensions = extsuite.ExecuteTargetWithTelemetry(ctx, registry, cfg, target, p, targetReport.Models, client, executor, logger, tracing)
 	if hasBuiltInExtension(targetReport.Extensions) {
 		after := client.PacingStats()
 		delta := api.DeltaPacingStats(before, after)

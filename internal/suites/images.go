@@ -27,13 +27,28 @@ import (
 const maxImageArtifactBytes = 20 << 20
 
 func RunImageCompat(parent context.Context, env Environment, model string) []result.TestResult {
-	env.logf(logging.Trace, "[%s] compat: image generation", model)
+	parent, suiteOp := env.startSuite(parent, "compat-images", logging.Fields{"model": model})
+	defer endOperation(suiteOp, "completed", nil)
 	groups := probe.Map(env.Probes,
-		func() []result.TestResult { return probeImageGeneration(parent, env, model) },
-		func() []result.TestResult { return []result.TestResult{probeInvalidImageModel(parent, env)} },
-		func() []result.TestResult { return []result.TestResult{probeInvalidImageJSON(parent, env)} },
+		func() []result.TestResult {
+			return env.runTestsProbe(parent, model, "compat-images", "images.generate.basic", func(probeCtx context.Context) []result.TestResult {
+				return probeImageGeneration(probeCtx, env, model)
+			})
+		},
+		func() []result.TestResult {
+			return []result.TestResult{env.runTestProbe(parent, model, "compat-images", "images.generate.invalid_model", func(probeCtx context.Context) result.TestResult {
+				return probeInvalidImageModel(probeCtx, env)
+			})}
+		},
+		func() []result.TestResult {
+			return []result.TestResult{env.runTestProbe(parent, model, "compat-images", "images.generate.invalid_json", func(probeCtx context.Context) result.TestResult {
+				return probeInvalidImageJSON(probeCtx, env)
+			})}
+		},
 	)
-	return flattenTests(groups)
+	out := flattenTests(groups)
+	env.traceTests(parent, model, out)
+	return out
 }
 
 func probeImageGeneration(parent context.Context, env Environment, model string) []result.TestResult {
@@ -59,6 +74,7 @@ func probeImageGeneration(parent context.Context, env Environment, model string)
 	}
 
 	schema := testBase(env.Profile, "images.generate.schema", "compat")
+	schema.DerivedFrom = basic.ID
 	schema.DurationMS, schema.HTTP = resp.Duration.Milliseconds(), imageHTTPObservation(resp)
 	var item map[string]any
 	if basic.Status != result.StatusPass {
@@ -76,6 +92,7 @@ func probeImageGeneration(parent context.Context, env Environment, model string)
 	}
 
 	artifact := testBase(env.Profile, "images.generate.artifact", "compat")
+	artifact.DerivedFrom = basic.ID
 	artifact.DurationMS, artifact.HTTP = resp.Duration.Milliseconds(), imageHTTPObservation(resp)
 	if schema.Status != result.StatusPass {
 		artifact.Status, artifact.Summary = result.StatusSkip, "artifact was not checked because image response schema failed"
@@ -85,7 +102,7 @@ func probeImageGeneration(parent context.Context, env Environment, model string)
 		}}
 	} else {
 		artifactCtx, artifactCancel := env.probeContext(parent)
-		observation, artifactErr := inspectImageArtifact(artifactCtx, item)
+		observation, artifactErr := inspectImageArtifact(artifactCtx, env, item)
 		artifactCancel()
 		if artifactErr != nil {
 			if api.ArtifactFetchInconclusive(artifactErr) {
@@ -100,6 +117,7 @@ func probeImageGeneration(parent context.Context, env Environment, model string)
 	}
 
 	usage := testBase(env.Profile, "images.generate.usage", "compat")
+	usage.DerivedFrom = basic.ID
 	usage.DurationMS, usage.HTTP, usage.Usage = resp.Duration.Milliseconds(), imageHTTPObservation(resp), api.ParseUsage(resp.JSON)
 	if basic.Status != result.StatusPass {
 		usage.Status, usage.Summary = result.StatusSkip, "usage was not checked because image generation failed"
@@ -170,7 +188,7 @@ func imageHTTPObservation(resp api.Response) result.HTTPObservation {
 	return observation
 }
 
-func inspectImageArtifact(ctx context.Context, item map[string]any) (result.ArtifactObservation, error) {
+func inspectImageArtifact(ctx context.Context, env Environment, item map[string]any) (result.ArtifactObservation, error) {
 	var body []byte
 	source := ""
 	mediaType := ""
@@ -187,7 +205,7 @@ func inspectImageArtifact(ctx context.Context, item map[string]any) (result.Arti
 		}
 		body, source = decoded, "b64_json"
 	} else if rawURL, _ := item["url"].(string); rawURL != "" {
-		artifact, err := api.FetchPublicArtifact(ctx, rawURL, maxImageArtifactBytes)
+		artifact, err := api.FetchPublicArtifactWithTelemetry(ctx, env.Telemetry, rawURL, maxImageArtifactBytes)
 		if err != nil {
 			return result.ArtifactObservation{}, err
 		}

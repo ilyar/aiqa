@@ -10,11 +10,17 @@
     "tool": {"$ref": "#/$defs/tool"},
     "config": {"$ref": "#/$defs/config"},
     "targets": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/target"}},
-    "summary": {"$ref": "#/$defs/runSummary"}
+    "summary": {"$ref": "#/$defs/runSummary"},
+    "forensic_trace": {"$ref": "#/$defs/forensicTrace"}
   },
   "additionalProperties": false,
   "$defs": {
     "status": {"enum": ["pass", "fail", "warn", "unsupported", "skip", "error"]},
+    "forensicTrace": {
+      "type": "object", "required": ["verdict_path", "status"],
+      "properties": {"verdict_path": {"type": "string", "minLength": 1}, "status": {"enum": ["pass", "fail", "inconclusive", "not_requested"]}},
+      "additionalProperties": false
+    },
     "tool": {
       "type": "object", "required": ["name", "version", "go_version"],
       "properties": {"name": {"const": "aiqa"}, "version": {"type": "string"}, "commit": {"type": "string"}, "build_date": {"type": "string"}, "go_version": {"type": "string"}},
@@ -88,7 +94,7 @@
     "provenance": {
       "type": "object", "required": ["id", "name", "version", "source", "protocol_version"],
       "properties": {
-        "id": {"type": "string"}, "name": {"type": "string"}, "version": {"type": "string"}, "source": {"enum": ["builtin", "executable"]}, "protocol_version": {"const": "aiqa.ext.v1"},
+        "id": {"type": "string"}, "name": {"type": "string"}, "version": {"type": "string"}, "source": {"enum": ["builtin", "executable"]}, "protocol_version": {"const": "aiqa.ext.v2"},
         "path": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
       },
       "additionalProperties": false

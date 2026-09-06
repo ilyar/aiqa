@@ -137,7 +137,7 @@ go run ./script/check-profile-upstream.go \
   --profile profile/anthropic-compat-2026-09.json
 ```
 
-`make check` validates report v3, profile v3, `aiqa.ext.v1`, both built-in SDKs, the complete dual-facade mock, formatting, vet, and unit/integration tests.
+`make check` validates report v3, profile v3, `aiqa.ext.v2`, both built-in SDKs, the complete dual-facade mock, formatting, vet, and unit/integration tests.
 
 Optional live CI jobs are disabled by default and non-blocking. They require explicit repository variables, target secrets, and one selected model. They omit `ext-suite`, billable artifact modules, and high-token thinking; use fixed profile request caps, a 30-second per-request timeout, and adaptive 250 ms initial pacing; and upload only redacted JSON reports with short retention.
 

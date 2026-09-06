@@ -3,11 +3,13 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -106,6 +108,74 @@ func TestRunCompatibilityWritesReports(t *testing.T) {
 	}
 }
 
+func TestForensicSidecarsExistWithPrivateModesBeforeFirstHTTPRequest(t *testing.T) {
+	withTempWorkingDirectory(t)
+	observed := make(chan error, 1)
+	server := newMockOpenAIWithMiddleware(t, func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			for _, path := range []string{"before-request.log", "before-request.trace-verdict.json"} {
+				info, err := os.Stat(path)
+				if err != nil {
+					select {
+					case observed <- fmt.Errorf("%s absent at first request: %w", path, err):
+					default:
+					}
+					break
+				}
+				if info.Mode().Perm() != 0o600 {
+					select {
+					case observed <- fmt.Errorf("%s mode=%#o, want 0600", path, info.Mode().Perm()):
+					default:
+					}
+					break
+				}
+			}
+			select {
+			case observed <- nil:
+			default:
+			}
+			next.ServeHTTP(w, r)
+		})
+	})
+	defer server.Close()
+	cfg := testConfig(server.URL+"/v1", []string{"compat"})
+	cfg.Formats = nil
+	cfg.Verbosity, cfg.Name = 4, "before-request"
+	out, err := Run(context.Background(), cfg, BuildInfo{Version: "test"})
+	if err != nil || out.ExitCode != 0 {
+		t.Fatalf("forensic run: exit=%d err=%v", out.ExitCode, err)
+	}
+	select {
+	case err := <-observed:
+		if err != nil {
+			t.Fatal(err)
+		}
+	default:
+		t.Fatal("fixture did not observe an HTTP request")
+	}
+}
+
+func TestVerbosityBelowFourDoesNotCreateForensicVerdict(t *testing.T) {
+	server := newMockOpenAI(t)
+	defer server.Close()
+	withTempWorkingDirectory(t)
+	for _, verbosity := range []int{0, 1, 2, 3} {
+		t.Run(fmt.Sprintf("level-%d", verbosity), func(t *testing.T) {
+			cfg := testConfig(server.URL+"/v1", []string{"compat"})
+			cfg.Formats = nil
+			cfg.Verbosity = verbosity
+			cfg.Name = fmt.Sprintf("below-forensic-%d", verbosity)
+			out, err := Run(context.Background(), cfg, BuildInfo{Version: "test"})
+			if err != nil || out.ExitCode != 0 {
+				t.Fatalf("verbosity %d run: exit=%d err=%v", verbosity, out.ExitCode, err)
+			}
+			if _, err := os.Stat(cfg.Name + ".trace-verdict.json"); !os.IsNotExist(err) {
+				t.Fatalf("verbosity %d unexpectedly created forensic verdict: %v", verbosity, err)
+			}
+		})
+	}
+}
+
 func TestCompatibilityOnlyDoesNotDiscoverPATHConstructedExtensions(t *testing.T) {
 	server := newMockOpenAI(t)
 	defer server.Close()
@@ -155,6 +225,53 @@ func TestUnavailableSelectedExtensionIsConfigurationError(t *testing.T) {
 	out, err := Run(context.Background(), cfg, BuildInfo{Version: "test"})
 	if err == nil || out.ExitCode != 2 || !strings.Contains(err.Error(), "not installed") {
 		t.Fatalf("unexpected missing-extension result: exit=%d err=%v", out.ExitCode, err)
+	}
+}
+
+func TestExecutableExtensionProducesVerifiableForensicCoverage(t *testing.T) {
+	server := newMockOpenAI(t)
+	defer server.Close()
+	fixtureDir := t.TempDir()
+	binary := filepath.Join(fixtureDir, "aiqa-fixture-ext-suite")
+	build := exec.Command("go", "build", "-o", binary, "../../test/fixtures/ext-suite")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build executable extension fixture: %v\n%s", err, output)
+	}
+	t.Setenv("PATH", fixtureDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	withTempWorkingDirectory(t)
+	cfg := testConfig(server.URL+"/v1", []string{"compat", "ext-suite"})
+	cfg.ExtSuites = []string{"fixture.contract"}
+	cfg.Formats = nil
+	cfg.Verbosity = 4
+	cfg.Name = "executable-forensic"
+	out, err := Run(context.Background(), cfg, BuildInfo{Version: "test"})
+	if err != nil || out.ExitCode != 0 {
+		t.Fatalf("executable extension run failed: exit=%d err=%v", out.ExitCode, err)
+	}
+	data, readErr := os.ReadFile("executable-forensic.trace-verdict.json")
+	if readErr != nil {
+		t.Fatalf("read executable forensic verdict: %v", readErr)
+	}
+	var verdict struct {
+		Status   string `json:"status"`
+		Coverage []struct {
+			Target, Protocol, Executor, Status string
+		} `json:"coverage"`
+	}
+	if err := json.Unmarshal(data, &verdict); err != nil {
+		t.Fatalf("decode executable forensic verdict: %v", err)
+	}
+	if verdict.Status != "pass" {
+		t.Fatalf("executable forensic verdict=%s", data)
+	}
+	coverage := map[string]string{}
+	for _, item := range verdict.Coverage {
+		if item.Target == "openai" && item.Protocol == "openai" {
+			coverage[item.Executor] = item.Status
+		}
+	}
+	if coverage["native"] != "complete" || coverage["extension"] != "complete" || coverage["sdk"] != "not_selected" {
+		t.Fatalf("executable forensic coverage=%v", coverage)
 	}
 }
 
@@ -220,6 +337,38 @@ func TestCombinedNativeAndExtensionRunProducesOneAssessment(t *testing.T) {
 			t.Fatalf("canonical requirement was counted more than once: %s", requirement.ID)
 		}
 		seen[key] = true
+	}
+}
+
+func TestVerboseFourProducesPassingBuiltInSDKTraceVerdict(t *testing.T) {
+	server := newMockOpenAI(t)
+	defer server.Close()
+	withTempWorkingDirectory(t)
+	cfg := testConfig(server.URL+"/v1", []string{"compat", "sdk"})
+	cfg.Formats = nil
+	cfg.Name = "sdk-trace"
+	cfg.Verbosity = 4
+	cfg.Concurrency = 3
+	out, err := Run(context.Background(), cfg, BuildInfo{Version: "test"})
+	if err != nil || out.ExitCode != 0 {
+		t.Fatalf("combined SDK trace run failed: exit=%d err=%v", out.ExitCode, err)
+	}
+	data, err := os.ReadFile("sdk-trace.trace-verdict.json")
+	if err != nil {
+		t.Fatalf("read SDK trace verdict: %v", err)
+	}
+	var verdict struct {
+		Status              string `json:"status"`
+		CheckedHTTPAttempts int    `json:"checked_http_attempts"`
+	}
+	if err := json.Unmarshal(data, &verdict); err != nil {
+		t.Fatalf("decode SDK trace verdict: %v", err)
+	}
+	if verdict.Status != "pass" || verdict.CheckedHTTPAttempts == 0 {
+		t.Fatalf("SDK trace verdict=%s", data)
+	}
+	if out.ReportV3.ForensicTrace == nil || out.ReportV3.ForensicTrace.Status != "pass" || out.ReportV3.ForensicTrace.VerdictPath != "sdk-trace.trace-verdict.json" {
+		t.Fatalf("public forensic trace reference=%+v", out.ReportV3.ForensicTrace)
 	}
 }
 
@@ -1046,9 +1195,8 @@ func TestVerboseLoggerFiltersProgressByLevel(t *testing.T) {
 	logger.Logf(logging.Info, "[%s] target started (%s)", "openai", "openai")
 	logger.Logf(logging.Debug, "[%s/%s] done", "openai", "gpt-test")
 	got := logger.Lines()
-	want := []string{"[INFO] [openai] target started (openai)"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("lines = %#v, want %#v", got, want)
+	if len(got) != 1 || !strings.Contains(got[0], `"level":"INFO"`) || !strings.Contains(got[0], `"event":"message"`) || !strings.Contains(got[0], `"message":"[openai] target started (openai)"`) {
+		t.Fatalf("lines = %#v, want one structured INFO message", got)
 	}
 }
 
@@ -1067,11 +1215,61 @@ func TestRunWritesFatalToVerboseLogForEarlyProfileFailure(t *testing.T) {
 	if readErr != nil {
 		t.Fatalf("read verbose log: %v", readErr)
 	}
-	if got := string(data); !strings.Contains(got, "[FATAL] load openai profile:") || !strings.Contains(got, "missing-profile.json") {
+	if got := string(data); !strings.Contains(got, `"level":"FATAL"`) || !strings.Contains(got, `"event":"message"`) || !strings.Contains(got, "run failed; inspect public report or safe error classification") || strings.Contains(got, "missing-profile.json") {
 		t.Fatalf("verbose log did not retain fatal profile failure: %q", got)
+	}
+	info, statErr := os.Stat("early-failure.log")
+	if statErr != nil {
+		t.Fatalf("stat verbose log: %v", statErr)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("verbose log mode=%#o, want 0600", got)
 	}
 	if !reflect.DeepEqual(out.Paths, []string{"early-failure.log"}) {
 		t.Fatalf("paths = %#v, want only verbose log", out.Paths)
+	}
+}
+
+type failingForensicWriter struct{}
+
+func (failingForensicWriter) Write([]byte) (int, error) {
+	return 0, errors.New("fixture sidecar write failure")
+}
+
+func TestRunMakesSidecarWriteFailureInconclusiveAndFailsRun(t *testing.T) {
+	server := newMockOpenAI(t)
+	defer server.Close()
+	withTempWorkingDirectory(t)
+	previous := attachForensicSink
+	attachForensicSink = func(logger *logging.Logger, _ *os.File) (*logging.Sink, error) {
+		return logger.AddSink(failingForensicWriter{}, logging.SinkOptions{MaxBytes: -1})
+	}
+	t.Cleanup(func() { attachForensicSink = previous })
+	cfg := testConfig(server.URL+"/v1", []string{"compat"})
+	cfg.Verbosity = 4
+	cfg.Name = "failed-sidecar"
+	out, err := Run(context.Background(), cfg, BuildInfo{Version: "test"})
+	if err == nil || out.ExitCode != 2 {
+		t.Fatalf("sidecar failure did not fail run: exit=%d err=%v", out.ExitCode, err)
+	}
+	data, readErr := os.ReadFile("failed-sidecar.trace-verdict.json")
+	if readErr != nil {
+		t.Fatalf("read inconclusive verdict: %v", readErr)
+	}
+	var verdict struct {
+		Status     string `json:"status"`
+		Violations []struct {
+			Code string `json:"code"`
+		} `json:"violations"`
+	}
+	if err := json.Unmarshal(data, &verdict); err != nil {
+		t.Fatalf("decode verdict: %v", err)
+	}
+	if verdict.Status != "inconclusive" || len(verdict.Violations) != 1 || verdict.Violations[0].Code != "trace_write_failed" {
+		t.Fatalf("unexpected write-failure verdict: %s", data)
+	}
+	if out.ReportV3.ForensicTrace == nil || out.ReportV3.ForensicTrace.Status != "inconclusive" {
+		t.Fatalf("public forensic status=%+v", out.ReportV3.ForensicTrace)
 	}
 }
 

@@ -11,6 +11,9 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/ilyar/aiqa/internal/logging"
+	"github.com/ilyar/aiqa/internal/telemetry"
 )
 
 type Artifact struct {
@@ -44,6 +47,23 @@ func artifactPolicyViolation(format string, args ...any) error {
 }
 
 func FetchPublicArtifact(ctx context.Context, rawURL string, maxBytes int64) (Artifact, error) {
+	return FetchPublicArtifactWithTelemetry(ctx, nil, rawURL, maxBytes)
+}
+
+// FetchPublicArtifactWithTelemetry records the validation download without
+// retaining its URL, redirect targets, or bytes in the diagnostic trace.
+func FetchPublicArtifactWithTelemetry(ctx context.Context, provider *telemetry.Provider, rawURL string, maxBytes int64) (artifact Artifact, err error) {
+	var logical *telemetry.Operation
+	if provider != nil {
+		ctx, logical = provider.Start(ctx, "artifact.logical_request", logging.Fields{"method": http.MethodGet})
+		defer func() {
+			outcome := "success"
+			if err != nil {
+				outcome = "error"
+			}
+			logical.End(outcome, logging.Fields{"error_present": err != nil})
+		}()
+	}
 	if maxBytes <= 0 {
 		return Artifact{}, fmt.Errorf("artifact size limit must be positive")
 	}
@@ -66,7 +86,18 @@ func FetchPublicArtifact(ctx context.Context, rawURL string, maxBytes int64) (Ar
 	if err != nil {
 		return Artifact{}, fmt.Errorf("create artifact request: %w", err)
 	}
+	var attempt *telemetry.Operation
+	if provider != nil {
+		_, attempt = provider.Start(ctx, "artifact.attempt", logging.Fields{"method": http.MethodGet, "attempt": 1})
+	}
 	resp, err := client.Do(req)
+	if attempt != nil {
+		fields := logging.Fields{"error_present": err != nil}
+		if resp != nil {
+			fields["http_status"] = resp.StatusCode
+		}
+		attempt.End("response", fields)
+	}
 	if err != nil {
 		var policy artifactPolicyError
 		if errors.As(err, &policy) {

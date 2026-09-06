@@ -56,12 +56,18 @@ type HTTPObservation struct {
 	RequestID   string            `json:"request_id,omitempty"`
 	Headers     map[string]string `json:"headers,omitempty"`
 	Snippet     string            `json:"snippet,omitempty"`
+	// TraceID correlates a private verbose-log transport operation with this
+	// terminal probe. It is deliberately excluded from report artifacts.
+	TraceID string `json:"-"`
 }
 
 type TestResult struct {
-	ID            string                `json:"id"`
-	RequirementID string                `json:"requirement_id,omitempty"`
-	ProbeID       string                `json:"probe_id,omitempty"`
+	ID            string `json:"id"`
+	RequirementID string `json:"requirement_id,omitempty"`
+	ProbeID       string `json:"probe_id,omitempty"`
+	// DerivedFrom identifies the prerequisite report result for a composite
+	// check. It is an internal stable requirement ID, never provider data.
+	DerivedFrom   string                `json:"derived_from,omitempty"`
 	Name          string                `json:"name"`
 	Suite         string                `json:"suite"`
 	Category      string                `json:"category"`
@@ -334,6 +340,14 @@ type ReportV3 struct {
 	Config        PublicConfigV3 `json:"config"`
 	Targets       []TargetReport `json:"targets"`
 	Summary       RunSummary     `json:"summary"`
+	ForensicTrace *ForensicTrace `json:"forensic_trace,omitempty"`
+}
+
+// ForensicTrace is the public, non-sensitive link to a private trace verdict.
+// It intentionally contains neither trace records nor provider diagnostics.
+type ForensicTrace struct {
+	VerdictPath string `json:"verdict_path"`
+	Status      string `json:"status"`
 }
 
 type ToolInfo struct {

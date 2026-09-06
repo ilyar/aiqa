@@ -13,7 +13,13 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/ilyar/aiqa/internal/logging"
+	"github.com/ilyar/aiqa/internal/telemetry"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 const maxResponseBody = 64 << 20
@@ -25,6 +31,12 @@ type Client struct {
 	userAgent string
 	pacer     *pacer
 	headers   http.Header
+	logMu     sync.RWMutex
+	logger    *logging.Logger
+	telemetry *telemetry.Provider
+	propagate map[string]struct{}
+	logFields logging.Fields
+	operation atomic.Uint64
 }
 
 func NewClient(baseURL, apiKey, userAgent string, initialInterval time.Duration) (*Client, error) {
@@ -47,26 +59,45 @@ func newClient(baseURL, apiKey, userAgent string, initialInterval time.Duration,
 	transport.MaxIdleConns = 32
 	transport.MaxIdleConnsPerHost = 16
 	transport.ResponseHeaderTimeout = 0
-	return &Client{
+	client := &Client{
 		baseURL:   u,
 		apiKey:    apiKey,
 		http:      &http.Client{Transport: transport},
 		userAgent: userAgent,
 		pacer:     newPacer(initialInterval),
 		headers:   headers.Clone(),
-	}, nil
+		logFields: logging.Fields{},
+	}
+	client.http.CheckRedirect = func(request *http.Request, _ []*http.Request) error {
+		client.injectTraceContext(request.Context(), request)
+		return nil
+	}
+	return client, nil
 }
 
 func (c *Client) CloneWithKey(apiKey string) *Client {
-	clone := *c
-	clone.apiKey = apiKey
-	return &clone
+	c.logMu.RLock()
+	logger, provider, fields, propagate := c.logger, c.telemetry, cloneLogFields(c.logFields), cloneOrigins(c.propagate)
+	c.logMu.RUnlock()
+	return &Client{baseURL: c.baseURL, apiKey: apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: c.headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields}
 }
 
 func (c *Client) CloneWithHeaders(headers http.Header) *Client {
-	clone := *c
-	clone.headers = headers.Clone()
-	return &clone
+	c.logMu.RLock()
+	logger, provider, fields, propagate := c.logger, c.telemetry, cloneLogFields(c.logFields), cloneOrigins(c.propagate)
+	c.logMu.RUnlock()
+	return &Client{baseURL: c.baseURL, apiKey: c.apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields}
+}
+
+func cloneOrigins(origins map[string]struct{}) map[string]struct{} {
+	if origins == nil {
+		return nil
+	}
+	copy := make(map[string]struct{}, len(origins))
+	for origin := range origins {
+		copy[origin] = struct{}{}
+	}
+	return copy
 }
 
 func (c *Client) BaseURL() string          { return c.baseURL.String() }
@@ -79,12 +110,159 @@ func (c *Client) PacingStatsForModel(model string) PacingStats {
 	return c.pacer.snapshotForModel(model)
 }
 
+// SetLogger enables private structured transport diagnostics. The logger is
+// intentionally opt-in: callers that do not request --verbose retain no
+// in-memory transport trace. It is safe to set before concurrent work starts.
+func (c *Client) SetLogger(logger *logging.Logger) {
+	c.logMu.Lock()
+	c.logger = logger
+	c.logMu.Unlock()
+}
+
+// SetTelemetry enables local-only OpenTelemetry lifecycle correlation. The
+// provider never injects trace context into requests; this client deliberately
+// leaves outbound headers unchanged.
+func (c *Client) SetTelemetry(provider *telemetry.Provider) {
+	c.logMu.Lock()
+	c.telemetry = provider
+	c.logMu.Unlock()
+}
+
+// SetOTelPropagationAllowlist enables W3C trace headers only for exact,
+// caller-validated origins. An empty list is the secure default.
+func (c *Client) SetOTelPropagationAllowlist(origins []string) {
+	c.logMu.Lock()
+	c.propagate = make(map[string]struct{}, len(origins))
+	for _, origin := range origins {
+		c.propagate[origin] = struct{}{}
+	}
+	c.logMu.Unlock()
+}
+
+func (c *Client) injectTraceContext(ctx context.Context, request *http.Request) {
+	request.Header.Del("traceparent")
+	request.Header.Del("tracestate")
+	request.Header.Del("baggage")
+	origin := request.URL.Scheme + "://" + request.URL.Host
+	c.logMu.RLock()
+	_, allowed := c.propagate[origin]
+	c.logMu.RUnlock()
+	if allowed {
+		propagation.TraceContext{}.Inject(ctx, propagation.HeaderCarrier(request.Header))
+	}
+}
+
+// SetLogFields establishes immutable target-level trace scope, for example
+// target and protocol. Never pass a base URL or credential-derived value.
+func (c *Client) SetLogFields(fields logging.Fields) {
+	c.logMu.Lock()
+	c.logFields = cloneLogFields(fields)
+	c.logMu.Unlock()
+}
+
+func (c *Client) trace(ctx context.Context, level logging.Level, event string, fields logging.Fields) {
+	c.logMu.RLock()
+	logger := c.logger
+	base := cloneLogFields(c.logFields)
+	c.logMu.RUnlock()
+	if contextual := logging.FromContext(ctx); contextual != nil {
+		logger = contextual
+	}
+	if logger == nil {
+		return
+	}
+	for key, value := range logging.FieldsFromContext(ctx) {
+		base[key] = value
+	}
+	for key, value := range fields {
+		base[key] = value
+	}
+	logger.LogContext(ctx, level, event, base)
+}
+
+func (c *Client) transportContext(ctx context.Context, model string) context.Context {
+	fields := logging.Fields{"transport_operation": fmt.Sprintf("http-%d", c.operation.Add(1))}
+	if model != "" {
+		fields["model"] = model
+	}
+	return logging.WithFields(ctx, fields)
+}
+
+func (c *Client) startOperation(ctx context.Context, name string, fields logging.Fields) (context.Context, *telemetry.Operation) {
+	c.logMu.RLock()
+	provider := c.telemetry
+	c.logMu.RUnlock()
+	if provider == nil {
+		return ctx, nil
+	}
+	return provider.Start(ctx, name, fields)
+}
+
+func operationID(ctx context.Context) string {
+	if id, _ := logging.FieldsFromContext(ctx)["operation_id"].(string); id != "" {
+		return id
+	}
+	id, _ := logging.FieldsFromContext(ctx)["transport_operation"].(string)
+	return id
+}
+
+// operationReadCloser closes a SDK logical-request span only when the SDK has
+// finished consuming its response body. This preserves the real SDK lifecycle
+// rather than ending telemetry at response-header receipt.
+type operationReadCloser struct {
+	io.ReadCloser
+	once      sync.Once
+	operation *telemetry.Operation
+	parent    *telemetry.Operation
+	fields    logging.Fields
+	outcome   string
+	onClose   func()
+}
+
+func (r *operationReadCloser) Close() error {
+	err := r.ReadCloser.Close()
+	r.once.Do(func() {
+		if r.onClose != nil {
+			r.onClose()
+		}
+		fields := cloneLogFields(r.fields)
+		if err != nil {
+			fields["reason"] = errorClass(err)
+			fields["error_present"] = true
+		}
+		outcome := r.outcome
+		if err != nil {
+			outcome = "close_error"
+		}
+		if r.operation != nil {
+			r.operation.End(outcome, fields)
+		}
+		if r.parent != nil {
+			r.parent.End(outcome, fields)
+		}
+	})
+	return err
+}
+
+func cloneLogFields(fields logging.Fields) logging.Fields {
+	copy := make(logging.Fields, len(fields))
+	for key, value := range fields {
+		copy[key] = value
+	}
+	return copy
+}
+
 // PacedHTTPClient exposes the target's transport and adaptive pacing to an
 // official SDK without exposing AIQA credentials or request construction. The
 // SDK must still disable its own retries; this transport owns the shared retry
 // and rate-limit policy.
 func (c *Client) PacedHTTPClient(model string) *http.Client {
-	return &http.Client{Transport: &pacedRoundTripper{client: c, model: model}}
+	return &http.Client{Transport: &pacedRoundTripper{client: c, model: model}, CheckRedirect: func(request *http.Request, _ []*http.Request) error {
+		// net/http copies ordinary headers across redirects; never inherit trace
+		// propagation without checking the redirect destination again.
+		c.injectTraceContext(request.Context(), request)
+		return nil
+	}}
 }
 
 type pacedRoundTripper struct {
@@ -93,19 +271,53 @@ type pacedRoundTripper struct {
 }
 
 func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	ctx := r.client.transportContext(request.Context(), r.model)
+	// Direct SDK callers need a body-lifetime SDK boundary. Built-in suites
+	// already establish their one report-visible named probe; nesting another
+	// sdk.probe would give one HTTP attempt two competing owners.
+	var sdkProbe *telemetry.Operation
+	if _, named := logging.FieldsFromContext(ctx)["probe"]; !named {
+		ctx, sdkProbe = r.client.startOperation(ctx, "sdk.probe", logging.Fields{"method": request.Method, "path": safeRequestPath(request.URL)})
+	}
+	handedOff := false
+	defer func() {
+		if !handedOff && sdkProbe != nil {
+			sdkProbe.End("completed", nil)
+		}
+	}()
+	ctx, logical := r.client.startOperation(ctx, "sdk.logical_request", logging.Fields{"method": request.Method, "path": safeRequestPath(request.URL)})
+	request = request.Clone(ctx)
+	path := safeRequestPath(request.URL)
+	endLogical := func(outcome string, response *http.Response, err error) {
+		if logical != nil {
+			logical.End(outcome, responseFields(request.Method, path, 0, response, err, 0))
+		}
+	}
 	r.client.pacer.logical(r.model)
+	r.client.trace(ctx, logging.Trace, "sdk.logical_request.begin", logging.Fields{"method": request.Method, "path": path})
 	for attempt := 0; attempt < 3; attempt++ {
 		if attempt > 0 && request.GetBody == nil {
-			return nil, errors.New("cannot retry SDK request with a non-replayable body")
-		}
-		if err := r.client.pacer.wait(request.Context(), r.model); err != nil {
+			r.client.trace(ctx, logging.Error, "sdk.retry.unavailable", logging.Fields{"method": request.Method, "path": path, "attempt": attempt + 1, "reason": "non_replayable_body"})
+			err := errors.New("cannot retry SDK request with a non-replayable body")
+			endLogical("retry_unavailable", nil, err)
 			return nil, err
 		}
+		waitStarted := time.Now()
+		r.client.trace(ctx, logging.Trace, "pacing.wait.begin", logging.Fields{"method": request.Method, "path": path, "attempt": attempt + 1})
+		if err := r.client.pacer.wait(request.Context(), r.model); err != nil {
+			r.client.trace(ctx, logging.Debug, "pacing.wait.cancelled", logging.Fields{"method": request.Method, "path": path, "attempt": attempt + 1, "wait_ms": time.Since(waitStarted).Milliseconds(), "reason": errorClass(err)})
+			r.client.trace(ctx, logging.Debug, "sdk.logical_request.result", logging.Fields{"method": request.Method, "path": path, "outcome": "pacing_cancelled", "reason": errorClass(err)})
+			endLogical("pacing_cancelled", nil, err)
+			return nil, err
+		}
+		r.client.trace(ctx, logging.Trace, "pacing.wait.end", logging.Fields{"method": request.Method, "path": path, "attempt": attempt + 1, "wait_ms": time.Since(waitStarted).Milliseconds()})
 		current := request
 		if attempt > 0 {
 			body, err := request.GetBody()
 			if err != nil {
 				r.client.pacer.release(r.model)
+				r.client.trace(ctx, logging.Error, "sdk.retry.body_error", logging.Fields{"method": request.Method, "path": path, "attempt": attempt + 1, "reason": errorClass(err)})
+				endLogical("retry_body_error", nil, err)
 				return nil, err
 			}
 			current = request.Clone(request.Context())
@@ -114,8 +326,21 @@ func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 		if attempt > 0 {
 			r.client.pacer.retry(r.model)
 		}
+		attemptCtx, attemptOp := r.client.startOperation(ctx, "sdk.http_attempt", logging.Fields{"method": request.Method, "path": path, "attempt": attempt + 1})
+		current = current.Clone(attemptCtx)
+		r.client.injectTraceContext(attemptCtx, current)
+		r.client.trace(attemptCtx, logging.Trace, "sdk.attempt.begin", logging.Fields{"method": request.Method, "path": path, "attempt": attempt + 1})
 		started := time.Now()
 		response, err := r.client.http.Transport.RoundTrip(current)
+		attemptFields := responseFields(request.Method, path, attempt+1, response, err, time.Since(started))
+		r.client.trace(attemptCtx, logging.Trace, "sdk.attempt.result", attemptFields)
+		if attemptOp != nil {
+			outcome := "success"
+			if err != nil || response == nil || response.StatusCode < 200 || response.StatusCode >= 300 {
+				outcome = "response"
+			}
+			attemptOp.End(outcome, attemptFields)
+		}
 		retry := err != nil || response != nil && (response.StatusCode == http.StatusRequestTimeout || response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500)
 		if attempt == 2 && response != nil && response.StatusCode == http.StatusTooManyRequests {
 			r.client.pacer.limited(r.model, retryAfter(response.Header))
@@ -130,6 +355,16 @@ func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 				r.client.pacer.exhausted(r.model)
 			}
 			r.client.pacer.release(r.model)
+			endFields := responseFields(request.Method, path, attempt+1, response, err, time.Since(started))
+			if response != nil && response.Body != nil {
+				handedOff = true
+				response.Body = &operationReadCloser{ReadCloser: response.Body, operation: logical, parent: sdkProbe, fields: endFields, outcome: "response_closed", onClose: func() {
+					r.client.trace(ctx, logging.Debug, "sdk.logical_request.result", endFields)
+				}}
+			} else {
+				r.client.trace(ctx, logging.Debug, "sdk.logical_request.result", endFields)
+				endLogical("response", response, err)
+			}
 			return response, err
 		}
 		r.client.pacer.release(r.model)
@@ -143,9 +378,12 @@ func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 				_ = response.Body.Close()
 			}
 		}
+		r.client.trace(ctx, logging.Debug, "sdk.retry.scheduled", logging.Fields{"method": request.Method, "path": path, "attempt": attempt + 1, "next_attempt": attempt + 2, "reason": retryReason(response, err), "delay_ms": delay.Milliseconds()})
 		if response == nil || response.StatusCode != http.StatusTooManyRequests {
 			r.client.pacer.backoff(r.model, delay)
 			if err := waitDuration(request.Context(), delay); err != nil {
+				r.client.trace(ctx, logging.Debug, "sdk.retry.cancelled", logging.Fields{"method": request.Method, "path": path, "attempt": attempt + 1, "reason": errorClass(err)})
+				endLogical("retry_cancelled", nil, err)
 				return nil, err
 			}
 		}
@@ -253,15 +491,52 @@ func (c *Client) doRaw(ctx context.Context, method, path string, body []byte, co
 }
 
 func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []byte, contentType, model string) (Response, error) {
-	c.pacer.logical(model)
-	for attempt := 0; attempt < 3; attempt++ {
-		if err := c.pacer.wait(ctx, model); err != nil {
-			return Response{}, err
+	ctx = c.transportContext(ctx, model)
+	path := safeEndpointPath(endpoint)
+	if _, hasSuite := logging.FieldsFromContext(ctx)["suite"]; !hasSuite {
+		var suiteOp *telemetry.Operation
+		ctx, suiteOp = c.startOperation(ctx, "suite", logging.Fields{"suite": "native"})
+		if suiteOp != nil {
+			defer suiteOp.End("completed", nil)
 		}
+	}
+	// Transport owns the fallback probe boundary. Individual suites may create
+	// a more specific parent later; this boundary ensures every physical
+	// provider operation is still attributable to a probe now.
+	if _, named := logging.FieldsFromContext(ctx)["probe"]; !named {
+		var probeOp *telemetry.Operation
+		ctx, probeOp = c.startOperation(ctx, "probe", logging.Fields{"method": method, "path": path})
+		if probeOp != nil {
+			defer probeOp.End("completed", nil)
+		}
+	}
+	ctx, logical := c.startOperation(ctx, "http.logical_request", logging.Fields{"method": method, "path": path})
+	traceID := operationID(ctx)
+	endLogical := func(outcome string, response Response, err error) {
+		if logical != nil {
+			logical.End(outcome, rawResponseFields(method, path, 0, response, err))
+		}
+	}
+	c.pacer.logical(model)
+	c.trace(ctx, logging.Trace, "http.logical_request.begin", logging.Fields{"method": method, "path": path})
+	for attempt := 0; attempt < 3; attempt++ {
+		waitStarted := time.Now()
+		c.trace(ctx, logging.Trace, "pacing.wait.begin", logging.Fields{"method": method, "path": path, "attempt": attempt + 1})
+		if err := c.pacer.wait(ctx, model); err != nil {
+			c.trace(ctx, logging.Debug, "pacing.wait.cancelled", logging.Fields{"method": method, "path": path, "attempt": attempt + 1, "wait_ms": time.Since(waitStarted).Milliseconds(), "reason": errorClass(err)})
+			c.trace(ctx, logging.Debug, "http.logical_request.result", logging.Fields{"method": method, "path": path, "outcome": "pacing_cancelled", "reason": errorClass(err)})
+			response := Response{TraceID: traceID}
+			endLogical("pacing_cancelled", response, err)
+			return response, err
+		}
+		c.trace(ctx, logging.Trace, "pacing.wait.end", logging.Fields{"method": method, "path": path, "attempt": attempt + 1, "wait_ms": time.Since(waitStarted).Milliseconds()})
 		if attempt > 0 {
 			c.pacer.retry(model)
 		}
-		resp, err := c.doRawURLOnce(ctx, method, endpoint, body, contentType)
+		c.trace(ctx, logging.Trace, "http.attempt.begin", logging.Fields{"method": method, "path": path, "attempt": attempt + 1})
+		resp, err := c.doRawURLOnce(ctx, method, endpoint, body, contentType, attempt+1)
+		resp.TraceID = traceID
+		c.trace(ctx, logging.Trace, "http.attempt.result", rawResponseFields(method, path, attempt+1, resp, err))
 		if !shouldRetry(resp, err) {
 			if resp.Is2xx() {
 				c.pacer.success(model, resp.Duration)
@@ -270,6 +545,8 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 				}
 			}
 			c.pacer.release(model)
+			c.trace(ctx, logging.Debug, "http.logical_request.result", rawResponseFields(method, path, attempt+1, resp, err))
+			endLogical("response", resp, err)
 			return resp, err
 		}
 		c.pacer.release(model)
@@ -279,13 +556,21 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 		}
 		if attempt == 2 {
 			c.pacer.exhausted(model)
+			c.trace(ctx, logging.Warn, "http.retry.exhausted", logging.Fields{"method": method, "path": path, "attempt": attempt + 1, "reason": retryReasonResponse(resp, err), "status": resp.StatusCode})
+			c.trace(ctx, logging.Debug, "http.logical_request.result", rawResponseFields(method, path, attempt+1, resp, err))
+			endLogical("retry_exhausted", resp, err)
 			return resp, err
 		}
+		c.trace(ctx, logging.Debug, "http.retry.scheduled", logging.Fields{"method": method, "path": path, "attempt": attempt + 1, "next_attempt": attempt + 2, "reason": retryReasonResponse(resp, err), "status": resp.StatusCode, "delay_ms": delay.Milliseconds()})
 		if resp.StatusCode != http.StatusTooManyRequests {
 			c.pacer.backoff(model, delay)
 			select {
 			case <-ctx.Done():
-				return resp, ctx.Err()
+				c.trace(ctx, logging.Debug, "http.retry.cancelled", logging.Fields{"method": method, "path": path, "attempt": attempt + 1, "reason": errorClass(ctx.Err())})
+				c.trace(ctx, logging.Debug, "http.logical_request.result", logging.Fields{"method": method, "path": path, "attempt": attempt + 1, "outcome": "retry_cancelled", "reason": errorClass(ctx.Err())})
+				err := ctx.Err()
+				endLogical("retry_cancelled", resp, err)
+				return resp, err
 			case <-time.After(delay):
 			}
 		}
@@ -293,7 +578,18 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 	panic("unreachable")
 }
 
-func (c *Client) doRawURLOnce(ctx context.Context, method, endpoint string, body []byte, contentType string) (Response, error) {
+func (c *Client) doRawURLOnce(ctx context.Context, method, endpoint string, body []byte, contentType string, attemptNumber int) (resp Response, err error) {
+	path := safeEndpointPath(endpoint)
+	ctx, attempt := c.startOperation(ctx, "http.attempt", logging.Fields{"method": method, "path": path, "attempt": attemptNumber})
+	if attempt != nil {
+		defer func() {
+			outcome := "success"
+			if err != nil || !resp.Is2xx() {
+				outcome = "response"
+			}
+			attempt.End(outcome, rawResponseFields(method, path, attemptNumber, resp, err))
+		}()
+	}
 	var reader io.Reader
 	if body != nil {
 		reader = bytes.NewReader(body)
@@ -303,6 +599,7 @@ func (c *Client) doRawURLOnce(ctx context.Context, method, endpoint string, body
 		return Response{}, err
 	}
 	c.applyHeaders(req, contentType)
+	c.injectTraceContext(ctx, req)
 	started := time.Now()
 	httpResp, err := c.http.Do(req)
 	if err != nil {
@@ -312,7 +609,7 @@ func (c *Client) doRawURLOnce(ctx context.Context, method, endpoint string, body
 	limited := io.LimitReader(httpResp.Body, maxResponseBody+1)
 	responseBody, readErr := io.ReadAll(limited)
 	duration := time.Since(started)
-	resp := Response{
+	resp = Response{
 		StatusCode:  httpResp.StatusCode,
 		Header:      httpResp.Header.Clone(),
 		ContentType: httpResp.Header.Get("Content-Type"),
@@ -378,44 +675,110 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 		return StreamResponse{}, fmt.Errorf("marshal stream request: %w", err)
 	}
 	c.pacer.logical(model)
+	ctx = c.transportContext(ctx, model)
 	u := *c.baseURL
 	pathPart, queryPart, _ := strings.Cut(path, "?")
 	u.Path = joinURLPath(c.baseURL.Path, pathPart)
 	u.RawQuery = queryPart
+	requestPath := safeRequestPath(&u)
+	if _, hasSuite := logging.FieldsFromContext(ctx)["suite"]; !hasSuite {
+		var suiteOp *telemetry.Operation
+		ctx, suiteOp = c.startOperation(ctx, "suite", logging.Fields{"suite": "native"})
+		if suiteOp != nil {
+			defer suiteOp.End("completed", nil)
+		}
+	}
+	if _, named := logging.FieldsFromContext(ctx)["probe"]; !named {
+		var probeOp *telemetry.Operation
+		ctx, probeOp = c.startOperation(ctx, "probe", logging.Fields{"method": http.MethodPost, "path": requestPath, "stream": true})
+		if probeOp != nil {
+			defer probeOp.End("completed", nil)
+		}
+	}
+	ctx, logical := c.startOperation(ctx, "http.stream_logical_request", logging.Fields{"method": http.MethodPost, "path": requestPath, "stream": true})
+	traceID := operationID(ctx)
+	endLogical := func(outcome string, response StreamResponse, err error) {
+		if logical != nil {
+			fields := logging.Fields{"method": http.MethodPost, "path": requestPath, "stream": true, "status": response.StatusCode, "duration_ms": response.Duration.Milliseconds(), "event_count": len(response.Events)}
+			if err != nil {
+				fields["reason"] = errorClass(err)
+			}
+			logical.End(outcome, fields)
+		}
+	}
+	c.trace(ctx, logging.Trace, "http.stream_logical_request.begin", logging.Fields{"method": http.MethodPost, "path": requestPath, "stream": true})
 	var httpResp *http.Response
 	var started time.Time
 	attempts := 0
 	for attempt := 0; attempt < 3; attempt++ {
+		requestPath := safeRequestPath(&u)
+		waitStarted := time.Now()
+		c.trace(ctx, logging.Trace, "pacing.wait.begin", logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true})
 		if err := c.pacer.wait(ctx, model); err != nil {
-			return StreamResponse{}, err
+			c.trace(ctx, logging.Debug, "pacing.wait.cancelled", logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true, "wait_ms": time.Since(waitStarted).Milliseconds(), "reason": errorClass(err)})
+			c.trace(ctx, logging.Debug, "http.stream_logical_request.result", logging.Fields{"method": http.MethodPost, "path": requestPath, "stream": true, "outcome": "pacing_cancelled", "reason": errorClass(err)})
+			result := StreamResponse{TraceID: traceID}
+			endLogical("pacing_cancelled", result, err)
+			return result, err
 		}
+		c.trace(ctx, logging.Trace, "pacing.wait.end", logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true, "wait_ms": time.Since(waitStarted).Milliseconds()})
+		attemptCtx, attemptOp := c.startOperation(ctx, "http.stream_attempt", logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true})
 		started = time.Now()
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bytes.NewReader(raw))
+		req, err := http.NewRequestWithContext(attemptCtx, http.MethodPost, u.String(), bytes.NewReader(raw))
 		if err != nil {
 			c.pacer.release(model)
-			return StreamResponse{}, err
+			fields := logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true, "duration_ms": time.Since(started).Milliseconds(), "reason": errorClass(err)}
+			c.trace(attemptCtx, logging.Trace, "http.stream_attempt.result", fields)
+			if attemptOp != nil {
+				attemptOp.End("request_error", fields)
+			}
+			result := StreamResponse{TraceID: traceID}
+			endLogical("request_error", result, err)
+			return result, err
 		}
 		c.applyHeaders(req, "application/json")
+		c.injectTraceContext(attemptCtx, req)
 		req.Header.Set("Accept", "text/event-stream")
 		if attempt > 0 {
 			attempts++
 			c.pacer.retry(model)
 		}
+		c.trace(attemptCtx, logging.Trace, "http.stream_attempt.begin", logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true})
 		httpResp, err = c.http.Do(req)
 		if err != nil {
 			c.pacer.release(model)
+			fields := logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true, "duration_ms": time.Since(started).Milliseconds(), "reason": errorClass(err)}
+			c.trace(attemptCtx, logging.Trace, "http.stream_attempt.result", fields)
+			if attemptOp != nil {
+				attemptOp.End("transport_error", fields)
+			}
 			if attempt == 2 {
 				c.pacer.exhausted(model)
-				return StreamResponse{Duration: time.Since(started)}, err
+				c.trace(ctx, logging.Warn, "http.stream_retry.exhausted", logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true, "reason": errorClass(err)})
+				c.trace(ctx, logging.Debug, "http.stream_logical_request.result", logging.Fields{"method": http.MethodPost, "path": requestPath, "stream": true, "duration_ms": time.Since(started).Milliseconds(), "outcome": "transport_error", "reason": errorClass(err)})
+				result := StreamResponse{Duration: time.Since(started), TraceID: traceID}
+				endLogical("transport_error", result, err)
+				return result, err
 			}
 			delay := time.Duration(1<<attempt) * 100 * time.Millisecond
 			c.pacer.backoff(model, delay)
+			c.trace(ctx, logging.Debug, "http.stream_retry.scheduled", logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "next_attempt": attempt + 2, "stream": true, "reason": errorClass(err), "delay_ms": delay.Milliseconds()})
 			select {
 			case <-ctx.Done():
-				return StreamResponse{Duration: time.Since(started)}, ctx.Err()
+				c.trace(ctx, logging.Debug, "http.stream_retry.cancelled", logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true, "reason": errorClass(ctx.Err())})
+				c.trace(ctx, logging.Debug, "http.stream_logical_request.result", logging.Fields{"method": http.MethodPost, "path": requestPath, "stream": true, "duration_ms": time.Since(started).Milliseconds(), "outcome": "retry_cancelled", "reason": errorClass(ctx.Err())})
+				err := ctx.Err()
+				result := StreamResponse{Duration: time.Since(started), TraceID: traceID}
+				endLogical("retry_cancelled", result, err)
+				return result, err
 			case <-time.After(delay):
 			}
 			continue
+		}
+		attemptFields := responseFields(http.MethodPost, requestPath, attempt+1, httpResp, nil, time.Since(started))
+		c.trace(attemptCtx, logging.Trace, "http.stream_attempt.result", attemptFields)
+		if attemptOp != nil {
+			attemptOp.End("response", attemptFields)
 		}
 		if !shouldRetryStatus(httpResp.StatusCode, httpResp.Header) {
 			break
@@ -429,6 +792,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 				c.pacer.limited(model, delay)
 			}
 			c.pacer.exhausted(model)
+			c.trace(ctx, logging.Warn, "http.stream_retry.exhausted", logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "status": httpResp.StatusCode, "reason": "retryable_status"})
 			break
 		}
 		_, _ = io.Copy(io.Discard, io.LimitReader(httpResp.Body, 32<<10))
@@ -438,9 +802,14 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 			c.pacer.limited(model, delay)
 		} else {
 			c.pacer.backoff(model, delay)
+			c.trace(ctx, logging.Debug, "http.stream_retry.scheduled", logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "next_attempt": attempt + 2, "status": httpResp.StatusCode, "reason": "retryable_status", "delay_ms": delay.Milliseconds()})
 			select {
 			case <-ctx.Done():
-				return StreamResponse{Duration: time.Since(started)}, ctx.Err()
+				c.trace(ctx, logging.Debug, "http.stream_retry.cancelled", logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "reason": errorClass(ctx.Err())})
+				err := ctx.Err()
+				result := StreamResponse{Duration: time.Since(started), TraceID: traceID}
+				endLogical("retry_cancelled", result, err)
+				return result, err
 			case <-time.After(delay):
 			}
 		}
@@ -452,12 +821,16 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 		Header:      httpResp.Header.Clone(),
 		ContentType: httpResp.Header.Get("Content-Type"),
 		RequestID:   requestID(httpResp.Header),
+		TraceID:     traceID,
 	}
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(httpResp.Body, 32<<10))
 		result.Duration = time.Since(started)
 		result.RawSnippet = strings.TrimSpace(string(b))
-		return result, fmt.Errorf("stream request returned HTTP %d", httpResp.StatusCode)
+		c.trace(ctx, logging.Debug, "http.stream_logical_request.result", logging.Fields{"method": http.MethodPost, "path": safeRequestPath(&u), "stream": true, "status": result.StatusCode, "duration_ms": result.Duration.Milliseconds(), "outcome": "http_error"})
+		err := fmt.Errorf("stream request returned HTTP %d", httpResp.StatusCode)
+		endLogical("http_error", result, err)
+		return result, err
 	}
 	c.pacer.success(model, time.Since(started))
 	if attempts > 0 {
@@ -469,6 +842,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 	var event SSEEvent
 	var dataLines []string
 	var snippet strings.Builder
+	eventIndex := 0
 	flush := func() {
 		if len(dataLines) == 0 && event.Event == "" && event.ID == "" {
 			return
@@ -485,6 +859,16 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 				consumeStreamJSON(&result, event.JSON)
 			}
 		}
+		eventIndex++
+		kind := "empty"
+		if event.Data == "[DONE]" {
+			kind = "done"
+		} else if event.JSON != nil {
+			kind = "json"
+		} else if event.Data != "" {
+			kind = "invalid"
+		}
+		c.trace(ctx, logging.Trace, "http.sse.event", logging.Fields{"method": http.MethodPost, "path": safeRequestPath(&u), "stream": true, "event_index": eventIndex, "has_event_id": event.ID != "", "data_kind": kind, "json_key_count": len(event.JSON)})
 		if len(result.Events) < 2000 {
 			result.Events = append(result.Events, event)
 		}
@@ -523,17 +907,25 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 				if limitedBody.N <= 0 {
 					result.Duration = time.Since(started)
 					result.RawSnippet = snippet.String()
-					return result, fmt.Errorf("stream response exceeds %d bytes", maxResponseBody)
+					c.trace(ctx, logging.Debug, "http.stream_logical_request.result", logging.Fields{"method": http.MethodPost, "path": safeRequestPath(&u), "stream": true, "status": result.StatusCode, "duration_ms": result.Duration.Milliseconds(), "outcome": "size_limit", "event_count": eventIndex})
+					err := fmt.Errorf("stream response exceeds %d bytes", maxResponseBody)
+					endLogical("size_limit", result, err)
+					return result, err
 				}
 				break
 			}
 			result.Duration = time.Since(started)
 			result.RawSnippet = snippet.String()
-			return result, fmt.Errorf("read SSE stream: %w", readErr)
+			c.trace(ctx, logging.Debug, "http.stream_logical_request.result", logging.Fields{"method": http.MethodPost, "path": safeRequestPath(&u), "stream": true, "status": result.StatusCode, "duration_ms": result.Duration.Milliseconds(), "outcome": "read_error", "reason": errorClass(readErr), "event_count": eventIndex})
+			err := fmt.Errorf("read SSE stream: %w", readErr)
+			endLogical("read_error", result, err)
+			return result, err
 		}
 	}
 	result.Duration = time.Since(started)
 	result.RawSnippet = snippet.String()
+	c.trace(ctx, logging.Debug, "http.stream_logical_request.result", logging.Fields{"method": http.MethodPost, "path": safeRequestPath(&u), "stream": true, "status": result.StatusCode, "duration_ms": result.Duration.Milliseconds(), "outcome": "success", "event_count": eventIndex, "done": result.Done, "invalid_event_count": len(result.InvalidEvents)})
+	endLogical("success", result, nil)
 	return result, nil
 }
 
@@ -542,6 +934,75 @@ func shouldRetry(resp Response, err error) bool {
 		return true
 	}
 	return shouldRetryStatus(resp.StatusCode, http.Header(resp.Header))
+}
+
+func safeEndpointPath(endpoint string) string {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return "[invalid-path]"
+	}
+	return safeRequestPath(u)
+}
+
+func safeRequestPath(u *url.URL) string {
+	if u == nil {
+		return "/"
+	}
+	path := u.EscapedPath()
+	if path == "" {
+		return "/"
+	}
+	return path
+}
+
+func responseFields(method, path string, attempt int, response *http.Response, err error, duration time.Duration) logging.Fields {
+	fields := logging.Fields{"method": method, "path": path, "attempt": attempt, "duration_ms": duration.Milliseconds()}
+	if response != nil {
+		fields["status"] = response.StatusCode
+	}
+	if err != nil {
+		fields["reason"] = errorClass(err)
+	}
+	return fields
+}
+
+func rawResponseFields(method, path string, attempt int, response Response, err error) logging.Fields {
+	fields := logging.Fields{"method": method, "path": path, "attempt": attempt, "status": response.StatusCode, "duration_ms": response.Duration.Milliseconds()}
+	if err != nil {
+		fields["reason"] = errorClass(err)
+	}
+	return fields
+}
+
+func retryReason(response *http.Response, err error) string {
+	if err != nil {
+		return errorClass(err)
+	}
+	if response == nil {
+		return "no_response"
+	}
+	return "http_" + strconv.Itoa(response.StatusCode)
+}
+
+func retryReasonResponse(response Response, err error) string {
+	if err != nil {
+		return errorClass(err)
+	}
+	return "http_" + strconv.Itoa(response.StatusCode)
+}
+
+func errorClass(err error) string {
+	if err == nil {
+		return ""
+	}
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "context_canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "context_deadline_exceeded"
+	default:
+		return fmt.Sprintf("%T", err)
+	}
 }
 
 func shouldRetryStatus(status int, headers http.Header) bool {

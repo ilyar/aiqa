@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +24,7 @@ func TestGoogleNativeAndOfficialSDKUseOneTargetContract(t *testing.T) {
 		Targets: []config.TargetConfig{{ID: "google-genai", Protocol: config.ProtocolGoogleGenAI, BaseURL: server.URL, APIKey: "fixture-key", APIVersion: "v1beta", Models: []string{"fixture-text"}, ProfileFile: "google-genai-compat-2026-09.json", Modules: []string{"auto"}, RequestInterval: time.Millisecond}},
 		Tests:   []string{"compat", "sdk"}, Timeout: 5 * time.Second, Concurrency: 2,
 		Modules: []string{"auto"}, MaxArtifactsPerModel: 1, FailOn: "core", Guidance: "off",
+		Verbosity: 4, Name: "google-forensic",
 	}
 	out, err := Run(context.Background(), cfg, BuildInfo{Version: "test"})
 	if err != nil || out.ReportV3 == nil || len(out.ReportV3.Targets) != 1 {
@@ -54,6 +56,31 @@ func TestGoogleNativeAndOfficialSDKUseOneTargetContract(t *testing.T) {
 	}
 	if target.Summary.RequiredFail != 0 || target.Summary.Error != 0 {
 		t.Fatalf("combined Google run has core failure: %+v", target.Summary)
+	}
+	data, readErr := os.ReadFile("google-forensic.trace-verdict.json")
+	if readErr != nil {
+		t.Fatalf("read Google forensic verdict: %v", readErr)
+	}
+	var verdict struct {
+		Status   string `json:"status"`
+		Coverage []struct {
+			Target, Protocol, Executor, Status string
+		} `json:"coverage"`
+	}
+	if err := json.Unmarshal(data, &verdict); err != nil {
+		t.Fatalf("decode Google forensic verdict: %v", err)
+	}
+	if verdict.Status != "pass" {
+		t.Fatalf("Google forensic verdict=%s", data)
+	}
+	seenCoverage := map[string]string{}
+	for _, item := range verdict.Coverage {
+		if item.Target == "google-genai" && item.Protocol == "google-genai" {
+			seenCoverage[item.Executor] = item.Status
+		}
+	}
+	if seenCoverage["native"] != "complete" || seenCoverage["sdk"] != "complete" || seenCoverage["extension"] != "not_selected" {
+		t.Fatalf("Google forensic coverage=%v", seenCoverage)
 	}
 }
 

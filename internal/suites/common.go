@@ -14,15 +14,121 @@ import (
 	"github.com/ilyar/aiqa/internal/logging"
 	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/profile"
+	protocolpkg "github.com/ilyar/aiqa/internal/protocol"
 	"github.com/ilyar/aiqa/internal/result"
+	"github.com/ilyar/aiqa/internal/telemetry"
 )
 
 type Environment struct {
-	Client  *api.Client
-	Config  config.Config
-	Profile profile.Profile
-	Logf    func(logging.Level, string, ...any)
-	Probes  *probe.Executor
+	TargetID  string
+	Client    *api.Client
+	Config    config.Config
+	Profile   profile.Profile
+	Logf      func(logging.Level, string, ...any)
+	Probes    *probe.Executor
+	Telemetry *telemetry.Provider
+}
+
+func (e Environment) traceTests(ctx context.Context, model string, tests []result.TestResult) {
+	if e.Telemetry != nil {
+		protocolpkg.LogTestResultsWithTelemetry(ctx, e.Telemetry, e.TargetID, model, tests)
+		return
+	}
+	protocolpkg.LogTestResults(e.Logf, e.TargetID, model, tests)
+}
+
+func (e Environment) startSuite(ctx context.Context, suite string, fields logging.Fields) (context.Context, *telemetry.Operation) {
+	ctx = logging.Scope(ctx, e.TargetID, "", suite, "", "")
+	if e.Telemetry == nil {
+		return ctx, nil
+	}
+	return e.Telemetry.Start(ctx, "suite", fields)
+}
+
+func (e Environment) startProvider(ctx context.Context) (context.Context, *telemetry.Operation) {
+	ctx = logging.Scope(ctx, e.TargetID, "", "", "", "")
+	if e.Telemetry == nil {
+		return ctx, nil
+	}
+	return e.Telemetry.Start(ctx, "provider", logging.Fields{"target": e.TargetID})
+}
+
+// startProbe establishes the concrete probe boundary before any request is
+// issued.  The transport deliberately receives this context so its logical
+// request and attempt spans are children of the report-visible probe rather
+// than of a generic transport fallback.
+func (e Environment) startProbe(ctx context.Context, model, suite, probeID string) (context.Context, *telemetry.Operation) {
+	ctx = logging.Scope(ctx, e.TargetID, model, suite, probeID, "")
+	if e.Telemetry == nil {
+		return ctx, nil
+	}
+	return e.Telemetry.Start(ctx, "probe", logging.Fields{
+		"probe":    probeID,
+		"probe_id": "aiqa.native." + probeID,
+	})
+}
+
+func (e Environment) runTestProbe(ctx context.Context, model, suite, probeID string, fn func(context.Context) result.TestResult) result.TestResult {
+	probeCtx, op := e.startProbe(ctx, model, suite, probeID)
+	test := fn(probeCtx)
+	fields := logging.Fields{
+		"probe":         probeID,
+		"status":        string(test.Status),
+		"http_status":   test.HTTP.StatusCode,
+		"duration_ms":   test.DurationMS,
+		"error_present": test.Error != "",
+	}
+	if op != nil {
+		// Validation is part of the concrete test lifecycle.  Do not defer it
+		// to a post-execution result record, which would lose its ownership.
+		op.Event(logging.Trace, "validator", fields)
+	}
+	endOperation(op, string(test.Status), fields)
+	return test
+}
+
+func (e Environment) runTestsProbe(ctx context.Context, model, suite, probeID string, fn func(context.Context) []result.TestResult) []result.TestResult {
+	probeCtx, op := e.startProbe(ctx, model, suite, probeID)
+	tests := fn(probeCtx)
+	outcome := protocolpkg.AggregateTestOutcome(tests)
+	fields := logging.Fields{"probe": probeID, "test_count": len(tests), "status": outcome}
+	if op != nil {
+		for _, test := range tests {
+			fields := logging.Fields{
+				"probe": probeID, "result_id": test.ID, "status": string(test.Status),
+				"http_status": test.HTTP.StatusCode, "duration_ms": test.DurationMS,
+				"error_present": test.Error != "",
+			}
+			if test.DerivedFrom != "" {
+				fields["derived_from"] = test.DerivedFrom
+			}
+			op.Event(logging.Trace, "validator", fields)
+		}
+	}
+	endOperation(op, outcome, fields)
+	return tests
+}
+
+func (e Environment) runParameterProbe(ctx context.Context, model, probeID string, fn func(context.Context) result.ParameterResult) result.ParameterResult {
+	probeCtx, op := e.startProbe(ctx, model, "model-param", probeID)
+	parameter := fn(probeCtx)
+	fields := logging.Fields{
+		"probe":       probeID,
+		"status":      string(parameter.Status),
+		"http_status": parameter.HTTP.StatusCode,
+		"duration_ms": parameter.DurationMS,
+	}
+	if op != nil {
+		op.Event(logging.Trace, "validator", fields)
+	}
+	endOperation(op, string(parameter.Status), fields)
+	return parameter
+}
+
+func endOperation(op *telemetry.Operation, outcome string, fields logging.Fields) {
+	if op != nil {
+		op.End(outcome, fields)
+	}
 }
 
 func (e Environment) logf(level logging.Level, format string, args ...any) {
@@ -68,6 +174,7 @@ func httpObservation(resp api.Response) result.HTTPObservation {
 		RequestID:   resp.RequestID,
 		Headers:     headers,
 		Snippet:     sanitizeSnippet(resp.Snippet(1200)),
+		TraceID:     resp.TraceID,
 	}
 }
 
@@ -77,6 +184,7 @@ func streamObservation(resp api.StreamResponse) result.HTTPObservation {
 		ContentType: resp.ContentType,
 		RequestID:   resp.RequestID,
 		Snippet:     sanitizeSnippet(truncate(resp.RawSnippet, 1200)),
+		TraceID:     resp.TraceID,
 	}
 }
 

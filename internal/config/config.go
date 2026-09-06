@@ -61,6 +61,7 @@ type Config struct {
 	GuidancePack                 string
 	GuidanceLocale               string
 	AllowHTTP                    bool
+	OTelPropagationTo            []string
 	Verbosity                    int
 	Samples                      int
 	ContextMaxTokens             int64
@@ -231,7 +232,7 @@ func Parse(args []string) (Config, error) {
 	fs := flag.NewFlagSet("aiqa", flag.ContinueOnError)
 	fs.SetOutput(new(strings.Builder))
 
-	var tests, models, formats, modules, modelCapabilities string
+	var tests, models, formats, modules, modelCapabilities, otelPropagationTo string
 	var openAIModelCapabilities, anthropicModelCapabilities, googleGenAIModelCapabilities string
 	extSuitePaths := multiValue{values: append([]string(nil), cfg.ExtSuitePaths...)}
 	extSuiteValues := multiValue{}
@@ -275,6 +276,7 @@ func Parse(args []string) (Config, error) {
 	fs.StringVar(&cfg.GuidancePack, "guidance-pack", cfg.GuidancePack, "guidance advice pack: auto,generic,PACK_ID")
 	fs.StringVar(&cfg.GuidanceLocale, "guidance-locale", cfg.GuidanceLocale, "guidance locale: en")
 	fs.BoolVar(&cfg.AllowHTTP, "allow-http", false, "allow non-TLS endpoints outside loopback")
+	fs.StringVar(&otelPropagationTo, "otel-propagate-to", "", "comma-separated exact origins allowed to receive OTel trace context")
 	fs.IntVar(&cfg.Verbosity, "verbose", 0, "log verbosity: 0=errors, 1=warnings, 2=info, 3=debug, 4=trace")
 	fs.IntVar(&cfg.Samples, "samples", cfg.Samples, "samples used for semantic parameter checks")
 	fs.Var(int64Value{&cfg.ContextMaxTokens}, "context-max", "maximum context target to probe, e.g. 1100k")
@@ -311,6 +313,7 @@ func Parse(args []string) (Config, error) {
 	}
 	cfg.ExtSuitePaths = uniqueStrings(extSuitePaths.values)
 	cfg.ModelCapabilities = splitUnique(modelCapabilities)
+	cfg.OTelPropagationTo = splitUnique(otelPropagationTo)
 	cfg.OpenAIModelCapabilities = splitUnique(openAIModelCapabilities)
 	cfg.AnthropicModelCapabilities = splitUnique(anthropicModelCapabilities)
 	cfg.GoogleGenAIModelCapabilities = splitUnique(googleGenAIModelCapabilities)
@@ -558,6 +561,24 @@ func (c Config) Validate() error {
 		}
 		if target.Protocol == ProtocolGoogleGenAI && !validGoogleAPIVersion(target.APIVersion) {
 			return fmt.Errorf("invalid Google GenAI API version %q", target.APIVersion)
+		}
+	}
+	for _, raw := range c.OTelPropagationTo {
+		u, err := url.Parse(raw)
+		if err != nil || u.Scheme == "" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" {
+			return fmt.Errorf("--otel-propagate-to requires an exact origin, got %q", raw)
+		}
+		origin := u.Scheme + "://" + u.Host
+		allowed := false
+		for _, target := range c.Targets {
+			targetURL, _ := url.Parse(target.BaseURL)
+			if targetURL.Scheme+"://"+targetURL.Host == origin {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return fmt.Errorf("--otel-propagate-to origin %q is not a configured target", origin)
 		}
 	}
 	if len(c.Tests) == 0 {

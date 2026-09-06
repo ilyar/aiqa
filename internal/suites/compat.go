@@ -112,13 +112,27 @@ func DiscoveryTests(p profile.Profile, resp api.Response, models []api.Model, li
 }
 
 func RunEndpointCompat(ctx context.Context, env Environment, validModel string) []result.TestResult {
+	ctx, providerOp := env.startProvider(ctx)
+	defer endOperation(providerOp, "completed", nil)
+	ctx, suiteOp := env.startSuite(ctx, "compat", logging.Fields{"probe": "endpoint"})
+	defer endOperation(suiteOp, "completed", nil)
 	groups := probe.Map(env.Probes,
-		func() []result.TestResult { return []result.TestResult{probeInvalidModel(ctx, env)} },
-		func() []result.TestResult { return []result.TestResult{probeInvalidAuth(ctx, env, validModel)} },
-		func() []result.TestResult { return []result.TestResult{probeInvalidJSON(ctx, env)} },
-		func() []result.TestResult { return []result.TestResult{probeInvalidTypes(ctx, env, validModel)} },
+		func() []result.TestResult {
+			return []result.TestResult{env.runTestProbe(ctx, "<endpoint>", "compat", "chat.error.invalid_model", func(probeCtx context.Context) result.TestResult { return probeInvalidModel(probeCtx, env) })}
+		},
+		func() []result.TestResult {
+			return []result.TestResult{env.runTestProbe(ctx, "<endpoint>", "compat", "chat.error.invalid_auth", func(probeCtx context.Context) result.TestResult { return probeInvalidAuth(probeCtx, env, validModel) })}
+		},
+		func() []result.TestResult {
+			return []result.TestResult{env.runTestProbe(ctx, "<endpoint>", "compat", "chat.error.invalid_json", func(probeCtx context.Context) result.TestResult { return probeInvalidJSON(probeCtx, env) })}
+		},
+		func() []result.TestResult {
+			return []result.TestResult{env.runTestProbe(ctx, "<endpoint>", "compat", "chat.error.invalid_types", func(probeCtx context.Context) result.TestResult { return probeInvalidTypes(probeCtx, env, validModel) })}
+		},
 	)
-	return flattenTests(groups)
+	out := flattenTests(groups)
+	env.traceTests(ctx, "<endpoint>", out)
+	return out
 }
 
 func RunModelCompat(ctx context.Context, env Environment, model string) []result.TestResult {
@@ -137,52 +151,103 @@ func RunModelCompatWithPreflight(ctx context.Context, env Environment, model str
 // an explicitly requested ambiguous model. A 2xx response proves that the
 // route accepted the model even when its envelope later fails schema checks.
 func RunChatPreflight(ctx context.Context, env Environment, model string) (result.TestResult, api.Response, error) {
-	resp, err := callChat(ctx, env, map[string]any{
-		"model":    model,
-		"messages": []any{map[string]any{"role": "user", "content": "Reply with exactly AIQA_OK."}},
+	ctx, suiteOp := env.startSuite(ctx, "compat", logging.Fields{"model": model})
+	defer endOperation(suiteOp, "completed", nil)
+	var resp api.Response
+	var err error
+	test := env.runTestProbe(ctx, model, "compat", "chat.basic", func(probeCtx context.Context) result.TestResult {
+		resp, err = callChat(probeCtx, env, map[string]any{
+			"model":    model,
+			"messages": []any{map[string]any{"role": "user", "content": "Reply with exactly AIQA_OK."}},
+		})
+		return evaluateBasic(env.Profile, resp, err)
 	})
-	return evaluateBasic(env.Profile, resp, err), resp, err
+	return test, resp, err
 }
 
 func runModelCompat(ctx context.Context, env Environment, model string, preflight *api.Response, preflightErr error) []result.TestResult {
-	env.logf(logging.Trace, "[%s] compat: scheduling independent probes", model)
+	ctx, suiteOp := env.startSuite(ctx, "compat", logging.Fields{"model": model})
+	defer endOperation(suiteOp, "completed", nil)
 	groups := probe.Map(env.Probes,
-		func() []result.TestResult { return []result.TestResult{probeRetrieveModel(ctx, env, model)} },
 		func() []result.TestResult {
-			basicResp, basicErr := api.Response{}, preflightErr
-			if preflight != nil {
-				basicResp = *preflight
-			} else {
-				basicResp, basicErr = callChat(ctx, env, map[string]any{
-					"model":    model,
-					"messages": []any{map[string]any{"role": "user", "content": "Reply with exactly AIQA_OK and nothing else."}},
-				})
-			}
-			return []result.TestResult{
-				evaluateBasic(env.Profile, basicResp, basicErr),
-				evaluateChatSchema(env.Profile, basicResp, basicErr),
-				evaluateUsage(env.Profile, basicResp, basicErr),
-			}
+			return []result.TestResult{env.runTestProbe(ctx, model, "compat", "models.retrieve", func(probeCtx context.Context) result.TestResult { return probeRetrieveModel(probeCtx, env, model) })}
 		},
-		func() []result.TestResult { return []result.TestResult{probeRole(ctx, env, model, "system")} },
-		func() []result.TestResult { return []result.TestResult{probeRole(ctx, env, model, "developer")} },
-		func() []result.TestResult { return []result.TestResult{probeTextContentParts(ctx, env, model)} },
-		func() []result.TestResult { return []result.TestResult{probeMultiTurn(ctx, env, model)} },
-		func() []result.TestResult { return []result.TestResult{probeStreaming(ctx, env, model, false)} },
-		func() []result.TestResult { return []result.TestResult{probeStreaming(ctx, env, model, true)} },
-		func() []result.TestResult { return []result.TestResult{probeToolChoice(ctx, env, model, "none")} },
-		func() []result.TestResult { return []result.TestResult{probeToolChoice(ctx, env, model, "auto")} },
-		func() []result.TestResult { return []result.TestResult{probeToolChoice(ctx, env, model, "required")} },
 		func() []result.TestResult {
-			toolResult, assistantMessage := probeForcedTool(ctx, env, model)
-			return []result.TestResult{toolResult, probeToolContinuation(ctx, env, model, toolResult, assistantMessage)}
+			return env.runTestsProbe(ctx, model, "compat", "chat.basic", func(probeCtx context.Context) []result.TestResult {
+				basicResp, basicErr := api.Response{}, preflightErr
+				if preflight != nil {
+					basicResp = *preflight
+				} else {
+					basicResp, basicErr = callChat(probeCtx, env, map[string]any{
+						"model":    model,
+						"messages": []any{map[string]any{"role": "user", "content": "Reply with exactly AIQA_OK and nothing else."}},
+					})
+				}
+				basic := evaluateBasic(env.Profile, basicResp, basicErr)
+				schema := evaluateChatSchema(env.Profile, basicResp, basicErr)
+				schema.DerivedFrom = basic.ID
+				usage := evaluateUsage(env.Profile, basicResp, basicErr)
+				usage.DerivedFrom = basic.ID
+				return []result.TestResult{basic, schema, usage}
+			})
 		},
-		func() []result.TestResult { return []result.TestResult{probeStreamingTool(ctx, env, model)} },
-		func() []result.TestResult { return []result.TestResult{probeJSONObject(ctx, env, model)} },
-		func() []result.TestResult { return []result.TestResult{probeJSONSchema(ctx, env, model)} },
-		func() []result.TestResult { return []result.TestResult{probeLogprobs(ctx, env, model)} },
+		func() []result.TestResult {
+			return []result.TestResult{env.runTestProbe(ctx, model, "compat", "chat.role.system", func(probeCtx context.Context) result.TestResult { return probeRole(probeCtx, env, model, "system") })}
+		},
+		func() []result.TestResult {
+			return []result.TestResult{env.runTestProbe(ctx, model, "compat", "chat.role.developer", func(probeCtx context.Context) result.TestResult { return probeRole(probeCtx, env, model, "developer") })}
+		},
+		func() []result.TestResult {
+			return []result.TestResult{env.runTestProbe(ctx, model, "compat", "chat.content_parts.text", func(probeCtx context.Context) result.TestResult { return probeTextContentParts(probeCtx, env, model) })}
+		},
+		func() []result.TestResult {
+			return []result.TestResult{env.runTestProbe(ctx, model, "compat", "chat.multi_turn", func(probeCtx context.Context) result.TestResult { return probeMultiTurn(probeCtx, env, model) })}
+		},
+		func() []result.TestResult {
+			return []result.TestResult{env.runTestProbe(ctx, model, "compat", "chat.stream.sse", func(probeCtx context.Context) result.TestResult { return probeStreaming(probeCtx, env, model, false) })}
+		},
+		func() []result.TestResult {
+			return []result.TestResult{env.runTestProbe(ctx, model, "compat", "chat.stream.usage", func(probeCtx context.Context) result.TestResult { return probeStreaming(probeCtx, env, model, true) })}
+		},
+		func() []result.TestResult {
+			return []result.TestResult{env.runTestProbe(ctx, model, "compat", "chat.tools.none", func(probeCtx context.Context) result.TestResult { return probeToolChoice(probeCtx, env, model, "none") })}
+		},
+		func() []result.TestResult {
+			return []result.TestResult{env.runTestProbe(ctx, model, "compat", "chat.tools.auto", func(probeCtx context.Context) result.TestResult { return probeToolChoice(probeCtx, env, model, "auto") })}
+		},
+		func() []result.TestResult {
+			return []result.TestResult{env.runTestProbe(ctx, model, "compat", "chat.tools.required", func(probeCtx context.Context) result.TestResult {
+				return probeToolChoice(probeCtx, env, model, "required")
+			})}
+		},
+		func() []result.TestResult {
+			var toolResult result.TestResult
+			var assistantMessage map[string]any
+			toolResult = env.runTestProbe(ctx, model, "compat", "chat.tools.forced", func(probeCtx context.Context) result.TestResult {
+				toolResult, assistantMessage = probeForcedTool(probeCtx, env, model)
+				return toolResult
+			})
+			continuation := env.runTestProbe(ctx, model, "compat", "chat.tools.continuation", func(probeCtx context.Context) result.TestResult {
+				return probeToolContinuation(probeCtx, env, model, toolResult, assistantMessage)
+			})
+			return []result.TestResult{toolResult, continuation}
+		},
+		func() []result.TestResult {
+			return []result.TestResult{env.runTestProbe(ctx, model, "compat", "chat.tools.stream", func(probeCtx context.Context) result.TestResult { return probeStreamingTool(probeCtx, env, model) })}
+		},
+		func() []result.TestResult {
+			return []result.TestResult{env.runTestProbe(ctx, model, "compat", "chat.structured.json_object", func(probeCtx context.Context) result.TestResult { return probeJSONObject(probeCtx, env, model) })}
+		},
+		func() []result.TestResult {
+			return []result.TestResult{env.runTestProbe(ctx, model, "compat", "chat.structured.json_schema", func(probeCtx context.Context) result.TestResult { return probeJSONSchema(probeCtx, env, model) })}
+		},
+		func() []result.TestResult {
+			return []result.TestResult{env.runTestProbe(ctx, model, "compat", "chat.logprobs", func(probeCtx context.Context) result.TestResult { return probeLogprobs(probeCtx, env, model) })}
+		},
 	)
-	return flattenTests(groups)
+	out := flattenTests(groups)
+	env.traceTests(ctx, model, out)
+	return out
 }
 
 func flattenTests(groups [][]result.TestResult) []result.TestResult {

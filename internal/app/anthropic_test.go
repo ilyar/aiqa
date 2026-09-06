@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -17,6 +19,7 @@ import (
 	"github.com/ilyar/aiqa/internal/config"
 	"github.com/ilyar/aiqa/internal/profile"
 	"github.com/ilyar/aiqa/internal/result"
+	"github.com/ilyar/aiqa/internal/traceverify"
 )
 
 func TestDualTargetCommandWritesIndependentV3Report(t *testing.T) {
@@ -28,6 +31,10 @@ func TestDualTargetCommandWritesIndependentV3Report(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	traceSchemaPath, err := filepath.Abs(filepath.Join("..", "..", "schema", "trace-verdict-v1.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	withTempWorkingDirectory(t)
 	t.Setenv("OPENAI_BASE_URL", openAI.URL+"/v1")
 	t.Setenv("OPENAI_API_KEY", "test-key")
@@ -35,7 +42,7 @@ func TestDualTargetCommandWritesIndependentV3Report(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "anthropic-test-key")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "must-not-be-used")
 	t.Setenv("ANTHROPIC_BETA", "must-not-be-used")
-	cfg, err := config.Parse([]string{"test=compat", "--timeout=5", "--request-interval=1ms", "--format=markdown,json", "--name=dual"})
+	cfg, err := config.Parse([]string{"test=compat", "--timeout=5", "--request-interval=1ms", "--verbose=4", "--format=markdown,json", "--name=dual"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,6 +52,45 @@ func TestDualTargetCommandWritesIndependentV3Report(t *testing.T) {
 	}
 	if out.ExitCode != 0 {
 		t.Fatalf("exit=%d summary=%+v", out.ExitCode, out.ReportV3.Summary)
+	}
+	trace, err := os.ReadFile("dual.log")
+	if err != nil {
+		t.Fatalf("read diagnostic trace: %v", err)
+	}
+	for _, required := range []string{
+		`"level":"TRACE"`, `"event":"http.attempt.begin"`, `"event":"http.logical_request.end"`,
+		`"event":"probe.slots.wait"`, `"event":"http.sse.event"`,
+		`"seq":`, `"target":"openai"`, `"operation_id":"op-`, `"derived_from":"anthropic.messages.basic"`,
+	} {
+		if !strings.Contains(string(trace), required) {
+			t.Fatalf("verbose 4 trace does not contain %q", required)
+		}
+	}
+	for _, forbidden := range []string{"test-key", "anthropic-test-key", "Reply with exactly", "AIQA_OK", "Authorization"} {
+		if strings.Contains(string(trace), forbidden) {
+			t.Fatalf("verbose 4 trace leaks %q", forbidden)
+		}
+	}
+	assertExecutionTraceGraph(t, trace)
+	verdictData, err := os.ReadFile("dual.trace-verdict.json")
+	if err != nil {
+		t.Fatalf("read trace verdict: %v", err)
+	}
+	var traceVerdict traceverify.Verdict
+	if err := json.Unmarshal(verdictData, &traceVerdict); err != nil {
+		t.Fatalf("decode trace verdict: %v", err)
+	}
+	if traceVerdict.SchemaVersion != "aiqa.trace-verdict.v1" || traceVerdict.Status != traceverify.Pass {
+		t.Fatalf("invalid trace verdict: %s", verdictData)
+	}
+	if offline := traceverify.Verify(bytes.NewReader(trace)); !reflect.DeepEqual(offline, traceVerdict) {
+		t.Fatalf("offline verdict differs from run verdict:\noffline=%+v\nrun=%+v", offline, traceVerdict)
+	}
+	verdictProgram := `import json,sys
+from jsonschema import Draft202012Validator
+Draft202012Validator(json.load(open(sys.argv[1]))).validate(json.load(open(sys.argv[2])))`
+	if output, err := exec.Command("python3", "-c", verdictProgram, traceSchemaPath, "dual.trace-verdict.json").CombinedOutput(); err != nil {
+		t.Fatalf("trace verdict schema validation failed: %v\n%s", err, output)
 	}
 	data, err := os.ReadFile("dual.json")
 	if err != nil {
@@ -56,6 +102,9 @@ func TestDualTargetCommandWritesIndependentV3Report(t *testing.T) {
 	}
 	if report.SchemaVersion != "aiqa.report.v3" || len(report.Targets) != 2 {
 		t.Fatalf("unexpected report: schema=%s targets=%d", report.SchemaVersion, len(report.Targets))
+	}
+	if report.ForensicTrace == nil || report.ForensicTrace.Status != "pass" || report.ForensicTrace.VerdictPath != "dual.trace-verdict.json" {
+		t.Fatalf("public forensic trace reference=%+v", report.ForensicTrace)
 	}
 	if report.Targets[0].Protocol != "anthropic" || report.Targets[1].Protocol != "openai" {
 		t.Fatalf("target order/protocols: %+v", report.Targets)
@@ -150,6 +199,104 @@ Draft202012Validator(schema,format_checker=FormatChecker()).validate(json.load(o
 			t.Fatalf("markdown missing %q", want)
 		}
 	}
+}
+
+// assertExecutionTraceGraph validates the private JSONL contract from a real
+// loopback run. It deliberately reconstructs links from IDs instead of
+// asserting individual text fragments, so a missing parent or terminal span
+// cannot be hidden by a superficially plausible log line.
+func assertExecutionTraceGraph(t *testing.T, data []byte) {
+	t.Helper()
+	type span struct {
+		name   string
+		parent string
+		start  int
+		end    int
+	}
+	spans := map[string]*span{}
+	previousSeq := float64(0)
+	for lineNo, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		var event map[string]any
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatalf("line %d is not JSONL: %v", lineNo+1, err)
+		}
+		for _, field := range []string{"time", "seq", "level", "event", "trace_id", "span_id", "parent_span_id"} {
+			if _, ok := event[field]; !ok {
+				t.Fatalf("line %d misses %s: %s", lineNo+1, field, line)
+			}
+		}
+		seq, ok := event["seq"].(float64)
+		if !ok || seq <= previousSeq {
+			t.Fatalf("line %d has non-monotonic seq %v after %v", lineNo+1, event["seq"], previousSeq)
+		}
+		previousSeq = seq
+		name, _ := event["event"].(string)
+		spanID, _ := event["span_id"].(string)
+		if spanID == "" || !strings.HasSuffix(name, ".start") {
+			continue
+		}
+		if _, exists := spans[spanID]; exists {
+			t.Fatalf("span %s has more than one start", spanID)
+		}
+		parent, _ := event["parent_span_id"].(string)
+		spans[spanID] = &span{name: strings.TrimSuffix(name, ".start"), parent: parent, start: lineNo}
+	}
+	for lineNo, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		var event map[string]any
+		_ = json.Unmarshal([]byte(line), &event)
+		name, _ := event["event"].(string)
+		spanID, _ := event["span_id"].(string)
+		if !strings.HasSuffix(name, ".end") || spanID == "" {
+			continue
+		}
+		item, exists := spans[spanID]
+		if !exists {
+			// TRACE phase events such as pacing.wait.end are not lifecycle
+			// terminals and intentionally reuse the active span ID.
+			continue
+		}
+		if item.name != strings.TrimSuffix(name, ".end") {
+			continue
+		}
+		if item.end != 0 {
+			t.Fatalf("span %s has more than one terminal event", spanID)
+		}
+		item.end = lineNo + 1
+	}
+	for id, item := range spans {
+		if item.end == 0 {
+			t.Fatalf("span %s (%s) has no terminal event", id, item.name)
+		}
+		if item.parent != "" {
+			parent, exists := spans[item.parent]
+			if !exists || parent.start >= item.start || parent.end <= item.end {
+				t.Fatalf("span %s (%s) is outside parent %s: child=%+v parent=%+v", id, item.name, item.parent, item, parent)
+			}
+		}
+	}
+	chain := []string{"target", "model", "suite", "probe", "http.logical_request", "http.attempt"}
+	children := map[string][]string{}
+	for id, item := range spans {
+		children[item.parent] = append(children[item.parent], id)
+	}
+	var hasChain func(string, int) bool
+	hasChain = func(parent string, index int) bool {
+		if index == len(chain) {
+			return true
+		}
+		for _, child := range children[parent] {
+			if spans[child].name == chain[index] && hasChain(child, index+1) {
+				return true
+			}
+		}
+		return false
+	}
+	for id, item := range spans {
+		if item.name == "run" && hasChain(id, 0) {
+			return
+		}
+	}
+	t.Fatalf("no complete execution chain run→%s; spans=%d", strings.Join(chain, "→"), len(spans))
 }
 
 func TestGlobalModelRunsSameIDIndependentlyAcrossTargets(t *testing.T) {

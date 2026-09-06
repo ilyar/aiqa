@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/aiqa/schema/trace-verdict-v1.schema.json",
+  "title": "AIQA forensic trace verdict v1",
+  "type": "object",
+  "required": ["schema_version", "trace_schema_version", "status", "checked_records", "checked_spans", "checked_http_attempts", "coverage", "violations"],
+  "properties": {
+    "schema_version": {"const": "aiqa.trace-verdict.v1"},
+    "trace_schema_version": {"const": "aiqa.trace.v1"},
+    "run_id": {"type": "string", "minLength": 1},
+    "status": {"enum": ["pass", "fail", "inconclusive", "not_requested"]},
+    "checked_records": {"type": "integer", "minimum": 0},
+    "checked_spans": {"type": "integer", "minimum": 0},
+    "checked_http_attempts": {"type": "integer", "minimum": 0},
+    "coverage": {"type": "array", "items": {"$ref": "#/$defs/coverage"}},
+    "violations": {"type": "array", "items": {"$ref": "#/$defs/violation"}}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "coverage": {
+      "type": "object", "required": ["target", "protocol", "executor", "status", "count"],
+      "properties": {"target": {"type": "string"}, "protocol": {"type": "string"}, "executor": {"enum": ["native", "sdk", "extension"]}, "status": {"enum": ["observed", "complete", "not_selected", "missing"]}, "count": {"type": "integer", "minimum": 0}},
+      "additionalProperties": false
+    },
+    "violation": {
+      "type": "object", "required": ["code", "severity", "remediation"],
+      "properties": {"code": {"pattern": "^[a-z][a-z0-9_]*$"}, "severity": {"enum": ["error", "warning"]}, "seq": {"type": "integer", "minimum": 1}, "span_id": {"type": "string", "minLength": 1}, "operation_id": {"type": "string", "minLength": 1}, "remediation": {"type": "string", "minLength": 1}},
+      "additionalProperties": false
+    }
+  }
+}

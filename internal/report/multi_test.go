@@ -139,6 +139,17 @@ func TestMarkdownV3RendersTargetActionsAndPerModelTelemetry(t *testing.T) {
 	}
 }
 
+func TestMarkdownV3RendersForensicTraceVerdict(t *testing.T) {
+	report := result.ReportV3{
+		SchemaVersion: "aiqa.report.v3",
+		Config:        result.PublicConfigV3{Timeout: "1s"},
+		ForensicTrace: &result.ForensicTrace{VerdictPath: "run.trace-verdict.json", Status: "pass"},
+	}
+	if got := MarkdownV3(report); !strings.Contains(got, "**Forensic trace verdict:** `run.trace-verdict.json` (PASS)") {
+		t.Fatalf("forensic trace verdict missing from Markdown:\n%s", got)
+	}
+}
+
 func TestMarkdownV3RendersServiceOriginWithoutAPIPath(t *testing.T) {
 	report := result.ReportV3{Config: result.PublicConfigV3{Targets: []result.TargetPublicConfig{
 		{ID: "openai", Protocol: "openai", BaseURL: "https://gate.joingonka.ai/v1"},

@@ -96,12 +96,15 @@ Extension executables are trusted local programs. The JSONL boundary is not a sa
 
 ## Process protocol
 
-External executables implement `aiqa.ext.v1` as one JSON object per line. The strict control-record schema is [`schema/ext-v1.schema.json`](../schema/ext-v1.schema.json).
+External executables implement the alpha-breaking `aiqa.ext.v2` protocol as one
+JSON object per line. The strict control-record schema remains
+[`schema/ext-v2.schema.json`](../schema/ext-v2.schema.json) while its stable
+identifier is migrated with the protocol.
 
 For manifest negotiation, AIQA starts the executable directly, with no shell and a clean environment, then writes one credential-free request:
 
 ```json
-{"schema_version":"aiqa.ext.v1","type":"manifest_request","host":{"name":"aiqa","version":"1.0.0-alpha.6"}}
+{"schema_version":"aiqa.ext.v2","type":"manifest_request","host":{"name":"aiqa","version":"1.0.0-alpha.6"}}
 ```
 
 The executable writes exactly one `manifest` record and exits zero. stdout is reserved for protocol records; human diagnostics belong on stderr.
@@ -111,8 +114,28 @@ For execution, one process handles one extension, target, and provider/model sub
 Each planned suite writes one terminal `suite_result` record:
 
 ```json
-{"schema_version":"aiqa.ext.v1","type":"suite_result","run_id":"opaque","extension_id":"acme.gateway","suite_id":"chat.stream","subject":{"target_id":"openai","protocol":"openai","kind":"model","id":"model-a"},"outcome":"pass","duration_ms":136,"summary":"SDK sent and parsed a streamed response"}
+{"schema_version":"aiqa.ext.v2","type":"suite_result","run_id":"opaque","extension_id":"acme.gateway","suite_id":"chat.stream","subject":{"target_id":"openai","protocol":"openai","kind":"model","id":"model-a"},"outcome":"pass","duration_ms":136,"summary":"SDK sent and parsed a streamed response"}
 ```
+
+Before a `suite_result`, an executable must emit cooperative `trace_event`
+records for the complete safe lifecycle. Local `event_id` and
+`parent_event_id` are opaque extension-local IDs. The root is a `suite` start;
+it owns `probe`, then `logical_request`, then `attempt`. An `end` reuses the
+start `event_id`; a `validator` is a new event whose parent is an active probe.
+Only method, attempt ordinal, HTTP status, duration and terminal outcome may be
+reported. URLs, headers, bodies, prompts, outputs, tool data and credentials
+are not permitted.
+
+```json
+{"schema_version":"aiqa.ext.v2","type":"trace_event","run_id":"opaque","extension_id":"acme.gateway","suite_id":"chat.stream","event_id":"attempt-1","parent_event_id":"request-1","operation":"attempt","phase":"start","method":"POST","attempt":1}
+```
+
+AIQA reads stdout while the executable runs, validates ownership against the
+planned run, and maps accepted records to host-local telemetry beneath that
+invocation. Unknown fields, invalid nesting, events after a terminal suite
+result, reused IDs, and unfinished spans are runner errors. An executable that
+does not emit a cooperative trace is `inconclusive`; terminal suite results do
+not substitute for HTTP lifecycle evidence.
 
 Exit zero means the protocol run completed. Assertion failures remain suite results and do not require a non-zero exit. Suite `duration_ms` measures request and parse work only. JSON records separately expose process startup and total wall time.
 
@@ -157,7 +180,7 @@ The extension contract is protected at five boundaries:
 | Routing and load | Planner tests cover protocol and capability isolation, unknown/text and non-text models, billable budgets, built-in concurrency, and executable slot reservations. Race tests protect immutable manifests and concurrent result ordering. |
 | Supply chain | `make dependency-check` verifies checksums and exact pins; `make vuln-check` runs pinned `govulncheck`; `make sbom-check` validates a temporary license-bearing CycloneDX SBOM. |
 
-Run `make check`, `make race`, and `make security-check` before changing the protocol, a built-in suite, or an SDK version.
+Run `make qa` before committing a protocol, built-in-suite, or SDK-version change.
 
 ## Embedded SDK build cost
 

@@ -8,7 +8,7 @@
 4. Return `pass`, `warn`, `unsupported`, `fail`, `error`, or `skip` deliberately.
 5. Emit a typed `EvidenceSignal` for outcomes that need curated guidance. Do not make guidance rules parse `summary`, `observation`, or `error` prose.
 6. Add deterministic behavior to the integration mock in `internal/app/app_test.go`.
-7. Add assessment and guidance tests, then run `make check` and `make race`.
+7. Add assessment and guidance tests, then run `make qa` before committing.
 
 A probe should record:
 
@@ -80,7 +80,7 @@ For a built-in suite:
 4. Emit a raw outcome through `EventSink`; do not assign conformance status in the suite.
 5. Add deterministic mock-provider coverage and a parity note for any removed or changed legacy case.
 
-For an executable extension, implement `aiqa.ext.v1` and validate records against [`schema/ext-v1.schema.json`](../schema/ext-v1.schema.json). Start from [`test/fixtures/ext-suite`](../test/fixtures/ext-suite). Tests must cover clean manifest negotiation, stdin-only credentials, partial output, malformed and duplicate records, cancellation, bounded output, and redaction.
+For an executable extension, implement `aiqa.ext.v2` and validate records against [`schema/ext-v2.schema.json`](../schema/ext-v2.schema.json). Start from [`test/fixtures/ext-suite`](../test/fixtures/ext-suite). Tests must cover clean manifest negotiation, stdin-only credentials, cooperative trace events, partial output, malformed and duplicate records, cancellation, bounded output, and redaction.
 
 When adding a protocol or report target:
 

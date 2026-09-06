@@ -84,6 +84,9 @@ func MarkdownV3(r result.ReportV3) string {
 	}
 	fmt.Fprintf(&b, "- **Timeout:** `%s` per request\n", r.Config.Timeout)
 	fmt.Fprintf(&b, "- **External checks:** %s\n\n", runExternalChecks(r.Targets))
+	if r.ForensicTrace != nil {
+		fmt.Fprintf(&b, "- **Forensic trace verdict:** `%s` (%s)\n\n", escapeInline(r.ForensicTrace.VerdictPath), statusLabelString(r.ForensicTrace.Status))
+	}
 	fmt.Fprintln(&b, "## Targets")
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "| Target | Verdict | Core | Optional | Evidence | Models | Actions |")

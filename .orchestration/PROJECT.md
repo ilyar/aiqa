@@ -24,10 +24,10 @@ command is a candidate until verified. Never invent a passing test result.
 
 | Scope | Command | Source | Observed result |
 | --- | --- | --- | --- |
-| Full local check | `make check` | `.github/workflows/ci.yml` | not run in this task yet |
-| Race suite | `make race` | `.github/workflows/ci.yml` | not run in this task yet |
-| Security gate | `make security-check` | `.github/workflows/ci.yml` | not run in this task yet |
-| Build | `make build VERSION=ci COMMIT=... DATE=ci` | `.github/workflows/ci.yml` | not run in this task yet |
+| Full local check | `make check` | `.github/workflows/ci.yml` | executed in this task; repeat on final integrated HEAD |
+| Race suite | `make race` | `.github/workflows/ci.yml` | executed in this task; repeat on final integrated HEAD |
+| Security gate | `make security-check` | `.github/workflows/ci.yml` | executed in this task; repeat on final integrated HEAD |
+| Build | `make build VERSION=ci COMMIT=... DATE=ci` then `./bin/aiqa --version` | `.github/workflows/ci.yml` | CI-defined; pending final integrated HEAD |
 
 ## Skills and tools
 
