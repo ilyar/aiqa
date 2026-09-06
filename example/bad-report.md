@@ -2,9 +2,9 @@
 
 _measures observed API behavior, a passing report is not a security audit or an official certification_
 
-- **Generated:** 2026-09-06 09:52:14Z
+- **Generated:** 2026-09-06 12:14:17Z
 - **Tool:** `aiqa 1.0.0-alpha.6`
-- **Service:** [127.0.0.1:32775](http://127.0.0.1:32775)
+- **Service:** [127.0.0.1:32779](http://127.0.0.1:32779)
 - **Suites:** `compat,sdk`
 - **Requested models:** `wiremock-broken-model` (one global list; each target reports only its selected inventory intersection)
 - **Timeout:** `1m0s` per request
@@ -26,9 +26,9 @@ Targets are assessed independently. Percentages are not combined into a cross-pr
 
 | Target | Logical | Attempts | Successful | 429 | Retry attempts | Recovered | Exhausted | Backoff | Safe req/s | Concurrency | Mean | P50 | P95 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| `anthropic` | 2 | 4 | 1 | 0 | 2 | 0 | 1 | 300ms | 0.50 req/s | 1 | 28ms | 28ms | 28ms |
-| `google-genai` | 16 | 46 | 1 | 0 | 30 | 0 | 15 | 4500ms | 0.50 req/s | 1 | 4ms | 4ms | 4ms |
-| `openai` | 2 | 4 | 1 | 0 | 2 | 0 | 1 | 300ms | 0.50 req/s | 1 | 2ms | 2ms | 2ms |
+| `anthropic` | 2 | 4 | 1 | 0 | 2 | 0 | 1 | 300ms | 0.50 req/s | 1 | 35ms | 35ms | 35ms |
+| `google-genai` | 16 | 46 | 1 | 0 | 30 | 0 | 15 | 4500ms | 0.50 req/s | 1 | 5ms | 5ms | 5ms |
+| `openai` | 2 | 4 | 1 | 0 | 2 | 0 | 1 | 300ms | 0.50 req/s | 1 | 3ms | 3ms | 3ms |
 
 ## Target: Anthropic
 
@@ -145,9 +145,9 @@ Targets are assessed independently. Percentages are not combined into a cross-pr
 | SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.vision.image_base64` | 0 | anthropic.messages.basic |
 | SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.vision.image_schema` | 0 | anthropic.messages.basic |
 | SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.vision.usage` | 0 | anthropic.messages.basic |
-| SKIP | OPTIONAL | `provider:http://127.0.0.1:32775/anthropic` | `anthropic.models.list.pagination` | 1 | anthropic.models.list.schema |
-| FAIL | CORE | `provider:http://127.0.0.1:32775/anthropic` | `anthropic.models.list.schema` | 1 |  |
-| WARN | OPTIONAL | `provider:http://127.0.0.1:32775/anthropic` | `anthropic.official-sdk.models.list` | 3 |  |
+| SKIP | OPTIONAL | `provider:http://127.0.0.1:32779/anthropic` | `anthropic.models.list.pagination` | 1 | anthropic.models.list.schema |
+| FAIL | CORE | `provider:http://127.0.0.1:32779/anthropic` | `anthropic.models.list.schema` | 1 |  |
+| WARN | OPTIONAL | `provider:http://127.0.0.1:32779/anthropic` | `anthropic.official-sdk.models.list` | 3 |  |
 
 ### Models
 
@@ -178,7 +178,7 @@ Built-in extension transport counts are separate from native latency percentiles
 
 | Suite | Subject | Status | Duration | Summary |
 |---|---|---:|---:|---|
-| `models.list` | `provider:http://127.0.0.1:32775/anthropic` | PASS | 4ms | Anthropic Go SDK sent and parsed the suite |
+| `models.list` | `provider:http://127.0.0.1:32779/anthropic` | PASS | 4ms | Anthropic Go SDK sent and parsed the suite |
 
 ## Target: Google GenAI
 
@@ -603,13 +603,13 @@ Built-in extension transport counts are separate from native latency percentiles
 | Suite | Subject | Status | Duration | Summary |
 |---|---|---:|---:|---|
 | `count-tokens` | `model:wiremock-broken-model` | ERROR | 2004ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
-| `embeddings` | `model:wiremock-broken-model` | ERROR | 3377ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
-| `generate-content` | `model:wiremock-broken-model` | ERROR | 3378ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
-| `generate-content-stream` | `model:wiremock-broken-model` | ERROR | 3374ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
+| `embeddings` | `model:wiremock-broken-model` | ERROR | 3174ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
+| `generate-content` | `model:wiremock-broken-model` | ERROR | 2004ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
+| `generate-content-stream` | `model:wiremock-broken-model` | ERROR | 3174ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
 | `models.get` | `model:wiremock-broken-model` | ERROR | 1999ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
-| `structured-output` | `model:wiremock-broken-model` | ERROR | 3377ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
-| `tools` | `model:wiremock-broken-model` | ERROR | 2004ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
-| `models.list` | `provider:http://127.0.0.1:32775/google` | PASS | 3ms | Google Gen AI Go SDK sent and parsed the suite |
+| `structured-output` | `model:wiremock-broken-model` | ERROR | 3168ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
+| `tools` | `model:wiremock-broken-model` | ERROR | 3174ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
+| `models.list` | `provider:http://127.0.0.1:32779/google` | PASS | 4ms | Google Gen AI Go SDK sent and parsed the suite |
 
 ## Target: OpenAI
 
@@ -690,7 +690,7 @@ Built-in extension transport counts are separate from native latency percentiles
 
 | Suite | Subject | Status | Duration | Summary |
 |---|---|---:|---:|---|
-| `models.list` | `provider:http://127.0.0.1:32775/openai/v1` | PASS | 2ms | OpenAI Go SDK sent and parsed the suite |
+| `models.list` | `provider:http://127.0.0.1:32779/openai/v1` | PASS | 1ms | OpenAI Go SDK sent and parsed the suite |
 
 ## Observed API usage
 

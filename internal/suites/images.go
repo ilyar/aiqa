@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/ilyar/aiqa/internal/api"
+	"github.com/ilyar/aiqa/internal/logging"
 	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/result"
 )
@@ -26,7 +27,7 @@ import (
 const maxImageArtifactBytes = 20 << 20
 
 func RunImageCompat(parent context.Context, env Environment, model string) []result.TestResult {
-	env.logf("[%s] compat: image generation", model)
+	env.logf(logging.Trace, "[%s] compat: image generation", model)
 	groups := probe.Map(env.Probes,
 		func() []result.TestResult { return probeImageGeneration(parent, env, model) },
 		func() []result.TestResult { return []result.TestResult{probeInvalidImageModel(parent, env)} },

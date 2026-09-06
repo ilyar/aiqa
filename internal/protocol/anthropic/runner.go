@@ -18,6 +18,7 @@ import (
 	"github.com/ilyar/aiqa/internal/capability"
 	"github.com/ilyar/aiqa/internal/config"
 	"github.com/ilyar/aiqa/internal/guidance"
+	"github.com/ilyar/aiqa/internal/logging"
 	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/profile"
 	protocolpkg "github.com/ilyar/aiqa/internal/protocol"
@@ -30,7 +31,7 @@ type RunOptions struct {
 	Config    config.Config
 	Profile   profile.Profile
 	UserAgent string
-	Logf      func(string, ...any)
+	Logf      func(logging.Level, string, ...any)
 	Runtime   *Runtime
 }
 
@@ -125,9 +126,9 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 		return toTarget(target, tmp), nil
 	}
 	if options.Logf != nil {
-		options.Logf("[%s] testing %d model(s): %s", target.ID, len(selected), strings.Join(selected, ", "))
+		options.Logf(logging.Info, "[%s] testing %d model(s): %s", target.ID, len(selected), strings.Join(selected, ", "))
 		if containsString(cfg.Modules, "anthropic.thinking") {
-			options.Logf("[%s] high-token thinking probes are enabled and may consume at least 4096 output-token budget per model", target.ID)
+			options.Logf(logging.Warn, "[%s] high-token thinking probes are enabled and may consume at least 4096 output-token budget per model", target.ID)
 		}
 	}
 	type modelItem struct {
@@ -197,7 +198,7 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 			for index := range jobs {
 				model := selected[index]
 				if options.Logf != nil {
-					options.Logf("[%s/%s] start", target.ID, model)
+					options.Logf(logging.Debug, "[%s/%s] start", target.ID, model)
 				}
 				classification := classifications[index]
 				modules := modulePlans[index]
@@ -214,7 +215,7 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 				stats := client.PacingStatsForModel(model)
 				mr.RateLimit = rateLimitStats(stats)
 				if options.Logf != nil {
-					options.Logf("[%s/%s] done", target.ID, model)
+					options.Logf(logging.Debug, "[%s/%s] done", target.ID, model)
 				}
 				modelResults <- modelItem{index: index, report: mr}
 			}

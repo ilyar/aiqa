@@ -61,7 +61,7 @@ type Config struct {
 	GuidancePack                 string
 	GuidanceLocale               string
 	AllowHTTP                    bool
-	Verbose                      bool
+	Verbosity                    int
 	Samples                      int
 	ContextMaxTokens             int64
 	ContextPrecision             int64
@@ -219,7 +219,11 @@ func Parse(args []string) (Config, error) {
 		GoogleGenAIUnknownModel: "inventory",
 	}
 
-	args = normalizeTestArgument(args)
+	var normalizeErr error
+	args, normalizeErr = normalizeArguments(args)
+	if normalizeErr != nil {
+		return Config{}, normalizeErr
+	}
 	if removed := removedModelFlag(args); removed != "" {
 		return Config{}, fmt.Errorf("--%s was removed; use the global --model option", removed)
 	}
@@ -271,7 +275,7 @@ func Parse(args []string) (Config, error) {
 	fs.StringVar(&cfg.GuidancePack, "guidance-pack", cfg.GuidancePack, "guidance advice pack: auto,generic,PACK_ID")
 	fs.StringVar(&cfg.GuidanceLocale, "guidance-locale", cfg.GuidanceLocale, "guidance locale: en")
 	fs.BoolVar(&cfg.AllowHTTP, "allow-http", false, "allow non-TLS endpoints outside loopback")
-	fs.BoolVar(&cfg.Verbose, "verbose", false, "show probe progress on stderr")
+	fs.IntVar(&cfg.Verbosity, "verbose", 0, "log verbosity: 0=errors, 1=warnings, 2=info, 3=debug, 4=trace")
 	fs.IntVar(&cfg.Samples, "samples", cfg.Samples, "samples used for semantic parameter checks")
 	fs.Var(int64Value{&cfg.ContextMaxTokens}, "context-max", "maximum context target to probe, e.g. 1100k")
 	fs.Var(int64Value{&cfg.ContextPrecision}, "context-precision", "desired context boundary precision in tokens")
@@ -290,7 +294,6 @@ func Parse(args []string) (Config, error) {
 	if len(fs.Args()) > 0 {
 		return Config{}, fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
 	}
-
 	cfg.Tests = splitUnique(tests)
 	var modelErr error
 	cfg.Models, modelErr = parseModelList(models)
@@ -413,16 +416,43 @@ func validStableID(value string) bool {
 	return true
 }
 
-func normalizeTestArgument(args []string) []string {
+func normalizeArguments(args []string) ([]string, error) {
 	out := make([]string, 0, len(args))
-	for _, arg := range args {
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
 		if strings.HasPrefix(arg, "test=") {
 			out = append(out, "--test="+strings.TrimPrefix(arg, "test="))
 			continue
 		}
+		if arg == "--verbose" {
+			if index+1 < len(args) && isVerbosityValue(args[index+1]) {
+				out = append(out, "--verbose="+args[index+1])
+				index++
+			} else {
+				out = append(out, "--verbose=1")
+			}
+			continue
+		}
+		if strings.HasPrefix(arg, "-v") && !strings.HasPrefix(arg, "--") {
+			short := strings.TrimPrefix(arg, "-")
+			if short == "" || strings.Trim(short, "v") != "" {
+				return nil, fmt.Errorf("invalid short verbose form %q; use -v through -vvvv", arg)
+			}
+			level := len(arg) - 1
+			if level < 1 || level > 4 {
+				return nil, fmt.Errorf("invalid short verbose form %q; use -v through -vvvv", arg)
+			}
+			out = append(out, "--verbose="+strconv.Itoa(level))
+			continue
+		}
 		out = append(out, arg)
 	}
-	return out
+	return out, nil
+}
+
+func isVerbosityValue(value string) bool {
+	_, err := strconv.Atoi(value)
+	return err == nil
 }
 
 func removedModelFlag(args []string) string {
@@ -506,6 +536,9 @@ func normalizeFormats(in []string) []string {
 }
 
 func (c Config) Validate() error {
+	if c.Verbosity < 0 || c.Verbosity > 4 {
+		return fmt.Errorf("--verbose must be between 0 and 4, got %d", c.Verbosity)
+	}
 	if len(c.Targets) == 0 {
 		return errors.New("no API target is configured; set an OPENAI, ANTHROPIC, or GOOGLE_GENAI base URL and API key")
 	}

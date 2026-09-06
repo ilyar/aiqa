@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/ilyar/aiqa/internal/config"
+	"github.com/ilyar/aiqa/internal/logging"
 	"github.com/ilyar/aiqa/internal/result"
 )
 
@@ -1040,14 +1041,37 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func TestVerboseLogCollectsLifecycleLines(t *testing.T) {
-	logger := &verboseLog{}
-	logger.Logf("[%s] target started (%s)", "openai", "openai")
-	logger.Logf("[%s/%s] done", "openai", "gpt-test")
+func TestVerboseLoggerFiltersProgressByLevel(t *testing.T) {
+	logger := logging.New(2)
+	logger.Logf(logging.Info, "[%s] target started (%s)", "openai", "openai")
+	logger.Logf(logging.Debug, "[%s/%s] done", "openai", "gpt-test")
 	got := logger.Lines()
-	want := []string{"[openai] target started (openai)", "[openai/gpt-test] done"}
+	want := []string{"[INFO] [openai] target started (openai)"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("lines = %#v, want %#v", got, want)
+	}
+}
+
+func TestRunWritesFatalToVerboseLogForEarlyProfileFailure(t *testing.T) {
+	withTempWorkingDirectory(t)
+	cfg := testConfig("http://127.0.0.1:1/v1", []string{"compat"})
+	cfg.Verbosity = 1
+	cfg.Name = "early-failure"
+	cfg.OpenAIProfile = "missing-profile.json"
+
+	out, err := Run(context.Background(), cfg, BuildInfo{Version: "test"})
+	if err == nil || out.ExitCode != 2 {
+		t.Fatalf("unexpected early failure: exit=%d err=%v", out.ExitCode, err)
+	}
+	data, readErr := os.ReadFile("early-failure.log")
+	if readErr != nil {
+		t.Fatalf("read verbose log: %v", readErr)
+	}
+	if got := string(data); !strings.Contains(got, "[FATAL] load openai profile:") || !strings.Contains(got, "missing-profile.json") {
+		t.Fatalf("verbose log did not retain fatal profile failure: %q", got)
+	}
+	if !reflect.DeepEqual(out.Paths, []string{"early-failure.log"}) {
+		t.Fatalf("paths = %#v, want only verbose log", out.Paths)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ilyar/aiqa/internal/api"
+	"github.com/ilyar/aiqa/internal/logging"
 	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/profile"
 	"github.com/ilyar/aiqa/internal/result"
@@ -144,7 +145,7 @@ func RunChatPreflight(ctx context.Context, env Environment, model string) (resul
 }
 
 func runModelCompat(ctx context.Context, env Environment, model string, preflight *api.Response, preflightErr error) []result.TestResult {
-	env.logf("[%s] compat: scheduling independent probes", model)
+	env.logf(logging.Trace, "[%s] compat: scheduling independent probes", model)
 	groups := probe.Map(env.Probes,
 		func() []result.TestResult { return []result.TestResult{probeRetrieveModel(ctx, env, model)} },
 		func() []result.TestResult {

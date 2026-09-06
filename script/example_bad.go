@@ -68,7 +68,7 @@ func generateBad(ctx context.Context, stdout, stderr io.Writer, projectRoot stri
 	})
 	fmt.Fprintln(stdout, "Generating intentionally failing example reports")
 	badExit, err := runCommandAllowExit(ctx, exampleDir, badEnv, stdout, stderr, aiqaPath,
-		"--verbose", "--concurrency", "16", "--timeout=60",
+		"--verbose", "4", "--concurrency", "16", "--timeout=60",
 		"test=compat,sdk", "--target=openai,anthropic,google-genai",
 		"--model=wiremock-broken-model",
 		"--format=markdown,json", "--name=bad-report")

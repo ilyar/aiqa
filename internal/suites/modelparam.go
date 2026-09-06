@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ilyar/aiqa/internal/api"
+	"github.com/ilyar/aiqa/internal/logging"
 	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/result"
 )
@@ -33,7 +34,7 @@ type paramCall struct {
 func RunModelParameters(ctx context.Context, env Environment, model string, metadata map[string]any) ([]result.ParameterResult, *result.ContextProbeResult) {
 	var out []result.ParameterResult
 
-	env.logf("[%s] model-param: output limits", model)
+	env.logf(logging.Trace, "[%s] model-param: output limits", model)
 	baseline := runParamChat(ctx, env, model, map[string]any{}, longOutputPrompt(), 0)
 	outputLimits := probe.Map(env.Probes,
 		func() result.ParameterResult {
@@ -49,7 +50,7 @@ func RunModelParameters(ctx context.Context, env Environment, model string, meta
 	out = append(out, maxCompletion, maxTokens)
 	limit := chooseOutputLimit(maxCompletion, maxTokens)
 
-	env.logf("[%s] model-param: scheduling independent probes", model)
+	env.logf(logging.Trace, "[%s] model-param: scheduling independent probes", model)
 	type group struct {
 		parameters []result.ParameterResult
 		context    *result.ContextProbeResult

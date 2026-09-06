@@ -349,7 +349,7 @@ Main additional options:
 --concurrency N
 --samples N
 --allow-http
---verbose
+--verbose[=N], -v...       diagnostics: 0 quiet; 1 WARN; 2 INFO; 3 DEBUG; 4 TRACE
 --fail-on core|any|never
 --ext-suite ID[,ID]
 --ext-suite-path /absolute/path
@@ -361,7 +361,7 @@ Main additional options:
 --guidance-locale en
 ```
 
-`--concurrency` limits concurrently executing native and built-in extension requests and reserves capacity for executable extensions. Independent checks run in parallel, while checks with data dependencies remain ordered. The adaptive pacer may temporarily reduce the active request count after rate-limit responses.
+`--concurrency` limits concurrently executing native and built-in extension requests and reserves capacity for executable extensions. Independent checks run in parallel, while checks with data dependencies remain ordered. The adaptive pacer may temporarily reduce the active request count after rate-limit responses. `--verbose` is equivalent to `--verbose=1` or `-v`; use `-vv`, `-vvv`, or `-vvvv` for INFO, DEBUG, or TRACE. Level 0 is quiet apart from critical errors.
 
 Plain HTTP is automatically allowed only for loopback, any other address requires explicit `--allow-http`
 

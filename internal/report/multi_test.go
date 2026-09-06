@@ -2,6 +2,7 @@ package report
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,10 +16,10 @@ func TestWriteVerboseLogWritesPrivateSanitizedSidecar(t *testing.T) {
 	dir := t.TempDir()
 	secret := "test-secret-value"
 	cfg := config.Config{
-		Verbose: true,
-		Name:    filepath.Join(dir, "baseline-compat-report"),
-		APIKey:  secret,
-		Targets: []config.TargetConfig{{APIKey: "target-secret-value"}},
+		Verbosity: 1,
+		Name:      filepath.Join(dir, "baseline-compat-report"),
+		APIKey:    secret,
+		Targets:   []config.TargetConfig{{APIKey: "target-secret-value"}},
 	}
 	paths, err := WriteVerboseLog(cfg, []string{
 		"[openai] start",
@@ -55,7 +56,7 @@ func TestWriteVerboseLogWritesPrivateSanitizedSidecar(t *testing.T) {
 	}
 }
 
-func TestWriteVerboseLogSkipsNonVerboseRun(t *testing.T) {
+func TestWriteVerboseLogSkipsQuietRun(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Config{Name: filepath.Join(dir, "baseline-compat-report")}
 	paths, err := WriteVerboseLog(cfg, []string{"must not be written"})
@@ -67,6 +68,22 @@ func TestWriteVerboseLogSkipsNonVerboseRun(t *testing.T) {
 	}
 	if _, err := os.Stat(cfg.Name + ".log"); !os.IsNotExist(err) {
 		t.Fatalf("verbose log exists or stat failed: %v", err)
+	}
+}
+
+func TestWriteVerboseLogWritesAtEveryVerboseLevel(t *testing.T) {
+	for level := 1; level <= 4; level++ {
+		t.Run(fmt.Sprintf("level-%d", level), func(t *testing.T) {
+			dir := t.TempDir()
+			cfg := config.Config{Verbosity: level, Name: filepath.Join(dir, "report")}
+			paths, err := WriteVerboseLog(cfg, []string{"[WARN] retained"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(paths) != 1 {
+				t.Fatalf("paths = %v, want one log", paths)
+			}
+		})
 	}
 }
 

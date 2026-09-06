@@ -139,7 +139,9 @@ Failed extension-runner diagnostics are redacted, truncated, stored once in `gui
 When `--verbose` is set, AIQA also writes `<name>.log` next to the requested
 report files. This private `0600` sidecar records safe lifecycle and probe
 progress observations to aid diagnosis; it is not part of `aiqa.report.v3`.
-AIQA omits it without `--verbose`. The writer redacts configured credentials,
+`--verbose` and `-v` select WARN (level 1); level 2 adds INFO, level 3 adds
+DEBUG, and level 4 adds TRACE (`-vv`, `-vvv`, `-vvvv`). Level 0 is quiet and
+does not create a sidecar. The writer redacts configured credentials,
 credential-like fields, and URLs before the sidecar is committed atomically.
 
 Guidance is local and deterministic; it sends no additional provider requests and uses no LLM.

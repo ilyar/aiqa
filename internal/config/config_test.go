@@ -8,6 +8,62 @@ import (
 	"time"
 )
 
+func TestParseVerboseLevels(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "https://example.test/v1")
+	t.Setenv("OPENAI_API_KEY", "secret")
+	for _, test := range []struct {
+		name string
+		args []string
+		want int
+	}{
+		{"quiet by default", []string{"test=compat"}, 0},
+		{"long default", []string{"test=compat", "--verbose"}, 1},
+		{"long equals", []string{"test=compat", "--verbose=2"}, 2},
+		{"long separate", []string{"test=compat", "--verbose", "3"}, 3},
+		{"short one", []string{"test=compat", "-v"}, 1},
+		{"short four", []string{"test=compat", "-vvvv"}, 4},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg, err := Parse(test.args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Verbosity != test.want {
+				t.Fatalf("verbosity = %d, want %d", cfg.Verbosity, test.want)
+			}
+		})
+	}
+}
+
+func TestParseRejectsInvalidVerboseLevels(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "https://example.test/v1")
+	t.Setenv("OPENAI_API_KEY", "secret")
+	for _, args := range [][]string{
+		{"test=compat", "--verbose=-1"},
+		{"test=compat", "--verbose=5"},
+		{"test=compat", "--verbose=verbose"},
+		{"test=compat", "-vvvvv"},
+		{"test=compat", "-vvx"},
+	} {
+		if _, err := Parse(args); err == nil {
+			t.Fatalf("invalid verbose argument was accepted: %v", args)
+		}
+	}
+}
+
+func TestValidateRejectsInvalidVerbosity(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "https://example.test/v1")
+	t.Setenv("OPENAI_API_KEY", "secret")
+	cfg, err := Parse([]string{"test=compat", "--verbose=1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Verbosity = 5
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("out-of-range programmatic verbosity was accepted")
+	}
+}
+
 func TestParseExtensionSelectionAndPaths(t *testing.T) {
 	t.Setenv("OPENAI_BASE_URL", "https://example.test/v1")
 	t.Setenv("OPENAI_API_KEY", "secret")

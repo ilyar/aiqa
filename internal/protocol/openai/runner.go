@@ -12,6 +12,7 @@ import (
 	"github.com/ilyar/aiqa/internal/capability"
 	"github.com/ilyar/aiqa/internal/config"
 	"github.com/ilyar/aiqa/internal/guidance"
+	"github.com/ilyar/aiqa/internal/logging"
 	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/profile"
 	protocolpkg "github.com/ilyar/aiqa/internal/protocol"
@@ -68,7 +69,7 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 	}
 	logf := options.Logf
 	if logf == nil {
-		logf = func(string, ...any) {}
+		logf = func(logging.Level, string, ...any) {}
 	}
 	env := suites.Environment{Client: client, Config: cfg, Profile: p, Logf: logf, Probes: executor}
 
@@ -99,9 +100,9 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 		}
 		return out, nil
 	}
-	logf("[%s] testing %d model(s): %s", target.ID, len(selected), joinModels(selected))
+	logf(logging.Info, "[%s] testing %d model(s): %s", target.ID, len(selected), joinModels(selected))
 	if cfg.HasTest("model-param") {
-		logf("[%s] context probing is enabled; the per-model prompt budget is %d tokens", target.ID, cfg.ContextBudget)
+		logf(logging.Warn, "[%s] context probing is enabled; the per-model prompt budget is %d tokens", target.ID, cfg.ContextBudget)
 	}
 
 	classifications := make([]capability.Classification, len(selected))
@@ -190,7 +191,7 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 			defer wg.Done()
 			for index := range jobs {
 				model := selected[index]
-				logf("[%s/%s] start", target.ID, model)
+				logf(logging.Debug, "[%s/%s] start", target.ID, model)
 				mr := result.ModelReport{ID: model, Metadata: cloneMap(metadata[model]), Modules: modulePlans[index]}
 				for _, evidence := range classifications[index].Capabilities {
 					mr.Capabilities = append(mr.Capabilities, result.CapabilityAssessment{ID: evidence.Capability, Source: evidence.Source, Rule: evidence.Rule, Confidence: evidence.Confidence, Reason: evidence.Reason})
@@ -211,7 +212,7 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 				}
 				stats := client.PacingStatsForModel(model)
 				mr.RateLimit = protocolpkg.RateLimitStats(stats)
-				logf("[%s/%s] done", target.ID, model)
+				logf(logging.Debug, "[%s/%s] done", target.ID, model)
 				modelResults <- modelItem{index: index, report: mr}
 			}
 		}()

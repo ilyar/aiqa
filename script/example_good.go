@@ -61,7 +61,7 @@ func generateGood(ctx context.Context, stdout, stderr io.Writer, projectRoot str
 
 	fmt.Fprintln(stdout, "Generating provider example reports")
 	if err := runCommand(ctx, exampleDir, goodEnv, stdout, stderr, aiqaPath,
-		"--verbose", "--concurrency", "16", "--timeout=60", "--fail-on=never", "test=compat,sdk",
+		"--verbose", "4", "--concurrency", "16", "--timeout=60", "--fail-on=never", "test=compat,sdk",
 		"--target=openai,anthropic,google-genai",
 		"--format=markdown,json", "--name=good-report"); err != nil {
 		return false, fmt.Errorf("generate provider reports: %w", err)

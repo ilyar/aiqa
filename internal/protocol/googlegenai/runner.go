@@ -16,6 +16,7 @@ import (
 	"github.com/ilyar/aiqa/internal/capability"
 	"github.com/ilyar/aiqa/internal/config"
 	"github.com/ilyar/aiqa/internal/guidance"
+	"github.com/ilyar/aiqa/internal/logging"
 	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/profile"
 	protocolpkg "github.com/ilyar/aiqa/internal/protocol"
@@ -28,7 +29,7 @@ type RunOptions struct {
 	Config    config.Config
 	Profile   profile.Profile
 	UserAgent string
-	Logf      func(string, ...any)
+	Logf      func(logging.Level, string, ...any)
 	Runtime   *Runtime
 }
 
@@ -113,7 +114,7 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 		return toTarget(target, tmp), nil
 	}
 	if options.Logf != nil {
-		options.Logf("[%s] testing %d model(s): %s", target.ID, len(selected), strings.Join(selected, ", "))
+		options.Logf(logging.Info, "[%s] testing %d model(s): %s", target.ID, len(selected), strings.Join(selected, ", "))
 	}
 	modelResults := make([]result.ModelReport, len(selected))
 	preflights := make([]*api.Response, len(selected))
@@ -186,6 +187,9 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			if options.Logf != nil {
+				options.Logf(logging.Debug, "[%s/%s] start", target.ID, model)
+			}
 			classification := classifications[index]
 			modules := modulePlans[index]
 			mr := result.ModelReport{ID: model, Metadata: cloneMap(metadata[model]), Modules: modules}
@@ -204,6 +208,9 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 			stats := client.PacingStatsForModel(model)
 			mr.RateLimit = protocolpkg.RateLimitStats(stats)
 			modelResults[index] = mr
+			if options.Logf != nil {
+				options.Logf(logging.Debug, "[%s/%s] done", target.ID, model)
+			}
 		}()
 	}
 	wg.Wait()

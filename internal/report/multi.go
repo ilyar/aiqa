@@ -45,7 +45,7 @@ func WriteV3(r result.ReportV3, cfg config.Config) ([]string, error) {
 // out of the public report contract because it records run progress, rather
 // than compatibility evidence.
 func WriteVerboseLog(cfg config.Config, lines []string) ([]string, error) {
-	if !cfg.Verbose {
+	if cfg.Verbosity == 0 {
 		return nil, nil
 	}
 	data := make([]byte, 0)

@@ -11,6 +11,7 @@ import (
 
 	"github.com/ilyar/aiqa/internal/api"
 	"github.com/ilyar/aiqa/internal/config"
+	"github.com/ilyar/aiqa/internal/logging"
 	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/profile"
 	"github.com/ilyar/aiqa/internal/result"
@@ -20,13 +21,13 @@ type Environment struct {
 	Client  *api.Client
 	Config  config.Config
 	Profile profile.Profile
-	Logf    func(format string, args ...any)
+	Logf    func(logging.Level, string, ...any)
 	Probes  *probe.Executor
 }
 
-func (e Environment) logf(format string, args ...any) {
+func (e Environment) logf(level logging.Level, format string, args ...any) {
 	if e.Logf != nil {
-		e.Logf(format, args...)
+		e.Logf(level, format, args...)
 	}
 }
 

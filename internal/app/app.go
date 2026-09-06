@@ -8,7 +8,6 @@ import (
 	"runtime"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/ilyar/aiqa/internal/api"
@@ -19,6 +18,7 @@ import (
 	extgoogle "github.com/ilyar/aiqa/internal/extsuite/builtin/googlegenai"
 	extopenai "github.com/ilyar/aiqa/internal/extsuite/builtin/openai"
 	"github.com/ilyar/aiqa/internal/guidance"
+	"github.com/ilyar/aiqa/internal/logging"
 	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/profile"
 	protocolpkg "github.com/ilyar/aiqa/internal/protocol"
@@ -41,29 +41,6 @@ type RunResult struct {
 	ExitCode int
 }
 
-type verboseLog struct {
-	mu    sync.Mutex
-	lines []string
-}
-
-func (l *verboseLog) Logf(format string, args ...any) {
-	line := fmt.Sprintf(format, args...)
-	l.mu.Lock()
-	l.lines = append(l.lines, line)
-	l.mu.Unlock()
-	fprintfStderr(line)
-}
-
-func (l *verboseLog) Lines() []string {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return append([]string(nil), l.lines...)
-}
-
-func fprintfStderr(line string) {
-	fmt.Fprintf(os.Stderr, "aiqa: %s\n", line)
-}
-
 func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, error) {
 	if len(cfg.Targets) == 0 && cfg.BaseURL != "" {
 		profileFile := cfg.OpenAIProfile
@@ -81,7 +58,15 @@ func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, er
 }
 
 func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, error) {
-	logger := &verboseLog{}
+	logger := logging.New(cfg.Verbosity)
+	logf := func(level logging.Level, format string, args ...any) {
+		if logger.Logf(level, format, args...) {
+			// Application messages use fixed text and identifiers, never request
+			// payloads or credentials. The sidecar sanitizes again before writing.
+			line := "[" + string(level) + "] " + strings.TrimRight(fmt.Sprintf(format, args...), "\n")
+			fmt.Fprintf(os.Stderr, "aiqa: %s\n", line)
+		}
+	}
 	// SDK is a first-class test selector. Keep ExtSuites limited to explicitly
 	// requested executable extensions; neither selector is rewritten into the
 	// other for execution or in the public report.
@@ -97,83 +82,102 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (Ru
 			AllowHighTokenProbes: cfg.AllowHighTokenProbes, AllowPersistentResources: cfg.AllowPersistentResources,
 		},
 	}
+	writeVerboseLog := func(out *RunResult) error {
+		logPaths, err := reportpkg.WriteVerboseLog(cfg, logger.Lines())
+		if err != nil {
+			return fmt.Errorf("write verbose log: %w", err)
+		}
+		out.Paths = append(out.Paths, logPaths...)
+		return nil
+	}
+	fatal := func(out RunResult, cause error) (RunResult, error) {
+		// Runtime failures are emitted through the same filtered logger as every
+		// other application message. This keeps stderr and the verbose sidecar in
+		// sync, and intentionally leaves parse/configuration failures to main.
+		logf(logging.Fatal, "%v", cause)
+		if logErr := writeVerboseLog(&out); logErr != nil {
+			return out, errors.Join(cause, logErr)
+		}
+		return out, cause
+	}
 	extRegistry, err := extsuite.NewRegistry(extopenai.New(), extanthropic.New(), extgoogle.New())
 	if err != nil {
-		return RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("register built-in extension suites: %w", err)
+		return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("register built-in extension suites: %w", err))
 	}
 	nativeRegistry, err := newProtocolRegistry()
 	if err != nil {
-		return RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("register native protocol runners: %w", err)
+		return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("register native protocol runners: %w", err))
 	}
 	if cfg.HasTest("ext-suite") {
 		if err := extsuite.RegisterExecutables(ctx, extRegistry, extensionCfg, extsuite.HostInfo{Name: "aiqa", Version: build.Version}); err != nil {
-			return RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("discover extension suites: %w", err)
+			return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("discover extension suites: %w", err))
 		}
 		if err := extsuite.ValidateExecutableSelection(extRegistry, extensionCfg.ExtSuites); err != nil {
-			return RunResult{ReportV3: &r, ExitCode: 2}, err
+			return fatal(RunResult{ReportV3: &r, ExitCode: 2}, err)
 		}
 	}
 	var runErrors []error
-	logf := func(format string, args ...any) {}
-	if cfg.Verbose {
-		logf = logger.Logf
-		logf("run started: %d target(s), tests=%s", len(cfg.Targets), strings.Join(cfg.Tests, ","))
-	}
+	logf(logging.Info, "run started: %d target(s), tests=%s", len(cfg.Targets), strings.Join(cfg.Tests, ","))
+	runnerLogf := func(level logging.Level, format string, args ...any) { logf(level, format, args...) }
 	targets := append([]config.TargetConfig(nil), cfg.Targets...)
 	sort.Slice(targets, func(i, j int) bool { return targets[i].ID < targets[j].ID })
 	for _, target := range targets {
-		logf("[%s] target started (%s)", target.ID, target.Protocol)
+		logf(logging.Info, "[%s] target started (%s)", target.ID, target.Protocol)
 		r.Config.Targets = append(r.Config.Targets, result.TargetPublicConfig{ID: target.ID, Protocol: string(target.Protocol), BaseURL: target.BaseURL, BaseURLNormalized: target.BaseURLNormalized, APIVersion: target.APIVersion})
 		p, err := profile.LoadFile(target.ProfileFile)
 		if err != nil {
-			return RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("load %s profile: %w", target.ID, err)
+			return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("load %s profile: %w", target.ID, err))
 		}
 		if p.Protocol != string(target.Protocol) {
-			return RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("profile %s uses protocol %s, expected %s", target.ProfileFile, p.Protocol, target.Protocol)
+			return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("profile %s uses protocol %s, expected %s", target.ProfileFile, p.Protocol, target.Protocol))
 		}
 		runner, ok := nativeRegistry.Runner(target.Protocol)
 		if !ok {
-			return RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("unsupported target protocol %s", target.Protocol)
+			return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("unsupported target protocol %s", target.Protocol))
 		}
-		native, runErr := runner(ctx, protocolpkg.RunOptions{Target: target, Config: cfg, Profile: p, UserAgent: "aiqa/" + build.Version, Logf: logf})
+		logf(logging.Trace, "[%s] native compatibility plan: profile=%s, modules=%s", target.ID, p.ID, strings.Join(target.Modules, ","))
+		native, runErr := runner(ctx, protocolpkg.RunOptions{Target: target, Config: cfg, Profile: p, UserAgent: "aiqa/" + build.Version, Logf: runnerLogf})
 		if native.Target.ID == "" {
 			if runErr == nil {
 				runErr = errors.New("native runner returned no target report")
 			}
-			return RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("run %s target: %w", target.Protocol, runErr)
+			return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("run %s target: %w", target.Protocol, runErr))
 		}
 		targetReport := native.Target
 		tmp := reportFromTarget(targetReport, target.BaseURL)
 		guidance.Apply(&tmp, p, guidance.Options{Mode: cfg.Guidance, Pack: cfg.GuidancePack, Locale: cfg.GuidanceLocale})
 		targetReport.Guidance = tmp.Guidance
 		if runErr != nil {
-			logf("[%s] target runner returned an error", target.ID)
+			logf(logging.Error, "[%s] target runner returned an error", target.ID)
 			runErrors = append(runErrors, fmt.Errorf("run %s target %s: %w", target.Protocol, target.ID, runErr))
 		} else {
 			var extErr error
 			targetReport, extErr = finishTargetExtensions(ctx, extensionCfg, target, p, targetReport, extRegistry, native.Runtime.Client, native.Runtime.Executor)
 			if extErr != nil {
+				logf(logging.Error, "[%s] extension suites returned an error", target.ID)
 				runErrors = append(runErrors, fmt.Errorf("run extension suites for target %s: %w", target.ID, extErr))
 			}
 		}
 		r.Targets = append(r.Targets, targetReport)
-		logf("[%s] target completed", target.ID)
+		logf(logging.Info, "[%s] target completed", target.ID)
 	}
 	r.Summary = summarizeRun(r.Targets)
 	paths, err := reportpkg.WriteV3(r, cfg)
 	if err != nil {
-		return RunResult{ReportV3: &r, ExitCode: 2}, err
+		return fatal(RunResult{ReportV3: &r, Paths: paths, ExitCode: 2}, err)
 	}
-	logf("report serialization completed")
-	logPaths, err := reportpkg.WriteVerboseLog(cfg, logger.Lines())
-	if err != nil {
-		return RunResult{ReportV3: &r, Paths: paths, ExitCode: 2}, fmt.Errorf("write verbose log: %w", err)
-	}
-	paths = append(paths, logPaths...)
+	logf(logging.Info, "report serialization completed")
+	out := RunResult{ReportV3: &r, Paths: paths, ExitCode: multiExitCode(cfg, r.Summary)}
 	if len(runErrors) > 0 {
-		return RunResult{ReportV3: &r, Paths: paths, ExitCode: 2}, errors.Join(runErrors...)
+		out.ExitCode = 2
+		return fatal(out, errors.Join(runErrors...))
 	}
-	return RunResult{ReportV3: &r, Paths: paths, ExitCode: multiExitCode(cfg, r.Summary)}, nil
+	if err := writeVerboseLog(&out); err != nil {
+		logf(logging.Fatal, "%v", err)
+		out.ExitCode = 2
+		return out, err
+	}
+	return out, nil
 }
 
 func newProtocolRegistry() (*protocolpkg.Registry, error) {

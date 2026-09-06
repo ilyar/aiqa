@@ -21,7 +21,7 @@ var (
 func main() {
 	cfg, err := config.Parse(os.Args[1:])
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "aiqa:", err)
+		fmt.Fprintln(os.Stderr, "aiqa: [FATAL]", err)
 		printUsage(os.Stderr)
 		os.Exit(2)
 	}
@@ -36,11 +36,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	out, runErr := app.Run(ctx, cfg, app.BuildInfo{Version: version, Commit: commit, Date: date})
-	for _, path := range out.Paths {
-		fmt.Fprintf(os.Stderr, "aiqa: wrote %s\n", path)
-	}
 	if runErr != nil {
-		fmt.Fprintln(os.Stderr, "aiqa:", runErr)
 		if out.ExitCode == 0 {
 			out.ExitCode = 1
 		}
@@ -132,7 +128,8 @@ connection and diagnostics:
   --base-url URL           overrides OPENAI_BASE_URL
   --api-key KEY            overrides OPENAI_API_KEY
   --allow-http             permit plaintext outside loopback
-  --verbose                print probe progress and write a private .log sidecar
+  --verbose[=N], -v...     diagnostics: 0 quiet; 1 WARN; 2 INFO; 3 DEBUG; 4 TRACE
+                            --verbose is level 1; -v through -vvvv select levels 1 through 4
   --version                print version
   --help, -h               print this help`)
 }
