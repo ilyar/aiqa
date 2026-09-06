@@ -73,27 +73,27 @@ func TestMarkdownV3RendersServiceOriginWithoutAPIPath(t *testing.T) {
 	}
 }
 
-func TestMarkdownV3ListsDistinctProtocolServices(t *testing.T) {
+func TestMarkdownV3ListsDistinctServiceOrigins(t *testing.T) {
 	report := result.ReportV3{Config: result.PublicConfigV3{Targets: []result.TargetPublicConfig{
 		{ID: "openai", Protocol: "openai", BaseURL: "https://openai.example/v1"},
 		{ID: "anthropic", Protocol: "anthropic", BaseURL: "https://anthropic.example/api"},
 		{ID: "google-genai", Protocol: "google-genai", BaseURL: "https://gemini.example/v1beta"},
 	}}}
 	markdown := MarkdownV3(report)
-	want := "- **Service:** Anthropic: [anthropic.example](https://anthropic.example), Google GenAI: [gemini.example](https://gemini.example), OpenAI: [openai.example](https://openai.example)"
+	want := "- **Service:** [anthropic.example](https://anthropic.example), [gemini.example](https://gemini.example), [openai.example](https://openai.example)"
 	if !strings.Contains(markdown, want) {
 		t.Fatalf("services = %q, want %q", serviceLine(markdown), want)
 	}
 }
 
-func TestMarkdownV3ListsSameOriginProtocolServicesSeparately(t *testing.T) {
+func TestMarkdownV3DeduplicatesSameOriginAcrossProtocols(t *testing.T) {
 	report := result.ReportV3{Config: result.PublicConfigV3{Targets: []result.TargetPublicConfig{
 		{ID: "google-genai", Protocol: "google-genai", BaseURL: "https://gateway.example/google/v1beta"},
 		{ID: "openai", Protocol: "openai", BaseURL: "https://gateway.example/openai/v1"},
 		{ID: "anthropic", Protocol: "anthropic", BaseURL: "https://gateway.example/anthropic"},
 	}}}
 	markdown := MarkdownV3(report)
-	want := "- **Service:** Anthropic: [gateway.example](https://gateway.example), Google GenAI: [gateway.example](https://gateway.example), OpenAI: [gateway.example](https://gateway.example)"
+	want := "- **Service:** [gateway.example](https://gateway.example)"
 	if !strings.Contains(markdown, want) {
 		t.Fatalf("services = %q, want %q", serviceLine(markdown), want)
 	}

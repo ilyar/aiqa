@@ -140,44 +140,27 @@ func MarkdownV3(r result.ReportV3) string {
 }
 
 func servicesLink(targets []result.TargetPublicConfig) string {
-	type service struct {
-		protocol string
-		origin   string
-		link     string
-	}
-
-	byService := make(map[string]service)
+	byOrigin := make(map[string]string)
 	for _, target := range targets {
 		if link := serviceLink(target.BaseURL); link != "" {
 			u, err := url.Parse(strings.TrimSpace(target.BaseURL))
 			if err == nil {
 				origin := (&url.URL{Scheme: u.Scheme, Host: u.Host}).String()
-				key := target.Protocol + "\x00" + origin
-				byService[key] = service{protocol: target.Protocol, origin: origin, link: link}
+				byOrigin[origin] = link
 			}
 		}
 	}
-	if len(byService) == 0 {
+	if len(byOrigin) == 0 {
 		return "not specified"
 	}
-	if len(byService) == 1 {
-		for _, service := range byService {
-			return service.link
-		}
+	origins := make([]string, 0, len(byOrigin))
+	for origin := range byOrigin {
+		origins = append(origins, origin)
 	}
-	services := make([]service, 0, len(byService))
-	for _, service := range byService {
-		services = append(services, service)
-	}
-	sort.Slice(services, func(i, j int) bool {
-		if services[i].protocol == services[j].protocol {
-			return services[i].origin < services[j].origin
-		}
-		return services[i].protocol < services[j].protocol
-	})
-	links := make([]string, 0, len(services))
-	for _, service := range services {
-		links = append(links, protocolName(service.protocol)+": "+service.link)
+	sort.Strings(origins)
+	links := make([]string, 0, len(origins))
+	for _, origin := range origins {
+		links = append(links, byOrigin[origin])
 	}
 	return strings.Join(links, ", ")
 }
