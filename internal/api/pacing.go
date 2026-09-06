@@ -25,7 +25,8 @@ type PacingStats struct {
 type pacer struct {
 	mu                    sync.Mutex
 	interval              time.Duration
-	laneNext              []time.Time
+	nextStart             time.Time
+	revision              uint64
 	blockedUntil          time.Time
 	successStreak         int
 	quietWindows          int
@@ -43,7 +44,7 @@ func newPacer(initial time.Duration) *pacer {
 	if initial <= 0 {
 		initial = 2 * time.Second
 	}
-	return &pacer{interval: initial, limit: 1, maxLimit: 4, laneNext: make([]time.Time, 4), changed: make(chan struct{}), inflightByModel: map[string]int{}, byModel: map[string]PacingStats{}}
+	return &pacer{interval: initial, limit: 1, maxLimit: 4, changed: make(chan struct{}), inflightByModel: map[string]int{}, byModel: map[string]PacingStats{}}
 }
 
 func (p *pacer) setConcurrency(limit int) {
@@ -51,66 +52,43 @@ func (p *pacer) setConcurrency(limit int) {
 		limit = 1
 	}
 	p.mu.Lock()
-	p.limit = limit
 	p.maxLimit = limit
-	if len(p.laneNext) < limit {
-		p.laneNext = append(p.laneNext, make([]time.Time, limit-len(p.laneNext))...)
+	// --concurrency is a ceiling for safely learned in-flight work, not an
+	// instruction to burst that many requests at an unknown provider quota.
+	// The pacer starts at one and grows additively after quiet successes.
+	if p.limit > p.maxLimit {
+		p.limit = p.maxLimit
 	}
+	p.revision++
 	close(p.changed)
 	p.changed = make(chan struct{})
 	p.mu.Unlock()
 }
 
 func (p *pacer) wait(ctx context.Context, model string) error {
-	p.mu.Lock()
-	now := time.Now()
-	lanes := p.limit
-	if lanes < 1 {
-		lanes = 1
-	}
-	if len(p.laneNext) < lanes {
-		p.laneNext = append(p.laneNext, make([]time.Time, lanes-len(p.laneNext))...)
-	}
-	lane := 0
-	for index := 1; index < lanes; index++ {
-		if p.laneNext[index].Before(p.laneNext[lane]) {
-			lane = index
-		}
-	}
-	if p.laneNext[lane].Before(now) {
-		p.laneNext[lane] = now
-	}
-	start := p.laneNext[lane]
-	p.laneNext[lane] = start.Add(p.interval)
-	p.mu.Unlock()
-	if delay := time.Until(start); delay > 0 {
-		if err := waitDuration(ctx, delay); err != nil {
-			return err
-		}
-	}
-	// Requests that reserved an earlier start must still observe a 429 backoff
-	// imposed while they were waiting. This bounds the small race introduced by
-	// multiple queued callers without discarding their pacing reservation.
 	for {
 		p.mu.Lock()
-		blockedUntil := p.blockedUntil
+		now := time.Now()
+		start := p.nextStart
+		if start.Before(now) {
+			start = now
+		}
+		if start.Before(p.blockedUntil) {
+			start = p.blockedUntil
+		}
+		p.nextStart = start.Add(p.interval)
+		revision := p.revision
 		p.mu.Unlock()
-		if delay := time.Until(blockedUntil); delay > 0 {
+		if delay := time.Until(start); delay > 0 {
 			if err := waitDuration(ctx, delay); err != nil {
 				return err
 			}
-			continue
 		}
-		break
-	}
-	for {
 		p.mu.Lock()
-		blockedUntil := p.blockedUntil
-		if delay := time.Until(blockedUntil); delay > 0 {
+		// A 429 or adaptive adjustment invalidates reservations made under the
+		// old interval. Requeue instead of releasing a stale burst afterwards.
+		if revision != p.revision || time.Now().Before(p.blockedUntil) {
 			p.mu.Unlock()
-			if err := waitDuration(ctx, delay); err != nil {
-				return err
-			}
 			continue
 		}
 		if p.inflight < p.limit {
@@ -225,6 +203,7 @@ func (p *pacer) success(model string, durations ...time.Duration) {
 			p.limit++
 			p.quietWindows = 0
 		}
+		p.revision++
 	}
 }
 
@@ -257,11 +236,8 @@ func (p *pacer) limited(model string, retryAfter time.Duration) time.Duration {
 	if until := time.Now().Add(delay); until.After(p.blockedUntil) {
 		p.blockedUntil = until
 	}
-	for index := range p.laneNext {
-		if p.blockedUntil.After(p.laneNext[index]) {
-			p.laneNext[index] = p.blockedUntil
-		}
-	}
+	p.nextStart = p.blockedUntil
+	p.revision++
 	return delay
 }
 

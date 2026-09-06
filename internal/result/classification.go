@@ -39,6 +39,8 @@ func classifyResult(status Status, id, requirementID, profileRevision string, ht
 		c.Kind, c.Reason = ClassificationUnsupportedCapability, "optional capability was explicitly rejected"
 	case status == StatusError && http.StatusCode == 0:
 		c.Kind, c.Reason = ClassificationExecutionGap, "no terminal HTTP response was observed"
+	case status == StatusError && (http.StatusCode == 429 || http.StatusCode >= 500):
+		c.Kind, c.Reason = ClassificationExecutionGap, "transient provider or rate-limit response is not conformance evidence"
 	case isBehavioralAssertion(id) || isBehavioralEvidence(semanticEvidence):
 		c.Kind, c.Reason = ClassificationBehavioralObservation, "semantic model assertion is not provider nonconformance by itself"
 	case isErrorShape(id) && http.StatusCode >= 400 && http.Snippet == "":

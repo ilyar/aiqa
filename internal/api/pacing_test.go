@@ -35,9 +35,6 @@ func TestPacerWaitHonorsBackoffAfterReservation(t *testing.T) {
 	p := newPacer(time.Millisecond)
 	// A caller reaching the scheduler while a 429 backoff is active must not
 	// start until that backoff expires.
-	p.mu.Lock()
-	p.laneNext[0] = time.Now()
-	p.mu.Unlock()
 	p.limited("", 40*time.Millisecond)
 	started := time.Now()
 	if err := p.wait(context.Background(), ""); err != nil {
@@ -49,7 +46,7 @@ func TestPacerWaitHonorsBackoffAfterReservation(t *testing.T) {
 	}
 }
 
-func TestPacerConfiguredConcurrencyStartsRequestsInParallel(t *testing.T) {
+func TestPacerConfiguredConcurrencyIsCeilingNotInitialBurst(t *testing.T) {
 	p := newPacer(100 * time.Millisecond)
 	p.setConcurrency(3)
 	started := make(chan time.Time, 3)
@@ -72,7 +69,35 @@ func TestPacerConfiguredConcurrencyStartsRequestsInParallel(t *testing.T) {
 		}
 	}
 	close(release)
-	if spread := last.Sub(first); spread >= 50*time.Millisecond {
-		t.Fatalf("three configured lanes started %s apart; want parallel starts", spread)
+	if spread := last.Sub(first); spread < 150*time.Millisecond {
+		t.Fatalf("three configured requests started only %s apart; want global pacing", spread)
+	}
+}
+
+func TestPacerRateLimitRequeuesStaleReservations(t *testing.T) {
+	p := newPacer(10 * time.Millisecond)
+	firstReady := make(chan struct{})
+	release := make(chan struct{})
+	go func() {
+		_ = p.wait(context.Background(), "")
+		close(firstReady)
+		<-release
+		p.release("")
+	}()
+	<-firstReady
+	second := make(chan time.Time, 1)
+	go func() {
+		_ = p.wait(context.Background(), "")
+		second <- time.Now()
+		p.release("")
+	}()
+	// The second request has reserved the old 10ms interval. A 429 must
+	// invalidate that reservation rather than allowing it through immediately.
+	limitedAt := time.Now()
+	p.limited("", 60*time.Millisecond)
+	close(release)
+	started := <-second
+	if elapsed := started.Sub(limitedAt); elapsed < 50*time.Millisecond {
+		t.Fatalf("stale reservation started after %s, want cooldown", elapsed)
 	}
 }
