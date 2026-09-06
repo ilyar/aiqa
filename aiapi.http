@@ -1,133 +1,94 @@
-### UNIFIED ENDPOINTS (OpenAI / xAI Grok / Hugging Face Router)
-
-### 1. Smoke Test: List Models (Unified / OpenAI-compatible)
-GET {{base}}/models
-Authorization: Bearer {{key}}
-
-> {%
-    client.test("Status code is 200", function() {
-        client.assert(response.status === 200, "Response status is not 200, got: " + response.status);
-    });
-    client.test("Response contains models list", function() {
-        client.assert(response.body.data && response.body.data.length > 0, "Models array is missing or empty");
-    });
-%}
-
-###
-
-### 2. Smoke Test: Chat Completions (Unified / OpenAI-compatible)
-POST {{base}}/chat/completions
-Authorization: Bearer {{key}}
-Content-Type: application/json
-
-{
-  "model": "{{test_model}}",
-  "messages": [
-    {
-      "role": "user",
-      "content": "Respond with one word: OK"
+### List Models
+< {%
+    const kind = request.environment.get("kind")
+    if (kind === "anthropic") {
+        client.global.headers.set("anthropic-version", "2023-06-01")
     }
-  ],
-  "max_tokens": 10
-}
-
-> {%
-    client.test("Status code is 200", function() {
-        client.assert(response.status === 200, "Response status is not 200, got: " + response.status);
-    });
-    client.test("Received text response", function() {
-        client.assert(response.body.choices && response.body.choices.length > 0, "Choices array is missing");
-        client.assert(response.body.choices[0].message.content.length > 0, "Message content is empty");
-    });
-%}
-
-
-### =========================================================================
-### ANTHROPIC SPECIFIC (Выберите среду: [anthropic])
-### =========================================================================
-
-### 3. Smoke Test: Anthropic - List Models
-GET {{base}}/models
-x-api-key: {{key}}
-anthropic-version: 2023-06-01
-
-> {%
-    client.test("Anthropic Status is 200", function() {
-        client.assert(response.status === 200, "Response status is not 200");
-    });
-    client.test("Anthropic models exist", function() {
-        client.assert(response.body.data && response.body.data.length > 0, "No models returned");
-    });
-%}
-
-###
-
-### 4. Smoke Test: Anthropic - Messages Generation
-POST {{base}}/messages
-x-api-key: {{key}}
-anthropic-version: 2023-06-01
-Content-Type: application/json
-
-{
-  "model": "{{test_model}}",
-  "max_tokens": 10,
-  "messages": [
-    {
-      "role": "user",
-      "content": "Respond with one word: OK"
+    const key = request.environment.get("key")
+    if (kind === "genai") {
+        client.global.headers.set("X-goog-api-key", key)
+    } else {
+        client.global.headers.set("Authorization", `Bearer ${key}`)
     }
-  ]
-}
+%}
+GET {{base}}/models
 
 > {%
-    client.test("Anthropic Messages Status is 200", function() {
-        client.assert(response.status === 200, "Response status is not 200");
+    const {status, body} = response
+    client.test("Status code is 200", function () {
+        client.assert(status === 200, "Response status: " + status);
     });
-    client.test("Anthropic Content received", function() {
-        client.assert(response.body.content && response.body.content.length > 0, "Content missing");
+    client.test("Response contains models list", function () {
+        client.assert(body.data && body.data.length > 0, "Models empty");
     });
 %}
 
-
-### =========================================================================
-### GOOGLE GEMINI SPECIFIC (Выберите среду: [gemini])
-### =========================================================================
-
-### 5. Smoke Test: Google Gemini - List Models
-GET {{base}}/models?key={{key}}
-
-> {%
-    client.test("Gemini Models Status is 200", function() {
-        client.assert(response.status === 200, "Response status is not 200");
-    });
-    client.test("Gemini models array exists", function() {
-        client.assert(response.body.models && response.body.models.length > 0, "Models field missing");
-    });
+### Chat Completions
+< {%
+    const kind = request.environment.get("kind")
+    const model = request.environment.get("model")
+    const payload = {
+        text: "Respond with one number: 40 + 2",
+        maxOutputTokens: 100,
+    }
+    request.variables.set("content", JSON.stringify({
+        "model": model,
+        "messages": [
+            {"role": "user", "content": payload.text}
+        ],
+        "max_tokens": payload.maxOutputTokens
+    }))
+    if (kind === "anthropic") {
+        client.global.headers.set("anthropic-version", "2023-06-01")
+        request.variables.set("path", "messages")
+    } else if (kind === "genai") {
+        request.variables.set("path", model + ":generateContent")
+        request.variables.set("content", JSON.stringify({
+            "contents": [
+                {
+                    "parts": [{"text": payload.text}]
+                }
+            ],
+            generationConfig: {
+                maxOutputTokens: payload.maxOutputTokens,
+                thinkingConfig: {includeThoughts: false}
+            }
+        }))
+    } else {
+        request.variables.set("path", "chat/completions")
+    }
+    // TODO set content to client
+    const key = request.environment.get("key")
+    if (kind === "genai") {
+        client.global.headers.set("X-goog-api-key", key)
+    } else {
+        client.global.headers.set("Authorization", `Bearer ${key}`)
+    }
 %}
-
-###
-
-### 6. Smoke Test: Google Gemini - Generate Content
-POST {{base}}/models/{{test_model}}:generateContent?key={{key}}
+POST {{base}}/{{path}}
 Content-Type: application/json
 
-{
-  "contents": [
-    {
-      "parts": [
-        {
-          "text": "Respond with one word: OK"
+{{content}}
+
+> {%
+    const {status, body} = response
+    client.test("Status code is 200", function () {
+        client.assert(status === 200, "Response status: " + status);
+    });
+    const kind = request.environment.get("kind")
+    client.test("Received text response", function () {
+        let text
+        if (kind === "anthropic") {
+            text = response.body.content?.[0]?.text
+        } else if (kind === "genai") {
+            text = response.body.candidates?.[0]?.content?.parts?.[0]?.text
+        } else {
+            text = response.body.choices?.[0]?.message?.content
         }
-      ]
-    }
-  ]
-}
 
-> {%
-    client.test("Gemini Generate Status is 200", function() {
-        client.assert(response.status === 200, "Response status is not 200");
-    });
-    client.test("Gemini text candidate generated", function() {
-        client.assert(response.body.candidates && response.body.candidates.length > 0, "No candidates found");
+        client.assert(
+            typeof text === "string" && text.trim().length > 0,
+            "Text response is missing or empty"
+        )
     });
 %}
