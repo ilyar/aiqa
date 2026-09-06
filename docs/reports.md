@@ -117,7 +117,11 @@ Guidance levels describe specificity:
 
 Finding, attribution, and recommendation confidence are recorded separately as `high`, `medium`, or `low`. A projected verdict is conditional: it assumes only the affected requirements change to `pass` and nothing else regresses. Conflicting or inconclusive findings always use `projected_verdict: null`.
 
-Verification entries identify the affected target, protocol, requirement IDs, and SDK suite IDs. AIQA does not emit shell commands: a full `test=compat` rerun does not verify one finding in isolation and would misrepresent its cost and scope. Targeted execution and opt-in command rendering are tracked in the [backlog](../tasks/backlog.md).
+Verification entries identify the affected target, protocol, requirement IDs,
+and SDK suite IDs. AIQA does not emit shell commands: a full `test=compat`
+rerun does not verify one finding in isolation and would misrepresent its cost
+and scope. Any future command-rendering design requires a new accepted
+requirement; historical proposals are listed in the [backlog](../tasks/backlog.md).
 
 ## Markdown layout
 
@@ -183,4 +187,6 @@ Exit `2` remains reserved for configuration, orchestration, or report-writing fa
 
 Report v3 contains canonical requirements and authoritative target assessments without an overall score. `aiqa.profile.v3` adds explicit extension requirements and bindings while keeping the profile a normative manifest rather than an HTTP request DSL.
 
-Baseline comparison, offline `aiqa explain`, targeted `aiqa verify`, opt-in verification commands, Russian guidance, HTML, SARIF, and generated explanations are not implemented. They remain separate future work and must not be inferred from the guidance contract.
+The current report contract is intentionally limited to canonical JSON and
+Markdown. Historical expansion proposals are classified in the
+[backlog](../tasks/backlog.md) and must not be inferred from this contract.

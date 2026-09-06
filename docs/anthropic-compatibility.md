@@ -141,4 +141,6 @@ go run ./script/check-profile-upstream.go \
 
 Optional live CI jobs are disabled by default and non-blocking. They require explicit repository variables, target secrets, and one selected model. They omit `ext-suite`, billable artifact modules, and high-token thinking; use fixed profile request caps, a 30-second per-request timeout, and adaptive 250 ms initial pacing; and upload only redacted JSON reports with short retention.
 
-Unimplemented surfaces are listed in [`tasks/backlog.md`](../tasks/backlog.md), including Anthropic model-parameter/context tests, prompt caching, document input, Message Batches, Files, a Messages-only profile, and multi-target HTML or SARIF output.
+Anthropic surfaces worth expanding are listed in the
+[backlog](../tasks/backlog.md). Each needs a separate profile, deterministic
+fixture, cost/safety boundary, and acceptance criteria.

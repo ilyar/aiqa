@@ -42,7 +42,10 @@ Official Google Gen AI Go SDK extension, is in
 
 Add a typed signal and a generic catalog entry under `guidance/catalog/` when AIQA can provide reviewed, cross-provider advice. Every P0/P1 entry needs ordered steps and verification targets. Guidance level 3 always needs verification targets.
 
-A verification target is a stable requirement ID or SDK suite ID. Do not embed shell commands in catalogs or reports. AIQA will render commands only after the targeted verification runner in [`tasks/backlog.md`](../tasks/backlog.md) exists and only when the user explicitly enables them.
+A verification target is a stable requirement ID or SDK suite ID. Do not embed
+shell commands in catalogs or reports. Command rendering is not part of the
+current contract; any revival requires a new accepted requirement rather than
+an implementation inferred from the [backlog](../tasks/backlog.md).
 
 Catalog entries may define normative priority and action policy. Advice packs under `guidance/packs/` are deliberately narrower: they may add steps, workarounds, caveats, and references, but strict decoding rejects status, requirement-level, priority, verdict, or impact overrides.
 
