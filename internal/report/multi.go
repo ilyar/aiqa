@@ -568,15 +568,11 @@ func writeTargetExtensions(b *strings.Builder, runs []result.ExtensionRun, rateL
 	for _, id := range ids {
 		p := provenance[id]
 		fmt.Fprintf(b, "#### %s %s\n\n", escapeCell(extensionDisplayName(p)), escapeCell(p.Version))
-		fmt.Fprintln(b, "| Suite | Subject | Status | Classification | Duration | Summary |")
-		fmt.Fprintln(b, "|---|---|---:|---|---:|---|")
+		fmt.Fprintln(b, "| Suite | Subject | Status | Duration | Summary |")
+		fmt.Fprintln(b, "|---|---|---:|---:|---|")
 		for _, run := range groups[id] {
 			for _, suite := range run.Suites {
-				classification := "–"
-				if suite.Classification != nil {
-					classification = "`" + escapeCell(suite.Classification.Kind) + "`"
-				}
-				fmt.Fprintf(b, "| `%s` | `%s:%s` | %s | %s | %dms | %s |\n", escapeCell(suite.SuiteID), escapeCell(suite.Subject.Kind), escapeCell(suite.Subject.ID), statusLabel(suite.Status), classification, suite.DurationMS, escapeCell(suite.Summary))
+				fmt.Fprintf(b, "| `%s` | `%s:%s` | %s | %dms | %s |\n", escapeCell(suite.SuiteID), escapeCell(suite.Subject.Kind), escapeCell(suite.Subject.ID), statusLabel(suite.Status), suite.DurationMS, extensionSummary(suite))
 			}
 		}
 		fmt.Fprintln(b)
@@ -595,4 +591,15 @@ func writeTargetExtensions(b *strings.Builder, runs []result.ExtensionRun, rateL
 			fmt.Fprintln(b)
 		}
 	}
+}
+
+// extensionSummary keeps the compact table useful for passing suites while
+// preserving the evidence classification and its reason alongside each
+// non-pass explanation. The structured classification remains in JSON.
+func extensionSummary(suite result.ExtensionSuiteResult) string {
+	summary := escapeCell(suite.Summary)
+	if suite.Classification == nil {
+		return summary
+	}
+	return fmt.Sprintf("%s (`%s`: %s)", summary, escapeCell(suite.Classification.Kind), escapeCell(suite.Classification.Reason))
 }

@@ -243,14 +243,20 @@ func TestMarkdownV3GroupsExtensionSuitesWithoutExecutablePath(t *testing.T) {
 		Extensions: []result.ExtensionRun{{
 			Provenance: result.ExtensionProvenance{ID: "official-sdk.openai", Name: "Official SDK – OpenAI Go", Version: "v3.54.0", Source: "executable", Path: "/private/bin/aiqa-openai-ext-suite"},
 			Subject:    result.SubjectRef{Kind: "model", ID: "model-a"}, Runner: result.ExtensionRunnerResult{Status: result.StatusPass},
-			Suites: []result.ExtensionSuiteResult{{SuiteID: "chat.stream", Subject: result.SubjectRef{Kind: "model", ID: "model-a"}, Status: result.StatusPass, DurationMS: 12, Summary: "SDK parsed the stream"}},
+			Suites: []result.ExtensionSuiteResult{
+				{SuiteID: "chat.stream", Subject: result.SubjectRef{Kind: "model", ID: "model-a"}, Status: result.StatusPass, DurationMS: 12, Summary: "SDK parsed the stream"},
+				{SuiteID: "chat.timeout", Subject: result.SubjectRef{Kind: "model", ID: "model-a"}, Status: result.StatusError, DurationMS: 60, Summary: "SDK request timed out", Classification: &result.Classification{Kind: result.ClassificationExecutionGap, Reason: "extension execution ended without conclusive provider evidence"}},
+			},
 		}},
 	}}}
 	markdown := MarkdownV3(report)
-	for _, want := range []string{"**External checks:** [OpenAI Go SDK v3.54.0]", "#### OpenAI Go SDK v3.54.0", "| Suite | Subject | Status | Classification | Duration | Summary |", "| `chat.stream` | `model:model-a` | PASS | – | 12ms |"} {
+	for _, want := range []string{"**External checks:** [OpenAI Go SDK v3.54.0]", "#### OpenAI Go SDK v3.54.0", "| Suite | Subject | Status | Duration | Summary |", "| `chat.stream` | `model:model-a` | PASS | 12ms | SDK parsed the stream |", "| `chat.timeout` | `model:model-a` | ERROR | 60ms | SDK request timed out (`execution_gap`: extension execution ended without conclusive provider evidence) |"} {
 		if !strings.Contains(markdown, want) {
 			t.Fatalf("markdown missing %q:\n%s", want, markdown)
 		}
+	}
+	if strings.Contains(markdown, "| Suite | Subject | Status | Classification |") || strings.Contains(markdown, "| `chat.stream` | `model:model-a` | PASS | – |") {
+		t.Fatalf("extension table retained an empty classification column:\n%s", markdown)
 	}
 	if strings.Contains(markdown, "Official SDK") {
 		t.Fatalf("redundant SDK label leaked into Markdown:\n%s", markdown)
