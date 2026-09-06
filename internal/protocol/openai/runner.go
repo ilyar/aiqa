@@ -4,7 +4,6 @@ package openai
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 
@@ -100,9 +99,9 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 		}
 		return out, nil
 	}
-	fmt.Fprintf(os.Stderr, "aiqa: testing %d model(s): %s\n", len(selected), joinModels(selected))
+	logf("[%s] testing %d model(s): %s", target.ID, len(selected), joinModels(selected))
 	if cfg.HasTest("model-param") {
-		fmt.Fprintf(os.Stderr, "aiqa: context probing is enabled; the per-model prompt budget is %d tokens\n", cfg.ContextBudget)
+		logf("[%s] context probing is enabled; the per-model prompt budget is %d tokens", target.ID, cfg.ContextBudget)
 	}
 
 	classifications := make([]capability.Classification, len(selected))
@@ -191,7 +190,7 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 			defer wg.Done()
 			for index := range jobs {
 				model := selected[index]
-				fmt.Fprintf(os.Stderr, "aiqa: [%s] start\n", model)
+				logf("[%s/%s] start", target.ID, model)
 				mr := result.ModelReport{ID: model, Metadata: cloneMap(metadata[model]), Modules: modulePlans[index]}
 				for _, evidence := range classifications[index].Capabilities {
 					mr.Capabilities = append(mr.Capabilities, result.CapabilityAssessment{ID: evidence.Capability, Source: evidence.Source, Rule: evidence.Rule, Confidence: evidence.Confidence, Reason: evidence.Reason})
@@ -212,7 +211,7 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 				}
 				stats := client.PacingStatsForModel(model)
 				mr.RateLimit = protocolpkg.RateLimitStats(stats)
-				fmt.Fprintf(os.Stderr, "aiqa: [%s] done\n", model)
+				logf("[%s/%s] done", target.ID, model)
 				modelResults <- modelItem{index: index, report: mr}
 			}
 		}()

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -175,8 +176,7 @@ func TestBuiltInExtensionRequestsShareGlobalConcurrencyCeiling(t *testing.T) {
 	})
 	defer server.Close()
 	t.Setenv("PATH", t.TempDir())
-	cfg := testConfig(server.URL+"/v1", []string{"ext-suite"})
-	cfg.ExtSuites = []string{"official-sdk.openai"}
+	cfg := testConfig(server.URL+"/v1", []string{"sdk"})
 	cfg.Concurrency = 3
 	cfg.Formats = nil
 	out, err := Run(context.Background(), cfg, BuildInfo{Version: "test"})
@@ -209,8 +209,8 @@ func TestCombinedNativeAndExtensionRunProducesOneAssessment(t *testing.T) {
 	if got := strings.Join(out.ReportV3.Config.Tests, ","); got != "compat,sdk" {
 		t.Fatalf("report did not preserve SDK selector: %q", got)
 	}
-	if got := strings.Join(out.ReportV3.Config.ExtSuites, ","); got != "official-sdk.openai" {
-		t.Fatalf("SDK selector did not resolve to the active built-in: %q", got)
+	if len(out.ReportV3.Config.ExtSuites) != 0 {
+		t.Fatalf("SDK selector leaked a hidden extension selection into the report: %q", strings.Join(out.ReportV3.Config.ExtSuites, ","))
 	}
 	seen := map[string]bool{}
 	for _, requirement := range target.Requirements {
@@ -1038,6 +1038,17 @@ func TestMain(m *testing.M) {
 		_ = os.Remove(match)
 	}
 	os.Exit(code)
+}
+
+func TestVerboseLogCollectsLifecycleLines(t *testing.T) {
+	logger := &verboseLog{}
+	logger.Logf("[%s] target started (%s)", "openai", "openai")
+	logger.Logf("[%s/%s] done", "openai", "gpt-test")
+	got := logger.Lines()
+	want := []string{"[openai] target started (openai)", "[openai/gpt-test] done"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("lines = %#v, want %#v", got, want)
+	}
 }
 
 func TestExitPolicies(t *testing.T) {

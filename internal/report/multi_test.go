@@ -2,11 +2,73 @@ package report
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/ilyar/aiqa/internal/config"
 	"github.com/ilyar/aiqa/internal/result"
 )
+
+func TestWriteVerboseLogWritesPrivateSanitizedSidecar(t *testing.T) {
+	dir := t.TempDir()
+	secret := "test-secret-value"
+	cfg := config.Config{
+		Verbose: true,
+		Name:    filepath.Join(dir, "baseline-compat-report"),
+		APIKey:  secret,
+		Targets: []config.TargetConfig{{APIKey: "target-secret-value"}},
+	}
+	paths, err := WriteVerboseLog(cfg, []string{
+		"[openai] start",
+		"Authorization: Bearer " + secret,
+		"x-api-key=target-secret-value",
+		"request https://user:password@example.test/v1?api_key=" + secret,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPath := cfg.Name + ".log"
+	if len(paths) != 1 || paths[0] != wantPath {
+		t.Fatalf("paths = %v, want [%s]", paths, wantPath)
+	}
+	info, err := os.Stat(wantPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("mode = %o, want 600", info.Mode().Perm())
+	}
+	data, err := os.ReadFile(wantPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, forbidden := range []string{secret, "target-secret-value", "https://", "example.test", "user:password", "api_key="} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("private verbose log leaked %q: %s", forbidden, text)
+		}
+	}
+	if !strings.Contains(text, "[openai] start") {
+		t.Fatalf("private verbose log omitted progress: %s", text)
+	}
+}
+
+func TestWriteVerboseLogSkipsNonVerboseRun(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Config{Name: filepath.Join(dir, "baseline-compat-report")}
+	paths, err := WriteVerboseLog(cfg, []string{"must not be written"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) != 0 {
+		t.Fatalf("paths = %v, want none", paths)
+	}
+	if _, err := os.Stat(cfg.Name + ".log"); !os.IsNotExist(err) {
+		t.Fatalf("verbose log exists or stat failed: %v", err)
+	}
+}
 
 func TestNormalizeV3CollectionsSerializesEmptyModelsAsArray(t *testing.T) {
 	report := normalizeV3Collections(result.ReportV3{

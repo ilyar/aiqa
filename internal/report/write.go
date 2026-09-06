@@ -4,8 +4,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 
 	"github.com/ilyar/aiqa/internal/config"
+)
+
+var (
+	verboseURLPattern        = regexp.MustCompile(`https?://[^\s]+`)
+	verboseCredentialPattern = regexp.MustCompile(`(?i)\b(authorization|x-api-key|api[_-]?key|token|secret|password)\s*[:=]\s*[^\s]+`)
 )
 
 func reportSecrets(cfg config.Config) []string {
@@ -43,4 +50,14 @@ func atomicWrite(path string, data []byte, mode os.FileMode) error {
 		return fmt.Errorf("replace report %s: %w", path, err)
 	}
 	return nil
+}
+
+func sanitizeVerboseLogLine(line string, secrets []string) string {
+	for _, secret := range secrets {
+		if secret != "" {
+			line = strings.ReplaceAll(line, secret, "[REDACTED]")
+		}
+	}
+	line = verboseURLPattern.ReplaceAllString(line, "[URL REDACTED]")
+	return verboseCredentialPattern.ReplaceAllString(line, "$1: [REDACTED]")
 }

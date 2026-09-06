@@ -97,7 +97,7 @@ jobs:
           AIQA_MODEL: ${{ vars.AIQA_GOOGLE_GENAI_MODEL }}
         run: |
           test -n "$GOOGLE_GENAI_BASE_URL" && test -n "$GOOGLE_GENAI_API_KEY" && test -n "$AIQA_MODEL"
-          ./bin/aiqa test=compat,ext-suite --target=google-genai --ext-suite=official-sdk --model="$AIQA_MODEL" --timeout=30 --request-interval=500ms --format=json --name=live-google-genai
+          ./bin/aiqa test=compat,sdk --target=google-genai --model="$AIQA_MODEL" --timeout=30 --request-interval=500ms --format=json --name=live-google-genai
       - name: Upload sanitized Google GenAI report
         if: always()
         uses: actions/upload-artifact@v4

@@ -196,17 +196,16 @@ Google routing is metadata-first: `supportedGenerationMethods` enables `generate
 
 ## Extension suites and SDK checks
 
-SDK checks are compiled into AIQA and use the same extension contract as installed third-party suites. Select the built-in checks directly with `sdk`:
+SDK checks are compiled into AIQA. Select the built-in checks directly with `sdk`:
 
 ```bash
 aiqa test=sdk
 aiqa test=compat,sdk
 aiqa test=ext-suite
 aiqa test=compat,ext-suite
-aiqa test=ext-suite --ext-suite=official-sdk.openai
 ```
 
-`sdk` expands to the built-in OpenAI, Anthropic, and/or Google Gen AI SDK checks for the active targets. It does not add a check whose matching base URL and API key are absent. `ext-suite` remains the generic extension boundary: it runs all applicable built-ins and trusted executables, with `--ext-suite` available for exact ID filters.
+`sdk` directly selects the compiled OpenAI, Anthropic, and/or Google Gen AI SDK checks for active targets. It does not add a check whose matching base URL and API key are absent, and it neither selects extensions nor scans for executables. `ext-suite` remains the external executable boundary; use `--ext-suite` for exact extension ID filters.
 
 The binary pins the official OpenAI Go SDK `v3.54.0`, Anthropic Go SDK `v1.68.0`, and Google Gen AI Go SDK `v1.71.0`. SDK retries are disabled, and requests share AIQA's global concurrency and adaptive pacing policy. Each suite contributes separately through an explicit `aiqa.profile.v3` binding. The pinned Google SDK has no public Interactions methods, so AIQA does not claim SDK coverage for that surface.
 

@@ -136,6 +136,12 @@ Failed extension-runner diagnostics are redacted, truncated, stored once in `gui
 
 ## CLI controls
 
+When `--verbose` is set, AIQA also writes `<name>.log` next to the requested
+report files. This private `0600` sidecar records safe lifecycle and probe
+progress observations to aid diagnosis; it is not part of `aiqa.report.v3`.
+AIQA omits it without `--verbose`. The writer redacts configured credentials,
+credential-like fields, and URLs before the sidecar is committed atomically.
+
 Guidance is local and deterministic; it sends no additional provider requests and uses no LLM.
 
 ```text

@@ -21,7 +21,7 @@ func TestGoogleNativeAndOfficialSDKUseOneTargetContract(t *testing.T) {
 	withTempWorkingDirectory(t)
 	cfg := config.Config{
 		Targets: []config.TargetConfig{{ID: "google-genai", Protocol: config.ProtocolGoogleGenAI, BaseURL: server.URL, APIKey: "fixture-key", APIVersion: "v1beta", Models: []string{"fixture-text"}, ProfileFile: "google-genai-compat-2026-09.json", Modules: []string{"auto"}, RequestInterval: time.Millisecond}},
-		Tests:   []string{"compat", "ext-suite"}, ExtSuites: []string{"official-sdk.google-genai"}, Timeout: 5 * time.Second, Concurrency: 2,
+		Tests:   []string{"compat", "sdk"}, Timeout: 5 * time.Second, Concurrency: 2,
 		Modules: []string{"auto"}, MaxArtifactsPerModel: 1, FailOn: "core", Guidance: "off",
 	}
 	out, err := Run(context.Background(), cfg, BuildInfo{Version: "test"})

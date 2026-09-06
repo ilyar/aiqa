@@ -310,7 +310,7 @@ func TestBuiltInOfficialSDKExtensionsRunWithoutDocker(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "test-key")
 	t.Setenv("ANTHROPIC_BASE_URL", anthropic.URL+"/anthropic")
 	t.Setenv("ANTHROPIC_API_KEY", "anthropic-test-key")
-	cfg, err := config.Parse([]string{"test=ext-suite", "--timeout=5", "--request-interval=1ms", "--concurrency=4", "--format=json", "--name=extensions"})
+	cfg, err := config.Parse([]string{"test=sdk", "--timeout=5", "--request-interval=1ms", "--concurrency=4", "--format=json", "--name=extensions"})
 	if err != nil {
 		t.Fatal(err)
 	}

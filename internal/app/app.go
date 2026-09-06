@@ -7,6 +7,8 @@ import (
 	"os"
 	"runtime"
 	"sort"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/ilyar/aiqa/internal/api"
@@ -39,6 +41,29 @@ type RunResult struct {
 	ExitCode int
 }
 
+type verboseLog struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (l *verboseLog) Logf(format string, args ...any) {
+	line := fmt.Sprintf(format, args...)
+	l.mu.Lock()
+	l.lines = append(l.lines, line)
+	l.mu.Unlock()
+	fprintfStderr(line)
+}
+
+func (l *verboseLog) Lines() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]string(nil), l.lines...)
+}
+
+func fprintfStderr(line string) {
+	fmt.Fprintf(os.Stderr, "aiqa: %s\n", line)
+}
+
 func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, error) {
 	if len(cfg.Targets) == 0 && cfg.BaseURL != "" {
 		profileFile := cfg.OpenAIProfile
@@ -56,11 +81,11 @@ func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, er
 }
 
 func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, error) {
-	selectedExtensions := append([]string(nil), cfg.ExtSuites...)
-	if cfg.HasTest("sdk") && !cfg.HasTest("ext-suite") {
-		selectedExtensions = append(selectedExtensions, "official-sdk")
-	}
-	cfg.ExtSuites = config.ResolveExtSuiteSelection(selectedExtensions, cfg.Targets)
+	logger := &verboseLog{}
+	// SDK is a first-class test selector. Keep ExtSuites limited to explicitly
+	// requested executable extensions; neither selector is rewritten into the
+	// other for execution or in the public report.
+	extensionCfg := cfg
 	r := result.ReportV3{
 		SchemaVersion: "aiqa.report.v3",
 		GeneratedAt:   time.Now().UTC(),
@@ -80,25 +105,24 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (Ru
 	if err != nil {
 		return RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("register native protocol runners: %w", err)
 	}
-	if cfg.HasExtensionTests() {
-		if cfg.HasTest("ext-suite") {
-			if err := extsuite.RegisterExecutables(ctx, extRegistry, cfg, extsuite.HostInfo{Name: "aiqa", Version: build.Version}); err != nil {
-				return RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("discover extension suites: %w", err)
-			}
+	if cfg.HasTest("ext-suite") {
+		if err := extsuite.RegisterExecutables(ctx, extRegistry, extensionCfg, extsuite.HostInfo{Name: "aiqa", Version: build.Version}); err != nil {
+			return RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("discover extension suites: %w", err)
 		}
-		if err := extsuite.ValidateSelection(extRegistry, cfg.ExtSuites); err != nil {
+		if err := extsuite.ValidateExecutableSelection(extRegistry, extensionCfg.ExtSuites); err != nil {
 			return RunResult{ReportV3: &r, ExitCode: 2}, err
 		}
 	}
 	var runErrors []error
-	logf := func(format string, args ...any) {
-		if cfg.Verbose {
-			fmt.Fprintf(os.Stderr, "aiqa: "+format+"\n", args...)
-		}
+	logf := func(format string, args ...any) {}
+	if cfg.Verbose {
+		logf = logger.Logf
+		logf("run started: %d target(s), tests=%s", len(cfg.Targets), strings.Join(cfg.Tests, ","))
 	}
 	targets := append([]config.TargetConfig(nil), cfg.Targets...)
 	sort.Slice(targets, func(i, j int) bool { return targets[i].ID < targets[j].ID })
 	for _, target := range targets {
+		logf("[%s] target started (%s)", target.ID, target.Protocol)
 		r.Config.Targets = append(r.Config.Targets, result.TargetPublicConfig{ID: target.ID, Protocol: string(target.Protocol), BaseURL: target.BaseURL, BaseURLNormalized: target.BaseURLNormalized, APIVersion: target.APIVersion})
 		p, err := profile.LoadFile(target.ProfileFile)
 		if err != nil {
@@ -123,21 +147,29 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (Ru
 		guidance.Apply(&tmp, p, guidance.Options{Mode: cfg.Guidance, Pack: cfg.GuidancePack, Locale: cfg.GuidanceLocale})
 		targetReport.Guidance = tmp.Guidance
 		if runErr != nil {
+			logf("[%s] target runner returned an error", target.ID)
 			runErrors = append(runErrors, fmt.Errorf("run %s target %s: %w", target.Protocol, target.ID, runErr))
 		} else {
 			var extErr error
-			targetReport, extErr = finishTargetExtensions(ctx, cfg, target, p, targetReport, extRegistry, native.Runtime.Client, native.Runtime.Executor)
+			targetReport, extErr = finishTargetExtensions(ctx, extensionCfg, target, p, targetReport, extRegistry, native.Runtime.Client, native.Runtime.Executor)
 			if extErr != nil {
 				runErrors = append(runErrors, fmt.Errorf("run extension suites for target %s: %w", target.ID, extErr))
 			}
 		}
 		r.Targets = append(r.Targets, targetReport)
+		logf("[%s] target completed", target.ID)
 	}
 	r.Summary = summarizeRun(r.Targets)
 	paths, err := reportpkg.WriteV3(r, cfg)
 	if err != nil {
 		return RunResult{ReportV3: &r, ExitCode: 2}, err
 	}
+	logf("report serialization completed")
+	logPaths, err := reportpkg.WriteVerboseLog(cfg, logger.Lines())
+	if err != nil {
+		return RunResult{ReportV3: &r, Paths: paths, ExitCode: 2}, fmt.Errorf("write verbose log: %w", err)
+	}
+	paths = append(paths, logPaths...)
 	if len(runErrors) > 0 {
 		return RunResult{ReportV3: &r, Paths: paths, ExitCode: 2}, errors.Join(runErrors...)
 	}

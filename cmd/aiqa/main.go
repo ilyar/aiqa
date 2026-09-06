@@ -132,7 +132,7 @@ connection and diagnostics:
   --base-url URL           overrides OPENAI_BASE_URL
   --api-key KEY            overrides OPENAI_API_KEY
   --allow-http             permit plaintext outside loopback
-  --verbose                print individual probe progress
+  --verbose                print probe progress and write a private .log sidecar
   --version                print version
   --help, -h               print this help`)
 }

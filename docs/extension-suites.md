@@ -11,15 +11,14 @@ aiqa test=sdk
 aiqa test=compat,sdk
 aiqa test=ext-suite
 aiqa test=compat,ext-suite
-aiqa test=ext-suite --ext-suite=official-sdk.openai
 aiqa test=ext-suite \
   --ext-suite=acme.gateway \
   --ext-suite-path=/opt/aiqa/aiqa-acme-ext-suite
 ```
 
-`test=sdk` runs the applicable built-in SDK checks for active targets and does not scan `PATH`. `test=ext-suite` runs every applicable built-in and discovered extension. Repeat `--ext-suite` or pass comma-separated IDs to select exact extensions; that filter requires `test=ext-suite`. Selecting an unavailable ID is a configuration error. A `compat`-only run neither scans `PATH` nor executes extensions.
+`test=sdk` directly runs the applicable compiled SDK checks for active targets and does not scan `PATH` or select extensions. `test=ext-suite` runs discovered external extensions only. Repeat `--ext-suite` or pass comma-separated IDs to select exact extensions; that filter requires `test=ext-suite`. Selecting an unavailable ID is a configuration error. A `compat`-only run neither scans `PATH` nor executes extensions.
 
-The `sdk` selector expands to `official-sdk.openai`, `official-sdk.anthropic`, and/or `official-sdk.google-genai` according to the configured targets. A target is configured only when its matching base URL and API key are present (and selected by `--target`), so an absent protocol environment pair does not add that SDK.
+The `sdk` selector directly selects the compiled OpenAI, Anthropic, and/or Google Gen AI suites according to the configured targets. A target is configured only when its matching base URL and API key are present (and selected by `--target`), so an absent protocol environment pair does not add that SDK. The selector does not transmute SDK suites into extension IDs.
 
 AIQA includes three built-ins:
 

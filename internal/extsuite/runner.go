@@ -31,10 +31,16 @@ func RegisterExecutables(ctx context.Context, registry *Registry, cfg config.Con
 	return nil
 }
 
-func ValidateSelection(registry *Registry, selected []string) error {
+// ValidateExecutableSelection rejects built-ins from the external executable
+// selector. Built-in SDK suites are selected only by test=sdk.
+func ValidateExecutableSelection(registry *Registry, selected []string) error {
 	for _, id := range selected {
-		if _, ok := registry.Get(id); !ok {
+		extension, ok := registry.Get(id)
+		if !ok {
 			return fmt.Errorf("selected extension %q is not installed", id)
+		}
+		if extension.Provenance().Source != "executable" {
+			return fmt.Errorf("selected extension %q is not an external executable; use test=sdk", id)
 		}
 	}
 	return nil
@@ -177,7 +183,7 @@ func planTarget(registry *Registry, cfg config.Config, target config.TargetConfi
 	var out []invocation
 	for _, extension := range registry.All() {
 		manifest := extension.Manifest()
-		if (len(selected) > 0 && !selected[manifest.Extension.ID]) || !supportsProtocol(manifest, string(target.Protocol)) || !contains(manifest.ProfileContracts, p.SchemaVersion) {
+		if !selectsExtension(cfg, extension, manifest, selected) || !supportsProtocol(manifest, string(target.Protocol)) || !contains(manifest.ProfileContracts, p.SchemaVersion) {
 			continue
 		}
 		providerSuites := applicableSuites(manifest, cfg, p, nil, nil)
@@ -204,6 +210,22 @@ func planTarget(registry *Registry, cfg config.Config, target config.TargetConfi
 		return a.subject.ID < b.subject.ID
 	})
 	return out
+}
+
+// selectsExtension keeps sdk independent from ExtSuites. Built-in suites are
+// selected directly by their provenance and protocol; explicit ext-suite
+// selections are unioned with that set without producing duplicate invocations.
+func selectsExtension(cfg config.Config, extension Extension, manifest Manifest, selected map[string]bool) bool {
+	if cfg.HasTest("sdk") && extension.Provenance().Source == "builtin" {
+		return true
+	}
+	if !cfg.HasTest("ext-suite") {
+		return false
+	}
+	if extension.Provenance().Source != "executable" {
+		return false
+	}
+	return len(selected) == 0 || selected[manifest.Extension.ID]
 }
 
 func applicableSuites(manifest Manifest, cfg config.Config, p profile.Profile, model *result.ModelReport, artifactBudget *int) []string {

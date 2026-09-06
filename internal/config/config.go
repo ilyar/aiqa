@@ -857,28 +857,3 @@ func (c Config) HasTest(name string) bool {
 func (c Config) HasExtensionTests() bool {
 	return c.HasTest("sdk") || c.HasTest("ext-suite")
 }
-
-// ResolveExtSuiteSelection expands the user-facing SDK aggregate
-// after targets have been configured. Target configuration is the source of
-// truth here: an unset or inactive protocol never adds its SDK extension.
-func ResolveExtSuiteSelection(selected []string, targets []TargetConfig) []string {
-	const aggregate = "official-sdk"
-	var resolved []string
-	for _, id := range selected {
-		if id != aggregate {
-			resolved = append(resolved, id)
-			continue
-		}
-		for _, target := range targets {
-			switch target.Protocol {
-			case ProtocolOpenAI:
-				resolved = append(resolved, "official-sdk.openai")
-			case ProtocolAnthropic:
-				resolved = append(resolved, "official-sdk.anthropic")
-			case ProtocolGoogleGenAI:
-				resolved = append(resolved, "official-sdk.google-genai")
-			}
-		}
-	}
-	return uniqueStrings(resolved)
-}

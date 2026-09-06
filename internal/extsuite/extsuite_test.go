@@ -273,12 +273,12 @@ func testManifest(id, protocol string, suites ...SuiteDescriptor) Manifest {
 }
 
 func TestPlanRoutesCapabilitiesAndProtocolsWithoutUnrelatedSuites(t *testing.T) {
-	openAI := &testExtension{source: "builtin", manifest: testManifest("fixture.openai", "openai",
+	openAI := &testExtension{source: "executable", manifest: testManifest("fixture.openai", "openai",
 		SuiteDescriptor{ID: "inventory", Subject: "provider", Cost: "text", InternalConcurrency: 1},
 		SuiteDescriptor{ID: "chat", Subject: "model", Capabilities: []string{"chat.completions.text"}, Cost: "text", InternalConcurrency: 1},
 		SuiteDescriptor{ID: "image", Subject: "model", Capabilities: []string{"images.generations"}, Cost: "text", InternalConcurrency: 1},
 	)}
-	otherProtocol := &testExtension{source: "builtin", manifest: testManifest("fixture.anthropic", "anthropic", SuiteDescriptor{ID: "messages", Subject: "model", Cost: "text", InternalConcurrency: 1})}
+	otherProtocol := &testExtension{source: "executable", manifest: testManifest("fixture.anthropic", "anthropic", SuiteDescriptor{ID: "messages", Subject: "model", Cost: "text", InternalConcurrency: 1})}
 	registry, err := NewRegistry(openAI, otherProtocol)
 	if err != nil {
 		t.Fatal(err)
@@ -307,8 +307,54 @@ func TestPlanRoutesCapabilitiesAndProtocolsWithoutUnrelatedSuites(t *testing.T) 
 	}
 }
 
+func TestPlanSDKSelectsBuiltinsWithoutExtSuitesAndDeduplicatesExplicitSelection(t *testing.T) {
+	builtin := &testExtension{source: "builtin", manifest: testManifest("official-sdk.openai", "openai", SuiteDescriptor{ID: "chat", Subject: "model", Capabilities: []string{"chat.completions.text"}, Cost: "text", InternalConcurrency: 1})}
+	executable := &testExtension{source: "executable", manifest: testManifest("fixture.external", "openai", SuiteDescriptor{ID: "external", Subject: "model", Capabilities: []string{"chat.completions.text"}, Cost: "text", InternalConcurrency: 1})}
+	registry, err := NewRegistry(builtin, executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := profile.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := config.TargetConfig{ID: "openai", Protocol: config.ProtocolOpenAI, BaseURL: "https://example.test/v1"}
+	models := []result.ModelReport{{ID: "text", Capabilities: []result.CapabilityAssessment{{ID: "chat.completions.text"}}}}
+
+	sdkOnly := planTarget(registry, config.Config{Tests: []string{"sdk"}}, target, p, models)
+	if len(sdkOnly) != 1 || sdkOnly[0].manifest.Extension.ID != "official-sdk.openai" {
+		t.Fatalf("sdk plan=%+v, want only the built-in SDK", sdkOnly)
+	}
+	combined := planTarget(registry, config.Config{Tests: []string{"sdk", "ext-suite"}, ExtSuites: []string{"fixture.external"}}, target, p, models)
+	if len(combined) != 2 {
+		t.Fatalf("combined plan=%+v, want one built-in and one explicit extension", combined)
+	}
+	seen := map[string]bool{}
+	for _, item := range combined {
+		if seen[item.manifest.Extension.ID] {
+			t.Fatalf("extension %q was planned more than once", item.manifest.Extension.ID)
+		}
+		seen[item.manifest.Extension.ID] = true
+	}
+	extOnly := planTarget(registry, config.Config{Tests: []string{"ext-suite"}}, target, p, models)
+	if len(extOnly) != 1 || extOnly[0].manifest.Extension.ID != "fixture.external" {
+		t.Fatalf("external-only plan=%+v, want only the executable extension", extOnly)
+	}
+}
+
+func TestValidateExecutableSelectionRejectsBuiltin(t *testing.T) {
+	builtin := &testExtension{source: "builtin", manifest: testManifest("official-sdk.openai", "openai", SuiteDescriptor{ID: "chat", Subject: "model", Cost: "text", InternalConcurrency: 1})}
+	registry, err := NewRegistry(builtin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateExecutableSelection(registry, []string{"official-sdk.openai"}); err == nil {
+		t.Fatal("built-in SDK was accepted as an external executable")
+	}
+}
+
 func TestPlanConsumesPerModelArtifactBudgetAcrossSuites(t *testing.T) {
-	extension := &testExtension{source: "builtin", manifest: testManifest("fixture.artifacts", "openai",
+	extension := &testExtension{source: "executable", manifest: testManifest("fixture.artifacts", "openai",
 		SuiteDescriptor{ID: "image-a", Subject: "model", Capabilities: []string{"images.generations"}, Cost: "billable_artifact", InternalConcurrency: 1},
 		SuiteDescriptor{ID: "image-b", Subject: "model", Capabilities: []string{"images.generations"}, Cost: "billable_artifact", InternalConcurrency: 1},
 	)}
@@ -375,7 +421,7 @@ func TestExecutableReservationsShareGlobalExecutorAndReceiveCurrentLimits(t *tes
 		t.Fatal(err)
 	}
 	client.SetConcurrency(2)
-	runs := ExecuteTarget(context.Background(), registry, config.Config{Tests: []string{"ext-suite"}, Timeout: time.Second, Concurrency: 2}, config.TargetConfig{ID: "openai", Protocol: config.ProtocolOpenAI, BaseURL: "https://example.test/v1", APIKey: "secret", RequestInterval: time.Millisecond}, p, nil, client, probe.NewExecutor(2))
+	runs := ExecuteTarget(context.Background(), registry, config.Config{Tests: []string{"sdk", "ext-suite"}, Timeout: time.Second, Concurrency: 2}, config.TargetConfig{ID: "openai", Protocol: config.ProtocolOpenAI, BaseURL: "https://example.test/v1", APIKey: "secret", RequestInterval: time.Millisecond}, p, nil, client, probe.NewExecutor(2))
 	if len(runs) != 2 || maximum.Load() > 2 {
 		t.Fatalf("runs=%d maximum concurrency=%d, want two runs and ceiling 2", len(runs), maximum.Load())
 	}

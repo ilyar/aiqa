@@ -14,11 +14,11 @@ func TestParseExtensionSelectionAndPaths(t *testing.T) {
 	envPath := filepath.Join(t.TempDir(), "aiqa-env-ext-suite")
 	flagPath := filepath.Join(t.TempDir(), "aiqa-flag-ext-suite")
 	t.Setenv("AIQA_EXT_SUITE_PATHS", strings.Join([]string{envPath}, string(os.PathListSeparator)))
-	cfg, err := Parse([]string{"test=ext-suite", "--ext-suite=official-sdk.openai,acme.gateway", "--ext-suite=acme.gateway", "--ext-suite-path=" + flagPath})
+	cfg, err := Parse([]string{"test=ext-suite", "--ext-suite=acme.gateway,fixture.gateway", "--ext-suite=acme.gateway", "--ext-suite-path=" + flagPath})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(cfg.ExtSuites, ",") != "official-sdk.openai,acme.gateway" || len(cfg.ExtSuitePaths) != 2 || cfg.ExtSuitePaths[0] != envPath || cfg.ExtSuitePaths[1] != flagPath {
+	if strings.Join(cfg.ExtSuites, ",") != "acme.gateway,fixture.gateway" || len(cfg.ExtSuitePaths) != 2 || cfg.ExtSuitePaths[0] != envPath || cfg.ExtSuitePaths[1] != flagPath {
 		t.Fatalf("extension controls were not preserved: suites=%v paths=%v", cfg.ExtSuites, cfg.ExtSuitePaths)
 	}
 }
@@ -47,29 +47,6 @@ func TestParseSDKTestSelector(t *testing.T) {
 	}
 }
 
-func TestResolveOfficialSDKSelectionUsesConfiguredTargets(t *testing.T) {
-	tests := []struct {
-		name    string
-		targets []TargetConfig
-		want    string
-	}{
-		{name: "openai only", targets: []TargetConfig{{Protocol: ProtocolOpenAI}}, want: "official-sdk.openai"},
-		{name: "anthropic only", targets: []TargetConfig{{Protocol: ProtocolAnthropic}}, want: "official-sdk.anthropic"},
-		{name: "both", targets: []TargetConfig{{Protocol: ProtocolOpenAI}, {Protocol: ProtocolAnthropic}}, want: "official-sdk.openai,official-sdk.anthropic"},
-		{name: "google", targets: []TargetConfig{{Protocol: ProtocolGoogleGenAI}}, want: "official-sdk.google-genai"},
-		{name: "all", targets: []TargetConfig{{Protocol: ProtocolOpenAI}, {Protocol: ProtocolAnthropic}, {Protocol: ProtocolGoogleGenAI}}, want: "official-sdk.openai,official-sdk.anthropic,official-sdk.google-genai"},
-		{name: "no target", want: ""},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := ResolveExtSuiteSelection([]string{"official-sdk"}, tt.targets)
-			if strings.Join(got, ",") != tt.want {
-				t.Fatalf("resolved selection=%v, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestParseGoogleGenAIEnvironmentAndGlobalModelList(t *testing.T) {
 	t.Setenv("OPENAI_BASE_URL", "")
 	t.Setenv("OPENAI_API_KEY", "")
@@ -81,7 +58,7 @@ func TestParseGoogleGenAIEnvironmentAndGlobalModelList(t *testing.T) {
 	t.Setenv("GOOGLE_API_KEY", "google-key")
 	t.Setenv("GEMINI_API_KEY", "google-key")
 	t.Setenv("GOOGLE_GENAI_MODEL", "")
-	cfg, err := Parse([]string{"test=compat,ext-suite", "--ext-suite=official-sdk", "--model=gemini-a,gemini-b,gemini-a"})
+	cfg, err := Parse([]string{"test=compat,ext-suite", "--ext-suite=fixture.google", "--model=gemini-a,gemini-b,gemini-a"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,8 +72,8 @@ func TestParseGoogleGenAIEnvironmentAndGlobalModelList(t *testing.T) {
 	if strings.Join(cfg.Models, ",") != "gemini-a,gemini-b" || len(target.Models) != 0 {
 		t.Fatalf("global model list was not preserved without a target-local assignment: cfg=%v target=%v", cfg.Models, target.Models)
 	}
-	if got := strings.Join(ResolveExtSuiteSelection(cfg.ExtSuites, cfg.Targets), ","); got != "official-sdk.google-genai" {
-		t.Fatalf("unexpected Google SDK selection: %q", got)
+	if got := strings.Join(cfg.ExtSuites, ","); got != "fixture.google" {
+		t.Fatalf("extension selector was unexpectedly rewritten: %q", got)
 	}
 }
 
@@ -193,17 +170,10 @@ func TestParseGoogleGenAIBaseAliasConflictFails(t *testing.T) {
 	}
 }
 
-func TestResolveOfficialSDKSelectionDeduplicatesExplicitIDs(t *testing.T) {
-	got := ResolveExtSuiteSelection([]string{"official-sdk", "official-sdk.openai", "acme.gateway"}, []TargetConfig{{Protocol: ProtocolOpenAI}})
-	if want := "official-sdk.openai,acme.gateway"; strings.Join(got, ",") != want {
-		t.Fatalf("resolved selection=%v, want %q", got, want)
-	}
-}
-
 func TestParseRejectsExtensionFilterWithoutExtensionTest(t *testing.T) {
 	t.Setenv("OPENAI_BASE_URL", "https://example.test/v1")
 	t.Setenv("OPENAI_API_KEY", "secret")
-	if _, err := Parse([]string{"test=compat", "--ext-suite=official-sdk.openai"}); err == nil {
+	if _, err := Parse([]string{"test=compat", "--ext-suite=fixture.openai"}); err == nil {
 		t.Fatal("extension filter without test=ext-suite was accepted")
 	}
 }

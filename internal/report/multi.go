@@ -41,6 +41,25 @@ func WriteV3(r result.ReportV3, cfg config.Config) ([]string, error) {
 	return paths, nil
 }
 
+// WriteVerboseLog writes the optional private diagnostic sidecar.  It is kept
+// out of the public report contract because it records run progress, rather
+// than compatibility evidence.
+func WriteVerboseLog(cfg config.Config, lines []string) ([]string, error) {
+	if !cfg.Verbose {
+		return nil, nil
+	}
+	data := make([]byte, 0)
+	for _, line := range lines {
+		data = append(data, sanitizeVerboseLogLine(line, reportSecrets(cfg))...)
+		data = append(data, '\n')
+	}
+	path := cfg.Name + ".log"
+	if err := atomicWrite(path, data, 0o600); err != nil {
+		return nil, err
+	}
+	return []string{path}, nil
+}
+
 func normalizeV3Collections(r result.ReportV3) result.ReportV3 {
 	for index := range r.Targets {
 		if r.Targets[index].Models == nil {
