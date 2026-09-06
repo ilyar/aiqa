@@ -15,6 +15,9 @@ import (
 
 func generateBad(ctx context.Context, stdout, stderr io.Writer, projectRoot string) error {
 	exampleDir := filepath.Join(projectRoot, "example")
+	if err := removePrivateSidecars(exampleDir, "bad-report"); err != nil {
+		return err
+	}
 	aiqaPath, err := exec.LookPath("aiqa")
 	if err != nil {
 		return fmt.Errorf("find aiqa: %w", err)
@@ -68,7 +71,7 @@ func generateBad(ctx context.Context, stdout, stderr io.Writer, projectRoot stri
 	})
 	fmt.Fprintln(stdout, "Generating intentionally failing example reports")
 	badExit, err := runCommandAllowExit(ctx, exampleDir, badEnv, stdout, stderr, aiqaPath,
-		"--verbose", "4", "--concurrency", "16", "--timeout=60",
+		"--concurrency", "16", "--timeout=60",
 		"test=compat,sdk", "--target=openai,anthropic,google-genai",
 		"--model=wiremock-broken-model",
 		"--format=markdown,json", "--name=bad-report")

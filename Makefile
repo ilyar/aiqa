@@ -8,7 +8,7 @@ GOVULNCHECK_VERSION := v1.7.0
 CYCLONEDX_GOMOD_VERSION := v1.12.0
 EXAMPLE_SOURCES := ./script/example.go ./script/example_good.go ./script/example_bad.go
 
-.PHONY: all build test race vet fmt-check profiles-check schemas-check dependency-check vuln-check sbom-check security-check profile-upstream-check check diff-check version-check qa install example clean dist http-client.private.env.json
+.PHONY: all build test race vet fmt-check profiles-check schemas-check dependency-check vuln-check sbom-check security-check profile-upstream-check check example-check diff-check version-check qa install example clean dist http-client.private.env.json
 
 all: check build
 
@@ -84,9 +84,14 @@ profile-upstream-check:
 
 check: fmt-check profiles-check schemas-check dependency-check vet test
 
-# qa is the required local pre-commit gate. It combines every repository-local
-# check that is deterministic and does not call a real model provider.
-qa: check security-check race build version-check diff-check
+# qa is the required local pre-commit gate. It includes public example
+# regeneration against the local model-provider as well as deterministic tests.
+qa: check example example-check security-check race build version-check diff-check
+
+# Deterministic generator contract check. `qa` also runs the real generator
+# through `example`, which requires a local model-provider and Docker.
+example-check:
+	go test $(EXAMPLE_SOURCES) ./script/example_test.go
 
 version-check:
 	@./bin/aiqa --version

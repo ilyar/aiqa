@@ -17,6 +17,9 @@ import (
 
 func generateGood(ctx context.Context, stdout, stderr io.Writer, projectRoot string) (bool, error) {
 	exampleDir := filepath.Join(projectRoot, "example")
+	if err := removePrivateSidecars(exampleDir, "good-report"); err != nil {
+		return false, err
+	}
 
 	providerPath, err := exec.LookPath("model-provider")
 	if err != nil {
@@ -61,7 +64,7 @@ func generateGood(ctx context.Context, stdout, stderr io.Writer, projectRoot str
 
 	fmt.Fprintln(stdout, "Generating provider example reports")
 	if err := runCommand(ctx, exampleDir, goodEnv, stdout, stderr, aiqaPath,
-		"--verbose", "4", "--concurrency", "16", "--timeout=60", "--fail-on=never", "test=compat,sdk",
+		"--concurrency", "16", "--timeout=60", "--fail-on=never", "test=compat,sdk",
 		"--target=openai,anthropic,google-genai",
 		"--format=markdown,json", "--name=good-report"); err != nil {
 		return false, fmt.Errorf("generate provider reports: %w", err)
@@ -81,7 +84,7 @@ func providerRunning(ctx context.Context, providerPath, providerConfig string) (
 	if err := json.Unmarshal(output, &status); err != nil {
 		return false, fmt.Errorf("decode status JSON: %w", err)
 	}
-	return status.Running, nil
+	return status.Running || status.Health.OK, nil
 }
 
 func startProvider(ctx context.Context, providerPath, providerConfig string, stdout, stderr io.Writer) error {

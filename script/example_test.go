@@ -5,6 +5,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,7 +80,7 @@ func TestGenerateGoodTargetsAllProviderProtocolsExplicitly(t *testing.T) {
 	argsFile := filepath.Join(t.TempDir(), "aiqa-args")
 	writeExecutable(t, filepath.Join(binDir, "model-provider"), `#!/bin/sh
 case "$1" in
-  --json) printf '{"running":true}\n' ;;
+  --json) printf '{"health":{"ok":true}}\n' ;;
   env) printf "export OPENAI_BASE_URL='http://127.0.0.1:8080/openai/v1'\nexport OPENAI_API_KEY='test-key'\nexport ANTHROPIC_BASE_URL='http://127.0.0.1:8080/anthropic'\nexport ANTHROPIC_API_KEY='test-key'\nexport GOOGLE_GENAI_BASE_URL='http://127.0.0.1:8080/genai'\nexport GOOGLE_GENAI_API_KEY='test-key'\n" ;;
   *) exit 1 ;;
 esac
@@ -91,6 +92,8 @@ printf '{"summary":{"verdict":"fail"},"targets":[{"id":"openai"},{"id":"anthropi
 `)
 	t.Setenv("PATH", binDir)
 	t.Setenv("AIQA_ARGS_FILE", argsFile)
+	writeFixture(t, filepath.Join(root, "example", "good-report.log"), "stale private trace\n")
+	writeFixture(t, filepath.Join(root, "example", "good-report.trace-verdict.json"), "{}\n")
 
 	var stdout, stderr bytes.Buffer
 	generated, err := generateGood(context.Background(), &stdout, &stderr, root)
@@ -99,6 +102,11 @@ printf '{"summary":{"verdict":"fail"},"targets":[{"id":"openai"},{"id":"anthropi
 	}
 	if !generated {
 		t.Fatal("generateGood reported that no report was generated")
+	}
+	for _, path := range []string{"good-report.log", "good-report.trace-verdict.json"} {
+		if _, err := os.Stat(filepath.Join(root, "example", path)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("stale private sidecar %s remains: %v", path, err)
+		}
 	}
 	args, err := os.ReadFile(argsFile)
 	if err != nil {
@@ -110,6 +118,9 @@ printf '{"summary":{"verdict":"fail"},"targets":[{"id":"openai"},{"id":"anthropi
 	}
 	if !strings.Contains(argText, "--fail-on=never\n") {
 		t.Fatalf("provider example did not preserve reports for non-pass target verdicts: %q", args)
+	}
+	if strings.Contains(argText, "--verbose\n") || strings.Contains(argText, "--verbose=4\n") {
+		t.Fatalf("public sample generator unexpectedly enables private sidecars: %q", args)
 	}
 }
 

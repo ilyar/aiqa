@@ -32,6 +32,9 @@ const (
 
 type statusDocument struct {
 	Running bool `json:"running"`
+	Health  struct {
+		OK bool `json:"ok"`
+	} `json:"health"`
 }
 
 type reportDocument struct {
@@ -250,6 +253,19 @@ func requireNonEmpty(path string) error {
 	}
 	if info.Size() == 0 {
 		return fmt.Errorf("%s is empty", filepath.Base(path))
+	}
+	return nil
+}
+
+// removePrivateSidecars makes report regeneration idempotent. These files are
+// private diagnostics, not example artifacts; keeping an old O_EXCL sidecar
+// must not prevent a fresh public sample report from being generated.
+func removePrivateSidecars(exampleDir, name string) error {
+	for _, suffix := range []string{".log", ".trace-verdict.json"} {
+		path := filepath.Join(exampleDir, name+suffix)
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove stale private sidecar %s: %w", filepath.Base(path), err)
+		}
 	}
 	return nil
 }
