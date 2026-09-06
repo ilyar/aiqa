@@ -18,6 +18,13 @@ from this list; they require a new decision and a new PRD if revived.
 
 ## 2. Worth doing
 
+### [Forensic baseline diagnostics](prd-forensic-baseline-diagnostics.md)
+
+Make `--verbose 4` sufficient for safe, evidence-based interpretation of
+baseline failures; repair the confirmed Google Interactions SSE `index`
+validator defect; distinguish provider nonconformance from checker defects,
+behavioral observations and execution gaps; and close trace lifecycle gaps.
+
 ### Honest verdict for unresolved model capability coverage
 
 When selected inventory models have unknown capabilities and therefore receive
