@@ -73,6 +73,44 @@ func TestMarkdownV3RendersServiceOriginWithoutAPIPath(t *testing.T) {
 	}
 }
 
+func TestMarkdownV3ListsDistinctProtocolServices(t *testing.T) {
+	report := result.ReportV3{Config: result.PublicConfigV3{Targets: []result.TargetPublicConfig{
+		{ID: "openai", Protocol: "openai", BaseURL: "https://openai.example/v1"},
+		{ID: "anthropic", Protocol: "anthropic", BaseURL: "https://anthropic.example/api"},
+		{ID: "google-genai", Protocol: "google-genai", BaseURL: "https://gemini.example/v1beta"},
+	}}}
+	markdown := MarkdownV3(report)
+	want := "- **Service:** Anthropic: [anthropic.example](https://anthropic.example), Google GenAI: [gemini.example](https://gemini.example), OpenAI: [openai.example](https://openai.example)"
+	if !strings.Contains(markdown, want) {
+		t.Fatalf("services = %q, want %q", serviceLine(markdown), want)
+	}
+}
+
+func TestMarkdownV3ListsSameOriginProtocolServicesSeparately(t *testing.T) {
+	report := result.ReportV3{Config: result.PublicConfigV3{Targets: []result.TargetPublicConfig{
+		{ID: "google-genai", Protocol: "google-genai", BaseURL: "https://gateway.example/google/v1beta"},
+		{ID: "openai", Protocol: "openai", BaseURL: "https://gateway.example/openai/v1"},
+		{ID: "anthropic", Protocol: "anthropic", BaseURL: "https://gateway.example/anthropic"},
+	}}}
+	markdown := MarkdownV3(report)
+	want := "- **Service:** Anthropic: [gateway.example](https://gateway.example), Google GenAI: [gateway.example](https://gateway.example), OpenAI: [gateway.example](https://gateway.example)"
+	if !strings.Contains(markdown, want) {
+		t.Fatalf("services = %q, want %q", serviceLine(markdown), want)
+	}
+	if strings.Contains(markdown, "gateway.example/openai") || strings.Contains(markdown, "gateway.example/anthropic") || strings.Contains(markdown, "gateway.example/google") {
+		t.Fatalf("API path leaked into service links:\n%s", markdown)
+	}
+}
+
+func serviceLine(markdown string) string {
+	for _, line := range strings.Split(markdown, "\n") {
+		if strings.HasPrefix(line, "- **Service:**") {
+			return line
+		}
+	}
+	return ""
+}
+
 func TestMarkdownV3RateLimitTableHasMatchingColumns(t *testing.T) {
 	report := result.ReportV3{
 		Targets: []result.TargetReport{{ID: "google-genai", Protocol: "google-genai", RateLimit: result.RateLimitStats{LogicalRequests: 10, PhysicalAttempts: 10, SuccessfulRequests: 6}}},

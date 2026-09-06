@@ -102,7 +102,7 @@ External executables implement `aiqa.ext.v1` as one JSON object per line. The st
 For manifest negotiation, AIQA starts the executable directly, with no shell and a clean environment, then writes one credential-free request:
 
 ```json
-{"schema_version":"aiqa.ext.v1","type":"manifest_request","host":{"name":"aiqa","version":"1.0.0-alpha.5"}}
+{"schema_version":"aiqa.ext.v1","type":"manifest_request","host":{"name":"aiqa","version":"1.0.0-alpha.6"}}
 ```
 
 The executable writes exactly one `manifest` record and exits zero. stdout is reserved for protocol records; human diagnostics belong on stderr.

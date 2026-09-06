@@ -3,7 +3,7 @@
   "generated_at": "2026-09-05T22:25:32.644925844Z",
   "tool": {
     "name": "aiqa",
-    "version": "1.0.0-alpha.5",
+    "version": "1.0.0-alpha.6",
     "commit": "1120656",
     "build_date": "2026-09-05T22:25:17Z",
     "go_version": "go1.27.0"

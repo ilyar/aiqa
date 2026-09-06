@@ -1,6 +1,10 @@
 # Changelog
 
+## 1.0.0-alpha.6 – 2026-09-06
+- Render every configured protocol service in the Markdown `Service` field, while retaining origin-only links that exclude API paths, query parameters, credentials, and API keys.
+
 ## Unreleased
+
 - Add the `test=sdk` selector for built-in SDK checks, keep `test=ext-suite` for generic extensions, and shorten report labels to SDK names, versions, and links.
 - Replace protocol-specific model selectors with one global `--model` list. Each active target intersects it with its validated inventory, keeps absent IDs silent, and records the requested list once in report v3. Removed selectors and `GOOGLE_GENAI_MODEL` return migration errors.
 - Add explicit ambiguous-model preflight and route/transient classification, capability-aware module materialization, dependency blocking, provider-root guidance, exact transport retry telemetry, and the pinned Anthropic Models validator shape.
