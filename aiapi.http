@@ -1,0 +1,133 @@
+### UNIFIED ENDPOINTS (OpenAI / xAI Grok / Hugging Face Router)
+
+### 1. Smoke Test: List Models (Unified / OpenAI-compatible)
+GET {{base}}/models
+Authorization: Bearer {{key}}
+
+> {%
+    client.test("Status code is 200", function() {
+        client.assert(response.status === 200, "Response status is not 200, got: " + response.status);
+    });
+    client.test("Response contains models list", function() {
+        client.assert(response.body.data && response.body.data.length > 0, "Models array is missing or empty");
+    });
+%}
+
+###
+
+### 2. Smoke Test: Chat Completions (Unified / OpenAI-compatible)
+POST {{base}}/chat/completions
+Authorization: Bearer {{key}}
+Content-Type: application/json
+
+{
+  "model": "{{test_model}}",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Respond with one word: OK"
+    }
+  ],
+  "max_tokens": 10
+}
+
+> {%
+    client.test("Status code is 200", function() {
+        client.assert(response.status === 200, "Response status is not 200, got: " + response.status);
+    });
+    client.test("Received text response", function() {
+        client.assert(response.body.choices && response.body.choices.length > 0, "Choices array is missing");
+        client.assert(response.body.choices[0].message.content.length > 0, "Message content is empty");
+    });
+%}
+
+
+### =========================================================================
+### ANTHROPIC SPECIFIC (Выберите среду: [anthropic])
+### =========================================================================
+
+### 3. Smoke Test: Anthropic - List Models
+GET {{base}}/models
+x-api-key: {{key}}
+anthropic-version: 2023-06-01
+
+> {%
+    client.test("Anthropic Status is 200", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+    client.test("Anthropic models exist", function() {
+        client.assert(response.body.data && response.body.data.length > 0, "No models returned");
+    });
+%}
+
+###
+
+### 4. Smoke Test: Anthropic - Messages Generation
+POST {{base}}/messages
+x-api-key: {{key}}
+anthropic-version: 2023-06-01
+Content-Type: application/json
+
+{
+  "model": "{{test_model}}",
+  "max_tokens": 10,
+  "messages": [
+    {
+      "role": "user",
+      "content": "Respond with one word: OK"
+    }
+  ]
+}
+
+> {%
+    client.test("Anthropic Messages Status is 200", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+    client.test("Anthropic Content received", function() {
+        client.assert(response.body.content && response.body.content.length > 0, "Content missing");
+    });
+%}
+
+
+### =========================================================================
+### GOOGLE GEMINI SPECIFIC (Выберите среду: [gemini])
+### =========================================================================
+
+### 5. Smoke Test: Google Gemini - List Models
+GET {{base}}/models?key={{key}}
+
+> {%
+    client.test("Gemini Models Status is 200", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+    client.test("Gemini models array exists", function() {
+        client.assert(response.body.models && response.body.models.length > 0, "Models field missing");
+    });
+%}
+
+###
+
+### 6. Smoke Test: Google Gemini - Generate Content
+POST {{base}}/models/{{test_model}}:generateContent?key={{key}}
+Content-Type: application/json
+
+{
+  "contents": [
+    {
+      "parts": [
+        {
+          "text": "Respond with one word: OK"
+        }
+      ]
+    }
+  ]
+}
+
+> {%
+    client.test("Gemini Generate Status is 200", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+    client.test("Gemini text candidate generated", function() {
+        client.assert(response.body.candidates && response.body.candidates.length > 0, "No candidates found");
+    });
+%}

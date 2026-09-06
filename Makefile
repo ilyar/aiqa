@@ -8,7 +8,7 @@ GOVULNCHECK_VERSION := v1.7.0
 CYCLONEDX_GOMOD_VERSION := v1.12.0
 EXAMPLE_SOURCES := ./script/example.go ./script/example_good.go ./script/example_bad.go
 
-.PHONY: all build test race vet fmt-check profiles-check schemas-check dependency-check vuln-check sbom-check security-check profile-upstream-check check install example clean dist
+.PHONY: all build test race vet fmt-check profiles-check schemas-check dependency-check vuln-check sbom-check security-check profile-upstream-check check install example clean dist http-client.private.env.json
 
 all: check build
 
@@ -95,6 +95,9 @@ dist: check
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags '$(LDFLAGS)' -o dist/aiqa-linux-arm64 ./cmd/aiqa
 	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags '$(LDFLAGS)' -o dist/aiqa-darwin-arm64 ./cmd/aiqa
 	(cd dist && sha256sum aiqa-* > SHA256SUMS)
+
+http-client.private.env.json: http-client.env.json
+	go run ./script/http-client-private-env.go
 
 clean:
 	rm -rf bin dist report.md report.json

@@ -2,4 +2,8 @@
 /dist/
 *.test
 *.out
+http-client.private.env.json
+/.http-client.private.env-*
+!script/http-client-private-env.go
+!script/http-client-private-env_test.go
 .DS_Store
