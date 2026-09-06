@@ -42,7 +42,7 @@ GET {{base}}/models
         client.global.headers.set("anthropic-version", "2023-06-01")
         request.variables.set("path", "messages")
     } else if (kind === "genai") {
-        request.variables.set("path", model + ":generateContent")
+        request.variables.set("path", `models/${model}:generateContent`)
         request.variables.set("content", JSON.stringify({
             "contents": [
                 {
