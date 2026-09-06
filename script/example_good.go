@@ -87,8 +87,8 @@ func providerRunning(ctx context.Context, providerPath, providerConfig string) (
 func startProvider(ctx context.Context, providerPath, providerConfig string, stdout, stderr io.Writer) error {
 	var providerStdout, providerStderr bytes.Buffer
 	err := runCommand(ctx, "", nil, &providerStdout, &providerStderr, providerPath, providerCommandArgs(providerConfig,
-		"up", "--force", "--storage", envOrDefault("AIQA_EXAMPLE_PROVIDER_STORAGE", defaultProviderStorage),
-		"--listen", envOrDefault("AIQA_EXAMPLE_PROVIDER_LISTEN", defaultProviderListen))...)
+		"up", "--force", "--storage", envOrDefault("AIQA_MODEL_PROVIDER_STORAGE", defaultProviderStorage),
+		"--listen", envOrDefault("AIQA_MODEL_PROVIDER_LISTEN", defaultProviderListen))...)
 	if err != nil {
 		return normalizeProviderCommandError(err)
 	}

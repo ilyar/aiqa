@@ -23,7 +23,7 @@ func generateBad(ctx context.Context, stdout, stderr io.Writer, projectRoot stri
 	if err != nil {
 		return fmt.Errorf("Docker is required to generate the WireMock failure report: %w", err)
 	}
-	wireMockImage := envOrDefault("AIQA_EXAMPLE_WIREMOCK_IMAGE", defaultWireMockImage)
+	wireMockImage := envOrDefault("AIQA_WIREMOCK_IMAGE", defaultWireMockImage)
 	wireMockContainer := fmt.Sprintf("aiqa-example-wiremock-%d", os.Getpid())
 	wireMockRoot := filepath.Join(projectRoot, "test", "wiremock")
 

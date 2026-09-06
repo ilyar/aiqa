@@ -59,6 +59,17 @@ func TestProviderCommandArgsPutConfigBeforeCommand(t *testing.T) {
 	}
 }
 
+func TestEnvOrDefault(t *testing.T) {
+	t.Setenv("AIQA_TEST_DEFAULT", " value ")
+	if got := envOrDefault("AIQA_TEST_DEFAULT", "fallback"); got != "value" {
+		t.Fatalf("envOrDefault value=%q, want value", got)
+	}
+	t.Setenv("AIQA_TEST_DEFAULT", "")
+	if got := envOrDefault("AIQA_TEST_DEFAULT", "fallback"); got != "fallback" {
+		t.Fatalf("envOrDefault value=%q, want fallback", got)
+	}
+}
+
 func TestGenerateGoodTargetsAllProviderProtocolsExplicitly(t *testing.T) {
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, "example"), 0o700); err != nil {
