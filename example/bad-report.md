@@ -3,7 +3,7 @@
 _measures observed API behavior, a passing report is not a security audit or an official certification_
 
 - **Generated:** 2026-09-06 13:10:42Z
-- **Tool:** `aiqa 1.0.0-alpha.6`
+- **Tool:** `aiqa 1.0.0-alpha.7`
 - **Service:** [127.0.0.1:32780](http://127.0.0.1:32780)
 - **Suites:** `compat,sdk`
 - **Requested models:** `wiremock-broken-model` (one global list; each target reports only its selected inventory intersection)

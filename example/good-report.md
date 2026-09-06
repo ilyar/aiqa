@@ -3,7 +3,7 @@
 _measures observed API behavior, a passing report is not a security audit or an official certification_
 
 - **Generated:** 2026-09-06 13:10:31Z
-- **Tool:** `aiqa 1.0.0-alpha.6`
+- **Tool:** `aiqa 1.0.0-alpha.7`
 - **Service:** [127.0.0.1:8080](http://127.0.0.1:8080)
 - **Suites:** `compat,sdk`
 - **Timeout:** `1m0s` per request

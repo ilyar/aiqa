@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.0-alpha.7 – 2026-09-06
+- Add private `aiqa.trace.v1` forensic sidecars, offline trace verdicts, strict
+  lifecycle and HTTP ownership verification, and cooperative executable-suite
+  tracing.
+- Add `make qa` as the required deterministic local pre-commit gate.
+
 ## 1.0.0-alpha.6 – 2026-09-06
 - Render every configured protocol service in the Markdown `Service` field, while retaining origin-only links that exclude API paths, query parameters, credentials, and API keys.
 

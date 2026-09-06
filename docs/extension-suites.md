@@ -104,7 +104,7 @@ identifier is migrated with the protocol.
 For manifest negotiation, AIQA starts the executable directly, with no shell and a clean environment, then writes one credential-free request:
 
 ```json
-{"schema_version":"aiqa.ext.v2","type":"manifest_request","host":{"name":"aiqa","version":"1.0.0-alpha.6"}}
+{"schema_version":"aiqa.ext.v2","type":"manifest_request","host":{"name":"aiqa","version":"1.0.0-alpha.7"}}
 ```
 
 The executable writes exactly one `manifest` record and exits zero. stdout is reserved for protocol records; human diagnostics belong on stderr.
