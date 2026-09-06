@@ -373,11 +373,13 @@ make qa
 ```
 
 `make qa` is the required local gate before committing to the main branch. It
-combines formatting, schemas/profiles, unit and integration tests, public
-example regeneration plus its deterministic contract test, security and SBOM
-checks, race tests, a reproducible local build/version check, and `git diff
---check`. It uses only local fixtures plus a local model-provider (started when
-needed) and Docker; it never calls real model providers.
+combines formatting, schemas/profiles, unit and integration tests, the
+deterministic example-generator contract, security and SBOM checks, race tests,
+a reproducible local build/version check, and `git diff --check`. It uses only
+local fixtures and does not call real model providers. `make example` remains
+an explicit integration maintenance command because it needs a local
+model-provider and Docker, and its reports include live timing, timestamps, and
+provider request IDs.
 
 Integration tests run a deterministic mock endpoint and check:
 

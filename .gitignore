@@ -7,3 +7,4 @@ http-client.private.env.json
 !script/http-client-private-env.go
 !script/http-client-private-env_test.go
 .DS_Store
+__pycache__/

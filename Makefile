@@ -84,12 +84,13 @@ profile-upstream-check:
 
 check: fmt-check profiles-check schemas-check dependency-check vet test
 
-# qa is the required local pre-commit gate. It includes public example
-# regeneration against the local model-provider as well as deterministic tests.
-qa: check example example-check security-check race build version-check diff-check
+# qa is the required local pre-commit gate. It combines deterministic local
+# checks and does not regenerate time-dependent public sample reports.
+qa: check example-check security-check race build version-check diff-check
 
-# Deterministic generator contract check. `qa` also runs the real generator
-# through `example`, which requires a local model-provider and Docker.
+# Deterministic generator contract check. The real `make example` additionally
+# requires a local model-provider and Docker; its reports include live timing,
+# generated timestamps, and provider request IDs, so it remains explicit.
 example-check:
 	go test $(EXAMPLE_SOURCES) ./script/example_test.go
 
