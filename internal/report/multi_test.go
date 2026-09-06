@@ -288,6 +288,15 @@ func TestFormatExtensionDurationUsesMeasuredPrecisionOrLegacyBound(t *testing.T)
 	}
 }
 
+func TestRateLimitDurationPartsDoNotRenderMeasuredZeroAsZeroMS(t *testing.T) {
+	if got := backoffPart(0); got != "–" {
+		t.Fatalf("backoffPart(0) = %q, want no-backoff marker", got)
+	}
+	if got := latencyPart(result.RateLimitStats{LatencySamples: 1}, "p50"); got != "<1ms" {
+		t.Fatalf("latencyPart zero sample = %q, want <1ms", got)
+	}
+}
+
 func TestWriteV3MaterializesEvidenceClassification(t *testing.T) {
 	dir := t.TempDir()
 	report := result.ReportV3{

@@ -149,7 +149,7 @@ func MarkdownV3(r result.ReportV3) string {
 	fmt.Fprintln(&b, "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
 	for _, target := range r.Targets {
 		s := target.RateLimit
-		fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d | %d | %d | %d | %dms | %s | %s | %s | %s | %s |\n", escapeCell(target.ID), s.LogicalRequests, s.PhysicalAttempts, s.SuccessfulRequests, s.RateLimited, s.RetryAttempts, s.RetriesRecovered, s.RetriesExhausted, s.BackoffMS, safeRateText(s), safeConcurrencyText(s), latencyPart(s, "mean"), latencyPart(s, "p50"), latencyPart(s, "p95"))
+		fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d | %d | %d | %d | %s | %s | %s | %s | %s | %s |\n", escapeCell(target.ID), s.LogicalRequests, s.PhysicalAttempts, s.SuccessfulRequests, s.RateLimited, s.RetryAttempts, s.RetriesRecovered, s.RetriesExhausted, backoffPart(s.BackoffMS), safeRateText(s), safeConcurrencyText(s), latencyPart(s, "mean"), latencyPart(s, "p50"), latencyPart(s, "p95"))
 	}
 	fmt.Fprintln(&b)
 
@@ -352,7 +352,17 @@ func latencyPart(s result.RateLimitStats, part string) string {
 	case "p95":
 		value = s.P95LatencyMS
 	}
+	if value == 0 {
+		return "<1ms"
+	}
 	return fmt.Sprintf("%dms", value)
+}
+
+func backoffPart(ms int64) string {
+	if ms == 0 {
+		return "–"
+	}
+	return fmt.Sprintf("%dms", ms)
 }
 
 func targetExternalChecks(target result.TargetReport) string {
@@ -565,7 +575,7 @@ func writeTargetExtensions(b *strings.Builder, runs []result.ExtensionRun, rateL
 		fmt.Fprintln(b)
 		fmt.Fprintln(b, "| Logical | Attempts | Successful | 429 | Retry attempts | Recovered | Exhausted | Backoff | Safe req/s | Concurrency |")
 		fmt.Fprintln(b, "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
-		fmt.Fprintf(b, "| %d | %d | %d | %d | %d | %d | %d | %dms | %s | %s |\n\n", rateLimit.LogicalRequests, rateLimit.PhysicalAttempts, rateLimit.SuccessfulRequests, rateLimit.RateLimited, rateLimit.RetryAttempts, rateLimit.RetriesRecovered, rateLimit.RetriesExhausted, rateLimit.BackoffMS, safeRateText(*rateLimit), safeConcurrencyText(*rateLimit))
+		fmt.Fprintf(b, "| %d | %d | %d | %d | %d | %d | %d | %s | %s | %s |\n\n", rateLimit.LogicalRequests, rateLimit.PhysicalAttempts, rateLimit.SuccessfulRequests, rateLimit.RateLimited, rateLimit.RetryAttempts, rateLimit.RetriesRecovered, rateLimit.RetriesExhausted, backoffPart(rateLimit.BackoffMS), safeRateText(*rateLimit), safeConcurrencyText(*rateLimit))
 	}
 	for _, id := range ids {
 		p := provenance[id]
