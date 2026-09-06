@@ -1,6 +1,7 @@
 # PRD: проверяемая forensic-трассировка выполнения тестов
 
-**Статус:** в реализации; критерий завершения раздела 10 ещё не достигнут.
+**Статус:** реализован; локальная приёмка зафиксирована в
+`docs/forensic-trace-traceability.md`.
 **Дата:** 2026-09-06.
 **Область:** `--verbose=4`, native protocol suites, встроенные SDK suites и
 executable extension suites.

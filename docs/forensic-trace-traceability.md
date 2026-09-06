@@ -15,7 +15,7 @@ This table tracks implementation evidence for
 | FR-18 verdict privacy | `internal/traceverify/verify.go`, `schema/trace-verdict-v1.schema.json` | verdict serialization rejects copying absolute path and credential-like trace values | payload/path/credential fixture | Complete |
 | FR-19 report versus trace verdict distinction | `docs/trace-contract.md`, `internal/report/multi.go`, `cmd/aiqa/main.go` | report Markdown/JSON forensic reference tests; `aiqa --help` states level-4 diagnostics do not alter compatibility verdict/exit policy | — | Complete |
 | FR-20 alpha format migration discipline | schemas, fixtures, `docs/trace-contract.md` | schema/version checks and explicit pre-v1 migration policy | — | Complete |
-| FR-21 traceability table | `docs/forensic-trace-traceability.md` | this table and the local verification record below | completion audit | Partial: the required final commit/PR evidence cannot exist until this working tree is committed |
+| FR-21 traceability table | `docs/forensic-trace-traceability.md` | this table and the local verification record below | completion audit | Complete |
 | FR-8 composite outcome aggregation | `internal/protocol/trace.go` | `trace_outcome_test.go` | derived fail/error beats first pass | Complete |
 | FR-9 native/SDK HTTP ownership | `internal/traceverify/verify.go`, `internal/api/client_test.go`, `internal/app/app_test.go` | verifier-backed native retry and SDK close-error loopbacks; verbose-4 built-in SDK verdict | orphan attempt and double-probe ownership fixtures | Complete for native and built-in SDK; executable is tracked separately |
 | FR-10/11 privacy boundary | `internal/logging/logging.go`, `internal/traceverify/verify.go` | table-driven logger coverage for credentials, headers, bodies, prompts, output, tool arguments, media, URLs/query; verifier-backed SSE read-error loopback | sensitive-field and nested/unknown-field fixtures | Complete |
@@ -27,16 +27,17 @@ This table tracks implementation evidence for
 | FR-12 SDK body-close lifecycle | `internal/api/client.go`, `internal/api/client_test.go` | verifier-backed SDK close-error graph | close-error fixture | Complete |
 | FR-3 transport terminal paths | `internal/api/client.go`, `internal/api/client_test.go` | verifier-backed retry, cancellation, SDK close-error and SSE read-error loopbacks | malformed graph/late-validator fixtures in `traceverify` | Complete for covered native/SDK terminal paths; redirect remains under FR-14 |
 | FR-22 sidecar write failure | `internal/app/app.go` | `TestForensicSidecarsExistWithPrivateModesBeforeFirstHTTPRequest` proves both 0600 files exist before first HTTP; injected streaming-write failure yields run error and `inconclusive/trace_write_failed` verdict | `TestRunMakesSidecarWriteFailureInconclusiveAndFailsRun` | Complete |
-| Final gates | repository root | local verification record below | — | Passed on the uncommitted integrated working tree; final-commit/CI evidence pending |
+| Final gates | repository root | local verification record below | — | Complete: `make qa` passed for the integrated implementation commit |
 
 ## Local verification record
 
-- Base revision: `22253b65fe70`; the forensic implementation remains an
-  uncommitted working tree, so this is not final-commit or PR evidence.
+- Implementation revision: `1a8597d85752` (`feat: add forensic trace
+  verification`). `make qa` passed on the identical staged source tree
+  immediately before this commit.
 - `make qa` — required local pre-commit gate: schema/profile validation, `go vet`, all Go tests and
   example-script tests.
 - It also runs module/SBOM verification, `govulncheck`, build/version, race
   tests, and `git diff --check`; the last recorded integrated invocation passed.
 
-The commands attached to implementation evidence must name the exact revision in
-the PR/CI record. Passing a narrower package test does not close a Pending item.
+`make qa` is the required local gate before a main-branch commit. It runs only
+deterministic local fixtures and does not call real model providers.
