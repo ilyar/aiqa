@@ -1,227 +1,258 @@
-# PRD: CLI Stream Monitoring, Structured Logging & Progress Feedback for `aiqa`
+# PRD: Прогресс выполнения и приватная диагностика CLI `aiqa`
 
-**Статус:** Ready for Review
+**Статус:** готово к реализации
 
-**Область:** CLI UX, Observability, Unix-way Stream Isolation
+**Область:** CLI UX, progress reporting, logging
+**Решение:** progress — обязательный интерфейс оператора; `--verbose` управляет только детализацией приватного JSONL-лога.
 
-**Целевая аудитория:** QA инженеры, разработчики AI runner-ов, CI/CD автоматизация
+## 1. Проблема
 
----
+Длительный запуск `aiqa` должен быть понятен без включения диагностики. Сейчас
+`--verbose 4` выводит в терминал сырой JSONL-трейс. Он пригоден для
+post-mortem анализа, но не отвечает во время запуска на вопросы: выполняется
+ли процесс, какой provider активен, сколько работы осталось и ожидает ли он
+rate-limit cooldown.
 
-## 1. Введение и цели
+Нельзя честно вычислить единый total до первого сетевого запроса: при пустом
+`--model` inventory определяет модели, capability classification определяет
+модули, а pagination, retry, adaptive context probes и executable extensions
+могут добавлять работу динамически.
 
-При выполнении длительных наборов тестов (`aiqa test=compat,model-param,sdk...`) текущий вывод страдает от двух проблем: спама сырого JSONL при включении `--verbose` и отсутствия обратной связи о динамике прогона (процент готовности, скорость, расчетное время завершения).
+## 2. Цели
 
-**Ключевые цели:**
+- Показывать понятное состояние выполнения при `--verbose 0` и без
+  `--verbose`.
+- После discovery показывать честные процент, скорость и ETA для известного
+  плана логических проб.
+- Не изменять compatibility verdict, запросы к provider-ам, pacing или
+  exit-code policy.
+- Сохранить JSONL как приватную forensic-диагностику, не печатая его в
+  терминал.
+- Следовать Unix-правилам: интерактивное обновление только на TTY; при
+  перенаправлении — неизменяемые текстовые строки без ANSI-последовательностей.
 
-* **Чистый терминал:** Заменить вывод неструктурированного потока логов в терминал компактным, интерактивным прогресс-баром.
-* **Строгий Unix-way:** Разделить каналы `stderr` (UI/прогресс), `stdout` (чистые машинные результаты/отчеты) и файловую систему (полный структурированный аудит).
-* **Нативная подкоманда `aiqa log`:** Предоставить инструмент потокового мониторинга и фильтрации структурированных логов без необходимости использовать сторонние утилиты (`tail`, `jq`, `sed`).
-* **Точная фильтрация по уровням:** Завязать отображение на существующий доменный Enum уровней логирования (`TRACE`..`FATAL`).
+## 3. Термины и инварианты
 
----
+- **Логическая проба** — AIQA-owned unit с одним lifecycle `probe.start` /
+  `probe.end`; это единица прогресса.
+- **HTTP attempt** не является единицей прогресса: retry и rate-limit меняют
+  число attempts, но не выполненную работу.
+- **План** — известное на данный момент число логических проб. План может быть
+  пересмотрен только явным событием `plan revised`; процент никогда не должен
+  ложно заявляться как окончательные `100%` до завершения target-а.
+- **Progress output** независим от `--verbose` и не попадает в `.log` как
+  диагностическая запись.
+- Приватный JSONL создаётся только при verbosity `1..4`, как сейчас; уровень
+  определяет его состав. При `0` прогресс остаётся видимым, но forensic-файл
+  не требуется.
 
-## 2. Архитектура потоков ввода-вывода (IO Separation)
+## 4. Поведение CLI и потоков
 
-```
-                                aiqa test=...
-                                      │
-         ┌────────────────────────────┼───────────────────────────┐
-         ▼                            ▼                           ▼
-    [ stderr ]                   [ stdout ]               [ File System ]
- isatty(stderr)?             (Чистый payload)            report/<name>.log
- ┌───────┴───────┐                    │                           │
-YES              NO             Финальный отчет         Полный структурированный
- │               │              (Markdown/JSON)                  JSONL
-Прогресс-бар   CI-safe                │                 (глубина зависит от
-  + ETA    дискретные логи      Pipe / Redirect          флага --verbose=0..4)
-
-```
-
-### 2.1. Спецификация дескрипторов
-
-| Поток / Канал | Назначение | Формат данных | Условие активности / Поведение |
+| Канал | TTY | non-TTY / CI | Зависит от `--verbose` |
 | --- | --- | --- | --- |
-| **`stderr`** | Интерактивный UI / Прогресс | Однострочный ASCII/Unicode бар через `\r` | Только при `isatty(stderr) == true` и отсутствии флага `--quiet` / `--no-progress`. В non-TTY переключается на дискретные текстовые записи. |
-| **`stdout`** | Финальный результат / Payload | Чистый Markdown или JSON (по флагу `--format`) | Данные пишутся только по завершении прогона (или потоковый payload). Полная совместимость с `aiqa ... > result.json`. |
-| **Файл (`report/*.log`)** | Детализированный журнал аудита | Строгий JSON Lines (NDJSON) | Записывается всегда. Флаги `--verbose=0..4` (`-v`..`-vvvv`) определяют **только** глубину детализации записей в этом файле. |
+| `stderr` | одна перерисовываемая progress-строка | неизменяемые milestone/heartbeat строки | нет |
+| `stdout` | не используется для progress или JSONL | не используется для progress или JSONL | нет |
+| `report/<name>.log` | приватный JSONL при `-v..-vvvv` | то же | да |
+| `report/<name>.md`, `.json` | итоговые файловые артефакты | то же | нет |
 
----
+`stdout` остаётся чистым для будущего машинного CLI contract; этот PRD не
+добавляет потоковый вывод отчёта и не обещает, что `> report.json` создаст
+JSON-отчёт.
 
-## 3. Спецификация прогресс-бара (Execution Phase)
+### 4.1. Интерактивный TTY
 
-### 3.1. Предварительный расчет общего пула (Discovery Phase)
-
-До выполнения первого сетевого запроса планировщик вычисляет общее число проверок:
-
-
-$$\text{Total} = \sum (\text{Targets} \times \text{Models} \times \text{Probes} \times \text{Samples})$$
-
-
-Полученное значение принимается за $100\%$.
-
-### 3.2. Расчет метрик и сглаживание
-
-* **Прогресс:** $P = \frac{\text{Current}}{\text{Total}} \times 100\%$
-* **Скорость ($V$):** $\frac{\text{Current}}{\Delta t_{\text{elapsed}}}$ (проб/сек).
-* **Оценка времени завершения (ETA):** Вычисляется по скользящему среднему (SMA по последним 20 пробам) для компенсации сетевых пауз LLM API:
-
-$$\text{ETA} = \frac{\text{Total} - \text{Current}}{V_{\text{SMA}}}$$
-
-
-
-### 3.3. Визуальный контракт терминала
-
-Рендеринг выполняется в `os.Stderr`:
+Писать progress в `stderr`, перерисовывая одну строку через `\r`. Не скрывать
+курсор и не использовать зависимость от внешнего terminal UI framework.
 
 ```text
-[aiqa:compat] [████████████░░░░░░░░] 60% (60/100) 1.8/s | ETA: 00:22 | gemma-4-31b-it:json_schema
-
+aiqa: Anthropic  [##########----------] 24/42 57%  0.9 probe/s  ETA 20s  messages.basic
 ```
 
-* **При `--concurrency > 1`:** в правой части отображается счетчик воркеров: `[3 active workers]`.
-* **При завершении:** обязательный перевод строки `\n`.
-* **Обработка `SIGINT` (`Ctrl+C`):** перехват сигнала, принудительное включение курсора (`\033[?25h`) и корректный выход без повреждения терминала.
-* **Режим CI (`isatty == false` или `CI=true`):** отключение `\r`. Вывод строчных чекпоинтов каждые 10% или раз в 30 секунд:
-```text
-[aiqa] progress: 10/100 (10%) | elapsed: 5s | eta: 45s
+При завершении target-а и всего запуска строка завершается `\n`. Ширина бара
+адаптируется к разумной фиксированной ширине; при узком терминале сокращаются
+сначала модель/проба, затем скорость и ETA, но target и `done/total` остаются.
 
-```
+### 4.2. non-TTY и CI
 
+Не писать `\r`, ANSI или escape sequences. Печатать:
 
-
----
-
-## 4. Спецификация подкоманды `aiqa log` (Monitoring Phase)
-
-Подкоманда предназначена для просмотра и потокового фильтрования логов как в процессе прогона, так и post-mortem.
-
-### 4.1. CLI Интерфейс
+- начало run и начало discovery target-а;
+- зафиксированный план;
+- начало ожидания pacing/rate-limit и его окончание;
+- checkpoint при изменении целого процента на 10 пунктов либо не реже одного
+  раза в 30 секунд;
+- завершение target-а и итог со списком созданных отчётов.
 
 ```text
-usage:
-  aiqa log [path] [options]
-
-source options:
-  [path]                    путь к JSONL файлу (default: ./report/<name>.log)
-  -f, --follow              стриминг новых строк в реальном времени (follow mode)
-
-filtering options:
-  -l, --level LEVEL         порог критичности: TRACE|DEBUG|INFO|WARN|ERROR|FATAL
-                            (default: INFO; регистронезависимый)
-  -v, -vv                   шортхенд: -v соответствует DEBUG, -vv соответствует TRACE
-  --only-level L[,L]        строгий фильтр только по заданным уровням без учета иерархии
-  --failed                  синоним для --level ERROR (показывает только ERROR и FATAL)
-  --target TARGET           фильтрация по таргету (openai, anthropic, google-genai)
-  --model ID                фильтрация по идентификатору модели
-
-display options:
-  --format table|compact|json  формат отображения (default: table для TTY, compact для pipe)
-
+aiqa: google-genai: planned 42 probes
+aiqa: google-genai: progress 24/42 (57%), 0.9 probe/s, ETA 20s
+aiqa: google-genai: waiting for provider pacing (18s)
 ```
 
-### 4.2. Иерархия уровней логов
+Ошибки запуска и итоговая ошибка всегда пишутся в `stderr`, независимо от
+verbosity.
 
-Фильтрация базируется на внутреннем перечислении типов:
+## 5. Планирование, счётчики и ETA
 
-```go
-type Level string
+### 5.1. Две фазы
 
-const (
-    Trace Level = "TRACE" // Вес 0: Raw payloads, network hex, private traces
-    Debug Level = "DEBUG" // Вес 1: Внутренние этапы пробы, adaptive backoff steps
-    Info  Level = "INFO"  // Вес 2: Lifecycle: запуск/финиш suite, probe (DEFAULT)
-    Warn  Level = "WARN"  // Вес 3: Ретраи, пропуски (skipped), деградация задержек
-    Error Level = "ERROR" // Вес 4: Провал пробы (failed), таймауты, mismatch схем
-    Fatal Level = "FATAL" // Вес 5: Фатальные ошибки рантайма, сеть недоступна
-)
+1. **До inventory.** Отображается indeterminate состояние: `Planning N
+   targets`, затем `Discovering <target>`. Процента и ETA нет.
+2. **После inventory и classification текущего target-а.** Раннер публикует
+   immutable snapshot известного плана: discovery, выбранные native probes,
+   provider endpoint probes и объявленные built-in extension suites. После
+   этого отображаются `done/total`, процент, скорость и ETA.
 
-```
+Targets исполняются последовательно; progress явно называет активный target,
+а не создаёт впечатление параллельной работы между provider-ами.
 
-**Логика фильтрации:**
+### 5.2. Динамическая работа
 
-* По умолчанию действует пороговый фильтр: отображаются события с `Severity(entry.Level) >= Severity(threshold)`.
-* При указании `--only-level` отображаются только перечисленные уровни.
-* События уровней `ERROR` и `FATAL` пропускаются всегда, независимо от регулярного выражения события.
+- Pagination, retries и pacing учитываются как состояние текущей логической
+  пробы, не как новые завершённые пробы.
+- `model-param` adaptive context search и executable extension suites не
+  включаются в обещанный фиксированный total, пока host не получил их
+  объявленный план/терминальный результат.
+- Если известная host-owned работа добавлена после snapshot-а, показать
+  `plan revised: 42 -> 57`, обновить total и ETA. Счётчик `done` сохраняется.
+- External executable не может сообщать точное число своих HTTP attempts;
+  его declared suite/invocation — одна логическая единица progress. Частичный
+  или отсутствующий callback завершает эту единицу с ошибкой.
 
-### 4.3. Резолвинг источника данных (Dual-source Reader)
+### 5.3. Скорость и ETA
 
-1. **Явный файл:** `aiqa log /path/to/compat-report.log`.
-2. **Стандартный ввод (Unix-pipe):** если путь не задан и `!isatty(stdin)`, утилита читает поток:
-```bash
-tail -f compat-report.log | aiqa log
+- Скорость — EMA по времени завершения логических проб; измерение начинается
+  после двух terminal events.
+- До этого выводить `ETA estimating`; при нулевой скорости, контекстной отмене
+  или неизвестном total выводить `ETA unknown`, не бесконечность и не
+  отрицательное значение.
+- В wall-clock время входят pacing и provider latency, поэтому ETA отражает
+  реальное ожидание пользователя. При событии pacing UI немедленно сообщает
+  ожидание, даже если checkpoint ещё не наступил.
 
-```
+## 6. Реализационные границы
 
+### US-001: Отделить progress от логирования
 
-3. **Zero-config Fallback:** если аргументы отсутствуют, читается дефолтный файл проекта (`report/report.log` или `report/compat-report.log`).
+Как оператор, я вижу ход запуска без `--verbose`, а forensic-записи не
+засоряют терминал.
 
-### 4.4. Табличный вывод и ANSI-палитра
+**Критерии приёмки:**
 
-При работе в TTY события по маске `^(run|target|suite|probe)\.` рендерятся в выровненную таблицу:
+- [ ] В `internal/app/app.go` убрать прямой вывод `logger.LogfLine` в
+  `stderr`; JSONL остаётся sidecar-артефактом.
+- [ ] Создать внутренний progress reporter с отдельным writer, clock и
+  TTY-detector, пригодными для unit-тестов.
+- [ ] `--verbose 0` выдаёт progress, но не создаёт `.log`; `-v..-vvvv`
+  сохраняют прогресс и создают JSONL соответствующего уровня.
+- [ ] Ни один progress-текст не содержит credential, prompt, response body
+  или API key.
 
-```text
-SEQ   TIME      LEVEL  TARGET         MODEL           PROBE                   STATUS
-12    23:14:02  INFO   google-genai   gemma-4-31b-it  json_schema/type_check  PASSED (210ms)
-13    23:14:04  ERROR  openai         gpt-4o-mini     tool_calling/parallel   FAILED (450ms)
+### US-002: План и lifecycle-адаптер
 
-```
+Как оператор, я вижу корректный total лишь после того, как он стал известен.
 
-**Цветовая дифференциация:**
+**Критерии приёмки:**
 
-* `FATAL`: `\033[41;1;37m` (Белый текст на красном фоне, жирный)
-* `ERROR` / `FAILED`: `\033[1;31m` (Красный, жирный)
-* `WARN` / `SKIPPED`: `\033[33m` (Желтый)
-* `INFO` / `PASSED`: `\033[32m` (Зеленый)
-* `DEBUG`: `\033[36m` (Голубой)
-* `TRACE`: `\033[90m` (Серый)
-* Служебные колонки (`SEQ`, `TIME`): `\033[90m`
-* **Поддержка `NO_COLOR`:** Если установлена переменная окружения `NO_COLOR=1` или `!isatty(stdout)`, экранирующие ANSI-последовательности полностью отключаются.
+- [ ] До discovery показывается indeterminate стадия без `%`, `N/M` или ETA.
+- [ ] Native runners публикуют plan только после `selectModels` и capability
+  classification; plan содержит только логические host-owned единицы.
+- [ ] `probe.end` обновляет completed ровно один раз по operation/probe ID;
+  validator и HTTP attempt не меняют completed.
+- [ ] Динамическое расширение фиксируется отдельным событием revision и не
+  допускает `done > total`.
+- [ ] Подсчёт не меняет существующие telemetry lifecycle graph и
+  traceverify-инварианты.
 
----
+### US-003: Unix-safe rendering
 
-## 5. Сценарии использования (CLI Contract)
+Как пользователь терминала или CI, я получаю читаемый вывод без повреждения
+pipe, файла или terminal state.
 
-* **Стандартный запуск разработчиком:**
-```bash
-aiqa test=compat --target google-genai --model gemma-4-31b-it -vv
+**Критерии приёмки:**
 
-```
+- [ ] TTY renderer использует одну строку и завершает её новой строкой при
+  target end, run end и cancellation.
+- [ ] Non-TTY renderer не содержит `\r` или ANSI и соблюдает heartbeat rule.
+- [ ] `SIGINT`/`SIGTERM` завершают текущую progress-строку и сохраняют
+  существующий exit semantics.
+- [ ] `NO_COLOR` не требуется для progress v1, потому что v1 не использует
+  цвет; цвет и сложный terminal UI — вне scope.
 
+### US-004: ETA и pacing state
 
-*В терминале:* аккуратный однострочный прогресс-бар с ETA.
-*В файле `report/compat-report.log`:* подробные логи уровня `DEBUG` (`-vv`).
-* **Живой мониторинг ошибок в соседнем терминале:**
-```bash
-aiqa log -f --failed
+Как оператор, я отличаю полезную работу от ожидания provider limit.
 
-```
+**Критерии приёмки:**
 
+- [ ] Первые одна-две пробы показывают `ETA estimating`, а не фиктивное число.
+- [ ] ETA пересчитывается при completion, plan revision и завершении/отмене
+  pacing wait.
+- [ ] Pacing wait отображает target и известную длительность; если длительность
+  неизвестна — `waiting for provider pacing`, без выдуманного countdown.
+- [ ] Для `--concurrency > 1` показываются `active/limit` логических проб
+  текущего target-а, если эти значения доступны; иначе поле опускается.
 
-*Вывод:* чистый, лишенный шума поток только упавших проверок с подсветкой причин сбоя.
-* **Глубокая отладка конкретной модели на уровне TRACE:**
-```bash
-aiqa log -f --model gemma-4-31b-it -vv
+## 7. Технические точки интеграции
 
-```
+- `internal/app/app.go`: владеет run/target lifecycle, сортирует и
+  последовательно выполняет targets; создаёт reporter и финализирует UI.
+- `internal/protocol/{openai,anthropic,googlegenai}/runner.go`: после discovery
+  и model/capability selection могут материализовать native plan.
+- `internal/suites/common.go`: единая точка `probe.start`/`probe.end` для
+  native probes; подходящая граница для completion callback.
+- `internal/api/client.go`: уже публикует `pacing.wait.begin/end`; добавить
+  безопасный progress callback, не интерпретируя HTTP attempts как completion.
+- `internal/extsuite/runner.go` и `collector.go`: объявляют built-in/external
+  suites и могут сообщить invocation terminal state.
+- `internal/logging` и `internal/telemetry`: остаются источником private trace;
+  progress не должен парсить JSONL обратно и не должен зависеть от verbosity.
 
+## 8. Тестовый план
 
-* **Интеграция в CI-пайплайн:**
-```bash
-aiqa test=compat --format json > report.json
+- Unit: renderer TTY/non-TTY, truncation, checkpoint throttle, ETA states,
+  plan revision, cleanup after cancellation.
+- Unit: счётчик deduplicates duplicate terminal notification и не считает
+  retries/validators как новые пробы.
+- Runner tests: discovery без model inventory не публикует fixed total; после
+  selection published plan совпадает с реально созданными logical probes.
+- Integration: fake provider с pacing wait и concurrency >1; проверить
+  `done <= total`, progress-восстановление и отсутствие ANSI в non-TTY.
+- Regression: `make qa`, включая `make example`; сгенерированные примеры не
+  должны содержать progress-вывод, потому что отчёты остаются файловыми.
 
-```
+## 9. Не входит в scope
 
+- Подкоманда `aiqa log`, tail/follow и таблицы просмотра JSONL. Текущий JSONL
+  уже можно читать `jq`; отдельный viewer — самостоятельный продукт.
+- Потоковая сериализация Markdown/JSON-отчётов в `stdout`.
+- Изменение формата `aiqa.trace.v1`, публичного report schema, verdict или
+  exit policy.
+- Изменение scheduler-а, concurrency, retry или rate-limit pacing.
+- Цвета, скрытие курсора, сторонние TUI-библиотеки и сохранение истории
+  progress в отчёте.
 
-*Поведение:* stderr не генерирует управляющих символов `\r`, stdout содержит исключительно валидный JSON-отчет.
+## 10. Готовность к реализации
 
----
+План готов: архитектура уже имеет lifecycle-события `run`, `target`, `suite`,
+`probe` и pacing события, а `app` владеет границами run/target. Требуемые
+изменения локальны в перечисленных пакетах и не требуют credentials, внешних
+сервисов или нового runtime dependency.
 
-## 6. Критерии приемки (Definition of Done)
+Контракт реализации уже выбран: создать внутренний `ProgressReporter` и
+передавать его native runner-ам через `protocol.RunOptions`. Runners не
+возвращают transient progress state вместе с report result. Это не смешивает
+публичный результат с UI и не требует дальнейших продуктовых решений.
 
-1. **Изоляция потоков:** Выполнение команды `aiqa test=compat > out.json` формирует файл, валидируемый через `jq . out.json` без синтаксических ошибок.
-2. **Корректность TTY:** Прогресс-бар появляется только в TTY-терминале; перенаправление `2> stderr.log` полностью подавляет ANSI-анимацию.
-3. **Стабильность таймеров:** ETA не скачет при одиночных просадках сети и не принимает отрицательные значения.
-4. **Zero-dependency Log Streaming:** Команда `aiqa log -f` функционирует автономно без внешних системных пакетов `tail` или `jq`.
-5. **Фильтрация уровней:** Запуск `aiqa log -l WARN` гарантированно скрывает события `INFO`, `DEBUG` и `TRACE`.
-6. **Корректный перехват прерываний:** При нажатии `Ctrl+C` курсор терминала всегда остается видимым.
+## 11. Проверяемый результат
+
+Реализация считается завершённой, когда:
+
+1. Без `--verbose` интерактивный запуск постоянно показывает текущую стадию,
+   а non-TTY запуск регулярно выдаёт plain-text progress.
+2. После discovery все фиксированные проценты удовлетворяют `0 <= done <=
+   total`; единица — логическая проба, не HTTP attempt.
+3. Пользователь видит pacing ожидание, а не воспринимает его как зависание.
+4. `-vvvv` сохраняет полный приватный JSONL, но терминал остаётся операторским
+   UI, а не неотформатированным JSON.
+5. `make qa` и `make example` проходят на интегрированном HEAD.
