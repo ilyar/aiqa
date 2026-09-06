@@ -207,6 +207,10 @@ pipe, файла или terminal state.
   suites и могут сообщить invocation terminal state.
 - `internal/logging` и `internal/telemetry`: остаются источником private trace;
   progress не должен парсить JSONL обратно и не должен зависеть от verbosity.
+- [Forensic baseline diagnostics](prd-forensic-baseline-diagnostics.md)
+  остаётся нормативным контрактом для содержания, privacy, `aiqa.trace.v1` и
+  lifecycle completeness private sidecar. Этот PRD меняет только его terminal
+  presentation.
 
 ## 8. Тестовый план
 
