@@ -65,11 +65,52 @@ func normalizeV3Collections(r result.ReportV3) result.ReportV3 {
 		if r.Targets[index].Models == nil {
 			r.Targets[index].Models = []result.ModelReport{}
 		}
+		normalizeTargetClassifications(&r.Targets[index])
 	}
 	return r
 }
 
+// normalizeTargetClassifications materializes evidence classifications at the
+// report boundary. Producers keep their canonical statuses; this metadata
+// makes public JSON and Markdown explicit about what a non-pass proves.
+func normalizeTargetClassifications(target *result.TargetReport) {
+	classifyTests := func(tests []result.TestResult) {
+		for i := range tests {
+			if tests[i].Classification == nil {
+				tests[i].Classification = result.ClassifyTestResult(tests[i], target.Profile.Revision)
+			}
+		}
+	}
+	classifyTests(target.Discovery.Tests)
+	classifyTests(target.Discovery.Compatibility)
+	for mi := range target.Models {
+		classifyTests(target.Models[mi].Compatibility)
+		for pi := range target.Models[mi].Parameters {
+			p := &target.Models[mi].Parameters[pi]
+			if p.Classification == nil {
+				p.Classification = result.ClassifyResult(p.Status, "parameter."+p.Name, "", target.Profile.Revision, p.HTTP)
+			}
+		}
+		if context := target.Models[mi].Context; context != nil && context.Classification == nil {
+			context.Classification = result.ClassifyResult(context.Status, "context."+target.Models[mi].ID, "", target.Profile.Revision, result.HTTPObservation{})
+		}
+	}
+	for ri := range target.Extensions {
+		for si := range target.Extensions[ri].Suites {
+			s := &target.Extensions[ri].Suites[si]
+			if s.Classification == nil {
+				s.Classification = result.ClassifyResult(s.Status, "extension."+s.ExtensionID+"."+s.SuiteID, s.RequirementID, target.Profile.Revision, s.HTTP)
+				if s.ErrorKind == "deadline_exceeded" || s.ErrorKind == "cancelled" || s.ErrorKind == "transport" || s.ErrorKind == "process" {
+					s.Classification.Kind = "execution_gap"
+					s.Classification.Reason = "extension execution ended without conclusive provider evidence"
+				}
+			}
+		}
+	}
+}
+
 func MarkdownV3(r result.ReportV3) string {
+	r = normalizeV3Collections(r)
 	var b strings.Builder
 	fmt.Fprintln(&b, "# AIQA compatibility report")
 	fmt.Fprintln(&b)
@@ -140,6 +181,7 @@ func MarkdownV3(r result.ReportV3) string {
 		writeTargetGuidance(&b, target)
 		writeRequirementAssessment(&b, target.Requirements)
 		writeTargetModels(&b, target)
+		writeTargetClassifications(&b, target)
 		writeTargetExtensions(&b, target.Extensions, target.ExtensionRateLimit)
 	}
 
@@ -159,6 +201,48 @@ func MarkdownV3(r result.ReportV3) string {
 		fmt.Fprintf(&b, "| **All targets** | **%d** | **%d** | **%d** | **%d** | **%d** | **%d** |\n", combined.input, combined.output, combined.cacheCreation, combined.cacheRead, combined.reasoning, combined.total)
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func writeTargetClassifications(b *strings.Builder, target result.TargetReport) {
+	type row struct {
+		id             string
+		status         result.Status
+		classification *result.Classification
+	}
+	var rows []row
+	add := func(tests []result.TestResult) {
+		for _, t := range tests {
+			if t.Classification != nil {
+				rows = append(rows, row{t.ID, t.Status, t.Classification})
+			}
+		}
+	}
+	add(target.Discovery.Tests)
+	add(target.Discovery.Compatibility)
+	for _, model := range target.Models {
+		add(model.Compatibility)
+		for _, p := range model.Parameters {
+			if p.Classification != nil {
+				rows = append(rows, row{"parameter." + p.Name, p.Status, p.Classification})
+			}
+		}
+		if model.Context != nil && model.Context.Classification != nil {
+			rows = append(rows, row{"context." + model.ID, model.Context.Status, model.Context.Classification})
+		}
+	}
+	if len(rows) == 0 {
+		return
+	}
+	fmt.Fprintln(b, "### Evidence classification")
+	fmt.Fprintln(b)
+	fmt.Fprintln(b, "Classification describes the evidence for a non-pass result; it is not certification or a change to the canonical verdict.")
+	fmt.Fprintln(b)
+	fmt.Fprintln(b, "| Check | Status | Classification | Evidence |")
+	fmt.Fprintln(b, "|---|---:|---|---|")
+	for _, r := range rows {
+		fmt.Fprintf(b, "| `%s` | %s | `%s` | %s |\n", escapeCell(r.id), statusLabel(r.status), escapeCell(r.classification.Kind), escapeCell(r.classification.Reason))
+	}
+	fmt.Fprintln(b)
 }
 
 func servicesLink(targets []result.TargetPublicConfig) string {
@@ -484,11 +568,15 @@ func writeTargetExtensions(b *strings.Builder, runs []result.ExtensionRun, rateL
 	for _, id := range ids {
 		p := provenance[id]
 		fmt.Fprintf(b, "#### %s %s\n\n", escapeCell(extensionDisplayName(p)), escapeCell(p.Version))
-		fmt.Fprintln(b, "| Suite | Subject | Status | Duration | Summary |")
-		fmt.Fprintln(b, "|---|---|---:|---:|---|")
+		fmt.Fprintln(b, "| Suite | Subject | Status | Classification | Duration | Summary |")
+		fmt.Fprintln(b, "|---|---|---:|---|---:|---|")
 		for _, run := range groups[id] {
 			for _, suite := range run.Suites {
-				fmt.Fprintf(b, "| `%s` | `%s:%s` | %s | %dms | %s |\n", escapeCell(suite.SuiteID), escapeCell(suite.Subject.Kind), escapeCell(suite.Subject.ID), statusLabel(suite.Status), suite.DurationMS, escapeCell(suite.Summary))
+				classification := "–"
+				if suite.Classification != nil {
+					classification = "`" + escapeCell(suite.Classification.Kind) + "`"
+				}
+				fmt.Fprintf(b, "| `%s` | `%s:%s` | %s | %s | %dms | %s |\n", escapeCell(suite.SuiteID), escapeCell(suite.Subject.Kind), escapeCell(suite.Subject.ID), statusLabel(suite.Status), classification, suite.DurationMS, escapeCell(suite.Summary))
 			}
 		}
 		fmt.Fprintln(b)

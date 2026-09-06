@@ -713,6 +713,11 @@ func runInteractionStream(parent context.Context, client *Client, timeout time.D
 	body := map[string]any{"model": model, "input": "Reply with exactly AIQA_OK.", "store": false, "stream": true}
 	stream, err := callStream(parent, timeout, func(ctx context.Context) (api.StreamResponse, error) { return client.StreamInteraction(ctx, body) })
 	validation := ValidateInteractionStream(stream)
+	client.TransportClient().LogDiagnostic(parent, logging.Trace, "diagnostic.sse_validation", logging.Fields{
+		"sse_validation_problem_codes": interactionValidationCodes(validation),
+		"sse_invalid_event_count":      len(stream.InvalidEvents),
+		"model":                        model,
+	})
 	httpTest := testBase(p, "google.interactions.stream.http")
 	httpTest.DurationMS = stream.Duration.Milliseconds()
 	httpTest.HTTP = streamObservation(stream)
@@ -785,6 +790,39 @@ func runInteractionStream(parent context.Context, client *Client, timeout time.D
 		}
 	}
 	return []result.TestResult{httpTest, syntax, eventTypes, sequence, textTest, completed, usage, done}
+}
+
+// interactionValidationCodes deliberately turns validator text into a small
+// stable vocabulary. Provider event payloads and validator prose stay out of
+// the private diagnostic stream.
+func interactionValidationCodes(validation InteractionStreamValidation) string {
+	if validation.ProviderError {
+		return "provider_error"
+	}
+	if len(validation.Problems) == 0 {
+		return "-"
+	}
+	seen := make(map[string]bool)
+	for _, problem := range validation.Problems {
+		code := "sequence_invalid"
+		switch {
+		case strings.Contains(problem, "event name"):
+			code = "event_type_mismatch"
+		case strings.Contains(problem, "has no step id"):
+			code = "step_correlation_missing"
+		case strings.Contains(problem, "did not reach completed"):
+			code = "terminal_missing"
+		case strings.Contains(problem, "not valid JSON"), strings.Contains(problem, "invalid SSE"):
+			code = "sse_syntax_invalid"
+		}
+		seen[code] = true
+	}
+	codes := make([]string, 0, len(seen))
+	for code := range seen {
+		codes = append(codes, code)
+	}
+	sort.Strings(codes)
+	return strings.Join(codes, ",")
 }
 
 func runInteractionTools(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string) []result.TestResult {

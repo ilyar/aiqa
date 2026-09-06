@@ -95,6 +95,7 @@ func TestNativeTraceUsesConcreteProbeIDsBeforeHTTP(t *testing.T) {
 	probeSpans := map[string]string{}
 	probeEnd := map[string]bool{}
 	logicalChildren := map[string]int{}
+	seenValidationDiagnostic := false
 	for _, record := range records {
 		event, _ := record["event"].(string)
 		probeID, _ := record["probe"].(string)
@@ -107,6 +108,12 @@ func TestNativeTraceUsesConcreteProbeIDsBeforeHTTP(t *testing.T) {
 		if event == "http.logical_request.start" || event == "http.stream_logical_request.start" {
 			parent, _ := record["parent_span_id"].(string)
 			logicalChildren[parent]++
+		}
+		if event == "diagnostic.sse_validation" {
+			if record["sse_validation_problem_codes"] != "-" || record["model"] != "fixture-text" || record["probe"] != "aiqa.native.google.interactions.stream.http" {
+				t.Fatalf("unexpected SSE validation diagnostic: %#v", record)
+			}
+			seenValidationDiagnostic = true
 		}
 	}
 	for _, id := range []string{
@@ -130,6 +137,9 @@ func TestNativeTraceUsesConcreteProbeIDsBeforeHTTP(t *testing.T) {
 	}
 	if probeSpans["aiqa.native.google.interactions.stream"] != "" || probeSpans["aiqa.native.google.errors"] != "" {
 		t.Fatalf("found legacy capability-wide composite probes: %#v", probeSpans)
+	}
+	if !seenValidationDiagnostic {
+		t.Fatal("missing bounded SSE validation diagnostic")
 	}
 }
 
@@ -403,11 +413,11 @@ func writeGoogleInteractionStream(w http.ResponseWriter) {
 		name string
 		body map[string]any
 	}{
-		{"interaction.created", map[string]any{"type": "interaction.created", "id": "fixture-interaction"}},
-		{"step.start", map[string]any{"type": "step.start", "step_id": "step-1"}},
-		{"step.delta", map[string]any{"type": "step.delta", "step_id": "step-1", "text": "AIQA_OK"}},
-		{"step.stop", map[string]any{"type": "step.stop", "step_id": "step-1"}},
-		{"interaction.completed", map[string]any{"type": "interaction.completed", "usage": map[string]any{"input_tokens": 3, "output_tokens": 2, "total_tokens": 5}}},
+		{"interaction.created", map[string]any{"event_type": "interaction.created", "interaction": map[string]any{"id": "fixture-interaction"}}},
+		{"step.start", map[string]any{"event_type": "step.start", "interaction": map[string]any{"id": "fixture-interaction"}, "step": map[string]any{"index": 0}}},
+		{"step.delta", map[string]any{"event_type": "step.delta", "interaction": map[string]any{"id": "fixture-interaction"}, "step": map[string]any{"index": 0}, "delta": map[string]any{"type": "output_text_delta", "text": "AIQA_OK"}}},
+		{"step.stop", map[string]any{"event_type": "step.stop", "interaction": map[string]any{"id": "fixture-interaction"}, "step": map[string]any{"index": 0}}},
+		{"interaction.completed", map[string]any{"event_type": "interaction.completed", "interaction": map[string]any{"id": "fixture-interaction", "usage": map[string]any{"input_tokens": 3, "output_tokens": 2, "total_tokens": 5}}}},
 	} {
 		encoded, _ := json.Marshal(event.body)
 		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.name, encoded)

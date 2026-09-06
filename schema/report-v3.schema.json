@@ -91,6 +91,30 @@
       "properties": {"code": {"type": "string", "pattern": "^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"}, "root_cause": {"type": "string"}, "parameters": {"type": "object"}},
       "additionalProperties": false
     },
+    "classification": {
+      "type": "object", "required": ["kind"],
+      "properties": {
+        "kind": {"enum": ["provider_nonconformance", "checker_defect", "behavioral_observation", "execution_gap", "unsupported_capability", "insufficient_evidence"]},
+        "requirement_id": {"type": "string"}, "profile_revision": {"type": "string"},
+        "operation_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "reason": {"type": "string", "minLength": 1}
+      }, "additionalProperties": false
+    },
+    "testResult": {
+      "type": "object",
+      "properties": {"classification": {"$ref": "#/$defs/classification"}},
+      "additionalProperties": true
+    },
+    "parameterResult": {
+      "type": "object",
+      "properties": {"classification": {"$ref": "#/$defs/classification"}},
+      "additionalProperties": true
+    },
+    "contextProbeResult": {
+      "type": "object",
+      "properties": {"classification": {"$ref": "#/$defs/classification"}},
+      "additionalProperties": true
+    },
     "provenance": {
       "type": "object", "required": ["id", "name", "version", "source", "protocol_version"],
       "properties": {
@@ -111,7 +135,8 @@
         "outcome": {"enum": ["pass", "assertion_failed", "request_rejected", "execution_error", "skip"]}, "status": {"$ref": "#/$defs/status"},
         "duration_ms": {"type": "integer", "minimum": 0}, "summary": {"type": "string", "minLength": 1}, "http": {"$ref": "#/$defs/httpObservation"}, "usage": {"$ref": "#/$defs/usage"},
         "signals": {"type": "array", "items": {"$ref": "#/$defs/signal"}}, "requirement_id": {"type": "string"}, "related_requirement_ids": {"type": "array", "items": {"type": "string"}},
-        "bound": {"type": "boolean"}, "artifact_ref": {"type": "string"}, "error": {"type": "string"}
+        "bound": {"type": "boolean"}, "artifact_ref": {"type": "string"}, "error": {"type": "string"},
+        "error_kind": {"enum": ["deadline_exceeded", "cancelled", "transport", "assertion", "process", "capability_rejection"]}, "error_code": {"type": "string"}, "classification": {"$ref": "#/$defs/classification"}
       },
       "additionalProperties": false
     },
@@ -132,7 +157,7 @@
     },
     "model": {
       "type": "object", "required": ["id", "assessment", "summary"],
-      "properties": {"id": {"type": "string"}, "metadata": {"type": "object"}, "compatibility": {"type": "array", "items": {"type": "object"}}, "parameters": {"type": "array", "items": {"type": "object"}}, "context": {"type": "object"}, "rate_limit": {"$ref": "#/$defs/rateLimit"}, "capabilities": {"type": "array", "items": {"type": "object"}}, "modules": {"type": "array", "items": {"$ref": "#/$defs/moduleAssessment"}}, "assessment": {"type": "object"}, "summary": {"type": "object"}},
+      "properties": {"id": {"type": "string"}, "metadata": {"type": "object"}, "compatibility": {"type": "array", "items": {"$ref": "#/$defs/testResult"}}, "parameters": {"type": "array", "items": {"$ref": "#/$defs/parameterResult"}}, "context": {"$ref": "#/$defs/contextProbeResult"}, "rate_limit": {"$ref": "#/$defs/rateLimit"}, "capabilities": {"type": "array", "items": {"type": "object"}}, "modules": {"type": "array", "items": {"$ref": "#/$defs/moduleAssessment"}}, "assessment": {"type": "object"}, "summary": {"type": "object"}},
       "additionalProperties": false
     },
     "moduleAssessment": {
@@ -148,7 +173,7 @@
     },
     "target": {
       "type": "object", "required": ["id", "protocol", "profile", "discovery", "models", "summary", "guidance", "rate_limit"],
-      "properties": {"id": {"type": "string"}, "protocol": {"enum": ["openai", "anthropic", "google-genai"]}, "profile": {"$ref": "#/$defs/profile"}, "discovery": {"type": "object"}, "models": {"type": "array", "items": {"$ref": "#/$defs/model"}}, "requirements": {"type": "array", "items": {"type": "object"}}, "summary": {"type": "object", "not": {"required": ["score"]}}, "guidance": {"type": "object"}, "rate_limit": {"$ref": "#/$defs/rateLimit"}, "extension_rate_limit": {"$ref": "#/$defs/rateLimit"}, "extensions": {"type": "array", "items": {"$ref": "#/$defs/extensionRun"}}, "notes": {"type": "array", "items": {"type": "string"}}},
+      "properties": {"id": {"type": "string"}, "protocol": {"enum": ["openai", "anthropic", "google-genai"]}, "profile": {"$ref": "#/$defs/profile"}, "discovery": {"type": "object", "properties": {"tests": {"type": "array", "items": {"$ref": "#/$defs/testResult"}}, "compatibility": {"type": "array", "items": {"$ref": "#/$defs/testResult"}}}, "additionalProperties": true}, "models": {"type": "array", "items": {"$ref": "#/$defs/model"}}, "requirements": {"type": "array", "items": {"type": "object"}}, "summary": {"type": "object", "not": {"required": ["score"]}}, "guidance": {"type": "object"}, "rate_limit": {"$ref": "#/$defs/rateLimit"}, "extension_rate_limit": {"$ref": "#/$defs/rateLimit"}, "extensions": {"type": "array", "items": {"$ref": "#/$defs/extensionRun"}}, "notes": {"type": "array", "items": {"type": "string"}}},
       "additionalProperties": false
     },
     "runSummary": {

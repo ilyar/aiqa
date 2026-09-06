@@ -51,11 +51,11 @@ func TestValidateGoogleEmbeddingRejectsNonFiniteValues(t *testing.T) {
 
 func TestValidateGoogleStreamsUseIndependentStateMachines(t *testing.T) {
 	interaction := api.StreamResponse{Events: []api.SSEEvent{
-		{Event: "interaction.created", JSON: map[string]any{"id": "i1"}},
-		{Event: "step.start", JSON: map[string]any{"step_id": "s1"}},
-		{Event: "step.delta", JSON: map[string]any{"step_id": "s1", "text": "AIQA_OK"}},
-		{Event: "step.stop", JSON: map[string]any{"step_id": "s1"}},
-		{Event: "interaction.completed", JSON: map[string]any{"usage": map[string]any{"input_tokens": float64(1), "output_tokens": float64(1), "total_tokens": float64(2)}}},
+		{Event: "interaction.created", JSON: map[string]any{"event_type": "interaction.created", "interaction": map[string]any{"id": "i1"}}},
+		{Event: "step.start", JSON: map[string]any{"event_type": "step.start", "interaction": map[string]any{"id": "i1"}, "step": map[string]any{"index": float64(0)}}},
+		{Event: "step.delta", JSON: map[string]any{"event_type": "step.delta", "interaction": map[string]any{"id": "i1"}, "step": map[string]any{"index": float64(0)}, "delta": map[string]any{"type": "output_text_delta", "text": "AIQA_OK"}}},
+		{Event: "step.stop", JSON: map[string]any{"event_type": "step.stop", "interaction": map[string]any{"id": "i1"}, "step": map[string]any{"index": float64(0)}}},
+		{Event: "interaction.completed", JSON: map[string]any{"event_type": "interaction.completed", "interaction": map[string]any{"id": "i1", "usage": map[string]any{"input_tokens": float64(1), "output_tokens": float64(1), "total_tokens": float64(2)}}}},
 		{Event: "done", Data: "[DONE]"},
 	}}
 	result := ValidateInteractionStream(interaction)
@@ -69,6 +69,67 @@ func TestValidateGoogleStreamsUseIndependentStateMachines(t *testing.T) {
 	legacyResult := ValidateGenerateContentStream(legacy)
 	if !legacyResult.Complete || legacyResult.Text != "AIQA_OK" {
 		t.Fatalf("valid legacy stream rejected: %+v", legacyResult)
+	}
+}
+
+func TestValidateInteractionStreamRejectsIllegalIndexLifecycle(t *testing.T) {
+	tests := []struct {
+		name   string
+		events []api.SSEEvent
+		want   string
+	}{
+		{
+			name:   "delta before start",
+			events: []api.SSEEvent{{Event: "interaction.created"}, {Event: "step.delta", JSON: map[string]any{"step": map[string]any{"index": 0}}}},
+			want:   "step.delta before/after step lifecycle",
+		},
+		{
+			name:   "duplicate index start",
+			events: []api.SSEEvent{{Event: "interaction.created"}, {Event: "step.start", JSON: map[string]any{"step": map[string]any{"index": 0}}}, {Event: "step.start", JSON: map[string]any{"step": map[string]any{"index": 0}}}},
+			want:   "step.start out of sequence",
+		},
+		{
+			name:   "completed before stop",
+			events: []api.SSEEvent{{Event: "interaction.created"}, {Event: "step.start", JSON: map[string]any{"step": map[string]any{"index": 0}}}, {Event: "interaction.completed", JSON: map[string]any{"interaction": map[string]any{"usage": map[string]any{"input_tokens": 1}}}}},
+			want:   "interaction.completed before step.stop: index:0",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validation := ValidateInteractionStream(api.StreamResponse{Events: tt.events})
+			if !hasProblem(validation.Problems, tt.want) {
+				t.Fatalf("problems=%v, want %q", validation.Problems, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateInteractionStreamAcceptsLegacyStepID(t *testing.T) {
+	stream := api.StreamResponse{Events: []api.SSEEvent{
+		{Event: "interaction.created"},
+		{Event: "step.start", JSON: map[string]any{"step_id": "legacy-1"}},
+		{Event: "step.delta", JSON: map[string]any{"step_id": "legacy-1", "text": "AIQA_OK"}},
+		{Event: "step.stop", JSON: map[string]any{"step_id": "legacy-1"}},
+		{Event: "interaction.completed"},
+		{Event: "done", Data: "[DONE]"},
+	}}
+	validation := ValidateInteractionStream(stream)
+	if !validation.Complete || len(validation.Problems) != 0 {
+		t.Fatalf("legacy step_id lifecycle rejected: %+v", validation)
+	}
+}
+
+func TestInteractionValidationCodesAreBounded(t *testing.T) {
+	validation := InteractionStreamValidation{Problems: []string{
+		"step.start has no step id",
+		"event name does not match event_type",
+		"provider supplied arbitrary secret text",
+	}}
+	if got, want := interactionValidationCodes(validation), "event_type_mismatch,sequence_invalid,step_correlation_missing"; got != want {
+		t.Fatalf("codes = %q, want %q", got, want)
+	}
+	if got := interactionValidationCodes(InteractionStreamValidation{}); got != "-" {
+		t.Fatalf("valid stream codes = %q, want -", got)
 	}
 }
 

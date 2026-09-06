@@ -160,6 +160,12 @@ func (c *Client) SetLogFields(fields logging.Fields) {
 	c.logMu.Unlock()
 }
 
+// LogDiagnostic records a transport-correlated diagnostic emitted by a
+// protocol validator. Fields remain subject to logging's allowlist.
+func (c *Client) LogDiagnostic(ctx context.Context, level logging.Level, event string, fields logging.Fields) {
+	c.trace(ctx, level, event, fields)
+}
+
 func (c *Client) trace(ctx context.Context, level logging.Level, event string, fields logging.Fields) {
 	c.logMu.RLock()
 	logger := c.logger
@@ -490,7 +496,7 @@ func (c *Client) doRaw(ctx context.Context, method, path string, body []byte, co
 	return c.doRawURL(ctx, method, u.String(), body, contentType, model)
 }
 
-func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []byte, contentType, model string) (Response, error) {
+func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []byte, contentType, model string) (response Response, err error) {
 	ctx = c.transportContext(ctx, model)
 	path := safeEndpointPath(endpoint)
 	if _, hasSuite := logging.FieldsFromContext(ctx)["suite"]; !hasSuite {
@@ -511,6 +517,11 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 		}
 	}
 	ctx, logical := c.startOperation(ctx, "http.logical_request", logging.Fields{"method": method, "path": path})
+	defer func() {
+		// The shape builder parses only transient bytes and returns a fixed
+		// allowlisted fingerprint. In particular it never logs Body or err.Error.
+		c.trace(ctx, logging.Trace, "diagnostic.response_shape", logging.ResponseShapeFields(method, path, contentType, body, response.StatusCode, response.ContentType, response.RequestID, response.Body))
+	}()
 	traceID := operationID(ctx)
 	endLogical := func(outcome string, response Response, err error) {
 		if logical != nil {
@@ -669,7 +680,7 @@ func (c *Client) StreamJSON(ctx context.Context, path string, body map[string]an
 
 // StreamJSONForModel is the model-scoped variant of StreamJSON for protocols
 // that put the model in the request path rather than in the body.
-func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[string]any, model string) (StreamResponse, error) {
+func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[string]any, model string) (result StreamResponse, err error) {
 	raw, err := json.Marshal(body)
 	if err != nil {
 		return StreamResponse{}, fmt.Errorf("marshal stream request: %w", err)
@@ -696,6 +707,17 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 		}
 	}
 	ctx, logical := c.startOperation(ctx, "http.stream_logical_request", logging.Fields{"method": http.MethodPost, "path": requestPath, "stream": true})
+	defer func() {
+		shape := logging.ResponseShapeFields(http.MethodPost, requestPath, "application/json", raw, result.StatusCode, result.ContentType, result.RequestID, []byte(result.RawSnippet))
+		events := make([]logging.SSEShapeEvent, 0, len(result.Events))
+		for _, event := range result.Events {
+			events = append(events, logging.SSEShapeEvent{Event: event.Event, JSON: event.JSON, Done: event.Data == "[DONE]"})
+		}
+		for key, value := range logging.SSEShapeFields(events, len(result.InvalidEvents), result.Done) {
+			shape[key] = value
+		}
+		c.trace(ctx, logging.Trace, "diagnostic.response_shape", shape)
+	}()
 	traceID := operationID(ctx)
 	endLogical := func(outcome string, response StreamResponse, err error) {
 		if logical != nil {
@@ -816,7 +838,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 	}
 	defer c.pacer.release(model)
 	defer httpResp.Body.Close()
-	result := StreamResponse{
+	result = StreamResponse{
 		StatusCode:  httpResp.StatusCode,
 		Header:      httpResp.Header.Clone(),
 		ContentType: httpResp.Header.Get("Content-Type"),

@@ -3,6 +3,8 @@ package googlegenai
 import (
 	"encoding/json"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 
 	"github.com/ilyar/aiqa/internal/api"
@@ -45,18 +47,15 @@ func ValidateInteractionStream(stream api.StreamResponse) InteractionStreamValid
 			continue
 		}
 		kind := event.Event
+		jsonKind := interactionEventType(event.JSON)
 		if kind == "" {
-			kind = stringValue(event.JSON["type"])
+			kind = jsonKind
 		}
 		if kind == "" {
 			out.Problems = append(out.Problems, "interaction SSE event has no type")
 			continue
 		}
 		if event.Event != "" {
-			jsonKind := stringValue(event.JSON["event_type"])
-			if jsonKind == "" {
-				jsonKind = stringValue(event.JSON["type"])
-			}
 			if jsonKind != "" && knownInteractionEvent(kind) && jsonKind != kind {
 				out.Problems = append(out.Problems, fmt.Sprintf("SSE event name %q does not match JSON type %q", kind, jsonKind))
 			}
@@ -114,8 +113,8 @@ func ValidateInteractionStream(stream api.StreamResponse) InteractionStreamValid
 			}
 			completed = true
 			out.SawCompleted = true
-			out.Usage = ParseUsage(event.JSON)
-			if usage, ok := event.JSON["usage"].(map[string]any); ok {
+			out.Usage = ParseUsage(interactionPayload(event.JSON))
+			if usage, ok := interactionPayload(event.JSON)["usage"].(map[string]any); ok {
 				out.SawUsage = len(ValidateUsage(usage)) == 0
 			}
 		case "error", "interaction.failed":
@@ -123,7 +122,7 @@ func ValidateInteractionStream(stream api.StreamResponse) InteractionStreamValid
 		default:
 			out.UnknownEvents = append(out.UnknownEvents, kind)
 		}
-		if usage, ok := event.JSON["usage"].(map[string]any); ok {
+		if usage, ok := interactionPayload(event.JSON)["usage"].(map[string]any); ok {
 			out.Usage = ParseUsage(map[string]any{"usageMetadata": usage})
 			out.SawUsage = len(ValidateUsage(usage)) == 0
 		}
@@ -221,7 +220,14 @@ func ValidateGenerateContentStream(stream api.StreamResponse) LegacyStreamValida
 }
 
 func eventID(raw map[string]any) string {
-	for _, key := range []string{"step_id", "stepId", "step_index", "stepIndex", "index", "id"} {
+	// The current Interactions contract uses a numeric index in the nested step
+	// object. Keep the string aliases below for old compatible endpoints.
+	for _, object := range []map[string]any{raw, objectValue(raw["step"]), objectValue(raw["data"])} {
+		if index, ok := numericIndex(object["index"]); ok {
+			return "index:" + strconv.FormatInt(index, 10)
+		}
+	}
+	for _, key := range []string{"step_id", "stepId", "step_index", "stepIndex", "id"} {
 		if value := stringValue(raw[key]); value != "" {
 			return value
 		}
@@ -230,6 +236,48 @@ func eventID(raw map[string]any) string {
 		if nested, ok := raw[key].(map[string]any); ok {
 			if value := eventID(nested); value != "" {
 				return value
+			}
+		}
+	}
+	return ""
+}
+
+func numericIndex(value any) (int64, bool) {
+	switch typed := value.(type) {
+	case int:
+		return int64(typed), typed >= 0
+	case int64:
+		return typed, typed >= 0
+	case float64:
+		if math.IsNaN(typed) || math.IsInf(typed, 0) || typed < 0 || math.Trunc(typed) != typed || typed > math.MaxInt64 {
+			return 0, false
+		}
+		return int64(typed), true
+	case json.Number:
+		index, err := typed.Int64()
+		return index, err == nil && index >= 0
+	default:
+		return 0, false
+	}
+}
+
+func objectValue(value any) map[string]any {
+	object, _ := value.(map[string]any)
+	return object
+}
+
+func interactionPayload(raw map[string]any) map[string]any {
+	if interaction := objectValue(raw["interaction"]); interaction != nil {
+		return interaction
+	}
+	return raw
+}
+
+func interactionEventType(raw map[string]any) string {
+	for _, object := range []map[string]any{raw, objectValue(raw["interaction"])} {
+		for _, key := range []string{"event_type", "type"} {
+			if kind := stringValue(object[key]); kind != "" {
+				return kind
 			}
 		}
 	}

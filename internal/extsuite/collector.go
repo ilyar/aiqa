@@ -2,6 +2,7 @@ package extsuite
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"sort"
 	"strings"
@@ -253,7 +254,7 @@ func (c *Collector) emit(ctx context.Context, event SuiteEvent) error {
 	if event.HTTP.StatusCode < 0 || event.HTTP.StatusCode > 599 || event.Outcome == result.ExtensionOutcomeRequestRejected && event.HTTP.StatusCode < 100 {
 		return fmt.Errorf("suite %q reported invalid HTTP evidence", event.SuiteID)
 	}
-	if event.ErrorKind != "" && event.ErrorKind != "capability_rejection" {
+	if !validErrorKind(event.ErrorKind) {
 		return fmt.Errorf("suite %q reported invalid error kind %q", event.SuiteID, event.ErrorKind)
 	}
 	if !validUsage(event.Usage) {
@@ -279,6 +280,8 @@ func (c *Collector) emit(ctx context.Context, event SuiteEvent) error {
 		Signals:     append([]result.EvidenceSignal(nil), event.Signals...),
 		Bound:       bound,
 		Error:       redact(event.Error, c.secret),
+		ErrorKind:   event.ErrorKind,
+		ErrorCode:   diagnosticErrorCode(event.ErrorKind, event.Error),
 	}
 	item.HTTP.Snippet = redact(item.HTTP.Snippet, c.secret)
 	result.RedactSecrets(&item, c.secret)
@@ -287,7 +290,7 @@ func (c *Collector) emit(ctx context.Context, event SuiteEvent) error {
 		item.RelatedRequirementIDs = append([]string(nil), binding.RelatedRequirementIDs...)
 	}
 	c.results = append(c.results, item)
-	fields := logging.Fields{"extension": c.manifest.Extension.ID, "suite": event.SuiteID, "subject_kind": event.Subject.Kind, "subject_ref": diagnosticSubjectRef(event.Subject), "outcome": event.Outcome, "status": item.Status, "duration_ms": event.DurationMS, "http_status": event.HTTP.StatusCode, "error_kind": orDash(event.ErrorKind), "error_present": event.Error != "", "signals": diagnosticSignals(event.Signals), "usage_fields": diagnosticUsageFields(event.Usage)}
+	fields := logging.Fields{"extension": c.manifest.Extension.ID, "suite": event.SuiteID, "subject_kind": event.Subject.Kind, "subject_ref": diagnosticSubjectRef(event.Subject), "outcome": event.Outcome, "status": item.Status, "duration_ms": event.DurationMS, "http_status": event.HTTP.StatusCode, "error_kind": orDash(event.ErrorKind), "error_code": item.ErrorCode, "error_present": event.Error != "", "signals": diagnosticSignals(event.Signals), "usage_fields": diagnosticUsageFields(event.Usage)}
 	logDiagnosticContext(ctx, c.logger, logging.Trace, "extsuite.suite.result_parsed", fields)
 	logDiagnosticContext(ctx, c.logger, logging.Debug, "extsuite.suite.completed", logging.Fields{"extension": c.manifest.Extension.ID, "suite": event.SuiteID, "subject_ref": diagnosticSubjectRef(event.Subject), "status": item.Status, "outcome": event.Outcome, "reason": diagnosticReason(event), "duration_ms": event.DurationMS})
 	return nil
@@ -320,6 +323,7 @@ func (c *Collector) Finish(provenance result.ExtensionProvenance, telemetry Runn
 	if runErr != nil {
 		problems = append(problems, redact(runErr.Error(), c.secret))
 	}
+	runErrorKind := classifyRunError(runErr)
 	for _, suiteID := range c.request.SuiteIDs {
 		// Built-in SDK suites are instrumented by the host transport and do
 		// not serialize cooperative IPC trace events. Only executable v2
@@ -332,13 +336,13 @@ func (c *Collector) Finish(provenance result.ExtensionProvenance, telemetry Runn
 		}
 		problems = append(problems, "extension did not report planned suite "+suiteID)
 		binding, bound := c.profile.ExtensionBinding(c.manifest.Extension.ID, suiteID)
-		missing := result.ExtensionSuiteResult{ExtensionID: c.manifest.Extension.ID, SuiteID: suiteID, Subject: c.request.Subject, Outcome: result.ExtensionOutcomeExecutionError, Status: result.StatusError, Summary: "Extension did not report the planned suite", Bound: bound, Signals: []result.EvidenceSignal{{Code: "extension.runner.missing_result"}}}
+		missing := result.ExtensionSuiteResult{ExtensionID: c.manifest.Extension.ID, SuiteID: suiteID, Subject: c.request.Subject, Outcome: result.ExtensionOutcomeExecutionError, Status: result.StatusError, Summary: "Extension did not report the planned suite", Bound: bound, ErrorKind: runErrorKind, ErrorCode: diagnosticErrorCode(runErrorKind, ""), Signals: []result.EvidenceSignal{{Code: "extension.runner.missing_result"}}}
 		if bound {
 			missing.RequirementID = binding.RequirementID
 			missing.RelatedRequirementIDs = append([]string(nil), binding.RelatedRequirementIDs...)
 		}
 		c.results = append(c.results, missing)
-		logDiagnostic(c.logger, logging.Debug, "extsuite.suite.completed", logging.Fields{"extension": c.manifest.Extension.ID, "suite": suiteID, "subject_ref": diagnosticSubjectRef(c.request.Subject), "status": missing.Status, "outcome": missing.Outcome, "reason": "missing_terminal_result", "duration_ms": 0})
+		logDiagnostic(c.logger, logging.Debug, "extsuite.suite.completed", logging.Fields{"extension": c.manifest.Extension.ID, "suite": suiteID, "subject_ref": diagnosticSubjectRef(c.request.Subject), "status": missing.Status, "outcome": missing.Outcome, "error_kind": missing.ErrorKind, "error_code": missing.ErrorCode, "reason": "missing_terminal_result", "duration_ms": 0})
 	}
 	sort.Slice(c.results, func(i, j int) bool { return c.planned[c.results[i].SuiteID] < c.planned[c.results[j].SuiteID] })
 	if telemetry.TotalDuration <= 0 {
@@ -357,8 +361,16 @@ func (c *Collector) Finish(provenance result.ExtensionProvenance, telemetry Runn
 	} else {
 		runner.Summary = "Extension runner completed"
 	}
+	stderrBytes, stderrSHA256 := telemetry.StderrBytes, telemetry.StderrSHA256
+	if stderrBytes == 0 && telemetry.Stderr != "" {
+		// Test and built-in callers may only provide the already-sanitized
+		// diagnostic. Executable processes always populate raw byte metadata.
+		sum := sha256.Sum256([]byte(telemetry.Stderr))
+		stderrBytes, stderrSHA256 = int64(len(telemetry.Stderr)), fmt.Sprintf("%x", sum[:])
+	}
+	terminal := logging.Fields{"extension": c.manifest.Extension.ID, "extension_id": c.manifest.Extension.ID, "suite_id": "-", "subject_ref": diagnosticSubjectRef(c.request.Subject), "outcome": runner.Status, "duration_ms": runner.TotalDurationMS, "http_status": 0, "error_kind": runErrorKind, "error_code": diagnosticErrorCode(runErrorKind, ""), "stdout_bytes": telemetry.StdoutBytes, "stdout_sha256": telemetry.StdoutSHA256, "stderr_bytes": int(stderrBytes), "stderr_sha256": stderrSHA256}
 	logDiagnostic(c.logger, logging.Trace, "extsuite.runner.telemetry", logging.Fields{"extension": c.manifest.Extension.ID, "subject_ref": diagnosticSubjectRef(c.request.Subject), "status": runner.Status, "startup_ms": runner.StartupDurationMS, "total_ms": runner.TotalDurationMS, "exit_code": runner.ExitCode, "emitted_suites": len(c.seen), "planned_suites": len(c.request.SuiteIDs), "runner_error": runErr != nil})
-	logDiagnostic(c.logger, logging.Debug, "extsuite.invocation.completed", logging.Fields{"extension": c.manifest.Extension.ID, "subject_ref": diagnosticSubjectRef(c.request.Subject), "status": runner.Status, "total_ms": runner.TotalDurationMS, "exit_code": runner.ExitCode})
+	logDiagnostic(c.logger, logging.Debug, "extsuite.invocation.completed", terminal)
 	return result.ExtensionRun{Provenance: provenance, TargetID: c.request.Target.ID, Subject: c.request.Subject, Runner: runner, Suites: append([]result.ExtensionSuiteResult(nil), c.results...)}
 }
 

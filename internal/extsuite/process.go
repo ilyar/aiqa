@@ -106,6 +106,9 @@ func (e *Executable) Run(ctx context.Context, request RunRequest, sink EventSink
 		problems = append(problems, runErr.Error())
 	}
 	if len(problems) > 0 {
+		if runErr != nil {
+			return telemetry, fmt.Errorf("extension process failed: %w", runErr)
+		}
 		return telemetry, errors.New(strings.Join(problems, "; "))
 	}
 	return telemetry, nil
@@ -333,10 +336,13 @@ func executeStreamingJSON(ctx context.Context, path string, request any, stdoutL
 	scanner.Buffer(make([]byte, 4096), maxLineBytes)
 	lineNumber := 0
 	var outputBytes int64
+	stdoutHash := sha256.New()
 	var scanErr error
 	for scanner.Scan() {
 		lineNumber++
 		outputBytes += int64(len(scanner.Bytes())) + 1
+		_, _ = stdoutHash.Write(scanner.Bytes())
+		_, _ = stdoutHash.Write([]byte{'\n'})
 		if outputBytes > stdoutLimit {
 			scanErr = fmt.Errorf("extension output exceeded configured limit")
 			continue
@@ -363,7 +369,9 @@ func executeStreamingJSON(ctx context.Context, path string, request any, stdoutL
 	if ctx.Err() != nil {
 		err = errors.Join(err, ctx.Err())
 	}
-	return RunnerTelemetry{StartupDuration: startupDuration, TotalDuration: time.Since(started), ExitCode: processExitCode(err), Stderr: sanitizeDiagnostic(stderr.Bytes(), credentialFromRequest(request))}, err
+	stderrBytes := stderr.Bytes()
+	stderrHash := sha256.Sum256(stderrBytes)
+	return RunnerTelemetry{StartupDuration: startupDuration, TotalDuration: time.Since(started), ExitCode: processExitCode(err), Stderr: sanitizeDiagnostic(stderrBytes, credentialFromRequest(request)), StderrBytes: int64(len(stderrBytes)), StderrSHA256: hex.EncodeToString(stderrHash[:]), StdoutBytes: outputBytes, StdoutSHA256: hex.EncodeToString(stdoutHash.Sum(nil))}, err
 }
 
 func credentialFromRequest(request any) string {

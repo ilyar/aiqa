@@ -3,6 +3,7 @@ package extsuite
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,6 +23,21 @@ import (
 	"github.com/ilyar/aiqa/internal/result"
 	"github.com/ilyar/aiqa/internal/telemetry"
 )
+
+type capturedDiagnostic struct {
+	event  string
+	fields logging.Fields
+}
+type captureDiagnosticLogger struct{ entries []capturedDiagnostic }
+
+func (l *captureDiagnosticLogger) Log(_ logging.Level, event string, fields logging.Fields) bool {
+	copy := logging.Fields{}
+	for key, value := range fields {
+		copy[key] = value
+	}
+	l.entries = append(l.entries, capturedDiagnostic{event, copy})
+	return true
+}
 
 func TestCollectorDerivesProfileStatusesAndPreservesPartialResults(t *testing.T) {
 	p, err := profile.Load()
@@ -45,12 +61,42 @@ func TestCollectorDerivesProfileStatusesAndPreservesPartialResults(t *testing.T)
 	if run.Runner.Status != result.StatusError || len(run.Suites) != 2 {
 		t.Fatalf("partial run was not preserved: %+v", run)
 	}
+	if run.Suites[0].ErrorKind != "deadline_exceeded" {
+		t.Fatalf("missing suite error kind=%q, want deadline_exceeded", run.Suites[0].ErrorKind)
+	}
 	if run.Suites[0].SuiteID != "chat.json" || run.Suites[0].Status != result.StatusError || run.Suites[1].Status != result.StatusUnsupported {
 		t.Fatalf("unexpected derived statuses: %+v", run.Suites)
 	}
 	encoded, _ := json.Marshal(run)
 	if strings.Contains(string(encoded), "secret-token") {
 		t.Fatalf("credential leaked: %s", encoded)
+	}
+}
+
+func TestCollectorTerminalDiagnosticFingerprintsStderrWithoutContent(t *testing.T) {
+	subject := result.SubjectRef{TargetID: "target", Protocol: "openai", Kind: "model", ID: "model"}
+	manifest := testManifest("fixture.terminal", "openai", SuiteDescriptor{ID: "echo", Subject: "model", Cost: "text", InternalConcurrency: 1})
+	logger := &captureDiagnosticLogger{}
+	collector, err := NewCollectorWithDiagnostics(manifest, RunRequest{SchemaVersion: ProtocolVersion, Type: "run_request", RunID: "run", Subject: subject, SuiteIDs: []string{"echo"}}, profile.Profile{}, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collector.Finish(result.ExtensionProvenance{ID: "fixture.terminal", Source: "executable"}, RunnerTelemetry{Stderr: "secret extension stderr"}, context.DeadlineExceeded, time.Now())
+	var found bool
+	for _, entry := range logger.entries {
+		if entry.event != "extsuite.invocation.completed" {
+			continue
+		}
+		found = true
+		if entry.fields["error_kind"] != "deadline_exceeded" || entry.fields["stderr_bytes"] != len("secret extension stderr") || entry.fields["stderr_sha256"] == "" {
+			t.Fatalf("unsafe terminal diagnostic: %+v", entry.fields)
+		}
+		if strings.Contains(fmt.Sprint(entry.fields), "secret extension stderr") {
+			t.Fatalf("terminal event leaked stream: %+v", entry.fields)
+		}
+	}
+	if !found {
+		t.Fatal("missing terminal extension diagnostic")
 	}
 }
 

@@ -191,7 +191,7 @@ func TestTransportTraceIsStructuredAndNeverIncludesQueryOrCredentials(t *testing
 		t.Fatal(err)
 	}
 	trace := strings.Join(logger.Lines(), "\n")
-	for _, forbidden := range []string{"super-secret", "api_key=leak", server.URL, "req-test"} {
+	for _, forbidden := range []string{"super-secret", "api_key=leak", server.URL} {
 		if strings.Contains(trace, forbidden) {
 			t.Fatalf("trace leaked %q: %s", forbidden, trace)
 		}
@@ -199,6 +199,41 @@ func TestTransportTraceIsStructuredAndNeverIncludesQueryOrCredentials(t *testing
 	for _, required := range []string{"\"event\":\"http.attempt.begin\"", "\"event\":\"http.attempt.result\"", "\"target\":\"openai\"", "\"model\":\"gpt-test\"", "\"probe\":\"chat.basic\"", "\"path\":\"/models\""} {
 		if !strings.Contains(trace, required) {
 			t.Fatalf("trace does not contain %s: %s", required, trace)
+		}
+	}
+	if !strings.Contains(trace, `"provider_request_id":"req-test"`) {
+		t.Fatalf("trace is missing provider request ID fingerprint: %s", trace)
+	}
+	if got := strings.Count(trace, `"event":"diagnostic.response_shape"`); got != 1 {
+		t.Fatalf("terminal native request emitted %d diagnostic fingerprints, want 1: %s", got, trace)
+	}
+}
+
+func TestTransportDiagnosticErrorShapeNeverRetainsProviderText(t *testing.T) {
+	const secret = "provider-error-text-must-not-leak"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"code":400,"status":"INVALID_ARGUMENT","message":"` + secret + `","details":[{"nested":"` + secret + `"}]}}`))
+	}))
+	defer server.Close()
+	logger := logging.New(4)
+	client, err := NewClient(server.URL, "test", "aiqa-test", time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.SetLogger(logger)
+	response, err := client.DoJSON(context.Background(), http.MethodPost, "messages", map[string]any{"model": "test", "messages": []any{map[string]any{"content": secret}}})
+	if err != nil || response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("response=%+v err=%v", response, err)
+	}
+	trace := strings.Join(logger.Lines(), "\n")
+	if strings.Contains(trace, secret) {
+		t.Fatalf("diagnostic leaked provider error text: %s", trace)
+	}
+	for _, required := range []string{`"event":"diagnostic.response_shape"`, `"error_present":true`, `"error_code":400`, `"error_status":"invalid_argument"`, `"error_shape_keys":"code,details,message,status"`} {
+		if !strings.Contains(trace, required) {
+			t.Fatalf("diagnostic missing %s: %s", required, trace)
 		}
 	}
 }
@@ -224,7 +259,7 @@ func TestStreamTraceRecordsEventShapeWithoutPayload(t *testing.T) {
 			t.Fatalf("stream trace leaked %q: %s", forbidden, trace)
 		}
 	}
-	for _, required := range []string{"\"event\":\"http.sse.event\"", "\"data_kind\":\"json\"", "\"json_key_count\":2"} {
+	for _, required := range []string{"\"event\":\"http.sse.event\"", "\"data_kind\":\"json\"", "\"json_key_count\":2", "\"event\":\"diagnostic.response_shape\"", "\"sse_terminal_markers\":\"done,stream_done\""} {
 		if !strings.Contains(trace, required) {
 			t.Fatalf("stream trace does not contain %s: %s", required, trace)
 		}

@@ -124,6 +124,7 @@ func runCase(ctx context.Context, client *anthropicsdk.Client, suiteID, model st
 		return messageUsage(message), validateSDKMessage(message, true)
 	case "messages.stream":
 		stream := client.Messages.NewStreaming(ctx, params, option.WithHeader("Accept", "text/event-stream"))
+		defer stream.Close()
 		message := anthropicsdk.Message{}
 		for stream.Next() {
 			if err := message.Accumulate(stream.Current()); err != nil {
@@ -156,6 +157,7 @@ func runCase(ctx context.Context, client *anthropicsdk.Client, suiteID, model st
 	case "tools.stream":
 		streamParams := messageParams(model, toolPrompt)
 		stream := client.Messages.NewStreaming(ctx, streamParams, option.WithHeader("Accept", "text/event-stream"), option.WithJSONSet("tools", []map[string]any{toolDefinition()}), option.WithJSONSet("tool_choice", map[string]any{"type": "tool", "name": "get_status"}))
+		defer stream.Close()
 		message := anthropicsdk.Message{}
 		for stream.Next() {
 			if err := message.Accumulate(stream.Current()); err != nil {

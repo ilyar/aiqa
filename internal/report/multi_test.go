@@ -247,7 +247,7 @@ func TestMarkdownV3GroupsExtensionSuitesWithoutExecutablePath(t *testing.T) {
 		}},
 	}}}
 	markdown := MarkdownV3(report)
-	for _, want := range []string{"**External checks:** [OpenAI Go SDK v3.54.0]", "#### OpenAI Go SDK v3.54.0", "| Suite | Subject | Status | Duration | Summary |", "| `chat.stream` | `model:model-a` | PASS | 12ms |"} {
+	for _, want := range []string{"**External checks:** [OpenAI Go SDK v3.54.0]", "#### OpenAI Go SDK v3.54.0", "| Suite | Subject | Status | Classification | Duration | Summary |", "| `chat.stream` | `model:model-a` | PASS | – | 12ms |"} {
 		if !strings.Contains(markdown, want) {
 			t.Fatalf("markdown missing %q:\n%s", want, markdown)
 		}
@@ -257,5 +257,33 @@ func TestMarkdownV3GroupsExtensionSuitesWithoutExecutablePath(t *testing.T) {
 	}
 	if strings.Contains(markdown, "/private/bin") || strings.Contains(markdown, "Runner issues") {
 		t.Fatalf("Markdown exposed transport detail or a successful runner issue:\n%s", markdown)
+	}
+}
+
+func TestWriteV3MaterializesEvidenceClassification(t *testing.T) {
+	dir := t.TempDir()
+	report := result.ReportV3{
+		SchemaVersion: "aiqa.report.v3",
+		Config:        result.PublicConfigV3{Formats: []string{"json"}, Timeout: "1s"},
+		Summary:       result.RunSummary{Verdict: "fail"},
+		Targets: []result.TargetReport{{
+			ID: "openai", Protocol: "openai", Profile: result.ProfileInfo{Revision: "2026-09-06"},
+			Models: []result.ModelReport{{ID: "model", Compatibility: []result.TestResult{{
+				ID: "chat.structured.json_schema", Status: result.StatusFail, Summary: "marker missing", HTTP: result.HTTPObservation{StatusCode: 200, TraceID: "op-42"},
+			}}}},
+		}},
+	}
+	paths, err := WriteV3(report, config.Config{Name: filepath.Join(dir, "report"), Formats: []string{"json"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(paths[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"kind": "behavioral_observation"`, `"profile_revision": "2026-09-06"`, `"operation_ids": [`, `"op-42"`} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("classification missing %q: %s", want, data)
+		}
 	}
 }

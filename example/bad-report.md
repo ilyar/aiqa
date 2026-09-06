@@ -2,9 +2,9 @@
 
 _measures observed API behavior, a passing report is not a security audit or an official certification_
 
-- **Generated:** 2026-09-06 18:18:11Z
+- **Generated:** 2026-09-06 19:28:47Z
 - **Tool:** `aiqa 1.0.0-alpha.7`
-- **Service:** [127.0.0.1:32783](http://127.0.0.1:32783)
+- **Service:** [127.0.0.1:32786](http://127.0.0.1:32786)
 - **Suites:** `compat,sdk`
 - **Requested models:** `wiremock-broken-model` (one global list; each target reports only its selected inventory intersection)
 - **Timeout:** `1m0s` per request
@@ -26,8 +26,8 @@ Targets are assessed independently. Percentages are not combined into a cross-pr
 
 | Target | Logical | Attempts | Successful | 429 | Retry attempts | Recovered | Exhausted | Backoff | Safe req/s | Concurrency | Mean | P50 | P95 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| `anthropic` | 2 | 4 | 1 | 0 | 2 | 0 | 1 | 300ms | 0.50 req/s | 1 | 38ms | 38ms | 38ms |
-| `google-genai` | 16 | 46 | 1 | 0 | 30 | 0 | 15 | 4500ms | 0.50 req/s | 1 | 5ms | 5ms | 5ms |
+| `anthropic` | 2 | 4 | 1 | 0 | 2 | 0 | 1 | 300ms | 0.50 req/s | 1 | 26ms | 26ms | 26ms |
+| `google-genai` | 16 | 46 | 1 | 0 | 30 | 0 | 15 | 4500ms | 0.50 req/s | 1 | 3ms | 3ms | 3ms |
 | `openai` | 2 | 4 | 1 | 0 | 2 | 0 | 1 | 300ms | 0.50 req/s | 1 | 3ms | 3ms | 3ms |
 
 ## Target: Anthropic
@@ -145,9 +145,9 @@ Targets are assessed independently. Percentages are not combined into a cross-pr
 | SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.vision.image_base64` | 0 | anthropic.messages.basic |
 | SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.vision.image_schema` | 0 | anthropic.messages.basic |
 | SKIP | OPTIONAL | `model:wiremock-broken-model` | `anthropic.vision.usage` | 0 | anthropic.messages.basic |
-| SKIP | OPTIONAL | `provider:http://127.0.0.1:32783/anthropic` | `anthropic.models.list.pagination` | 1 | anthropic.models.list.schema |
-| FAIL | CORE | `provider:http://127.0.0.1:32783/anthropic` | `anthropic.models.list.schema` | 1 |  |
-| WARN | OPTIONAL | `provider:http://127.0.0.1:32783/anthropic` | `anthropic.official-sdk.models.list` | 3 |  |
+| SKIP | OPTIONAL | `provider:http://127.0.0.1:32786/anthropic` | `anthropic.models.list.pagination` | 1 | anthropic.models.list.schema |
+| FAIL | CORE | `provider:http://127.0.0.1:32786/anthropic` | `anthropic.models.list.schema` | 1 |  |
+| WARN | OPTIONAL | `provider:http://127.0.0.1:32786/anthropic` | `anthropic.official-sdk.models.list` | 3 |  |
 
 ### Models
 
@@ -166,6 +166,15 @@ Targets are assessed independently. Percentages are not combined into a cross-pr
 | `anthropic.vision` | `anthropic.messages.image_input` | true | UNKNOWN | SKIPPED | model availability is inconclusive after transient preflight failure |
 | `anthropic.thinking` | `anthropic.messages.thinking.adaptive,anthropic.messages.thinking.manual` | false | UNKNOWN | SKIPPED | model availability is inconclusive after transient preflight failure |
 
+### Evidence classification
+
+Classification describes the evidence for a non-pass result; it is not certification or a change to the canonical verdict.
+
+| Check | Status | Classification | Evidence |
+|---|---:|---|---|
+| `anthropic.models.list.schema` | FAIL | `provider_nonconformance` | applicable checker requirement did not pass |
+| `anthropic.messages.basic` | ERROR | `provider_nonconformance` | applicable checker requirement did not pass |
+
 ### Extension suites
 
 Built-in extension transport counts are separate from native latency percentiles. Safe rate and concurrency show the target pacer's state after extension execution; executable extensions report only validated suite evidence.
@@ -176,9 +185,9 @@ Built-in extension transport counts are separate from native latency percentiles
 
 #### Anthropic Go SDK v1.68.0
 
-| Suite | Subject | Status | Duration | Summary |
-|---|---|---:|---:|---|
-| `models.list` | `provider:http://127.0.0.1:32783/anthropic` | PASS | 5ms | Anthropic Go SDK sent and parsed the suite |
+| Suite | Subject | Status | Classification | Duration | Summary |
+|---|---|---:|---|---:|---|
+| `models.list` | `provider:http://127.0.0.1:32786/anthropic` | PASS | – | 2ms | Anthropic Go SDK sent and parsed the suite |
 
 ## Target: Google GenAI
 
@@ -590,6 +599,26 @@ Built-in extension transport counts are separate from native latency percentiles
 | `google-genai.vision` | `google-genai.generate-content.image-input` | true | NOT-APPLICABLE | – | classified capabilities do not include google-genai.generate-content.image-input: google-genai.count-tokens, google-genai.embed-content, google-genai.generate-content.structured-output, google-genai.generate-content.text, google-genai.generate-content.tools, google-genai.interactions.structured-output, google-genai.interactions.text, google-genai.interactions.tools |
 | `google-genai.thinking` | `google-genai.generate-content.thinking` | false | NOT-APPLICABLE | – | classified capabilities do not include google-genai.generate-content.thinking: google-genai.count-tokens, google-genai.embed-content, google-genai.generate-content.structured-output, google-genai.generate-content.text, google-genai.generate-content.tools, google-genai.interactions.structured-output, google-genai.interactions.text, google-genai.interactions.tools |
 
+### Evidence classification
+
+Classification describes the evidence for a non-pass result; it is not certification or a change to the canonical verdict.
+
+| Check | Status | Classification | Evidence |
+|---|---:|---|---|
+| `google.embeddings.basic` | ERROR | `provider_nonconformance` | applicable checker requirement did not pass |
+| `google.error.invalid_json` | ERROR | `insufficient_evidence` | HTTP error has no safe response shape evidence |
+| `google.error.invalid_model` | ERROR | `insufficient_evidence` | HTTP error has no safe response shape evidence |
+| `google.generate-content.basic` | ERROR | `provider_nonconformance` | applicable checker requirement did not pass |
+| `google.generate-content.stream.http` | ERROR | `provider_nonconformance` | applicable checker requirement did not pass |
+| `google.generate-content.structured-output` | ERROR | `behavioral_observation` | semantic model assertion is not provider nonconformance by itself |
+| `google.generate-content.tools` | ERROR | `provider_nonconformance` | applicable checker requirement did not pass |
+| `google.interactions.basic` | ERROR | `provider_nonconformance` | applicable checker requirement did not pass |
+| `google.interactions.stream.http` | ERROR | `provider_nonconformance` | applicable checker requirement did not pass |
+| `google.interactions.structured-output` | ERROR | `behavioral_observation` | semantic model assertion is not provider nonconformance by itself |
+| `google.interactions.tools` | ERROR | `provider_nonconformance` | applicable checker requirement did not pass |
+| `google.models.get` | ERROR | `provider_nonconformance` | applicable checker requirement did not pass |
+| `google.tokens.count.basic` | ERROR | `provider_nonconformance` | applicable checker requirement did not pass |
+
 ### Extension suites
 
 Built-in extension transport counts are separate from native latency percentiles. Safe rate and concurrency show the target pacer's state after extension execution; executable extensions report only validated suite evidence.
@@ -600,16 +629,16 @@ Built-in extension transport counts are separate from native latency percentiles
 
 #### Google Gen AI Go SDK v1.71.0
 
-| Suite | Subject | Status | Duration | Summary |
-|---|---|---:|---:|---|
-| `count-tokens` | `model:wiremock-broken-model` | ERROR | 2004ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
-| `embeddings` | `model:wiremock-broken-model` | ERROR | 2004ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
-| `generate-content` | `model:wiremock-broken-model` | ERROR | 3380ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
-| `generate-content-stream` | `model:wiremock-broken-model` | ERROR | 3380ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
-| `models.get` | `model:wiremock-broken-model` | ERROR | 1998ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
-| `structured-output` | `model:wiremock-broken-model` | ERROR | 3380ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
-| `tools` | `model:wiremock-broken-model` | ERROR | 3373ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
-| `models.list` | `provider:http://127.0.0.1:32783/google` | PASS | 5ms | Google Gen AI Go SDK sent and parsed the suite |
+| Suite | Subject | Status | Classification | Duration | Summary |
+|---|---|---:|---|---:|---|
+| `count-tokens` | `model:wiremock-broken-model` | ERROR | `provider_nonconformance` | 2003ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
+| `embeddings` | `model:wiremock-broken-model` | ERROR | `provider_nonconformance` | 3375ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
+| `generate-content` | `model:wiremock-broken-model` | ERROR | `provider_nonconformance` | 3378ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
+| `generate-content-stream` | `model:wiremock-broken-model` | ERROR | `provider_nonconformance` | 3378ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
+| `models.get` | `model:wiremock-broken-model` | ERROR | `provider_nonconformance` | 1998ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
+| `structured-output` | `model:wiremock-broken-model` | ERROR | `behavioral_observation` | 3378ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
+| `tools` | `model:wiremock-broken-model` | ERROR | `provider_nonconformance` | 2003ms | Error 503, Message: {"error":{"message":"WireMock intentionally simulates an unavailable API operation","type":"service_unavailable","code":"example_failure"}}, Status: 503 Service Unavailable, Details: [] |
+| `models.list` | `provider:http://127.0.0.1:32786/google` | PASS | – | 3ms | Google Gen AI Go SDK sent and parsed the suite |
 
 ## Target: OpenAI
 
@@ -678,6 +707,14 @@ Built-in extension transport counts are separate from native latency percentiles
 | `chat-completions` | `chat.completions.text` | true | UNKNOWN | SKIPPED | model availability is inconclusive after transient preflight failure |
 | `images-generations` | `images.generations` | false | UNKNOWN | SKIPPED | model availability is inconclusive after transient preflight failure |
 
+### Evidence classification
+
+Classification describes the evidence for a non-pass result; it is not certification or a change to the canonical verdict.
+
+| Check | Status | Classification | Evidence |
+|---|---:|---|---|
+| `chat.basic` | ERROR | `provider_nonconformance` | applicable checker requirement did not pass |
+
 ### Extension suites
 
 Built-in extension transport counts are separate from native latency percentiles. Safe rate and concurrency show the target pacer's state after extension execution; executable extensions report only validated suite evidence.
@@ -688,9 +725,9 @@ Built-in extension transport counts are separate from native latency percentiles
 
 #### OpenAI Go SDK v3.54.0
 
-| Suite | Subject | Status | Duration | Summary |
-|---|---|---:|---:|---|
-| `models.list` | `provider:http://127.0.0.1:32783/openai/v1` | PASS | 2ms | OpenAI Go SDK sent and parsed the suite |
+| Suite | Subject | Status | Classification | Duration | Summary |
+|---|---|---:|---|---:|---|
+| `models.list` | `provider:http://127.0.0.1:32786/openai/v1` | PASS | – | 1ms | OpenAI Go SDK sent and parsed the suite |
 
 ## Observed API usage
 

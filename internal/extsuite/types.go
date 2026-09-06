@@ -151,6 +151,12 @@ type RunnerTelemetry struct {
 	TotalDuration   time.Duration
 	ExitCode        int
 	Stderr          string
+	StderrBytes     int64
+	StderrSHA256    string
+	// Stdout is never retained. The process boundary exposes only this safe
+	// fingerprint so verbose diagnostics can correlate malformed output.
+	StdoutBytes  int64
+	StdoutSHA256 string
 }
 
 type EventSink interface {

@@ -587,4 +587,6 @@ var allowedFields = map[string]struct{}{
 	"data_kind": {}, "extension_id": {}, "emitted_suites": {}, "planned_suites": {}, "pacing_safe_concurrency": {}, "pacing_safe_rps": {}, "startup_ms": {}, "subject_kind": {}, "subject_ref": {}, "total_ms": {}, "usage_fields": {}, "trace_id": {}, "span_id": {}, "parent_span_id": {}, "parent_operation_id": {},
 	"result_id": {}, "result_count": {}, "derived_from": {},
 	"native_selected": {}, "sdk_selected": {}, "extension_selected": {},
+	"diagnostic_schema": {}, "request_content_type": {}, "request_size_bucket": {}, "request_shape_keys": {}, "request_shape_types": {}, "request_unknown_key_count": {}, "response_content_type": {}, "provider_request_id": {}, "response_shape_keys": {}, "response_shape_types": {}, "response_unknown_key_count": {}, "error_shape_keys": {}, "error_shape_types": {}, "error_code": {}, "error_status": {}, "sse_event_names": {}, "sse_event_types": {}, "sse_correlation_fields": {}, "sse_terminal_markers": {}, "sse_invalid_event_count": {}, "sse_validation_problem_codes": {},
+	"suite_id": {}, "stdout_bytes": {}, "stdout_sha256": {}, "stderr_bytes": {}, "stderr_sha256": {},
 }

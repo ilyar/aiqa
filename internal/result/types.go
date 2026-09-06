@@ -61,46 +61,59 @@ type HTTPObservation struct {
 	TraceID string `json:"-"`
 }
 
+// Classification separates the observed result status from the strength and
+// provenance of the evidence. It is public metadata only: the referenced
+// operation IDs identify records in the private verbose sidecar, not requests.
+type Classification struct {
+	Kind            string   `json:"kind"`
+	RequirementID   string   `json:"requirement_id,omitempty"`
+	ProfileRevision string   `json:"profile_revision,omitempty"`
+	OperationIDs    []string `json:"operation_ids,omitempty"`
+	Reason          string   `json:"reason,omitempty"`
+}
+
 type TestResult struct {
 	ID            string `json:"id"`
 	RequirementID string `json:"requirement_id,omitempty"`
 	ProbeID       string `json:"probe_id,omitempty"`
 	// DerivedFrom identifies the prerequisite report result for a composite
 	// check. It is an internal stable requirement ID, never provider data.
-	DerivedFrom   string                `json:"derived_from,omitempty"`
-	Name          string                `json:"name"`
-	Suite         string                `json:"suite"`
-	Category      string                `json:"category"`
-	Required      bool                  `json:"required"`
-	Applicability Applicability         `json:"applicability,omitempty"`
-	Status        Status                `json:"status"`
-	DurationMS    int64                 `json:"duration_ms,omitempty"`
-	Summary       string                `json:"summary"`
-	Expected      string                `json:"expected,omitempty"`
-	Observation   string                `json:"observation,omitempty"`
-	HTTP          HTTPObservation       `json:"http,omitempty"`
-	Usage         Usage                 `json:"usage,omitempty"`
-	Metrics       map[string]any        `json:"metrics,omitempty"`
-	Signals       []EvidenceSignal      `json:"signals,omitempty"`
-	Error         string                `json:"error,omitempty"`
-	Artifacts     []ArtifactObservation `json:"artifacts,omitempty"`
+	DerivedFrom    string                `json:"derived_from,omitempty"`
+	Name           string                `json:"name"`
+	Suite          string                `json:"suite"`
+	Category       string                `json:"category"`
+	Required       bool                  `json:"required"`
+	Applicability  Applicability         `json:"applicability,omitempty"`
+	Status         Status                `json:"status"`
+	DurationMS     int64                 `json:"duration_ms,omitempty"`
+	Summary        string                `json:"summary"`
+	Expected       string                `json:"expected,omitempty"`
+	Observation    string                `json:"observation,omitempty"`
+	HTTP           HTTPObservation       `json:"http,omitempty"`
+	Usage          Usage                 `json:"usage,omitempty"`
+	Metrics        map[string]any        `json:"metrics,omitempty"`
+	Signals        []EvidenceSignal      `json:"signals,omitempty"`
+	Error          string                `json:"error,omitempty"`
+	Artifacts      []ArtifactObservation `json:"artifacts,omitempty"`
+	Classification *Classification       `json:"classification,omitempty"`
 }
 
 type ParameterResult struct {
-	Name        string           `json:"name"`
-	Variant     string           `json:"variant,omitempty"`
-	Status      Status           `json:"status"`
-	Accepted    *bool            `json:"accepted,omitempty"`
-	Effective   *bool            `json:"effective,omitempty"`
-	Confidence  string           `json:"confidence,omitempty"`
-	DurationMS  int64            `json:"duration_ms,omitempty"`
-	Summary     string           `json:"summary"`
-	Observation string           `json:"observation,omitempty"`
-	HTTP        HTTPObservation  `json:"http,omitempty"`
-	Usage       Usage            `json:"usage,omitempty"`
-	Metrics     map[string]any   `json:"metrics,omitempty"`
-	Signals     []EvidenceSignal `json:"signals,omitempty"`
-	Error       string           `json:"error,omitempty"`
+	Name           string           `json:"name"`
+	Variant        string           `json:"variant,omitempty"`
+	Status         Status           `json:"status"`
+	Accepted       *bool            `json:"accepted,omitempty"`
+	Effective      *bool            `json:"effective,omitempty"`
+	Confidence     string           `json:"confidence,omitempty"`
+	DurationMS     int64            `json:"duration_ms,omitempty"`
+	Summary        string           `json:"summary"`
+	Observation    string           `json:"observation,omitempty"`
+	HTTP           HTTPObservation  `json:"http,omitempty"`
+	Usage          Usage            `json:"usage,omitempty"`
+	Metrics        map[string]any   `json:"metrics,omitempty"`
+	Signals        []EvidenceSignal `json:"signals,omitempty"`
+	Error          string           `json:"error,omitempty"`
+	Classification *Classification  `json:"classification,omitempty"`
 }
 
 type ContextProbeResult struct {
@@ -120,6 +133,7 @@ type ContextProbeResult struct {
 	OutputLimitParameter         string          `json:"output_limit_parameter,omitempty"`
 	LastError                    string          `json:"last_error,omitempty"`
 	Samples                      []ContextSample `json:"samples,omitempty"`
+	Classification               *Classification `json:"classification,omitempty"`
 }
 
 type ContextSample struct {
@@ -251,6 +265,9 @@ type ExtensionSuiteResult struct {
 	Bound                 bool             `json:"bound"`
 	ArtifactRef           string           `json:"artifact_ref,omitempty"`
 	Error                 string           `json:"error,omitempty"`
+	ErrorKind             string           `json:"error_kind,omitempty"`
+	ErrorCode             string           `json:"error_code,omitempty"`
+	Classification        *Classification  `json:"classification,omitempty"`
 }
 
 type ExtensionRun struct {

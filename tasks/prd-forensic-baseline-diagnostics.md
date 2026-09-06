@@ -54,17 +54,17 @@ Interactions SSE по `index`, чтобы Google не получал ложны�
 
 **Критерии приёмки:**
 
-- [ ] `step.start`, `step.delta` и `step.stop` с одинаковым числовым `index`
+- [x] `step.start`, `step.delta` и `step.stop` с одинаковым числовым `index`
   образуют один lifecycle; строковые legacy aliases могут сохраняться только
   как backwards-compatible input.
-- [ ] Fixture с официальной последовательностью `interaction.created` →
+- [x] Fixture с официальной последовательностью `interaction.created` →
   `step.start(index: 0)` → `step.delta(index: 0)` → `step.stop(index: 0)` →
   `interaction.completed` → `done/[DONE]` проходит.
-- [ ] Некорректные порядок, дублирование индекса и terminal event до
+- [x] Некорректные порядок, дублирование индекса и terminal event до
   `step.stop` по-прежнему дают определённую validation error.
-- [ ] Тесты покрывают `event_type`, вложенные `interaction`, `step` и `delta`
+- [x] Тесты покрывают `event_type`, вложенные `interaction`, `step` и `delta`
   в фактической форме Google API.
-- [ ] `google.interactions.stream.sequence` становится `PASS` на loopback
+- [x] `google.interactions.stream.sequence` становится `PASS` на loopback
   fixture актуального формата.
 
 ### US-002: Безопасные диагностические fingerprints HTTP и SSE
@@ -74,23 +74,23 @@ Interactions SSE по `index`, чтобы Google не получал ложны�
 
 **Критерии приёмки:**
 
-- [ ] Для каждого terminal native HTTP/SSE result на verbosity 4 записывается
+- [x] Для каждого terminal native HTTP/SSE result на verbosity 4 записывается
   один `diagnostic.response_shape` event с target/protocol/model/suite/probe,
   operation/span IDs, status, content type, provider request ID (если есть),
   безопасными top-level ключами и типами полей.
-- [ ] Для Google error фиксируются только `error`-envelope presence, keys,
+- [x] Для Google error фиксируются только `error`-envelope presence, keys,
   code/status и классифицированная причина; message может быть только
   redacted bounded diagnostic code, не provider text.
-- [ ] Для SSE фиксируются ordered event names, `event_type`, наличие и тип
+- [x] Для SSE фиксируются ordered event names, `event_type`, наличие и тип
   correlation field (`index`/legacy alias), terminal markers и validation
   problems; event data и text delta не пишутся.
-- [ ] Запрос фиксируется только как method, normalized path, content type,
+- [x] Запрос фиксируется только как method, normalized path, content type,
   body-size bucket и approved request-shape keys. Base URL, Authorization,
   API key, cookies, prompt, tool arguments и media не пишутся.
-- [ ] Новая allowlist-schema диагностических полей отклоняет любое неизвестное
+- [x] Новая allowlist-schema диагностических полей отклоняет любое неизвестное
   поле. Тест с секретом во вложенном object/array доказывает redaction или
   отказ записи.
-- [ ] В public Markdown/JSON не появляются private diagnostics; sidecar
+- [x] В public Markdown/JSON не появляются private diagnostics; sidecar
   остаётся mode `0600` и создаётся только при `--verbose >= 1`.
 
 ### US-003: Диагностика SDK и extension execution gaps
@@ -100,16 +100,16 @@ Interactions SSE по `index`, чтобы Google не получал ложны�
 
 **Критерии приёмки:**
 
-- [ ] Каждый extension suite terminal event включает `extension_id`,
+- [x] Каждый extension suite terminal event включает `extension_id`,
   `suite_id`, subject reference, outcome, duration, HTTP status когда он
   известен, typed error kind (`deadline_exceeded`, `cancelled`, `transport`,
   `assertion`, `process`) и безопасный error code.
-- [ ] Для process/SDK failure лог содержит sanitized bounded stderr/stdout
+- [x] Для process/SDK failure лог содержит sanitized bounded stderr/stdout
   fingerprint: byte count, SHA-256 и approved diagnostic code; raw streams не
   пишутся.
-- [ ] `context deadline exceeded` при отсутствии HTTP response отображается
+- [x] `context deadline exceeded` при отсутствии HTTP response отображается
   как `execution_gap`, а не как provider incompatibility.
-- [ ] Fixture покрывает extension assertion failure, deadline, cancellation,
+- [x] Fixture покрывает extension assertion failure, deadline, cancellation,
   non-zero process exit и successful suite.
 
 ### US-004: Доказательная классификация semantic checks
@@ -119,19 +119,19 @@ Interactions SSE по `index`, чтобы Google не получал ложны�
 
 **Критерии приёмки:**
 
-- [ ] Для каждого result с status `fail`, `warn`, `error`, `unsupported` или
+- [x] Для каждого result с status `fail`, `warn`, `error`, `unsupported` или
   `inconclusive` JSON содержит `classification` из фиксированного набора:
   `provider_nonconformance`, `checker_defect`, `behavioral_observation`,
   `execution_gap`, `unsupported_capability`, `insufficient_evidence`.
-- [ ] `classification` содержит requirement/profile revision и ссылки на
+- [x] `classification` содержит requirement/profile revision и ссылки на
   private operation IDs, но не меняет canonical status без явного правила
   assessment.
-- [ ] Exact-marker, tool-call и local structured-output assertions являются
+- [x] Exact-marker, tool-call и local structured-output assertions являются
   `behavioral_observation`, пока profile не содержит отдельного обязательного
   нормативного контракта.
-- [ ] Error-shape checker при HTTP 4xx без тела получает
+- [x] Error-shape checker при HTTP 4xx без тела получает
   `insufficient_evidence`, а не `provider_nonconformance`.
-- [ ] Markdown показывает classification рядом с non-pass строкой и кратко
+- [x] Markdown показывает classification рядом с non-pass строкой и кратко
   объясняет, что это не эквивалентно сертификации/нарушению стандарта.
 
 ### US-005: Полнота forensic lifecycle
@@ -141,14 +141,14 @@ Interactions SSE по `index`, чтобы Google не получал ложны�
 
 **Критерии приёмки:**
 
-- [ ] Для каждого begin-event существует один terminal end/result event с тем
+- [x] Для каждого begin-event существует один terminal end/result event с тем
   же span/operation ID либо trace verdict содержит `missing_span_end` с
   target/protocol/suite/probe/operation ID.
-- [ ] Fixture воспроизводит незакрытый SDK stream span и получает trace
+- [x] Fixture воспроизводит незакрытый SDK stream span и получает trace
   verdict `FAIL`; исправленный path получает `PASS`.
-- [ ] `baseline-compat-report`-подобная loopback fixture не имеет
+- [x] `baseline-compat-report`-подобная loopback fixture не имеет
   `missing_span_end`.
-- [ ] Public report сохраняет ссылку и status trace verdict; несовместимость
+- [x] Public report сохраняет ссылку и status trace verdict; несовместимость
   провайдера не выводится из trace verdict failure.
 
 ## Функциональные требования

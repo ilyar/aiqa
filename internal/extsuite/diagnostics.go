@@ -3,6 +3,7 @@ package extsuite
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -10,6 +11,39 @@ import (
 	"github.com/ilyar/aiqa/internal/logging"
 	"github.com/ilyar/aiqa/internal/result"
 )
+
+func validErrorKind(kind string) bool {
+	switch kind {
+	case "", "deadline_exceeded", "cancelled", "transport", "assertion", "process", "capability_rejection":
+		return true
+	default:
+		return false
+	}
+}
+
+func classifyRunError(err error) string {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "deadline_exceeded"
+	}
+	if errors.Is(err, context.Canceled) {
+		return "cancelled"
+	}
+	return "process"
+}
+
+func diagnosticErrorCode(kind, detail string) string {
+	if kind == "" {
+		return ""
+	}
+	// Deliberately fixed tokens: neither errors nor provider text become logs.
+	if kind == "assertion" && detail != "" {
+		return "extension_assertion_failed"
+	}
+	return "extension_" + kind
+}
 
 // DiagnosticLogger receives private, already-structured extension diagnostics.
 // Callers decide whether a level is retained. Diagnostic fields deliberately
