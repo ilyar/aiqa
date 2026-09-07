@@ -75,7 +75,7 @@ func TestPacerConfiguredConcurrencyIsCeilingNotInitialBurst(t *testing.T) {
 }
 
 func TestPacerRateLimitRequeuesStaleReservations(t *testing.T) {
-	p := newPacer(10 * time.Millisecond)
+	p := newPacer(2 * time.Second)
 	firstReady := make(chan struct{})
 	release := make(chan struct{})
 	go func() {
@@ -85,18 +85,39 @@ func TestPacerRateLimitRequeuesStaleReservations(t *testing.T) {
 		p.release("")
 	}()
 	<-firstReady
+	p.mu.Lock()
+	firstReservation := p.nextStart
+	p.mu.Unlock()
 	second := make(chan time.Time, 1)
 	go func() {
 		_ = p.wait(context.Background(), "")
 		second <- time.Now()
 		p.release("")
 	}()
-	// The second request has reserved the old 10ms interval. A 429 must
-	// invalidate that reservation rather than allowing it through immediately.
+	deadline := time.After(time.Second)
+	for {
+		p.mu.Lock()
+		reserved := p.nextStart.After(firstReservation)
+		p.mu.Unlock()
+		if reserved {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("second waiter did not reserve the old schedule")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	// The second request has reserved a long old interval. A 429 must wake it
+	// promptly, then make it reserve against the cooldown rather than wasting
+	// the stale two-second slot (which consumes probe deadline budget).
 	limitedAt := time.Now()
 	p.limited("", 60*time.Millisecond)
 	close(release)
 	started := <-second
+	if elapsed := started.Sub(limitedAt); elapsed > 500*time.Millisecond {
+		t.Fatalf("stale reservation was not promptly requeued: %s", elapsed)
+	}
 	if elapsed := started.Sub(limitedAt); elapsed < 50*time.Millisecond {
 		t.Fatalf("stale reservation started after %s, want cooldown", elapsed)
 	}

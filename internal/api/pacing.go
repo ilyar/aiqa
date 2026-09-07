@@ -36,6 +36,7 @@ type pacer struct {
 	maxSuccessfulInFlight int
 	inflightByModel       map[string]int
 	changed               chan struct{}
+	scheduleChanged       chan struct{}
 	stats                 PacingStats
 	byModel               map[string]PacingStats
 }
@@ -44,7 +45,7 @@ func newPacer(initial time.Duration) *pacer {
 	if initial <= 0 {
 		initial = 2 * time.Second
 	}
-	return &pacer{interval: initial, limit: 1, maxLimit: 4, changed: make(chan struct{}), inflightByModel: map[string]int{}, byModel: map[string]PacingStats{}}
+	return &pacer{interval: initial, limit: 1, maxLimit: 4, changed: make(chan struct{}), scheduleChanged: make(chan struct{}), inflightByModel: map[string]int{}, byModel: map[string]PacingStats{}}
 }
 
 func (p *pacer) setConcurrency(limit int) {
@@ -60,8 +61,7 @@ func (p *pacer) setConcurrency(limit int) {
 		p.limit = p.maxLimit
 	}
 	p.revision++
-	close(p.changed)
-	p.changed = make(chan struct{})
+	p.signalScheduleChangedLocked()
 	p.mu.Unlock()
 }
 
@@ -87,15 +87,23 @@ func (p *pacer) wait(ctx context.Context, model string, observers ...func(bool, 
 		}
 		p.nextStart = start.Add(p.interval)
 		revision := p.revision
+		scheduleChanged := p.scheduleChanged
 		p.mu.Unlock()
 		if delay := time.Until(start); delay > 0 {
 			waited := time.Now()
 			notify(true, delay)
-			if err := waitDuration(ctx, delay); err != nil {
+			rescheduled, err := waitForPacer(ctx, delay, scheduleChanged)
+			if err != nil {
 				notify(false, time.Since(waited))
 				return err
 			}
 			notify(false, time.Since(waited))
+			// A rate-limit response changes the shared target schedule. Do not
+			// keep consuming the old reservation while other work has already
+			// entered cooldown; that was the source of queue-induced deadlines.
+			if rescheduled {
+				continue
+			}
 		}
 		p.mu.Lock()
 		// A 429 or adaptive adjustment invalidates reservations made under the
@@ -132,6 +140,22 @@ func (p *pacer) wait(ctx context.Context, model string, observers ...func(bool, 
 	}
 }
 
+// waitForPacer stops a stale reservation as soon as another request updates
+// the target-wide schedule. The caller re-reserves against the new cooldown;
+// it never sends a request merely because an obsolete timer expired.
+func waitForPacer(ctx context.Context, delay time.Duration, changed <-chan struct{}) (bool, error) {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false, ctx.Err()
+	case <-changed:
+		return true, nil
+	case <-timer.C:
+		return false, nil
+	}
+}
+
 func waitDuration(ctx context.Context, delay time.Duration) error {
 	t := time.NewTimer(delay)
 	defer t.Stop()
@@ -151,9 +175,19 @@ func (p *pacer) release(model string) {
 	if model != "" && p.inflightByModel[model] > 0 {
 		p.inflightByModel[model]--
 	}
+	p.signalChangedLocked()
+	p.mu.Unlock()
+}
+
+func (p *pacer) signalChangedLocked() {
 	close(p.changed)
 	p.changed = make(chan struct{})
-	p.mu.Unlock()
+}
+
+func (p *pacer) signalScheduleChangedLocked() {
+	p.signalChangedLocked()
+	close(p.scheduleChanged)
+	p.scheduleChanged = make(chan struct{})
 }
 
 func (p *pacer) logical(model string) {
@@ -217,13 +251,19 @@ func (p *pacer) success(model string, durations ...time.Duration) {
 	// serialized despite --concurrency allowing more in-flight work.
 	if p.successStreak >= 5 {
 		p.successStreak = 0
+		p.quietWindows++
 		if p.interval > 200*time.Millisecond {
 			p.interval -= 100 * time.Millisecond
 		}
-		if p.limit < p.maxLimit {
+		// Increase request density first, then admit another in-flight request
+		// only after a second quiet window. This avoids treating five successes
+		// as evidence that both rate and concurrency may safely double.
+		if p.quietWindows >= 2 && p.limit < p.maxLimit {
 			p.limit++
+			p.quietWindows = 0
 		}
 		p.revision++
+		p.signalScheduleChangedLocked()
 	}
 }
 
@@ -258,6 +298,7 @@ func (p *pacer) limited(model string, retryAfter time.Duration) time.Duration {
 	}
 	p.nextStart = p.blockedUntil
 	p.revision++
+	p.signalScheduleChangedLocked()
 	return delay
 }
 
