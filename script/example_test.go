@@ -78,6 +78,7 @@ func TestGenerateGoodTargetsAllProviderProtocolsExplicitly(t *testing.T) {
 	}
 	binDir := t.TempDir()
 	argsFile := filepath.Join(t.TempDir(), "aiqa-args")
+	termFile := filepath.Join(t.TempDir(), "aiqa-term")
 	writeExecutable(t, filepath.Join(binDir, "model-provider"), `#!/bin/sh
 case "$1" in
   --json) printf '{"health":{"ok":true}}\n' ;;
@@ -87,11 +88,13 @@ esac
 `)
 	writeExecutable(t, filepath.Join(binDir, "aiqa"), `#!/bin/sh
 printf '%s\n' "$@" > "$AIQA_ARGS_FILE"
+printf '%s\n' "$TERM" > "$AIQA_TERM_FILE"
 printf '# good\n' > good-report.md
 printf '{"summary":{"verdict":"fail"},"targets":[{"id":"openai"},{"id":"anthropic"},{"id":"google-genai"}]}\n' > good-report.json
 `)
 	t.Setenv("PATH", binDir)
 	t.Setenv("AIQA_ARGS_FILE", argsFile)
+	t.Setenv("AIQA_TERM_FILE", termFile)
 	writeFixture(t, filepath.Join(root, "example", "good-report.log"), "stale private trace\n")
 	writeFixture(t, filepath.Join(root, "example", "good-report.trace-verdict.json"), "{}\n")
 
@@ -121,6 +124,13 @@ printf '{"summary":{"verdict":"fail"},"targets":[{"id":"openai"},{"id":"anthropi
 	}
 	if strings.Contains(argText, "--verbose\n") || strings.Contains(argText, "--verbose=4\n") {
 		t.Fatalf("public sample generator unexpectedly enables private sidecars: %q", args)
+	}
+	term, err := os.ReadFile(termFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(term)); got != "dumb" {
+		t.Fatalf("example generator TERM=%q, want dumb for durable progress", got)
 	}
 }
 

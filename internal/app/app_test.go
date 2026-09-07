@@ -52,6 +52,26 @@ func TestRunShowsPlainProgressWithoutVerboseLog(t *testing.T) {
 	}
 }
 
+func TestProgressTTYDisablesRedrawForDumbTerminalAndCI(t *testing.T) {
+	for _, environment := range []struct {
+		name  string
+		key   string
+		value string
+	}{
+		{name: "dumb terminal", key: "TERM", value: "dumb"},
+		{name: "CI", key: "CI", value: "1"},
+	} {
+		t.Run(environment.name, func(t *testing.T) {
+			t.Setenv("TERM", "xterm-256color")
+			t.Setenv("CI", "")
+			t.Setenv(environment.key, environment.value)
+			if progressTTY() {
+				t.Fatalf("progressTTY() = true with %s=%q", environment.key, environment.value)
+			}
+		})
+	}
+}
+
 func TestRunCompatibilityWritesReports(t *testing.T) {
 	server := newMockOpenAI(t)
 	defer server.Close()

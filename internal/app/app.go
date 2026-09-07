@@ -59,6 +59,12 @@ var attachForensicSink = func(logger *logging.Logger, file *os.File) (*logging.S
 // progress is always visible, while --verbose only governs JSONL retention.
 var progressWriter io.Writer = os.Stderr
 var progressTTY = func() bool {
+	// A pseudo-terminal is not sufficient when its consumer does not implement
+	// carriage-return redraws (CI log collectors and `TERM=dumb` wrappers are
+	// common examples). Prefer durable progress lines in those environments.
+	if os.Getenv("CI") != "" || strings.EqualFold(os.Getenv("TERM"), "dumb") {
+		return false
+	}
 	info, err := os.Stderr.Stat()
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }

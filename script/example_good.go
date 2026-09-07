@@ -61,6 +61,10 @@ func generateGood(ctx context.Context, stdout, stderr io.Writer, projectRoot str
 	}
 	goodEnv := mergeEnvironment(os.Environ(), providerEnv,
 		"GOOGLE_GENAI_BASE_URL", "GOOGLE_GENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_GENAI_MODEL")
+	// Example generation is frequently executed by make, an IDE task pane, or
+	// captured CI-style output. Force durable lines rather than a carriage-
+	// return redraw stream so generated-report progress remains readable there.
+	goodEnv = mergeEnvironment(goodEnv, map[string]string{"TERM": "dumb"})
 
 	fmt.Fprintln(stdout, "Generating provider example reports")
 	if err := runCommand(ctx, exampleDir, goodEnv, stdout, stderr, aiqaPath,
