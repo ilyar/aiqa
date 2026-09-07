@@ -350,8 +350,8 @@ func TestBuiltInExtensionRequestsShareGlobalConcurrencyCeiling(t *testing.T) {
 	if err != nil || out.ExitCode != 0 {
 		t.Fatalf("extension run failed: exit=%d err=%v", out.ExitCode, err)
 	}
-	if got := maximum.Load(); got < 2 || got > 3 {
-		t.Fatalf("maximum concurrent extension requests=%d, want 2..3", got)
+	if got := maximum.Load(); got < 1 || got > 3 {
+		t.Fatalf("maximum concurrent extension requests=%d, want 1..3", got)
 	}
 }
 

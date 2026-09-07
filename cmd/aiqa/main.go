@@ -37,6 +37,7 @@ func main() {
 	defer stop()
 	out, runErr := app.Run(ctx, cfg, app.BuildInfo{Version: version, Commit: commit, Date: date})
 	if runErr != nil {
+		fmt.Fprintln(os.Stderr, "aiqa: [FATAL]", runErr)
 		if out.ExitCode == 0 {
 			out.ExitCode = 1
 		}

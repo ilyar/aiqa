@@ -66,7 +66,7 @@ type targetState struct {
 	intervalEMA                      time.Duration
 	terminals                        int
 	finished                         bool
-	waiting                          bool
+	pacingWaiters                    int
 	wait                             time.Duration
 	current                          string
 }
@@ -146,15 +146,34 @@ func (r *Reporter) Pacing(target string, waiting bool, duration time.Duration) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	s := r.stateLocked(target)
-	s.waiting, s.wait = waiting, duration
 	r.current = s.name
-	r.renderLocked(s, "")
+	wasWaiting := s.pacingWaiters > 0
+	if waiting {
+		s.pacingWaiters++
+		if duration > s.wait {
+			s.wait = duration
+		}
+	} else if s.pacingWaiters > 0 {
+		s.pacingWaiters--
+	}
+	isWaiting := s.pacingWaiters > 0
+	if wasWaiting == isWaiting {
+		return
+	}
+	if !isWaiting {
+		s.wait = 0
+	}
+	// A target can have many requests queued in the shared pacer. Render only
+	// the aggregate transition: per-request begin/end events otherwise make a
+	// TTY flicker and flood durable output.
+	r.pacingTransitionLocked(s)
 }
 func (r *Reporter) TargetFinished(target, outcome string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	s := r.stateLocked(target)
-	s.waiting = false
+	s.pacingWaiters = 0
+	s.wait = 0
 	s.finished = true
 	r.finishLineLocked()
 	r.lineLocked(fmt.Sprintf("aiqa: %s: completed — %s (%d/%d 100%%)", s.name, safe(outcome), s.done, s.total), true)
@@ -310,21 +329,18 @@ func (r *Reporter) renderLocked(s *targetState, override string) {
 	}
 }
 func (r *Reporter) progressLineLocked(s *targetState) { r.lineLocked(r.status(s), true) }
+func (r *Reporter) pacingTransitionLocked(s *targetState) {
+	r.lineLocked(r.status(s), !r.tty)
+}
 func (r *Reporter) status(s *targetState) string {
-	if s.waiting {
-		if s.wait >= time.Second {
-			return fmt.Sprintf("aiqa: %s: waiting for provider pacing (%s)", s.name, s.wait.Round(time.Second))
-		}
-		return fmt.Sprintf("aiqa: %s: waiting for provider pacing", s.name)
-	}
 	if !s.planned {
-		return "aiqa: Discovering " + s.name
+		return r.withPacing(s, "aiqa: Discovering "+s.name)
 	}
 	// Native classification can reveal a later SDK/extension phase. Until the
 	// target itself ends, a completed current plan is not a completed target;
 	// calling it 100% would be a false promise to the operator.
 	if s.done >= s.total && !s.finished {
-		return fmt.Sprintf("aiqa: %s %d/%d known probes completed; preparing next phase", s.name, s.done, s.total)
+		return r.withPacing(s, fmt.Sprintf("aiqa: %s %d/%d known probes completed; preparing next phase", s.name, s.done, s.total))
 	}
 	p := percentOf(s.done, s.total)
 	rate, eta := r.rateETA(s)
@@ -339,7 +355,16 @@ func (r *Reporter) status(s *targetState) string {
 	if s.current != "" {
 		text += "  " + s.current
 	}
-	return text
+	return r.withPacing(s, text)
+}
+func (r *Reporter) withPacing(s *targetState, text string) string {
+	if s.pacingWaiters == 0 {
+		return text
+	}
+	if s.wait >= time.Second {
+		return fmt.Sprintf("%s  waiting for provider pacing (%s)", text, s.wait.Round(time.Second))
+	}
+	return text + "  waiting for provider pacing"
 }
 func (r *Reporter) rateETA(s *targetState) (float64, string) {
 	if !s.planned || s.total <= s.done || s.terminals < 2 || s.intervalEMA <= 0 {
