@@ -24,8 +24,15 @@ func TestNonTTYPlansDeduplicatesAndDoesNotEmitControlSequences(t *testing.T) {
 	if strings.Contains(got, "\r") || strings.Contains(got, "\x1b") {
 		t.Fatalf("non-TTY output contains terminal control: %q", got)
 	}
-	if !strings.Contains(got, "openai 2/2 100%") {
-		t.Fatalf("completion = %q", got)
+	if !strings.Contains(got, "openai 2/2 known probes completed; preparing next phase") {
+		t.Fatalf("intermediate completion = %q", got)
+	}
+	if strings.Contains(got, "100%") {
+		t.Fatalf("target progress claimed 100%% before target completion: %q", got)
+	}
+	r.TargetFinished("openai", "completed")
+	if !strings.Contains(out.String(), "openai: completed — completed (2/2 100%)") {
+		t.Fatalf("target completion = %q", out.String())
 	}
 	if strings.Count(got, "openai 2/2") != 1 {
 		t.Fatalf("duplicate terminal lifecycle counted: %q", got)

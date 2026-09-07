@@ -65,6 +65,7 @@ type targetState struct {
 	lastPercent                      int
 	intervalEMA                      time.Duration
 	terminals                        int
+	finished                         bool
 	waiting                          bool
 	wait                             time.Duration
 	current                          string
@@ -154,8 +155,9 @@ func (r *Reporter) TargetFinished(target, outcome string) {
 	defer r.mu.Unlock()
 	s := r.stateLocked(target)
 	s.waiting = false
+	s.finished = true
 	r.finishLineLocked()
-	r.lineLocked(fmt.Sprintf("aiqa: %s: completed — %s", s.name, safe(outcome)), true)
+	r.lineLocked(fmt.Sprintf("aiqa: %s: completed — %s (%d/%d 100%%)", s.name, safe(outcome), s.done, s.total), true)
 }
 func (r *Reporter) RunFinished() { r.mu.Lock(); defer r.mu.Unlock(); r.finishLineLocked() }
 
@@ -317,6 +319,12 @@ func (r *Reporter) status(s *targetState) string {
 	}
 	if !s.planned {
 		return "aiqa: Discovering " + s.name
+	}
+	// Native classification can reveal a later SDK/extension phase. Until the
+	// target itself ends, a completed current plan is not a completed target;
+	// calling it 100% would be a false promise to the operator.
+	if s.done >= s.total && !s.finished {
+		return fmt.Sprintf("aiqa: %s %d/%d known probes completed; preparing next phase", s.name, s.done, s.total)
 	}
 	p := percentOf(s.done, s.total)
 	rate, eta := r.rateETA(s)
