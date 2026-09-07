@@ -16,6 +16,7 @@ import (
 	"github.com/ilyar/aiqa/internal/logging"
 	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/profile"
+	"github.com/ilyar/aiqa/internal/progress"
 	"github.com/ilyar/aiqa/internal/result"
 	"github.com/ilyar/aiqa/internal/telemetry"
 )
@@ -146,19 +147,40 @@ func ExecuteTarget(ctx context.Context, registry *Registry, cfg config.Config, t
 // host-owned timeline. It is additive so existing callers retain the original
 // API until they opt into private verbose logging.
 func ExecuteTargetWithDiagnostics(ctx context.Context, registry *Registry, cfg config.Config, target config.TargetConfig, p profile.Profile, models []result.ModelReport, client *api.Client, executor *probe.Executor, logger DiagnosticLogger) []result.ExtensionRun {
-	return executeTarget(ctx, registry, cfg, target, p, models, client, executor, logger, nil)
+	return executeTarget(ctx, registry, cfg, target, p, models, client, executor, logger, nil, nil)
 }
 
 // ExecuteTargetWithTelemetry adds local-only operation correlation to extension
 // invocations while preserving the legacy diagnostics API for direct callers.
 func ExecuteTargetWithTelemetry(ctx context.Context, registry *Registry, cfg config.Config, target config.TargetConfig, p profile.Profile, models []result.ModelReport, client *api.Client, executor *probe.Executor, logger DiagnosticLogger, provider *telemetry.Provider) []result.ExtensionRun {
-	return executeTarget(ctx, registry, cfg, target, p, models, client, executor, logger, provider)
+	return executeTarget(ctx, registry, cfg, target, p, models, client, executor, logger, provider, nil)
 }
 
-func executeTarget(ctx context.Context, registry *Registry, cfg config.Config, target config.TargetConfig, p profile.Profile, models []result.ModelReport, client *api.Client, executor *probe.Executor, logger DiagnosticLogger, provider *telemetry.Provider) []result.ExtensionRun {
+// ExecuteTargetWithTelemetryAndProgress adds declared extension-suite units to
+// progress. Built-in suites with telemetry retain their concrete probe
+// lifecycle; executable suites (and compatibility callers without telemetry)
+// receive one host-owned terminal unit per declared suite. External HTTP is
+// deliberately never inferred from extension process activity.
+func ExecuteTargetWithTelemetryAndProgress(ctx context.Context, registry *Registry, cfg config.Config, target config.TargetConfig, p profile.Profile, models []result.ModelReport, client *api.Client, executor *probe.Executor, logger DiagnosticLogger, provider *telemetry.Provider, sink progress.Sink) []result.ExtensionRun {
+	return executeTarget(ctx, registry, cfg, target, p, models, client, executor, logger, provider, sink)
+}
+
+func executeTarget(ctx context.Context, registry *Registry, cfg config.Config, target config.TargetConfig, p profile.Profile, models []result.ModelReport, client *api.Client, executor *probe.Executor, logger DiagnosticLogger, provider *telemetry.Provider, sink progress.Sink) []result.ExtensionRun {
 	invocations := planTarget(registry, cfg, target, p, models)
 	if len(invocations) == 0 {
 		return nil
+	}
+	// Native work may already be complete when SDK/extensions are scheduled.
+	// Reserve every declared host suite before the first invocation goroutine
+	// can create a probe, so the operator never sees a false 100% while an SDK
+	// suite is about to run. Built-ins expose one concrete probe per declared
+	// suite; opaque paths use the synthetic terminal below.
+	if sink != nil {
+		total := 0
+		for _, planned := range invocations {
+			total += len(planned.suiteIDs)
+		}
+		sink.AddPlan(target.ID, total)
 	}
 	runs := make([]result.ExtensionRun, len(invocations))
 	var wg sync.WaitGroup
@@ -175,6 +197,10 @@ func executeTarget(ctx context.Context, registry *Registry, cfg config.Config, t
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			// Built-ins produce concrete host probe operations when telemetry is
+			// available. Every other invocation needs a single declared-suite
+			// terminal so progress does not mistake opaque extension work for HTTP.
+			syntheticProgress := sink != nil && (provider == nil || planned.extension.Provenance().Source == "executable")
 			invocationCtx := logging.Scope(ctx, target.ID, subjectModel(planned.subject), "", "", "")
 			var invocationEnd func(string, logging.Fields)
 			var subjectEnd func(string, logging.Fields)
@@ -246,6 +272,9 @@ func executeTarget(ctx context.Context, registry *Registry, cfg config.Config, t
 					pacingCompliance = "extension_required_unverified"
 				}
 				runs[index] = result.ExtensionRun{Provenance: provenance, TargetID: target.ID, Subject: planned.subject, Runner: result.ExtensionRunnerResult{Status: result.StatusError, PacingCompliance: pacingCompliance, Summary: "Extension invocation could not be validated", Error: err.Error()}}
+				if syntheticProgress {
+					reportDeclaredSuiteTerminals(sink, target.ID, planned, runs[index], time.Now())
+				}
 				logDiagnostic(logger, logging.Error, "extsuite.invocation.rejected", logging.Fields{"target": target.ID, "extension": planned.manifest.Extension.ID, "subject_ref": diagnosticSubjectRef(planned.subject), "reason": "collector_validation"})
 				invocationEnd("error", logging.Fields{"status": "error", "error_present": true, "error_kind": "collector_validation"})
 				subjectEnd("error", logging.Fields{"status": "error", "error_present": true, "error_kind": "collector_validation"})
@@ -269,6 +298,9 @@ func executeTarget(ctx context.Context, registry *Registry, cfg config.Config, t
 				runErr = fmt.Errorf("extension deadline exceeded: %w", runCtx.Err())
 			}
 			runs[index] = collector.Finish(planned.extension.Provenance(), telemetry, runErr, started)
+			if syntheticProgress {
+				reportDeclaredSuiteTerminals(sink, target.ID, planned, runs[index], time.Now())
+			}
 			fields := logging.Fields{"status": string(runs[index].Runner.Status), "total_ms": runs[index].Runner.TotalDurationMS, "exit_code": runs[index].Runner.ExitCode, "error_present": runErr != nil}
 			if runErr != nil {
 				fields["error_kind"] = "extension_runner"
@@ -279,6 +311,32 @@ func executeTarget(ctx context.Context, registry *Registry, cfg config.Config, t
 	}
 	wg.Wait()
 	return runs
+}
+
+func reportDeclaredSuiteTerminals(sink progress.Sink, target string, planned invocation, run result.ExtensionRun, at time.Time) {
+	if sink == nil {
+		return
+	}
+	statuses := make(map[string]result.Status, len(run.Suites))
+	for _, suite := range run.Suites {
+		statuses[suite.SuiteID] = suite.Status
+	}
+	for _, suiteID := range planned.suiteIDs {
+		outcome := string(statuses[suiteID])
+		if outcome == "" {
+			outcome = string(run.Runner.Status)
+		}
+		sink.ObserveLifecycle(telemetry.LifecycleEvent{
+			Time:        at,
+			Name:        "extension.suite",
+			Phase:       "end",
+			OperationID: "extension:" + target + ":" + planned.manifest.Extension.ID + ":" + diagnosticSubjectRef(planned.subject) + ":" + suiteID,
+			Target:      target,
+			Model:       subjectModel(planned.subject),
+			Suite:       suiteID,
+			Outcome:     outcome,
+		})
+	}
 }
 
 func subjectModel(subject result.SubjectRef) string {

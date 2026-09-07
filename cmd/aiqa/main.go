@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	version = "1.0.0-alpha.8"
+	version = "1.0.0-alpha.9"
 	commit  = "unknown"
 	date    = "unknown"
 )
@@ -130,6 +130,7 @@ connection and diagnostics:
   --allow-http             permit plaintext outside loopback
   --verbose[=N], -v...     diagnostics: 0 quiet; 1 WARN; 2 INFO; 3 DEBUG; 4 TRACE
                             --verbose is level 1; -v through -vvvv select levels 1 through 4
+                            levels 1-4 write a private JSONL sidecar; progress is always shown on stderr
                             level 4 writes private trace/verdict diagnostics; they do not change compatibility verdict or exit policy
   --version                print version
   --help, -h               print this help`)

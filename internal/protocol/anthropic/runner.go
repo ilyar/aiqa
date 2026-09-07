@@ -21,6 +21,7 @@ import (
 	"github.com/ilyar/aiqa/internal/logging"
 	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/profile"
+	"github.com/ilyar/aiqa/internal/progress"
 	protocolpkg "github.com/ilyar/aiqa/internal/protocol"
 	reportpkg "github.com/ilyar/aiqa/internal/report"
 	"github.com/ilyar/aiqa/internal/result"
@@ -35,7 +36,10 @@ type RunOptions struct {
 	Logf      func(logging.Level, string, ...any)
 	Logger    *logging.Logger
 	Telemetry *telemetry.Provider
-	Runtime   *Runtime
+	// Progress receives the post-discovery native-probe plan. It is optional so
+	// package callers that do not render operator progress remain compatible.
+	Progress progress.Sink
+	Runtime  *Runtime
 }
 
 // Runtime exposes the target-owned transport and executor to the extension
@@ -46,13 +50,38 @@ type Runtime struct {
 	Executor *probe.Executor
 }
 
+type progressPlan struct {
+	mu     sync.Mutex
+	sink   progress.Sink
+	target string
+	total  int
+}
+
+func newProgressPlan(sink progress.Sink, target string, total int) *progressPlan {
+	if sink == nil {
+		return nil
+	}
+	sink.Plan(target, total)
+	return &progressPlan{sink: sink, target: target, total: total}
+}
+
+func (p *progressPlan) addDynamicProbe() {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.total++
+	p.sink.RevisePlan(p.target, p.total)
+}
+
 // RunTarget adapts the Anthropic implementation to the shared protocol
 // registry contract.
 func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg.RunResult, error) {
 	runtime := &Runtime{}
 	target, err := Run(ctx, RunOptions{
 		Target: options.Target, Config: options.Config, Profile: options.Profile,
-		UserAgent: options.UserAgent, Logf: options.Logf, Logger: options.Logger, Telemetry: options.Telemetry, Runtime: runtime,
+		UserAgent: options.UserAgent, Logf: options.Logf, Logger: options.Logger, Telemetry: options.Telemetry, Progress: options.Progress, Runtime: runtime,
 	})
 	return protocolpkg.RunResult{
 		Target:  target,
@@ -101,6 +130,11 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	probeExecutor.SetLogger(options.Logger)
 	probeExecutor.SetLogFields(logging.Fields{"target": target.ID, "protocol": string(target.Protocol)})
 	client.TransportClient().SetTelemetry(options.Telemetry)
+	if options.Progress != nil {
+		client.TransportClient().SetPacingObserver(func(target string, waiting bool, duration time.Duration) {
+			options.Progress.Pacing(target, waiting, duration)
+		})
+	}
 	client.TransportClient().SetOTelPropagationAllowlist(cfg.OTelPropagationTo)
 	probeExecutor.SetTelemetry(options.Telemetry)
 	if options.Runtime != nil {
@@ -232,6 +266,7 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 			}
 		}
 	}
+	plan := newProgressPlan(options.Progress, target.ID, plannedProbeCount(cfg, selected, modulePlans, routeBlocked))
 	jobs := make(chan int)
 	modelResults := make(chan modelItem, len(selected))
 	workers := cfg.Concurrency
@@ -263,7 +298,7 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 				if cfg.HasTest("compat") && preflightTests[index] != nil && routeBlocked[index] {
 					mr.Compatibility = append(mr.Compatibility, *preflightTests[index])
 				} else if cfg.HasTest("compat") {
-					mr.Compatibility = runModelWithPreflight(modelCtx, client, cfg, p, model, modules, probeExecutor, options.Telemetry, preflights[index], preflightErrors[index])
+					mr.Compatibility = runModelWithPreflight(modelCtx, client, cfg, p, model, modules, probeExecutor, options.Telemetry, preflights[index], preflightErrors[index], plan)
 				}
 				sort.Slice(mr.Compatibility, func(i, j int) bool { return mr.Compatibility[i].ID < mr.Compatibility[j].ID })
 				if options.Telemetry != nil {
@@ -297,6 +332,41 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	guidance.QualifyArtifacts(&tmp, target.ID)
 	assessment.ApplyTarget(&tmp, p, target.ID, string(target.Protocol))
 	return toTarget(target, tmp), nil
+}
+
+// plannedProbeCount counts lifecycle probes, not result rows, HTTP attempts,
+// or validators. Discovery and requested-model preflights have already ended
+// when this immutable post-classification snapshot is published.
+func plannedProbeCount(cfg config.Config, selected []string, modules [][]result.ModuleAssessment, routeBlocked []bool) int {
+	if !cfg.HasTest("compat") {
+		return 0
+	}
+	total := 0
+	for index := range selected {
+		if routeBlocked[index] {
+			continue
+		}
+		// retrieve, basic message, ten direct message checks, three error
+		// checks, and one streaming check.
+		count := 16
+		if !moduleExecuted(modules[index], "anthropic.messages") {
+			count = 1 // retrieve is always performed
+		}
+		if moduleExecuted(modules[index], "anthropic.tools") {
+			count += 6 // choices, specific, stream, parallel; continuation is conditional
+		}
+		if moduleExecuted(modules[index], "anthropic.token-counting") {
+			count += 3
+		}
+		if moduleExecuted(modules[index], "anthropic.structured-output") || moduleExecuted(modules[index], "anthropic.vision") {
+			count++
+		}
+		if moduleExecuted(modules[index], "anthropic.thinking") && cfg.AllowHighTokenProbes {
+			count += 5
+		}
+		total += count
+	}
+	return total
 }
 
 func discoveryResults(p profile.Profile, resp api.Response, models []api.Model, err error) []result.TestResult {
@@ -399,10 +469,10 @@ func paginationResult(parent context.Context, client *Client, timeout time.Durat
 }
 
 func runModel(parent context.Context, client *Client, cfg config.Config, p profile.Profile, model string, modules []result.ModuleAssessment, executor *probe.Executor) []result.TestResult {
-	return runModelWithPreflight(parent, client, cfg, p, model, modules, executor, nil, nil, nil)
+	return runModelWithPreflight(parent, client, cfg, p, model, modules, executor, nil, nil, nil, nil)
 }
 
-func runModelWithPreflight(parent context.Context, client *Client, cfg config.Config, p profile.Profile, model string, modules []result.ModuleAssessment, executor *probe.Executor, telemetryProvider *telemetry.Provider, preflight *api.Response, preflightErr error) []result.TestResult {
+func runModelWithPreflight(parent context.Context, client *Client, cfg config.Config, p profile.Profile, model string, modules []result.ModuleAssessment, executor *probe.Executor, telemetryProvider *telemetry.Provider, preflight *api.Response, preflightErr error, plan *progressPlan) []result.TestResult {
 	timeout := cfg.Timeout
 	var out []result.TestResult
 	retrieve := probe.Map(executor, func() result.TestResult {
@@ -421,7 +491,7 @@ func runModelWithPreflight(parent context.Context, client *Client, cfg config.Co
 	})[0]
 	out = append(out, retrieve)
 	if !moduleExecuted(modules, "anthropic.messages") {
-		return append(out, flattenProbeGroups(probe.Map(executor, optionalModelTasks(parent, client, cfg, p, model, modules, 0, telemetryProvider)...))...)
+		return append(out, flattenProbeGroups(probe.Map(executor, optionalModelTasks(parent, client, cfg, p, model, modules, 0, telemetryProvider, plan)...))...)
 	}
 	body := basicBody(model)
 	var basicDerived []result.TestResult
@@ -552,15 +622,15 @@ func runModelWithPreflight(parent context.Context, client *Client, cfg config.Co
 			return runStream(parent, client, timeout, p, model, telemetryProvider)
 		},
 	}
-	tasks = append(tasks, optionalModelTasks(parent, client, cfg, p, model, modules, observedInputTokens, telemetryProvider)...)
+	tasks = append(tasks, optionalModelTasks(parent, client, cfg, p, model, modules, observedInputTokens, telemetryProvider, plan)...)
 	return append(out, flattenProbeGroups(probe.Map(executor, tasks...))...)
 }
 
-func optionalModelTasks(parent context.Context, client *Client, cfg config.Config, p profile.Profile, model string, modules []result.ModuleAssessment, observedInputTokens int64, telemetryProvider *telemetry.Provider) []func() []result.TestResult {
+func optionalModelTasks(parent context.Context, client *Client, cfg config.Config, p profile.Profile, model string, modules []result.ModuleAssessment, observedInputTokens int64, telemetryProvider *telemetry.Provider, plan *progressPlan) []func() []result.TestResult {
 	var tasks []func() []result.TestResult
 	if moduleExecuted(modules, "anthropic.tools") {
 		tasks = append(tasks, func() []result.TestResult {
-			return runTools(parent, client, cfg.Timeout, p, model, telemetryProvider)
+			return runTools(parent, client, cfg.Timeout, p, model, telemetryProvider, plan)
 		})
 	}
 	if moduleExecuted(modules, "anthropic.token-counting") {
@@ -859,7 +929,7 @@ func streamResults(p profile.Profile, base result.TestResult, stream api.StreamR
 	return []result.TestResult{base, sequence, typeMatch, textProbe, usage, noDone}
 }
 
-func runTools(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string, telemetryProvider *telemetry.Provider) []result.TestResult {
+func runTools(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string, telemetryProvider *telemetry.Provider, plan *progressPlan) []result.TestResult {
 	tool := map[string]any{"name": "get_status", "description": "Return status for a resource.", "input_schema": map[string]any{"type": "object", "properties": map[string]any{"resource_id": map[string]any{"type": "string"}}, "required": []any{"resource_id"}, "additionalProperties": false}}
 	auto := runToolChoiceProbe(parent, client, timeout, p, model, "anthropic.tools.auto", tool, map[string]any{"type": "auto"}, false, telemetryProvider)
 	anyProbe := runToolChoiceProbe(parent, client, timeout, p, model, "anthropic.tools.any", tool, map[string]any{"type": "any"}, true, telemetryProvider)
@@ -909,6 +979,7 @@ func runTools(parent context.Context, client *Client, timeout time.Duration, p p
 		continuation.Summary = "Continuation blocked because no tool_use was returned"
 		continuation.Signals = []result.EvidenceSignal{{Code: "anthropic.tools.result_roundtrip_failed", Parameters: map[string]any{"blocked_by_requirement": "anthropic.tools.specific"}}}
 	} else {
+		plan.addDynamicProbe()
 		id := stringValue(uses[0]["id"])
 		cont := basicBody(model)
 		cont["messages"] = []any{body["messages"].([]any)[0], map[string]any{"role": "assistant", "content": resp.JSON["content"]}, map[string]any{"role": "user", "content": []any{map[string]any{"type": "tool_result", "tool_use_id": id, "content": "resource-alpha is available"}}}}

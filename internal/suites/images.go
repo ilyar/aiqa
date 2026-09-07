@@ -26,6 +26,9 @@ import (
 
 const maxImageArtifactBytes = 20 << 20
 
+// ImageCompatProbeCount counts the lifecycle probes started by RunImageCompat.
+const ImageCompatProbeCount = 3
+
 func RunImageCompat(parent context.Context, env Environment, model string) []result.TestResult {
 	parent, suiteOp := env.startSuite(parent, "compat-images", logging.Fields{"model": model})
 	defer endOperation(suiteOp, "completed", nil)

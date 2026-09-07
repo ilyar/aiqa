@@ -19,6 +19,7 @@ import (
 	"github.com/ilyar/aiqa/internal/logging"
 	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/profile"
+	"github.com/ilyar/aiqa/internal/progress"
 	protocolpkg "github.com/ilyar/aiqa/internal/protocol"
 	reportpkg "github.com/ilyar/aiqa/internal/report"
 	"github.com/ilyar/aiqa/internal/result"
@@ -33,6 +34,7 @@ type RunOptions struct {
 	Logf      func(logging.Level, string, ...any)
 	Logger    *logging.Logger
 	Telemetry *telemetry.Provider
+	Progress  progress.Sink
 	Runtime   *Runtime
 }
 
@@ -41,13 +43,40 @@ type Runtime struct {
 	Executor *probe.Executor
 }
 
+// progressPlan serializes revisions from concurrent model workers. Dynamic
+// children reserve their unit immediately before creating its lifecycle probe.
+type progressPlan struct {
+	mu     sync.Mutex
+	sink   progress.Sink
+	target string
+	total  int
+}
+
+func newProgressPlan(sink progress.Sink, target string, total int) *progressPlan {
+	if sink == nil {
+		return nil
+	}
+	sink.Plan(target, total)
+	return &progressPlan{sink: sink, target: target, total: total}
+}
+
+func (p *progressPlan) addDynamicProbe() {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.total++
+	p.sink.RevisePlan(p.target, p.total)
+}
+
 // RunTarget adapts the Google GenAI implementation to the shared protocol
 // registry contract.
 func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg.RunResult, error) {
 	runtime := &Runtime{}
 	target, err := Run(ctx, RunOptions{
 		Target: options.Target, Config: options.Config, Profile: options.Profile,
-		UserAgent: options.UserAgent, Logf: options.Logf, Logger: options.Logger, Telemetry: options.Telemetry, Runtime: runtime,
+		UserAgent: options.UserAgent, Logf: options.Logf, Logger: options.Logger, Telemetry: options.Telemetry, Progress: options.Progress, Runtime: runtime,
 	})
 	target.Notes = []string{"Google Gen AI Go SDK v1.71.0 does not expose public Interactions API methods; no SDK Interactions suite is claimed."}
 	return protocolpkg.RunResult{
@@ -90,6 +119,11 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	executor.SetLogger(options.Logger)
 	executor.SetLogFields(logging.Fields{"target": target.ID, "protocol": string(target.Protocol)})
 	client.TransportClient().SetTelemetry(options.Telemetry)
+	if options.Progress != nil {
+		client.TransportClient().SetPacingObserver(func(target string, waiting bool, duration time.Duration) {
+			options.Progress.Pacing(target, waiting, duration)
+		})
+	}
 	client.TransportClient().SetOTelPropagationAllowlist(cfg.OTelPropagationTo)
 	executor.SetTelemetry(options.Telemetry)
 	if options.Runtime != nil {
@@ -231,6 +265,7 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 			}
 		}
 	}
+	plan := newProgressPlan(options.Progress, target.ID, plannedProbeCount(cfg, selected, modulePlans, routeBlocked, strings.Contains(p.ID, "generate-content")))
 	var wg sync.WaitGroup
 	for index, model := range selected {
 		index, model := index, model
@@ -255,7 +290,7 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 			if cfg.HasTest("compat") && preflightTests[index] != nil && routeBlocked[index] {
 				mr.Compatibility = append(mr.Compatibility, *preflightTests[index])
 			} else if cfg.HasTest("compat") {
-				mr.Compatibility = runModelWithPreflight(modelCtx, client, cfg, p, model, modules, executor, options.Telemetry, strings.Contains(p.ID, "generate-content"), preflights[index], preflightErrors[index])
+				mr.Compatibility = runModelWithPreflight(modelCtx, client, cfg, p, model, modules, executor, options.Telemetry, strings.Contains(p.ID, "generate-content"), preflights[index], preflightErrors[index], plan)
 			}
 			if cfg.HasTest("model-param") && hasAnyGenerationModule(modules, strings.Contains(p.ID, "generate-content")) {
 				mr.Compatibility = append(mr.Compatibility, runGoogleModelParamNotice(p)...)
@@ -303,6 +338,39 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	guidance.QualifyArtifacts(&tmp, target.ID)
 	assessment.ApplyTarget(&tmp, p, target.ID, string(target.Protocol))
 	return toTarget(target, tmp), nil
+}
+
+// plannedProbeCount is deliberately expressed in lifecycle operations. A
+// composite probe can yield several report rows but remains one progress unit.
+// Discovery and requested-model preflights precede this post-classification
+// snapshot and are therefore not retroactively counted.
+func plannedProbeCount(cfg config.Config, selected []string, modules [][]result.ModuleAssessment, routeBlocked []bool, legacy bool) int {
+	if !cfg.HasTest("compat") {
+		return 0
+	}
+	total := 0
+	for index := range selected {
+		if routeBlocked[index] {
+			continue
+		}
+		count := 1 // google.models.get
+		for _, id := range []string{
+			"google-genai.interactions", "google-genai.interactions-stream", "google-genai.interactions-tools",
+			"google-genai.interactions-structured-output", "google-genai.generate-content", "google-genai.generate-content-stream",
+			"google-genai.generate-content-tools", "google-genai.generate-content-structured-output", "google-genai.token-counting",
+			"google-genai.embeddings", "google-genai.interactions-thinking", "google-genai.thinking",
+			"google-genai.interactions-stateful", "google-genai.interactions-vision", "google-genai.vision",
+		} {
+			if hasModule(modules[index], id) {
+				count++
+			}
+		}
+		if (legacy && hasModule(modules[index], "google-genai.generate-content")) || (!legacy && hasModule(modules[index], "google-genai.interactions")) {
+			count += 2 // invalid model and invalid JSON
+		}
+		total += count
+	}
+	return total
 }
 
 func hasAnyGenerationModule(modules []result.ModuleAssessment, legacy bool) bool {
@@ -457,10 +525,10 @@ func discoveryResults(p profile.Profile, resp, paginationResp api.Response, mode
 }
 
 func runModel(parent context.Context, client *Client, cfg config.Config, p profile.Profile, model string, modules []result.ModuleAssessment, executor *probe.Executor, legacy bool) []result.TestResult {
-	return runModelWithPreflight(parent, client, cfg, p, model, modules, executor, nil, legacy, nil, nil)
+	return runModelWithPreflight(parent, client, cfg, p, model, modules, executor, nil, legacy, nil, nil, nil)
 }
 
-func runModelWithPreflight(parent context.Context, client *Client, cfg config.Config, p profile.Profile, model string, modules []result.ModuleAssessment, executor *probe.Executor, telemetryProvider *telemetry.Provider, legacy bool, preflight *api.Response, preflightErr error) []result.TestResult {
+func runModelWithPreflight(parent context.Context, client *Client, cfg config.Config, p profile.Profile, model string, modules []result.ModuleAssessment, executor *probe.Executor, telemetryProvider *telemetry.Provider, legacy bool, preflight *api.Response, preflightErr error, plan *progressPlan) []result.TestResult {
 	tasks := make([]func() []result.TestResult, 0, 12)
 	tasks = append(tasks, nativeTask(parent, telemetryProvider, "google.models.get", func(ctx context.Context) []result.TestResult { return runModelGet(ctx, client, cfg.Timeout, p, model) }))
 	if hasModule(modules, "google-genai.interactions") {
@@ -522,7 +590,7 @@ func runModelWithPreflight(parent context.Context, client *Client, cfg config.Co
 	}
 	if hasModule(modules, "google-genai.interactions-stateful") {
 		tasks = append(tasks, nativeTask(parent, telemetryProvider, "google.interactions.stateful", func(ctx context.Context) []result.TestResult {
-			return runInteractionStateful(ctx, client, cfg.Timeout, p, model, telemetryProvider)
+			return runInteractionStateful(ctx, client, cfg.Timeout, p, model, telemetryProvider, plan)
 		}))
 	}
 	if hasModule(modules, "google-genai.interactions-vision") {
@@ -1066,7 +1134,7 @@ func runThinking(parent context.Context, client *Client, timeout time.Duration, 
 	return []result.TestResult{t}
 }
 
-func runInteractionStateful(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string, telemetryProvider *telemetry.Provider) []result.TestResult {
+func runInteractionStateful(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string, telemetryProvider *telemetry.Provider, plan *progressPlan) []result.TestResult {
 	created := testBase(p, "google.interactions.stateful")
 	createBody := map[string]any{"model": model, "input": "Remember the token AIQA_STATEFUL_OK.", "store": true}
 	resp, err := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Interaction(ctx, createBody) })
@@ -1087,6 +1155,9 @@ func runInteractionStateful(parent context.Context, client *Client, timeout time
 		cleanup.Summary = "Cleanup was skipped because the create response had no resource id"
 		return []result.TestResult{created, cleanup}
 	}
+	// The cleanup lifecycle is conditional on the provider returning an ID, so
+	// reserve it only after that fact is known and before its probe starts.
+	plan.addDynamicProbe()
 	continuationBody := map[string]any{"model": model, "previous_interaction_id": id, "input": "What token did I ask you to remember?", "store": false}
 	continuation, continuationErr := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Interaction(ctx, continuationBody) })
 	if created.Status == result.StatusPass {

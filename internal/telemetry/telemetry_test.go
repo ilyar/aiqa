@@ -57,6 +57,29 @@ func TestEndIsIdempotentAndPayloadIsRedacted(t *testing.T) {
 	}
 }
 
+func TestObserverReceivesLifecycleWhenDiagnosticLoggingIsQuiet(t *testing.T) {
+	observer := &recordingObserver{}
+	provider := New(logging.New(0), observer)
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+	_, op := provider.Start(logging.Scope(context.Background(), "openai", "", "compat", "chat.basic", ""), "probe", nil)
+	op.End("pass", nil)
+	if len(observer.events) != 2 {
+		t.Fatalf("events = %d, want start and end", len(observer.events))
+	}
+	if got := observer.events[1]; got.Name != "probe" || got.Phase != "end" || got.OperationID == "" || got.Target != "openai" || got.Outcome != "pass" {
+		t.Fatalf("unexpected observer event: %#v", got)
+	}
+	if got := len(provider.logger.Lines()); got != 0 {
+		t.Fatalf("quiet logger wrote %d lines", got)
+	}
+}
+
+type recordingObserver struct{ events []LifecycleEvent }
+
+func (o *recordingObserver) ObserveLifecycle(event LifecycleEvent) {
+	o.events = append(o.events, event)
+}
+
 func contains(text, needle string) bool {
 	for index := 0; index+len(needle) <= len(text); index++ {
 		if text[index:index+len(needle)] == needle {

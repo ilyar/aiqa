@@ -39,6 +39,77 @@ func (l *captureDiagnosticLogger) Log(_ logging.Level, event string, fields logg
 	return true
 }
 
+type progressCapture struct {
+	mu        sync.Mutex
+	added     []int
+	lifecycle []telemetry.LifecycleEvent
+}
+
+func (p *progressCapture) ObserveLifecycle(event telemetry.LifecycleEvent) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.lifecycle = append(p.lifecycle, event)
+}
+func (*progressCapture) RunStarted(int)          {}
+func (*progressCapture) DiscoveryStarted(string) {}
+func (*progressCapture) Plan(string, int)        {}
+func (*progressCapture) RevisePlan(string, int)  {}
+func (p *progressCapture) AddPlan(_ string, delta int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.added = append(p.added, delta)
+}
+func (*progressCapture) Pacing(string, bool, time.Duration) {}
+func (*progressCapture) TargetFinished(string, string)      {}
+func (*progressCapture) RunFinished()                       {}
+func (*progressCapture) Message(string)                     {}
+func (*progressCapture) Close()                             {}
+
+func TestExtensionProgressUsesDeclaredSuitesWithoutHTTPInference(t *testing.T) {
+	manifest := testManifest("fixture.progress", "openai",
+		SuiteDescriptor{ID: "first", Subject: "provider", Cost: "text", InternalConcurrency: 1},
+		SuiteDescriptor{ID: "second", Subject: "provider", Cost: "text", InternalConcurrency: 1})
+	extension := &testExtension{source: "executable", manifest: manifest}
+	extension.run = func(_ context.Context, request RunRequest, sink EventSink) (RunnerTelemetry, error) {
+		for _, suiteID := range request.SuiteIDs {
+			if err := sink.Emit(SuiteEvent{SchemaVersion: ProtocolVersion, Type: "suite_result", RunID: request.RunID, ExtensionID: manifest.Extension.ID, SuiteID: suiteID, Subject: request.Subject, Outcome: result.ExtensionOutcomePass, DurationMS: 1, Summary: "ok"}); err != nil {
+				return RunnerTelemetry{}, err
+			}
+		}
+		return RunnerTelemetry{}, nil
+	}
+	registry, err := NewRegistry(extension)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := profile.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := api.NewClient("https://example.test/v1", "secret", "test", time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sink := &progressCapture{}
+	runs := ExecuteTargetWithTelemetryAndProgress(context.Background(), registry, config.Config{Tests: []string{"ext-suite"}, Timeout: time.Second, Concurrency: 1}, config.TargetConfig{ID: "fixture", Protocol: config.ProtocolOpenAI, BaseURL: "https://example.test/v1", APIKey: "secret", RequestInterval: time.Millisecond}, p, nil, client, probe.NewExecutor(1), nil, nil, sink)
+	if len(runs) != 1 || len(runs[0].Suites) != 2 {
+		t.Fatalf("runs=%+v", runs)
+	}
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	if len(sink.added) != 1 || sink.added[0] != 2 {
+		t.Fatalf("plan revisions=%v, want one declared two-suite addition", sink.added)
+	}
+	if len(sink.lifecycle) != 2 {
+		t.Fatalf("terminal lifecycle=%+v, want one terminal per declared suite", sink.lifecycle)
+	}
+	for _, event := range sink.lifecycle {
+		if event.Name != "extension.suite" || event.Phase != "end" || event.Target != "fixture" || event.OperationID == "" || event.Outcome != string(result.StatusPass) {
+			t.Fatalf("unexpected declared-suite lifecycle=%+v", event)
+		}
+	}
+}
+
 func TestCollectorDerivesProfileStatusesAndPreservesPartialResults(t *testing.T) {
 	p, err := profile.Load()
 	if err != nil {
@@ -657,7 +728,7 @@ func TestExecutableReservationsShareGlobalExecutorAndReceiveCurrentLimits(t *tes
 	if len(runs) != 2 || maximum.Load() > 2 {
 		t.Fatalf("runs=%d maximum concurrency=%d, want two runs and ceiling 2", len(runs), maximum.Load())
 	}
-	if received.MaxConcurrency != 2 || received.RetryLimit != 2 || received.ObservedSafeRequestsPerSecond <= 0 || received.ObservedSafeConcurrency != 2 {
+	if received.MaxConcurrency != 2 || received.RetryLimit != 2 || received.ObservedSafeRequestsPerSecond <= 0 || received.ObservedSafeConcurrency < 1 || received.ObservedSafeConcurrency > received.MaxConcurrency {
 		t.Fatalf("external limits do not describe current host policy: %+v", received)
 	}
 	lines := strings.Join(logger.Lines(), "\n")

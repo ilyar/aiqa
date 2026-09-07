@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"runtime"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/ilyar/aiqa/internal/api"
@@ -23,6 +25,7 @@ import (
 	"github.com/ilyar/aiqa/internal/logging"
 	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/profile"
+	"github.com/ilyar/aiqa/internal/progress"
 	protocolpkg "github.com/ilyar/aiqa/internal/protocol"
 	protocolanthropic "github.com/ilyar/aiqa/internal/protocol/anthropic"
 	protocolgoogle "github.com/ilyar/aiqa/internal/protocol/googlegenai"
@@ -51,6 +54,15 @@ var attachForensicSink = func(logger *logging.Logger, file *os.File) (*logging.S
 	return logger.AddSink(file, logging.SinkOptions{MaxBytes: -1})
 }
 
+// progressWriter and progressTTY are seams for deterministic CLI tests. They
+// deliberately remain separate from the private logging sinks: operator
+// progress is always visible, while --verbose only governs JSONL retention.
+var progressWriter io.Writer = os.Stderr
+var progressTTY = func() bool {
+	info, err := os.Stderr.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
 func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, error) {
 	if len(cfg.Targets) == 0 && cfg.BaseURL != "" {
 		profileFile := cfg.OpenAIProfile
@@ -69,6 +81,8 @@ func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, er
 
 func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (out RunResult, runErr error) {
 	logger := logging.New(cfg.Verbosity)
+	reporter := progress.New(progress.Options{Writer: progressWriter, TTY: progressTTY()})
+	defer reporter.Close()
 	// The sidecar is deliberately opened before emitting the first lifecycle
 	// event. O_EXCL prevents a pre-existing path (including a symlink) from
 	// receiving private diagnostics; callers must explicitly rotate an old log.
@@ -168,7 +182,7 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 			}
 		}()
 	}
-	tracing := telemetry.New(logger)
+	tracing := telemetry.New(logger, reporter)
 	defer tracing.Shutdown(context.Background())
 	forensicRunID, err := newForensicRunID()
 	if err != nil {
@@ -182,13 +196,7 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 	// return Go closes targets first (LIFO), then the run, preserving the graph
 	// invariant that no child outlives its parent.
 	defer func() { runOp.End(runOutcome, runFields) }()
-	logf := func(level logging.Level, format string, args ...any) {
-		if line, recorded := logger.LogfLine(level, format, args...); recorded {
-			// Application messages use fixed text and identifiers, never request
-			// payloads or credentials. The sidecar sanitizes again before writing.
-			fmt.Fprintf(os.Stderr, "aiqa: %s\n", line)
-		}
-	}
+	logf := func(level logging.Level, format string, args ...any) { logger.Logf(level, format, args...) }
 	// SDK is a first-class test selector. Keep ExtSuites limited to explicitly
 	// requested executable extensions; neither selector is rewritten into the
 	// other for execution or in the public report.
@@ -223,6 +231,7 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 		// credentials. The trace records only this fixed safe category; the
 		// returned error remains available to the interactive caller.
 		logf(logging.Fatal, "run failed; inspect public report or safe error classification")
+		reporter.Message("error: run failed; inspect public report or safe error classification")
 		runOutcome = "error"
 		runFields = logging.Fields{"status": "error", "error_present": true, "error_kind": "run_failure"}
 		addSidecarPath(&out)
@@ -245,6 +254,7 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 		}
 	}
 	var runErrors []error
+	reporter.RunStarted(len(cfg.Targets))
 	runOp.Event(logging.Info, "plan", logging.Fields{"suite_count": len(cfg.Tests), "target": "all"})
 	runnerLogf := func(level logging.Level, format string, args ...any) { logf(level, format, args...) }
 	targets := append([]config.TargetConfig(nil), cfg.Targets...)
@@ -270,7 +280,7 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 			"native_selected": cfg.HasTest("compat") || cfg.HasTest("model-param"),
 			"sdk_selected":    cfg.HasTest("sdk"), "extension_selected": cfg.HasTest("ext-suite"),
 		})
-		native, runErr := runner(targetCtx, protocolpkg.RunOptions{Target: target, Config: cfg, Profile: p, UserAgent: "aiqa/" + build.Version, Logf: runnerLogf, Logger: logger, Telemetry: tracing})
+		native, runErr := runner(targetCtx, protocolpkg.RunOptions{Target: target, Config: cfg, Profile: p, UserAgent: "aiqa/" + build.Version, Logf: runnerLogf, Logger: logger, Telemetry: tracing, Progress: reporter})
 		if native.Target.ID == "" {
 			if runErr == nil {
 				runErr = errors.New("native runner returned no target report")
@@ -287,7 +297,7 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 			logf(logging.Error, "[%s] target runner returned an error", target.ID)
 			runErrors = append(runErrors, fmt.Errorf("run %s target %s: %w", target.Protocol, target.ID, runErr))
 		} else {
-			targetReport, extensionErr = finishTargetExtensions(targetCtx, extensionCfg, target, p, targetReport, extRegistry, native.Runtime.Client, native.Runtime.Executor, logger, tracing)
+			targetReport, extensionErr = finishTargetExtensions(targetCtx, extensionCfg, target, p, targetReport, extRegistry, native.Runtime.Client, native.Runtime.Executor, logger, tracing, reporter)
 			if extensionErr != nil {
 				logf(logging.Error, "[%s] extension suites returned an error", target.ID)
 				runErrors = append(runErrors, fmt.Errorf("run extension suites for target %s: %w", target.ID, extensionErr))
@@ -308,6 +318,7 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 	reportsWritten = true
 	runOp.Event(logging.Info, "report_serialized", logging.Fields{"status": "completed"})
 	out = RunResult{ReportV3: &r, Paths: paths, ExitCode: multiExitCode(cfg, r.Summary)}
+	reporter.Message("completed; reports: " + strings.Join(paths, ", "))
 	addSidecarPath(&out)
 	if len(runErrors) > 0 {
 		out.ExitCode = 2
@@ -345,7 +356,7 @@ func reportFromTarget(target result.TargetReport, baseURL string) result.Report 
 	return result.Report{SchemaVersion: "aiqa.report.internal", Profile: target.Profile, Config: result.PublicConfig{BaseURL: baseURL}, Discovery: target.Discovery, Models: target.Models, Requirements: target.Requirements, Summary: target.Summary, Guidance: target.Guidance, RateLimit: target.RateLimit, ExtensionRateLimit: target.ExtensionRateLimit, Extensions: target.Extensions}
 }
 
-func finishTargetExtensions(ctx context.Context, cfg config.Config, target config.TargetConfig, p profile.Profile, targetReport result.TargetReport, registry *extsuite.Registry, client *api.Client, executor *probe.Executor, logger *logging.Logger, tracing *telemetry.Provider) (result.TargetReport, error) {
+func finishTargetExtensions(ctx context.Context, cfg config.Config, target config.TargetConfig, p profile.Profile, targetReport result.TargetReport, registry *extsuite.Registry, client *api.Client, executor *probe.Executor, logger *logging.Logger, tracing *telemetry.Provider, reporter progress.Sink) (result.TargetReport, error) {
 	if !cfg.HasExtensionTests() {
 		return targetReport, nil
 	}
@@ -353,7 +364,7 @@ func finishTargetExtensions(ctx context.Context, cfg config.Config, target confi
 		return targetReport, fmt.Errorf("prepare %s extension runtime: native target runtime is unavailable", target.ID)
 	}
 	before := client.PacingStats()
-	targetReport.Extensions = extsuite.ExecuteTargetWithTelemetry(ctx, registry, cfg, target, p, targetReport.Models, client, executor, logger, tracing)
+	targetReport.Extensions = extsuite.ExecuteTargetWithTelemetryAndProgress(ctx, registry, cfg, target, p, targetReport.Models, client, executor, logger, tracing, reporter)
 	if hasBuiltInExtension(targetReport.Extensions) {
 		after := client.PacingStats()
 		delta := api.DeltaPacingStats(before, after)

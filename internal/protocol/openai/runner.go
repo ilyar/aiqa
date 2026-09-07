@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ilyar/aiqa/internal/api"
 	"github.com/ilyar/aiqa/internal/assessment"
@@ -15,6 +16,7 @@ import (
 	"github.com/ilyar/aiqa/internal/logging"
 	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/profile"
+	"github.com/ilyar/aiqa/internal/progress"
 	protocolpkg "github.com/ilyar/aiqa/internal/protocol"
 	reportpkg "github.com/ilyar/aiqa/internal/report"
 	"github.com/ilyar/aiqa/internal/result"
@@ -59,6 +61,11 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 	executor.SetLogger(options.Logger)
 	executor.SetLogFields(logging.Fields{"target": target.ID, "protocol": string(target.Protocol)})
 	client.SetTelemetry(options.Telemetry)
+	if options.Progress != nil {
+		client.SetPacingObserver(func(target string, waiting bool, duration time.Duration) {
+			options.Progress.Pacing(target, waiting, duration)
+		})
+	}
 	client.SetOTelPropagationAllowlist(cfg.OTelPropagationTo)
 	executor.SetTelemetry(options.Telemetry)
 	runtime := protocolpkg.Runtime{Client: client, Executor: executor}
@@ -79,7 +86,8 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 	if logf == nil {
 		logf = func(logging.Level, string, ...any) {}
 	}
-	env := suites.Environment{TargetID: target.ID, Client: client, Config: cfg, Profile: p, Logf: logf, Probes: executor, Telemetry: options.Telemetry}
+	plan := newProgressPlan(options.Progress, target.ID)
+	env := suites.Environment{TargetID: target.ID, Client: client, Config: cfg, Profile: p, Logf: logf, Probes: executor, Telemetry: options.Telemetry, Progress: options.Progress, PlanRevision: plan.Add}
 
 	// Discovery is a provider-scoped native test, not an unowned transport
 	// setup call. Keep its concrete probe live through derivation of every
@@ -197,6 +205,7 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 		}
 	}
 	chatRepresentative := representativeModel(selected, modulePlans, capability.ModuleChat)
+	plan.Set(plannedNativeProbes(cfg, modulePlans, routeBlocked, chatRepresentative))
 	if cfg.HasTest("compat") {
 		if chatRepresentative != "" {
 			tmp.Discovery.Compatibility = append(tmp.Discovery.Compatibility, suites.RunEndpointCompat(ctx, env, chatRepresentative)...)
@@ -286,6 +295,65 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 	tmp.RateLimit = *protocolpkg.RateLimitStats(client.PacingStats())
 	finish(&tmp, p, target)
 	return protocolpkg.RunResult{Target: toTarget(target, tmp), Runtime: runtime}, nil
+}
+
+// progressPlan serializes revisions from concurrently executing models. A
+// revision is published before the corresponding suite can start a probe, so
+// the reporter can never observe more planned probe ends than its total.
+type progressPlan struct {
+	sink   progress.Sink
+	target string
+	mu     sync.Mutex
+	total  int
+}
+
+func newProgressPlan(sink progress.Sink, target string) *progressPlan {
+	return &progressPlan{sink: sink, target: target}
+}
+
+func (p *progressPlan) Set(total int) {
+	if p == nil || p.sink == nil {
+		return
+	}
+	if total < 0 {
+		total = 0
+	}
+	p.mu.Lock()
+	p.total = total
+	p.sink.Plan(p.target, total)
+	p.mu.Unlock()
+}
+
+func (p *progressPlan) Add(units int) {
+	if p == nil || p.sink == nil || units <= 0 {
+		return
+	}
+	p.mu.Lock()
+	p.total += units
+	p.sink.RevisePlan(p.target, p.total)
+	p.mu.Unlock()
+}
+
+func plannedNativeProbes(cfg config.Config, plans [][]result.ModuleAssessment, routeBlocked []bool, chatRepresentative string) int {
+	if !cfg.HasTest("compat") {
+		return 0
+	}
+	total := 0
+	if chatRepresentative != "" {
+		total += suites.EndpointCompatProbeCount
+	}
+	for index, modules := range plans {
+		if index < len(routeBlocked) && routeBlocked[index] {
+			continue
+		}
+		if module := capability.Module(modules, capability.ModuleChat); module != nil && module.Execution == result.ExecutionExecuted {
+			total += suites.ModelCompatProbeCount
+		}
+		if module := capability.Module(modules, capability.ModuleImages); module != nil && module.Execution == result.ExecutionExecuted {
+			total += suites.ImageCompatProbeCount
+		}
+	}
+	return total
 }
 
 func hasUnknownRequestedModule(plans [][]result.ModuleAssessment, moduleID string) bool {

@@ -65,7 +65,16 @@ func (p *pacer) setConcurrency(limit int) {
 	p.mu.Unlock()
 }
 
-func (p *pacer) wait(ctx context.Context, model string) error {
+func (p *pacer) wait(ctx context.Context, model string, observers ...func(bool, time.Duration)) error {
+	var observe func(bool, time.Duration)
+	if len(observers) > 0 {
+		observe = observers[0]
+	}
+	notify := func(waiting bool, duration time.Duration) {
+		if observe != nil {
+			observe(waiting, duration)
+		}
+	}
 	for {
 		p.mu.Lock()
 		now := time.Now()
@@ -80,9 +89,13 @@ func (p *pacer) wait(ctx context.Context, model string) error {
 		revision := p.revision
 		p.mu.Unlock()
 		if delay := time.Until(start); delay > 0 {
+			waited := time.Now()
+			notify(true, delay)
 			if err := waitDuration(ctx, delay); err != nil {
+				notify(false, time.Since(waited))
 				return err
 			}
+			notify(false, time.Since(waited))
 		}
 		p.mu.Lock()
 		// A 429 or adaptive adjustment invalidates reservations made under the
@@ -107,10 +120,14 @@ func (p *pacer) wait(ctx context.Context, model string) error {
 		}
 		changed := p.changed
 		p.mu.Unlock()
+		waited := time.Now()
+		notify(true, 0)
 		select {
 		case <-ctx.Done():
+			notify(false, time.Since(waited))
 			return ctx.Err()
 		case <-changed:
+			notify(false, time.Since(waited))
 		}
 	}
 }
@@ -194,14 +211,17 @@ func (p *pacer) success(model string, durations ...time.Duration) {
 		p.maxSuccessfulInFlight = p.inflight
 	}
 	p.successStreak++
-	// Additive increase only after a quiet window; never go faster than 5 req/s.
-	if p.successStreak >= 5 && p.interval > 200*time.Millisecond {
-		p.interval -= 100 * time.Millisecond
+	// Additive increase is governed by quiet successful requests, not by the
+	// initial dispatch interval.  Otherwise an explicitly fast but safe local
+	// interval (for example 1ms in a test provider) would remain permanently
+	// serialized despite --concurrency allowing more in-flight work.
+	if p.successStreak >= 5 {
 		p.successStreak = 0
-		p.quietWindows++
-		if p.quietWindows >= 2 && p.limit < p.maxLimit {
+		if p.interval > 200*time.Millisecond {
+			p.interval -= 100 * time.Millisecond
+		}
+		if p.limit < p.maxLimit {
 			p.limit++
-			p.quietWindows = 0
 		}
 		p.revision++
 	}

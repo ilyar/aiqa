@@ -16,6 +16,13 @@ import (
 	"github.com/ilyar/aiqa/internal/result"
 )
 
+const (
+	// EndpointCompatProbeCount and ModelCompatProbeCount count lifecycle probes,
+	// not report validators or HTTP attempts.
+	EndpointCompatProbeCount = 4
+	ModelCompatProbeCount    = 17
+)
+
 func DiscoveryTests(p profile.Profile, resp api.Response, models []api.Model, listErr error) []result.TestResult {
 	httpTest := testBase(p, "models.list.http", "compat")
 	httpTest.DurationMS = resp.Duration.Milliseconds()

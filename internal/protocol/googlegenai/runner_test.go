@@ -64,6 +64,41 @@ func TestRunAgainstDeterministicFixture(t *testing.T) {
 	}
 }
 
+func TestRunPublishesPostClassificationNativePlan(t *testing.T) {
+	server := newGoogleFixture(t)
+	defer server.Close()
+	p, err := profile.LoadFile("google-genai-compat-2026-09.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := &progressRecorder{}
+	target := config.TargetConfig{ID: "google-genai", Protocol: config.ProtocolGoogleGenAI, BaseURL: server.URL, APIKey: "fixture-key", APIVersion: "v1beta", Models: []string{"fixture-text"}, Modules: []string{"auto"}, RequestInterval: time.Millisecond}
+	cfg := config.Config{Tests: []string{"compat"}, Timeout: 3 * time.Second, Concurrency: 2, Modules: []string{"auto"}, FailOn: "core", Guidance: "off", MaxArtifactsPerModel: 1}
+	if _, err := Run(context.Background(), RunOptions{Target: target, Config: cfg, Profile: p, Progress: recorder}); err != nil {
+		t.Fatal(err)
+	}
+	if len(recorder.plans) != 1 || recorder.plans[0] <= 0 {
+		t.Fatalf("plans = %v, want one non-zero post-classification plan", recorder.plans)
+	}
+}
+
+type progressRecorder struct {
+	plans     []int
+	revisions []int
+}
+
+func (r *progressRecorder) ObserveLifecycle(telemetry.LifecycleEvent) {}
+func (r *progressRecorder) RunStarted(int)                            {}
+func (r *progressRecorder) DiscoveryStarted(string)                   {}
+func (r *progressRecorder) Plan(_ string, total int)                  { r.plans = append(r.plans, total) }
+func (r *progressRecorder) RevisePlan(_ string, total int)            { r.revisions = append(r.revisions, total) }
+func (r *progressRecorder) AddPlan(_ string, delta int)               { r.revisions = append(r.revisions, delta) }
+func (r *progressRecorder) Pacing(string, bool, time.Duration)        {}
+func (r *progressRecorder) TargetFinished(string, string)             {}
+func (r *progressRecorder) RunFinished()                              {}
+func (r *progressRecorder) Message(string)                            {}
+func (r *progressRecorder) Close()                                    {}
+
 // TestNativeTraceUsesConcreteProbeIDsBeforeHTTP protects the native trace
 // invariant for composite Google checks: no capability-wide wrapper may own
 // requests whose result row has a more specific probe ID.
@@ -77,10 +112,14 @@ func TestNativeTraceUsesConcreteProbeIDsBeforeHTTP(t *testing.T) {
 	logger := logging.New(4)
 	telemetryProvider := telemetry.New(logger)
 	defer func() { _ = telemetryProvider.Shutdown(context.Background()) }()
+	recorder := &progressRecorder{}
 	target := config.TargetConfig{ID: "google-genai", Protocol: config.ProtocolGoogleGenAI, BaseURL: server.URL, APIKey: "fixture-key", APIVersion: "v1beta", Models: []string{"fixture-text"}, Modules: []string{"auto", "google-genai.interactions-stateful"}, RequestInterval: time.Millisecond}
 	cfg := config.Config{Tests: []string{"compat"}, Timeout: 3 * time.Second, Concurrency: 2, Modules: []string{"auto"}, FailOn: "core", Guidance: "off", MaxArtifactsPerModel: 1, AllowPersistentResources: true}
-	if _, err := Run(context.Background(), RunOptions{Target: target, Config: cfg, Profile: p, Logger: logger, Telemetry: telemetryProvider}); err != nil {
+	if _, err := Run(context.Background(), RunOptions{Target: target, Config: cfg, Profile: p, Logger: logger, Telemetry: telemetryProvider, Progress: recorder}); err != nil {
 		t.Fatal(err)
+	}
+	if len(recorder.revisions) != 1 || recorder.revisions[0] != recorder.plans[0]+1 {
+		t.Fatalf("dynamic cleanup plan revisions=%v, initial plans=%v", recorder.revisions, recorder.plans)
 	}
 
 	type record map[string]any

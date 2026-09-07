@@ -14,6 +14,7 @@ import (
 	"github.com/ilyar/aiqa/internal/logging"
 	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/profile"
+	"github.com/ilyar/aiqa/internal/progress"
 	"github.com/ilyar/aiqa/internal/result"
 	"github.com/ilyar/aiqa/internal/telemetry"
 )
@@ -29,6 +30,9 @@ type RunOptions struct {
 	// Logf remains for compatibility with protocol implementations and tests.
 	Logger    *logging.Logger
 	Telemetry *telemetry.Provider
+	// Progress is an operator-facing state sink. It is independent of verbose
+	// JSONL logging and may be nil for compatibility with existing callers.
+	Progress progress.Sink
 }
 
 // Runtime is the protocol-neutral execution state shared with extension

@@ -140,7 +140,9 @@ Failed extension-runner diagnostics are redacted, truncated, stored once in `gui
 
 ## CLI controls
 
-When `--verbose` is set, AIQA also writes `<name>.log` next to the requested
+Execution progress is always written to `stderr`; its TTY/non-TTY contract and
+its relationship to logical probes are documented in
+[`monitoring.md`](monitoring.md). When `--verbose` is set, AIQA also writes `<name>.log` next to the requested
 report files and creates the private `0600` sidecar before execution begins.
 It records a streamed JSONL, structured, sequence-numbered diagnostic timeline;
 it is not part of `aiqa.report.v3`. Every record has `time`, `level`, `event`,

@@ -25,19 +25,26 @@ import (
 const maxResponseBody = 64 << 20
 
 type Client struct {
-	baseURL   *url.URL
-	apiKey    string
-	http      *http.Client
-	userAgent string
-	pacer     *pacer
-	headers   http.Header
-	logMu     sync.RWMutex
-	logger    *logging.Logger
-	telemetry *telemetry.Provider
-	propagate map[string]struct{}
-	logFields logging.Fields
-	operation atomic.Uint64
+	baseURL        *url.URL
+	apiKey         string
+	http           *http.Client
+	userAgent      string
+	pacer          *pacer
+	headers        http.Header
+	logMu          sync.RWMutex
+	logger         *logging.Logger
+	telemetry      *telemetry.Provider
+	propagate      map[string]struct{}
+	logFields      logging.Fields
+	pacingObserver PacingObserver
+	operation      atomic.Uint64
 }
+
+// PacingObserver reports an actual client-side pacing wait. target is the
+// caller-established, safe target identifier from SetLogFields; it is never a
+// provider URL. A false event is the terminal state of the preceding wait.
+// The callback must return promptly and must not call back into Client.
+type PacingObserver func(target string, waiting bool, duration time.Duration)
 
 func NewClient(baseURL, apiKey, userAgent string, initialInterval time.Duration) (*Client, error) {
 	return newClient(baseURL, apiKey, userAgent, initialInterval, nil)
@@ -77,16 +84,16 @@ func newClient(baseURL, apiKey, userAgent string, initialInterval time.Duration,
 
 func (c *Client) CloneWithKey(apiKey string) *Client {
 	c.logMu.RLock()
-	logger, provider, fields, propagate := c.logger, c.telemetry, cloneLogFields(c.logFields), cloneOrigins(c.propagate)
+	logger, provider, fields, propagate, pacingObserver := c.logger, c.telemetry, cloneLogFields(c.logFields), cloneOrigins(c.propagate), c.pacingObserver
 	c.logMu.RUnlock()
-	return &Client{baseURL: c.baseURL, apiKey: apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: c.headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields}
+	return &Client{baseURL: c.baseURL, apiKey: apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: c.headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields, pacingObserver: pacingObserver}
 }
 
 func (c *Client) CloneWithHeaders(headers http.Header) *Client {
 	c.logMu.RLock()
-	logger, provider, fields, propagate := c.logger, c.telemetry, cloneLogFields(c.logFields), cloneOrigins(c.propagate)
+	logger, provider, fields, propagate, pacingObserver := c.logger, c.telemetry, cloneLogFields(c.logFields), cloneOrigins(c.propagate), c.pacingObserver
 	c.logMu.RUnlock()
-	return &Client{baseURL: c.baseURL, apiKey: c.apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields}
+	return &Client{baseURL: c.baseURL, apiKey: c.apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields, pacingObserver: pacingObserver}
 }
 
 func cloneOrigins(origins map[string]struct{}) map[string]struct{} {
@@ -158,6 +165,26 @@ func (c *Client) SetLogFields(fields logging.Fields) {
 	c.logMu.Lock()
 	c.logFields = cloneLogFields(fields)
 	c.logMu.Unlock()
+}
+
+// SetPacingObserver enables optional operator-facing pacing state. It is
+// independent of diagnostics and transport attempt accounting.
+func (c *Client) SetPacingObserver(observer PacingObserver) {
+	c.logMu.Lock()
+	c.pacingObserver = observer
+	c.logMu.Unlock()
+}
+
+func (c *Client) waitForPacing(ctx context.Context, model string) error {
+	return c.pacer.wait(ctx, model, func(waiting bool, duration time.Duration) {
+		c.logMu.RLock()
+		observer := c.pacingObserver
+		target, _ := c.logFields["target"].(string)
+		c.logMu.RUnlock()
+		if observer != nil {
+			observer(target, waiting, duration)
+		}
+	})
 }
 
 // LogDiagnostic records a transport-correlated diagnostic emitted by a
@@ -310,7 +337,7 @@ func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 		}
 		waitStarted := time.Now()
 		r.client.trace(ctx, logging.Trace, "pacing.wait.begin", logging.Fields{"method": request.Method, "path": path, "attempt": attempt + 1})
-		if err := r.client.pacer.wait(request.Context(), r.model); err != nil {
+		if err := r.client.waitForPacing(request.Context(), r.model); err != nil {
 			r.client.trace(ctx, logging.Debug, "pacing.wait.cancelled", logging.Fields{"method": request.Method, "path": path, "attempt": attempt + 1, "wait_ms": time.Since(waitStarted).Milliseconds(), "reason": errorClass(err)})
 			r.client.trace(ctx, logging.Debug, "sdk.logical_request.result", logging.Fields{"method": request.Method, "path": path, "outcome": "pacing_cancelled", "reason": errorClass(err)})
 			endLogical("pacing_cancelled", nil, err)
@@ -533,7 +560,7 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 	for attempt := 0; attempt < 3; attempt++ {
 		waitStarted := time.Now()
 		c.trace(ctx, logging.Trace, "pacing.wait.begin", logging.Fields{"method": method, "path": path, "attempt": attempt + 1})
-		if err := c.pacer.wait(ctx, model); err != nil {
+		if err := c.waitForPacing(ctx, model); err != nil {
 			c.trace(ctx, logging.Debug, "pacing.wait.cancelled", logging.Fields{"method": method, "path": path, "attempt": attempt + 1, "wait_ms": time.Since(waitStarted).Milliseconds(), "reason": errorClass(err)})
 			c.trace(ctx, logging.Debug, "http.logical_request.result", logging.Fields{"method": method, "path": path, "outcome": "pacing_cancelled", "reason": errorClass(err)})
 			response := Response{TraceID: traceID}
@@ -736,7 +763,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 		requestPath := safeRequestPath(&u)
 		waitStarted := time.Now()
 		c.trace(ctx, logging.Trace, "pacing.wait.begin", logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true})
-		if err := c.pacer.wait(ctx, model); err != nil {
+		if err := c.waitForPacing(ctx, model); err != nil {
 			c.trace(ctx, logging.Debug, "pacing.wait.cancelled", logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true, "wait_ms": time.Since(waitStarted).Milliseconds(), "reason": errorClass(err)})
 			c.trace(ctx, logging.Debug, "http.stream_logical_request.result", logging.Fields{"method": http.MethodPost, "path": requestPath, "stream": true, "outcome": "pacing_cancelled", "reason": errorClass(err)})
 			result := StreamResponse{TraceID: traceID}

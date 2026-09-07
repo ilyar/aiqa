@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -17,6 +18,110 @@ import (
 	"github.com/ilyar/aiqa/internal/telemetry"
 	"github.com/ilyar/aiqa/internal/traceverify"
 )
+
+func TestPacingObserverReportsOnlyActualWaitsAcrossTransportPaths(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/stream" {
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte("data: [DONE]\n\n"))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+
+	type pacingEvent struct {
+		target   string
+		waiting  bool
+		duration time.Duration
+	}
+	for _, test := range []struct {
+		name string
+		run  func(*Client) error
+	}{
+		{"raw", func(client *Client) error {
+			_, err := client.DoRaw(context.Background(), http.MethodGet, "raw", nil, "application/json")
+			return err
+		}},
+		{"stream", func(client *Client) error {
+			_, err := client.StreamJSON(context.Background(), "stream", map[string]any{})
+			return err
+		}},
+		{"sdk", func(client *Client) error {
+			request, err := http.NewRequest(http.MethodGet, server.URL+"/sdk", nil)
+			if err != nil {
+				return err
+			}
+			response, err := client.PacedHTTPClient("model").Do(request)
+			if response != nil && response.Body != nil {
+				_ = response.Body.Close()
+			}
+			return err
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client, err := NewClient(server.URL, "secret", "aiqa-test", 25*time.Millisecond)
+			if err != nil {
+				t.Fatal(err)
+			}
+			client.SetLogFields(logging.Fields{"target": "fixture"})
+			if err := test.run(client); err != nil {
+				t.Fatal(err)
+			} // consumes the immediate first reservation
+
+			var mu sync.Mutex
+			var events []pacingEvent
+			client.SetPacingObserver(func(target string, waiting bool, duration time.Duration) {
+				mu.Lock()
+				events = append(events, pacingEvent{target: target, waiting: waiting, duration: duration})
+				mu.Unlock()
+			})
+			if err := test.run(client.CloneWithKey("other-secret")); err != nil {
+				t.Fatal(err)
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+			if len(events) != 2 || !events[0].waiting || events[1].waiting {
+				t.Fatalf("pacing lifecycle=%+v, want one begin/end pair", events)
+			}
+			if events[0].target != "fixture" || events[0].duration <= 0 || events[1].duration <= 0 {
+				t.Fatalf("unsafe or non-wait pacing event=%+v", events)
+			}
+		})
+	}
+}
+
+func TestPacingObserverClosesCancelledWait(t *testing.T) {
+	client, err := NewClient("https://example.test", "secret", "aiqa-test", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.SetLogFields(logging.Fields{"target": "fixture"})
+	if err := client.pacer.wait(context.Background(), ""); err != nil {
+		t.Fatal(err)
+	}
+	client.pacer.release("")
+	var events []struct {
+		waiting  bool
+		duration time.Duration
+	}
+	client.SetPacingObserver(func(_ string, waiting bool, duration time.Duration) {
+		events = append(events, struct {
+			waiting  bool
+			duration time.Duration
+		}{waiting, duration})
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+	defer cancel()
+	if err := client.waitForPacing(ctx, ""); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("wait error=%v, want deadline exceeded", err)
+	}
+	if len(events) != 2 || !events[0].waiting || events[1].waiting || events[1].duration <= 0 {
+		t.Fatalf("cancelled pacing lifecycle=%+v", events)
+	}
+}
 
 func TestPacedSDKTransportOwnsRetriesAndCountsExhaustedRateLimit(t *testing.T) {
 	var calls atomic.Int32

@@ -14,6 +14,7 @@ import (
 	"github.com/ilyar/aiqa/internal/logging"
 	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/profile"
+	"github.com/ilyar/aiqa/internal/progress"
 	protocolpkg "github.com/ilyar/aiqa/internal/protocol"
 	"github.com/ilyar/aiqa/internal/result"
 	"github.com/ilyar/aiqa/internal/telemetry"
@@ -27,6 +28,17 @@ type Environment struct {
 	Logf      func(logging.Level, string, ...any)
 	Probes    *probe.Executor
 	Telemetry *telemetry.Provider
+	// Progress receives no probe completions directly: telemetry remains the
+	// single lifecycle source. PlanRevision is for work whose logical units
+	// become known only immediately before a suite starts.
+	Progress     progress.Sink
+	PlanRevision func(int)
+}
+
+func (e Environment) revisePlan(units int) {
+	if units > 0 && e.Progress != nil && e.PlanRevision != nil {
+		e.PlanRevision(units)
+	}
 }
 
 func (e Environment) traceTests(ctx context.Context, model string, tests []result.TestResult) {

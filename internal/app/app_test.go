@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -22,6 +23,34 @@ import (
 	"github.com/ilyar/aiqa/internal/logging"
 	"github.com/ilyar/aiqa/internal/result"
 )
+
+func TestRunShowsPlainProgressWithoutVerboseLog(t *testing.T) {
+	server := newMockOpenAI(t)
+	defer server.Close()
+	withTempWorkingDirectory(t)
+	var output bytes.Buffer
+	oldWriter, oldTTY := progressWriter, progressTTY
+	progressWriter, progressTTY = &output, func() bool { return false }
+	t.Cleanup(func() { progressWriter, progressTTY = oldWriter, oldTTY })
+	cfg := testConfig(server.URL+"/v1", []string{"compat"})
+	cfg.Name = "progress"
+	out, err := Run(context.Background(), cfg, BuildInfo{Version: "test"})
+	if err != nil || out.ExitCode != 0 {
+		t.Fatalf("run: exit=%d err=%v", out.ExitCode, err)
+	}
+	text := output.String()
+	for _, want := range []string{"aiqa: Planning 1 target(s)", "Discovering openai", "planned", "completed; reports:"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("progress output missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, `"schema_version":"aiqa.trace.v1"`) || strings.Contains(text, "\r") {
+		t.Fatalf("non-TTY progress leaked JSONL or terminal control: %q", text)
+	}
+	if _, err := os.Stat("progress.log"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("verbosity 0 log exists or stat failed: %v", err)
+	}
+}
 
 func TestRunCompatibilityWritesReports(t *testing.T) {
 	server := newMockOpenAI(t)
