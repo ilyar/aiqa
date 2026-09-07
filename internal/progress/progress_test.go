@@ -113,6 +113,35 @@ func TestTTYSwitchesSpinnerToOneLibraryBarAndFinalizes(t *testing.T) {
 	}
 }
 
+func TestTTYCompletionTerminatesBeforeNextMessage(t *testing.T) {
+	var out bytes.Buffer
+	r := New(Options{Writer: &out, TTY: true, SpinnerInterval: time.Hour})
+	t.Cleanup(r.Close)
+	r.Freeze([]Job{{ID: "one", Target: "openai", Label: "one"}})
+	r.Start("one")
+	r.Complete("one", "pass")
+	r.Message("completed; reports: report.json")
+	if !strings.Contains(out.String(), "\naiqa: completed; reports: report.json\n") {
+		t.Fatalf("completion and message share a terminal line: %q", out.String())
+	}
+}
+
+func TestTTYFreezeStopsPlanningSpinner(t *testing.T) {
+	var out bytes.Buffer
+	r := New(Options{Writer: &out, TTY: true, SpinnerInterval: time.Millisecond})
+	t.Cleanup(r.Close)
+	r.RunStarted(1)
+	// progressbar/v3 enables a 100ms internal spinner ticker by default. Wait
+	// past that boundary so this regression catches an accidental re-enable.
+	time.Sleep(125 * time.Millisecond)
+	r.Freeze([]Job{{ID: "one", Target: "openai", Label: "one"}})
+	afterFreeze := out.Len()
+	time.Sleep(125 * time.Millisecond)
+	if got := out.Len(); got != afterFreeze {
+		t.Fatalf("planning spinner continued after Freeze: bytes %d -> %d", afterFreeze, got)
+	}
+}
+
 func TestPacingDoesNotCreatePlanOrDuplicateRoutineDurableMessages(t *testing.T) {
 	var out bytes.Buffer
 	r := New(Options{Writer: &out})

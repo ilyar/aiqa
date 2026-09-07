@@ -79,21 +79,24 @@ type Reporter struct {
 
 	mu sync.Mutex
 
-	closed      bool
-	frozen      bool
-	spinner     *progressbar.ProgressBar
-	bar         *progressbar.ProgressBar
-	jobs        map[string]Job
-	completed   map[string]struct{}
-	legacyPlans map[string]int
-	total, done int
-	current     string
-	pacing      map[string]pacingState
+	closed        bool
+	frozen        bool
+	spinner       *progressbar.ProgressBar
+	spinnerStop   chan struct{}
+	bar           *progressbar.ProgressBar
+	barTerminated bool
+	jobs          map[string]Job
+	completed     map[string]struct{}
+	legacyPlans   map[string]int
+	total, done   int
+	current       string
+	pacing        map[string]pacingState
 }
 
 type pacingState struct {
 	waiters int
 	wait    time.Duration
+	noticed bool
 }
 
 // New constructs a Reporter.
@@ -115,11 +118,36 @@ func New(options Options) *Reporter {
 			progressbar.OptionSetWriter(r.writer),
 			progressbar.OptionSetDescription("aiqa: Planning"),
 			progressbar.OptionSpinnerType(14),
-			progressbar.OptionSetSpinnerChangeInterval(interval),
+			// progressbar enables its own 100ms spinner ticker by default. It
+			// cannot be stopped with Exit, so disable it in favour of spin.
+			progressbar.OptionSetSpinnerChangeInterval(0),
 			progressbar.OptionUseANSICodes(false),
 		)
+		r.spinnerStop = make(chan struct{})
+		go r.spin(interval, r.spinnerStop)
 	}
 	return r
+}
+
+// spin is deliberately owned by Reporter. progressbar/v3's optional internal
+// spinner ticker has no stop operation: Exit only prevents Add and leaves the
+// goroutine redrawing after Freeze. Owning this ticker prevents a planning
+// spinner from overwriting the determinate bar.
+func (r *Reporter) spin(interval time.Duration, stop <-chan struct{}) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			r.mu.Lock()
+			if !r.closed && r.spinner != nil {
+				_ = r.spinner.Add(1)
+			}
+			r.mu.Unlock()
+		}
+	}
 }
 
 func (r *Reporter) RunStarted(targets int) {
@@ -216,7 +244,6 @@ func (r *Reporter) Freeze(jobs []Job) {
 		progressbar.OptionSetPredictTime(true),
 		progressbar.OptionThrottle(100*time.Millisecond),
 		progressbar.OptionUseANSICodes(false),
-		progressbar.OptionOnCompletion(func() { fmt.Fprintln(r.writer) }),
 	)
 	_ = r.bar.RenderBlank()
 }
@@ -259,6 +286,9 @@ func (r *Reporter) Complete(id, outcome string) {
 		_ = r.bar.Add(1)
 	}
 	r.renderLocked()
+	if r.done == r.total {
+		r.finishBarLocked()
+	}
 	if !r.tty {
 		r.durableCheckpointLocked()
 	}
@@ -281,6 +311,7 @@ func (r *Reporter) Pacing(target string, waiting bool, duration time.Duration) {
 		state.waiters--
 		if state.waiters == 0 {
 			state.wait = 0
+			state.noticed = false
 		}
 	}
 	r.pacing[key] = state
@@ -293,8 +324,10 @@ func (r *Reporter) Pacing(target string, waiting bool, duration time.Duration) {
 		r.current += " (" + state.wait.Round(time.Second).String() + ")"
 	}
 	r.renderLocked()
-	if !r.tty && state.wait >= durablePacingNotice {
+	if !r.tty && state.wait >= durablePacingNotice && !state.noticed {
 		r.durableLocked("aiqa: " + r.current)
+		state.noticed = true
+		r.pacing[key] = state
 	}
 }
 
@@ -366,6 +399,10 @@ func (r *Reporter) stopSpinnerLocked() {
 	if r.spinner == nil {
 		return
 	}
+	if r.spinnerStop != nil {
+		close(r.spinnerStop)
+		r.spinnerStop = nil
+	}
 	_ = r.spinner.Exit()
 	_ = r.spinner.Clear()
 	r.spinner = nil
@@ -378,11 +415,14 @@ func (r *Reporter) clearBarLocked() {
 }
 
 func (r *Reporter) finishBarLocked() {
-	if r.bar == nil || r.bar.IsFinished() {
+	if r.bar == nil || r.barTerminated {
 		return
 	}
-	_ = r.bar.Exit()
+	if !r.bar.IsFinished() {
+		_ = r.bar.Exit()
+	}
 	fmt.Fprintln(r.writer)
+	r.barTerminated = true
 }
 
 func (r *Reporter) durableCheckpointLocked() {
