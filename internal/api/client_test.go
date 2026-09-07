@@ -123,6 +123,82 @@ func TestPacingObserverClosesCancelledWait(t *testing.T) {
 	}
 }
 
+func TestRequestTimeoutStartsAfterPacingAdmission(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/stream" {
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte("data: [DONE]\n\n"))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+
+	for _, test := range []struct {
+		name string
+		run  func(context.Context, *Client) error
+	}{
+		{"raw", func(ctx context.Context, client *Client) error {
+			_, err := client.DoRaw(ctx, http.MethodGet, "raw", nil, "application/json")
+			return err
+		}},
+		{"stream", func(ctx context.Context, client *Client) error {
+			_, err := client.StreamJSON(ctx, "stream", map[string]any{})
+			return err
+		}},
+		{"sdk", func(ctx context.Context, client *Client) error {
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/sdk", nil)
+			if err != nil {
+				return err
+			}
+			resp, err := client.PacedHTTPClient("model").Do(req)
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+			}
+			return err
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client, err := NewClient(server.URL, "secret", "aiqa-test", 40*time.Millisecond)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := test.run(context.Background(), client); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := WithRequestTimeout(context.Background(), 5*time.Millisecond)
+			defer cancel()
+			started := time.Now()
+			if err := test.run(ctx, client); err != nil {
+				t.Fatalf("request cancelled while pacing: %v", err)
+			}
+			if elapsed := time.Since(started); elapsed < 20*time.Millisecond {
+				t.Fatalf("request did not wait for pacing: %s", elapsed)
+			}
+		})
+	}
+}
+
+func TestRequestTimeoutLimitsPhysicalAttempt(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(50 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+	client, err := NewClient(server.URL, "secret", "aiqa-test", time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := WithRequestTimeout(context.Background(), 5*time.Millisecond)
+	defer cancel()
+	_, err = client.DoRaw(ctx, http.MethodGet, "slow", nil, "application/json")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("attempt error=%v, want deadline exceeded", err)
+	}
+}
+
 func TestPacedSDKTransportOwnsRetriesAndCountsExhaustedRateLimit(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

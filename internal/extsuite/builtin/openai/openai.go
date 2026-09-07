@@ -13,6 +13,7 @@ import (
 	openaisdk "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 
+	"github.com/ilyar/aiqa/internal/api"
 	"github.com/ilyar/aiqa/internal/extsuite"
 	"github.com/ilyar/aiqa/internal/result"
 )
@@ -77,7 +78,11 @@ func runSuite(ctx context.Context, client *openaisdk.Client, request extsuite.Ru
 	event := extsuite.SuiteEvent{SchemaVersion: extsuite.ProtocolVersion, Type: "suite_result", RunID: request.RunID, ExtensionID: extensionID, SuiteID: suiteID, Subject: request.Subject}
 	if request.Limits.RequestTimeoutMS > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(request.Limits.RequestTimeoutMS)*time.Millisecond)
+		if request.Runtime.HTTPClient != nil {
+			ctx, cancel = api.WithRequestTimeout(ctx, time.Duration(request.Limits.RequestTimeoutMS)*time.Millisecond)
+		} else {
+			ctx, cancel = context.WithTimeout(ctx, time.Duration(request.Limits.RequestTimeoutMS)*time.Millisecond)
+		}
 		defer cancel()
 	}
 	model := request.Subject.ID

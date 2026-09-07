@@ -280,7 +280,11 @@ func executeTarget(ctx context.Context, registry *Registry, cfg config.Config, t
 				subjectEnd("error", logging.Fields{"status": "error", "error_present": true, "error_kind": "collector_validation"})
 				return
 			}
-			runCtx, cancel := context.WithTimeout(invocationCtx, deadline)
+			runCtx := invocationCtx
+			cancel := func() {}
+			if planned.extension.Provenance().Source == "executable" {
+				runCtx, cancel = context.WithTimeout(invocationCtx, deadline)
+			}
 			defer cancel()
 			var telemetry RunnerTelemetry
 			var runErr error

@@ -250,11 +250,15 @@ type operationReadCloser struct {
 	fields    logging.Fields
 	outcome   string
 	onClose   func()
+	cancel    context.CancelFunc
 }
 
 func (r *operationReadCloser) Close() error {
 	err := r.ReadCloser.Close()
 	r.once.Do(func() {
+		if r.cancel != nil {
+			defer r.cancel()
+		}
 		if r.onClose != nil {
 			r.onClose()
 		}
@@ -345,21 +349,23 @@ func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 		}
 		r.client.trace(ctx, logging.Trace, "pacing.wait.end", logging.Fields{"method": request.Method, "path": path, "attempt": attempt + 1, "wait_ms": time.Since(waitStarted).Milliseconds()})
 		current := request
+		attemptCtx, cancelAttempt := attemptContext(ctx)
 		if attempt > 0 {
 			body, err := request.GetBody()
 			if err != nil {
+				cancelAttempt()
 				r.client.pacer.release(r.model)
 				r.client.trace(ctx, logging.Error, "sdk.retry.body_error", logging.Fields{"method": request.Method, "path": path, "attempt": attempt + 1, "reason": errorClass(err)})
 				endLogical("retry_body_error", nil, err)
 				return nil, err
 			}
-			current = request.Clone(request.Context())
+			current = request.Clone(attemptCtx)
 			current.Body = body
 		}
 		if attempt > 0 {
 			r.client.pacer.retry(r.model)
 		}
-		attemptCtx, attemptOp := r.client.startOperation(ctx, "sdk.http_attempt", logging.Fields{"method": request.Method, "path": path, "attempt": attempt + 1})
+		attemptCtx, attemptOp := r.client.startOperation(attemptCtx, "sdk.http_attempt", logging.Fields{"method": request.Method, "path": path, "attempt": attempt + 1})
 		current = current.Clone(attemptCtx)
 		r.client.injectTraceContext(attemptCtx, current)
 		r.client.trace(attemptCtx, logging.Trace, "sdk.attempt.begin", logging.Fields{"method": request.Method, "path": path, "attempt": attempt + 1})
@@ -391,15 +397,17 @@ func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 			endFields := responseFields(request.Method, path, attempt+1, response, err, time.Since(started))
 			if response != nil && response.Body != nil {
 				handedOff = true
-				response.Body = &operationReadCloser{ReadCloser: response.Body, operation: logical, parent: sdkProbe, fields: endFields, outcome: "response_closed", onClose: func() {
+				response.Body = &operationReadCloser{ReadCloser: response.Body, operation: logical, parent: sdkProbe, fields: endFields, outcome: "response_closed", cancel: cancelAttempt, onClose: func() {
 					r.client.trace(ctx, logging.Debug, "sdk.logical_request.result", endFields)
 				}}
 			} else {
+				cancelAttempt()
 				r.client.trace(ctx, logging.Debug, "sdk.logical_request.result", endFields)
 				endLogical("response", response, err)
 			}
 			return response, err
 		}
+		cancelAttempt()
 		r.client.pacer.release(r.model)
 		delay := time.Duration(1<<attempt) * 100 * time.Millisecond
 		if response != nil {
@@ -572,7 +580,9 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 			c.pacer.retry(model)
 		}
 		c.trace(ctx, logging.Trace, "http.attempt.begin", logging.Fields{"method": method, "path": path, "attempt": attempt + 1})
-		resp, err := c.doRawURLOnce(ctx, method, endpoint, body, contentType, attempt+1)
+		attemptCtx, cancelAttempt := attemptContext(ctx)
+		resp, err := c.doRawURLOnce(attemptCtx, method, endpoint, body, contentType, attempt+1)
+		cancelAttempt()
 		resp.TraceID = traceID
 		c.trace(ctx, logging.Trace, "http.attempt.result", rawResponseFields(method, path, attempt+1, resp, err))
 		if !shouldRetry(resp, err) {
@@ -758,6 +768,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 	c.trace(ctx, logging.Trace, "http.stream_logical_request.begin", logging.Fields{"method": http.MethodPost, "path": requestPath, "stream": true})
 	var httpResp *http.Response
 	var started time.Time
+	var finalAttemptCancel context.CancelFunc
 	attempts := 0
 	for attempt := 0; attempt < 3; attempt++ {
 		requestPath := safeRequestPath(&u)
@@ -771,10 +782,12 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 			return result, err
 		}
 		c.trace(ctx, logging.Trace, "pacing.wait.end", logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true, "wait_ms": time.Since(waitStarted).Milliseconds()})
-		attemptCtx, attemptOp := c.startOperation(ctx, "http.stream_attempt", logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true})
+		attemptCtx, cancelAttempt := attemptContext(ctx)
+		attemptCtx, attemptOp := c.startOperation(attemptCtx, "http.stream_attempt", logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true})
 		started = time.Now()
 		req, err := http.NewRequestWithContext(attemptCtx, http.MethodPost, u.String(), bytes.NewReader(raw))
 		if err != nil {
+			cancelAttempt()
 			c.pacer.release(model)
 			fields := logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true, "duration_ms": time.Since(started).Milliseconds(), "reason": errorClass(err)}
 			c.trace(attemptCtx, logging.Trace, "http.stream_attempt.result", fields)
@@ -795,6 +808,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 		c.trace(attemptCtx, logging.Trace, "http.stream_attempt.begin", logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true})
 		httpResp, err = c.http.Do(req)
 		if err != nil {
+			cancelAttempt()
 			c.pacer.release(model)
 			fields := logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true, "duration_ms": time.Since(started).Milliseconds(), "reason": errorClass(err)}
 			c.trace(attemptCtx, logging.Trace, "http.stream_attempt.result", fields)
@@ -830,6 +844,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 			attemptOp.End("response", attemptFields)
 		}
 		if !shouldRetryStatus(httpResp.StatusCode, httpResp.Header) {
+			finalAttemptCancel = cancelAttempt
 			break
 		}
 		delay := retryAfter(httpResp.Header)
@@ -837,6 +852,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 			delay = time.Duration(1<<attempt) * 100 * time.Millisecond
 		}
 		if attempt == 2 {
+			finalAttemptCancel = cancelAttempt
 			if httpResp.StatusCode == http.StatusTooManyRequests {
 				c.pacer.limited(model, delay)
 			}
@@ -846,6 +862,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 		}
 		_, _ = io.Copy(io.Discard, io.LimitReader(httpResp.Body, 32<<10))
 		httpResp.Body.Close()
+		cancelAttempt()
 		c.pacer.release(model)
 		if httpResp.StatusCode == http.StatusTooManyRequests {
 			c.pacer.limited(model, delay)
@@ -862,6 +879,9 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 			case <-time.After(delay):
 			}
 		}
+	}
+	if finalAttemptCancel != nil {
+		defer finalAttemptCancel()
 	}
 	defer c.pacer.release(model)
 	defer httpResp.Body.Close()

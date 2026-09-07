@@ -74,7 +74,7 @@ targets:
   --google-genai-profile FILE embedded Google GenAI profile
 selection and output:
   --model ID[,ID]          test selected models; default: discover all
-  --timeout 120|2m         per-request timeout (default 120s)
+  --timeout 120|2m         per HTTP-attempt timeout after pacing (default 120s)
   --request-interval 2s    initial adaptive request interval (default 2s)
   --format markdown,json   report formats (default both)
   --name report            output basename (default report)

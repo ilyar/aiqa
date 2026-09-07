@@ -150,7 +150,7 @@ func (e Environment) logf(level logging.Level, format string, args ...any) {
 }
 
 func (e Environment) probeContext(parent context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(parent, e.Config.Timeout)
+	return api.WithRequestTimeout(parent, e.Config.Timeout)
 }
 
 func testBase(p profile.Profile, id, suite string) result.TestResult {

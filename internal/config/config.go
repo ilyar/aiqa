@@ -251,7 +251,7 @@ func Parse(args []string) (Config, error) {
 	fs.StringVar(&cfg.GoogleGenAIBaseURL, "google-genai-base-url", cfg.GoogleGenAIBaseURL, "Google GenAI base URL; defaults to GOOGLE_GENAI_BASE_URL")
 	fs.StringVar(&cfg.GoogleGenAIAPIKey, "google-genai-api-key", cfg.GoogleGenAIAPIKey, "Google GenAI API key; defaults to GOOGLE_GENAI_API_KEY")
 	fs.StringVar(&cfg.GoogleGenAIAPIVersion, "google-genai-api-version", cfg.GoogleGenAIAPIVersion, "Google GenAI API version (default v1beta)")
-	fs.Var(durationValue{&cfg.Timeout}, "timeout", "per-request timeout, e.g. 120 or 2m")
+	fs.Var(durationValue{&cfg.Timeout}, "timeout", "per HTTP-attempt timeout after pacing, e.g. 120 or 2m")
 	fs.Var(durationValue{&cfg.RequestInterval}, "request-interval", "initial adaptive request interval, e.g. 2s")
 	fs.StringVar(&formats, "format", formats, "comma-separated report formats: markdown,json")
 	fs.StringVar(&cfg.Name, "name", cfg.Name, "output basename without extension")

@@ -13,6 +13,7 @@ import (
 
 	genai "google.golang.org/genai"
 
+	"github.com/ilyar/aiqa/internal/api"
 	"github.com/ilyar/aiqa/internal/extsuite"
 	protocolgoogle "github.com/ilyar/aiqa/internal/protocol/googlegenai"
 	"github.com/ilyar/aiqa/internal/result"
@@ -82,7 +83,11 @@ func runSuite(parent context.Context, client *genai.Client, request extsuite.Run
 	ctx := parent
 	if request.Limits.RequestTimeoutMS > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(parent, time.Duration(request.Limits.RequestTimeoutMS)*time.Millisecond)
+		if request.Runtime.HTTPClient != nil {
+			ctx, cancel = api.WithRequestTimeout(parent, time.Duration(request.Limits.RequestTimeoutMS)*time.Millisecond)
+		} else {
+			ctx, cancel = context.WithTimeout(parent, time.Duration(request.Limits.RequestTimeoutMS)*time.Millisecond)
+		}
 		defer cancel()
 	}
 	usage, err := runCase(ctx, client, suiteID, request.Subject.ID)

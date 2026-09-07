@@ -100,7 +100,7 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 		suiteCtx, discoverySuite = options.Telemetry.Start(logging.Scope(providerCtx, target.ID, "", "discovery", "", ""), "suite", logging.Fields{"suite": "discovery"})
 		discoveryCtx, discoveryProbe = options.Telemetry.Start(logging.Scope(suiteCtx, target.ID, "", "discovery", "models.list.http", ""), "probe", logging.Fields{"probe": "aiqa.native.models.list.http"})
 	}
-	listCtx, cancel := context.WithTimeout(discoveryCtx, cfg.Timeout)
+	listCtx, cancel := api.WithRequestTimeout(discoveryCtx, cfg.Timeout)
 	models, listResp, listErr := client.ListModels(listCtx)
 	cancel()
 	tmp.Discovery.ModelCount = len(models)

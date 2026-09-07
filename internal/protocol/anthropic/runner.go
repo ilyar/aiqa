@@ -152,7 +152,7 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 		suiteCtx, discoverySuite = options.Telemetry.Start(logging.Scope(providerCtx, target.ID, "", "discovery", "", ""), "suite", logging.Fields{"suite": "discovery"})
 		discoveryCtx, discoveryProbe = options.Telemetry.Start(logging.Scope(suiteCtx, target.ID, "", "discovery", "anthropic.models.list.http", ""), "probe", logging.Fields{"probe": "aiqa.native.anthropic.models.list.http"})
 	}
-	listCtx, cancel := context.WithTimeout(discoveryCtx, cfg.Timeout)
+	listCtx, cancel := api.WithRequestTimeout(discoveryCtx, cfg.Timeout)
 	models, listResp, listErr := client.ListModels(listCtx)
 	cancel()
 	tmp.Discovery.ModelCount = len(models)
@@ -438,7 +438,7 @@ func paginationResult(parent context.Context, client *Client, timeout time.Durat
 	var next []api.Model
 	var resp api.Response
 	var err error
-	ctx, cancel := context.WithTimeout(probeCtx, timeout)
+	ctx, cancel := api.WithRequestTimeout(probeCtx, timeout)
 	next, resp, err = client.ListModelsPage(ctx, lastID, 1)
 	cancel()
 	test.DurationMS = resp.Duration.Milliseconds()
@@ -846,7 +846,7 @@ func runErrors(parent context.Context, client *Client, timeout time.Duration, p 
 
 func runStream(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string, telemetryProvider *telemetry.Provider) []result.TestResult {
 	return runNativeProbeResults(parent, telemetryProvider, "anthropic.messages.stream.http", func(probeCtx context.Context) []result.TestResult {
-		ctx, cancel := context.WithTimeout(probeCtx, timeout)
+		ctx, cancel := api.WithRequestTimeout(probeCtx, timeout)
 		defer cancel()
 		stream, err := client.StreamMessage(ctx, basicBody(model))
 		base := streamHTTPTest(p, stream, err)
@@ -999,7 +999,7 @@ func runTools(parent context.Context, client *Client, timeout time.Duration, p p
 	var stream api.StreamResponse
 	var streamErr error
 	streamProbe := runNativeProbe(parent, telemetryProvider, "anthropic.tools.stream", func(probeCtx context.Context) result.TestResult {
-		ctx, cancel := context.WithTimeout(probeCtx, timeout)
+		ctx, cancel := api.WithRequestTimeout(probeCtx, timeout)
 		defer cancel()
 		stream, streamErr = client.StreamMessage(ctx, body)
 		test := testBase(p, "anthropic.tools.stream")
@@ -1233,7 +1233,7 @@ func runThinking(parent context.Context, client *Client, timeout time.Duration, 
 		return test
 	})
 	streamProbe := runNativeProbe(parent, telemetryProvider, "anthropic.thinking.stream", func(probeCtx context.Context) result.TestResult {
-		ctx, cancel := context.WithTimeout(probeCtx, timeout)
+		ctx, cancel := api.WithRequestTimeout(probeCtx, timeout)
 		defer cancel()
 		stream, streamErr := client.StreamMessage(ctx, manualBody)
 		test := testBase(p, "anthropic.thinking.stream")
@@ -1352,7 +1352,7 @@ func derived(p profile.Profile, id string, source result.TestResult) result.Test
 	return t
 }
 func call(parent context.Context, timeout time.Duration, fn func(context.Context) (api.Response, error)) (api.Response, error) {
-	ctx, cancel := context.WithTimeout(parent, timeout)
+	ctx, cancel := api.WithRequestTimeout(parent, timeout)
 	defer cancel()
 	return fn(ctx)
 }
