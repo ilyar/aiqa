@@ -2,9 +2,46 @@ package api
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 )
+
+func TestPacerWaitObserverSpansReservationRevisionAndCapacity(t *testing.T) {
+	p := newPacer(80 * time.Millisecond)
+	if err := p.wait(context.Background(), ""); err != nil {
+		t.Fatal(err)
+	}
+
+	started := make(chan struct{})
+	finished := make(chan error, 1)
+	var mu sync.Mutex
+	var events []bool
+	go func() {
+		finished <- p.wait(context.Background(), "", func(waiting bool, _ time.Duration) {
+			mu.Lock()
+			events = append(events, waiting)
+			mu.Unlock()
+			if waiting {
+				close(started)
+			}
+		})
+	}()
+	<-started
+	// A rate-limit revision wakes the old reservation. The waiter then has to
+	// reserve again and wait for the still-in-flight first request.
+	p.limited("", 5*time.Millisecond)
+	time.Sleep(10 * time.Millisecond)
+	p.release("")
+	if err := <-finished; err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(events) != 2 || !events[0] || events[1] {
+		t.Fatalf("observer events=%v, want one true/false pair", events)
+	}
+}
 
 func TestPacerAdditiveIncreaseAndRateLimitDecrease(t *testing.T) {
 	p := newPacer(time.Second)

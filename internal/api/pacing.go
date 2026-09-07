@@ -70,11 +70,26 @@ func (p *pacer) wait(ctx context.Context, model string, observers ...func(bool, 
 	if len(observers) > 0 {
 		observe = observers[0]
 	}
-	notify := func(waiting bool, duration time.Duration) {
+	// A reservation can be revised and then wait for capacity before it is
+	// admitted. Those are internal scheduler phases of one request, not separate
+	// operator-visible waits. Emit one balanced lifecycle pair for the complete
+	// admission wait; otherwise progress flickers 0 -> 1 -> 0 between phases.
+	waiting := false
+	var waitStarted time.Time
+	beginWait := func(estimate time.Duration) {
+		if waiting {
+			return
+		}
+		waiting, waitStarted = true, time.Now()
 		if observe != nil {
-			observe(waiting, duration)
+			observe(true, estimate)
 		}
 	}
+	defer func() {
+		if waiting && observe != nil {
+			observe(false, time.Since(waitStarted))
+		}
+	}()
 	for {
 		p.mu.Lock()
 		now := time.Now()
@@ -90,14 +105,11 @@ func (p *pacer) wait(ctx context.Context, model string, observers ...func(bool, 
 		scheduleChanged := p.scheduleChanged
 		p.mu.Unlock()
 		if delay := time.Until(start); delay > 0 {
-			waited := time.Now()
-			notify(true, delay)
+			beginWait(delay)
 			rescheduled, err := waitForPacer(ctx, delay, scheduleChanged)
 			if err != nil {
-				notify(false, time.Since(waited))
 				return err
 			}
-			notify(false, time.Since(waited))
 			// A rate-limit response changes the shared target schedule. Do not
 			// keep consuming the old reservation while other work has already
 			// entered cooldown; that was the source of queue-induced deadlines.
@@ -128,14 +140,11 @@ func (p *pacer) wait(ctx context.Context, model string, observers ...func(bool, 
 		}
 		changed := p.changed
 		p.mu.Unlock()
-		waited := time.Now()
-		notify(true, 0)
+		beginWait(0)
 		select {
 		case <-ctx.Done():
-			notify(false, time.Since(waited))
 			return ctx.Err()
 		case <-changed:
-			notify(false, time.Since(waited))
 		}
 	}
 }
