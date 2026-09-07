@@ -36,6 +36,7 @@ type RunOptions struct {
 	Telemetry *telemetry.Provider
 	Progress  progress.Sink
 	Runtime   *Runtime
+	Inventory *protocolpkg.Inventory
 }
 
 type Runtime struct {
@@ -76,13 +77,62 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 	runtime := &Runtime{}
 	target, err := Run(ctx, RunOptions{
 		Target: options.Target, Config: options.Config, Profile: options.Profile,
-		UserAgent: options.UserAgent, Logf: options.Logf, Logger: options.Logger, Telemetry: options.Telemetry, Progress: options.Progress, Runtime: runtime,
+		UserAgent: options.UserAgent, Logf: options.Logf, Logger: options.Logger, Telemetry: options.Telemetry, Progress: options.Progress, Runtime: runtime, Inventory: options.Inventory,
 	})
 	target.Notes = []string{"Google Gen AI Go SDK v1.71.0 does not expose public Interactions API methods; no SDK Interactions suite is claimed."}
 	return protocolpkg.RunResult{
 		Target:  target,
 		Runtime: protocolpkg.Runtime{Client: runtime.Client, Executor: runtime.Executor},
 	}, err
+}
+
+// PrepareTarget performs Google inventory pagination before progress is shown.
+// Execute receives the cached merged inventory, so it cannot repeat ListModels.
+func PrepareTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg.PreparedTarget, error) {
+	client, err := NewClient(options.Target.BaseURL, options.Target.APIKey, options.Target.APIVersion, options.UserAgent, options.Target.RequestInterval)
+	if err != nil {
+		return protocolpkg.PreparedTarget{}, err
+	}
+	client.SetConcurrency(options.Config.Concurrency)
+	listCtx, cancel := api.WithRequestTimeout(ctx, options.Config.Timeout)
+	models, response, _, listErr := discoverAll(listCtx, client)
+	cancel()
+	selected, metadata := selectModels(requestedModels(options.Config, options.Target), models)
+	candidates := make([]result.ModelReport, 0, len(selected))
+	overrides, err := capability.LoadOverrideFile(options.Target.CapabilityFile)
+	if err != nil {
+		return protocolpkg.PreparedTarget{}, err
+	}
+	if overrides == nil {
+		overrides = map[string][]string{}
+	}
+	jobs := []protocolpkg.Job{{ID: protocolpkg.JobID(options.Target.ID, "", "inventory"), Target: options.Target.ID, Label: "model inventory"}}
+	for _, model := range selected {
+		unknown := options.Target.UnknownModel
+		if len(requestedModels(options.Config, options.Target)) > 0 {
+			unknown = "inventory"
+		}
+		classification := capability.ClassifyGoogleGenAI(model, metadata[model], capability.Options{BaseURL: options.Target.BaseURL, Overrides: overrides, UnknownPolicy: unknown})
+		candidate := result.ModelReport{ID: model, Metadata: cloneMap(metadata[model]), Modules: capability.AssessModules(classification, options.Profile.Modules, capability.RoutingOptions{Modules: options.Target.Modules, AllowBillableArtifacts: options.Config.AllowBillableArtifacts, AllowHighTokenProbes: options.Config.AllowHighTokenProbes, AllowPersistentResources: options.Config.AllowPersistentResources})}
+		for _, e := range classification.Capabilities {
+			candidate.Capabilities = append(candidate.Capabilities, result.CapabilityAssessment{ID: e.Capability, Source: e.Source, Rule: e.Rule, Confidence: e.Confidence, Reason: e.Reason})
+		}
+		candidates = append(candidates, candidate)
+		if options.Config.HasTest("compat") {
+			jobs = append(jobs, protocolpkg.Job{ID: protocolpkg.JobID(options.Target.ID, model, "compat"), Target: options.Target.ID, Model: model, Label: "Google GenAI compatibility"})
+		}
+		if options.Config.HasTest("model-param") {
+			jobs = append(jobs, protocolpkg.Job{ID: protocolpkg.JobID(options.Target.ID, model, "model-param"), Target: options.Target.ID, Model: model, Label: "model parameters"})
+		}
+	}
+	inv := &protocolpkg.Inventory{Models: models, Response: response, Err: listErr, Runtime: protocolpkg.Runtime{Client: client.TransportClient(), Executor: probe.NewExecutor(options.Config.Concurrency)}}
+	prepared := protocolpkg.PreparedTarget{Target: options.Target, Profile: options.Profile, Jobs: jobs, Candidates: candidates}
+	prepared.Execute = func(runCtx context.Context, sink progress.Sink) (protocolpkg.RunResult, error) {
+		runOptions := options
+		runOptions.Progress, runOptions.Inventory = sink, inv
+		return protocolpkg.ExecuteFrozen(runCtx, sink, jobs, func(ctx context.Context) (protocolpkg.RunResult, error) { return RunTarget(ctx, runOptions) })
+	}
+	return prepared, nil
 }
 
 func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
@@ -141,9 +191,17 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 		suiteCtx, discoverySuite = options.Telemetry.Start(logging.Scope(providerCtx, target.ID, "", "discovery", "", ""), "suite", logging.Fields{"suite": "discovery"})
 		discoveryCtx, discoveryProbe = options.Telemetry.Start(logging.Scope(suiteCtx, target.ID, "", "discovery", "google.models.list.http", ""), "probe", logging.Fields{"probe": "aiqa.native.google.models.list.http"})
 	}
-	listCtx, cancel := api.WithRequestTimeout(discoveryCtx, cfg.Timeout)
-	models, listResp, paginationResp, listErr := discoverAll(listCtx, client)
-	cancel()
+	var models []api.Model
+	var listResp, paginationResp api.Response
+	var listErr error
+	if options.Inventory != nil {
+		models, listResp, listErr = options.Inventory.Models, options.Inventory.Response, options.Inventory.Err
+		paginationResp = listResp
+	} else {
+		listCtx, cancel := api.WithRequestTimeout(discoveryCtx, cfg.Timeout)
+		models, listResp, paginationResp, listErr = discoverAll(listCtx, client)
+		cancel()
+	}
 	tmp.Discovery.ModelCount = len(models)
 	for _, model := range models {
 		tmp.Discovery.Models = append(tmp.Discovery.Models, cloneMap(model.Raw))
@@ -162,6 +220,13 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	}
 	if cfg.HasTest("compat") {
 		tmp.Discovery.Tests = append(tmp.Discovery.Tests, discoveryTests...)
+	}
+	if options.Inventory != nil {
+		outcome := "completed"
+		if listErr != nil || !listResp.Is2xx() {
+			outcome = "blocked"
+		}
+		protocolpkg.StartJob(options.Progress, target.ID, "", "inventory")(outcome)
 	}
 	selected, metadata := selectModels(requested, models)
 	if len(selected) == 0 {
@@ -265,7 +330,10 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 			}
 		}
 	}
-	plan := newProgressPlan(options.Progress, target.ID, plannedProbeCount(cfg, selected, modulePlans, routeBlocked, strings.Contains(p.ID, "generate-content")))
+	var plan *progressPlan
+	if options.Inventory == nil {
+		plan = newProgressPlan(options.Progress, target.ID, plannedProbeCount(cfg, selected, modulePlans, routeBlocked, strings.Contains(p.ID, "generate-content")))
+	}
 	var wg sync.WaitGroup
 	for index, model := range selected {
 		index, model := index, model
@@ -287,13 +355,25 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 			for _, evidence := range classification.Capabilities {
 				mr.Capabilities = append(mr.Capabilities, result.CapabilityAssessment{ID: evidence.Capability, Source: evidence.Source, Rule: evidence.Rule, Confidence: evidence.Confidence, Reason: evidence.Reason})
 			}
+			compatDone := protocolpkg.StartJob(options.Progress, target.ID, model, "compat")
 			if cfg.HasTest("compat") && preflightTests[index] != nil && routeBlocked[index] {
 				mr.Compatibility = append(mr.Compatibility, *preflightTests[index])
 			} else if cfg.HasTest("compat") {
 				mr.Compatibility = runModelWithPreflight(modelCtx, client, cfg, p, model, modules, executor, options.Telemetry, strings.Contains(p.ID, "generate-content"), preflights[index], preflightErrors[index], plan)
 			}
+			if cfg.HasTest("compat") {
+				if len(mr.Compatibility) == 0 {
+					compatDone("skipped")
+				} else {
+					compatDone("completed")
+				}
+			}
+			paramDone := protocolpkg.StartJob(options.Progress, target.ID, model, "model-param")
 			if cfg.HasTest("model-param") && hasAnyGenerationModule(modules, strings.Contains(p.ID, "generate-content")) {
 				mr.Compatibility = append(mr.Compatibility, runGoogleModelParamNotice(p)...)
+				paramDone("completed")
+			} else if cfg.HasTest("model-param") {
+				paramDone("skipped")
 			}
 			sort.Slice(mr.Compatibility, func(i, j int) bool { return mr.Compatibility[i].ID < mr.Compatibility[j].ID })
 			if options.Telemetry == nil {

@@ -46,12 +46,25 @@ func TestDualTargetCommandWritesIndependentV3Report(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var progressOutput bytes.Buffer
+	oldWriter, oldTTY := progressWriter, progressTTY
+	progressWriter, progressTTY = &progressOutput, func() bool { return false }
+	t.Cleanup(func() { progressWriter, progressTTY = oldWriter, oldTTY })
 	out, err := Run(context.Background(), cfg, BuildInfo{Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if out.ExitCode != 0 {
 		t.Fatalf("exit=%d summary=%+v", out.ExitCode, out.ReportV3.Summary)
+	}
+	progressText := progressOutput.String()
+	for _, want := range []string{"Discovering anthropic", "Discovering openai", "Planned "} {
+		if !strings.Contains(progressText, want) {
+			t.Fatalf("progress misses %q:\n%s", want, progressText)
+		}
+	}
+	if strings.Index(progressText, "Discovering openai") > strings.Index(progressText, "Planned ") {
+		t.Fatalf("progress froze before every target inventory was prepared:\n%s", progressText)
 	}
 	trace, err := os.ReadFile("dual.log")
 	if err != nil {

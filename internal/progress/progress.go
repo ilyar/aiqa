@@ -1,24 +1,43 @@
-// Package progress renders the operator-facing execution state. It is kept
-// separate from private JSONL logging: progress is always visible, while
-// forensic diagnostics remain controlled by --verbose.
+// Package progress renders operator-facing execution state. It is separate
+// from private JSONL logging: progress is always visible, while --verbose
+// controls forensic diagnostics only.
 package progress
 
 import (
 	"fmt"
 	"io"
-	"math"
 	"strings"
 	"sync"
 	"time"
 
+	progressbar "github.com/schollz/progressbar/v3"
+
 	"github.com/ilyar/aiqa/internal/telemetry"
 )
 
-const defaultHeartbeat = 30 * time.Second
 const durablePacingNotice = 5 * time.Second
 
-// Sink is the protocol-neutral progress contract. Native runners publish a
-// plan after discovery; telemetry supplies terminal probe lifecycle events.
+// Job is one report-visible logical probe outcome. It remains one job even if
+// its implementation makes multiple HTTP requests. A conditional probe is
+// reserved here and is completed with outcome "skipped" when inapplicable.
+type Job struct {
+	ID     string
+	Target string
+	Model  string
+	Label  string
+}
+
+// Sink is the backward-compatible protocol-neutral progress contract.
+//
+// New callers that implement the two-phase plan use FrozenSink: before
+// execution they publish planning status and then Freeze the full global job
+// list. Freeze creates exactly one immutable total. Execute calls Start and
+// Complete for the reserved ID; Complete is idempotent and treats all terminal
+// outcomes, including skipped, equally. This makes 100% and ETA honest.
+//
+// Plan, RevisePlan and AddPlan are temporary source-compatibility helpers for
+// runners not yet split into Prepare/Execute. They collect no rendered total;
+// after Freeze they are ignored and cannot revise the published plan.
 type Sink interface {
 	telemetry.Observer
 	RunStarted(targets int)
@@ -33,170 +52,280 @@ type Sink interface {
 	Close()
 }
 
-// Options makes rendering deterministic in tests without a terminal package.
+// FrozenSink is the execution-capable extension of the legacy Sink. Keep it
+// separate while protocol runners migrate: existing embedders need not grow
+// no-op methods merely to receive basic operator messages.
+type FrozenSink interface {
+	Sink
+	Planning(status string)
+	Freeze(jobs []Job)
+	Start(id string)
+	Complete(id, outcome string)
+}
+
+// Options makes output deterministic in tests. TTY selects the one-line
+// progressbar/v3 renderer; false emits durable text without terminal controls.
 type Options struct {
-	Writer            io.Writer
-	TTY               bool
-	Now               func() time.Time
-	HeartbeatInterval time.Duration
+	Writer          io.Writer
+	TTY             bool
+	SpinnerInterval time.Duration
 }
 
-// Reporter is a concurrency-safe Sink implementation.
+// Reporter serializes all calls, so workers can complete jobs concurrently.
+// Exactly one progressbar/v3 determinate bar is created after Freeze.
 type Reporter struct {
-	writer    io.Writer
-	tty       bool
-	now       func() time.Time
-	heartbeat time.Duration
-	mu        sync.Mutex
-	targets   map[string]*targetState
-	current   string
-	lastLine  bool
-	closed    bool
-	stop      chan struct{}
-	done      chan struct{}
+	writer io.Writer
+	tty    bool
+
+	mu sync.Mutex
+
+	closed      bool
+	frozen      bool
+	spinner     *progressbar.ProgressBar
+	bar         *progressbar.ProgressBar
+	jobs        map[string]Job
+	completed   map[string]struct{}
+	legacyPlans map[string]int
+	total, done int
+	current     string
+	pacing      map[string]pacingState
 }
 
-type targetState struct {
-	name                             string
-	total, done                      int
-	planned                          bool
-	completed                        map[string]struct{}
-	started, plannedAt, lastTerminal time.Time
-	lastCheckpoint                   time.Time
-	lastPercent                      int
-	intervalEMA                      time.Duration
-	terminals                        int
-	finished                         bool
-	pacingWaiters                    int
-	wait                             time.Duration
-	current                          string
+type pacingState struct {
+	waiters int
+	wait    time.Duration
 }
 
-// New constructs a reporter. TTY selects a single redrawable stderr line;
-// false selects durable Unix-safe lines without ANSI sequences.
+// New constructs a Reporter.
 func New(options Options) *Reporter {
 	if options.Writer == nil {
 		options.Writer = io.Discard
 	}
-	if options.Now == nil {
-		options.Now = time.Now
+	r := &Reporter{
+		writer: options.Writer, tty: options.TTY,
+		jobs: map[string]Job{}, completed: map[string]struct{}{},
+		legacyPlans: map[string]int{}, pacing: map[string]pacingState{},
 	}
-	if options.HeartbeatInterval <= 0 {
-		options.HeartbeatInterval = defaultHeartbeat
+	if r.tty {
+		interval := options.SpinnerInterval
+		if interval == 0 {
+			interval = 100 * time.Millisecond
+		}
+		r.spinner = progressbar.NewOptions(-1,
+			progressbar.OptionSetWriter(r.writer),
+			progressbar.OptionSetDescription("aiqa: Planning"),
+			progressbar.OptionSpinnerType(14),
+			progressbar.OptionSetSpinnerChangeInterval(interval),
+			progressbar.OptionUseANSICodes(false),
+		)
 	}
-	r := &Reporter{writer: options.Writer, tty: options.TTY, now: options.Now, heartbeat: options.HeartbeatInterval, targets: map[string]*targetState{}, stop: make(chan struct{}), done: make(chan struct{})}
-	go r.heartbeatLoop()
 	return r
 }
 
 func (r *Reporter) RunStarted(targets int) {
+	r.Planning(fmt.Sprintf("Planning %d target(s)", max(0, targets)))
+}
+
+// Planning updates the spinner while targets/models/jobs are discovered.
+func (r *Reporter) Planning(status string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.lineLocked(fmt.Sprintf("aiqa: Planning %d target(s)", max(0, targets)), !r.tty)
+	if r.closed || r.frozen {
+		return
+	}
+	text := "aiqa: " + safe(status)
+	if r.tty {
+		r.spinner.Describe(text)
+		return
+	}
+	r.durableLocked(text)
 }
+
 func (r *Reporter) DiscoveryStarted(target string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	s := r.stateLocked(target)
-	s.started = r.now()
-	r.current = s.name
-	r.renderLocked(s, "Discovering "+s.name)
+	r.Planning("Discovering " + safeTarget(target))
 }
 
-func (r *Reporter) Plan(target string, total int)       { r.setPlan(target, total, false) }
-func (r *Reporter) RevisePlan(target string, total int) { r.setPlan(target, total, true) }
+// Plan records provisional inventory only; it never changes an active bar.
+func (r *Reporter) Plan(target string, total int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed || r.frozen {
+		return
+	}
+	key := safeTarget(target)
+	r.legacyPlans[key] = max(0, total)
+	if !r.tty {
+		r.durableLocked(fmt.Sprintf("aiqa: %s: planned %d logical probe(s)", key, r.legacyPlans[key]))
+	}
+}
 
-// AddPlan extends a target-owned known plan without requiring callers such as
-// extension runners to know the native runner's current total.
+// RevisePlan is retained only until runners publish their whole job list.
+func (r *Reporter) RevisePlan(target string, total int) { r.Plan(target, total) }
+
+// AddPlan is retained only until runners publish their whole job list.
 func (r *Reporter) AddPlan(target string, delta int) {
 	if delta <= 0 {
 		return
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	s := r.stateLocked(target)
-	old := s.total
-	s.total += delta
-	if s.total < s.done {
-		s.total = s.done
+	if r.closed || r.frozen {
+		return
 	}
-	s.planned, s.plannedAt = true, r.now()
-	r.current = s.name
-	r.lineLocked(fmt.Sprintf("aiqa: %s: plan revised: %d -> %d probes", s.name, old, s.total), true)
-	r.renderLocked(s, "")
+	key := safeTarget(target)
+	r.legacyPlans[key] += delta
 }
-func (r *Reporter) setPlan(target string, total int, revised bool) {
+
+// Freeze publishes the global plan once. Invalid or duplicate IDs are omitted:
+// a job cannot be completed reliably without a unique identity.
+func (r *Reporter) Freeze(jobs []Job) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	s := r.stateLocked(target)
-	if total < s.done {
-		total = s.done
+	if r.closed || r.frozen {
+		return
 	}
-	old := s.total
-	s.total, s.planned, s.plannedAt = total, true, r.now()
-	r.current = s.name
-	if revised {
-		r.lineLocked(fmt.Sprintf("aiqa: %s: plan revised: %d -> %d probes", s.name, old, total), true)
-	} else if !r.tty {
-		r.lineLocked(fmt.Sprintf("aiqa: %s: planned %d probes", s.name, total), true)
+	for _, job := range jobs {
+		job.ID, job.Target, job.Model, job.Label = safe(job.ID), safeTarget(job.Target), safe(job.Model), safe(job.Label)
+		if job.ID == "" {
+			continue
+		}
+		if job.Label == "" {
+			job.Label = progressLabel(job.Model, "")
+		}
+		if _, exists := r.jobs[job.ID]; exists {
+			continue
+		}
+		r.jobs[job.ID] = job
 	}
-	r.renderLocked(s, "")
+	r.frozen, r.total = true, len(r.jobs)
+	r.stopSpinnerLocked()
+	if !r.tty {
+		r.durableLocked(fmt.Sprintf("aiqa: Planned %d logical probe(s)", r.total))
+		return
+	}
+	if r.total == 0 {
+		return
+	}
+	r.bar = progressbar.NewOptions(r.total,
+		progressbar.OptionSetWriter(r.writer),
+		progressbar.OptionSetDescription("aiqa: Running"),
+		progressbar.OptionSetWidth(20),
+		progressbar.OptionSetTheme(progressbar.ThemeASCII),
+		progressbar.OptionShowCount(),
+		progressbar.OptionShowIts(),
+		progressbar.OptionSetPredictTime(true),
+		progressbar.OptionThrottle(100*time.Millisecond),
+		progressbar.OptionUseANSICodes(false),
+		progressbar.OptionOnCompletion(func() { fmt.Fprintln(r.writer) }),
+	)
+	_ = r.bar.RenderBlank()
+}
+
+// Start updates the current label for a reserved job. Unknown IDs are ignored.
+func (r *Reporter) Start(id string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed || !r.frozen {
+		return
+	}
+	job, ok := r.jobs[id]
+	if !ok {
+		return
+	}
+	r.current = job.Label
+	r.renderLocked()
+}
+
+// Complete closes a reserved job exactly once. outcome is intentionally not
+// displayed: pass/fail/skipped belongs to report assessment, not the progress.
+func (r *Reporter) Complete(id, outcome string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed || !r.frozen {
+		return
+	}
+	if _, exists := r.jobs[id]; !exists {
+		return
+	}
+	if _, seen := r.completed[id]; seen {
+		return
+	}
+	r.completed[id] = struct{}{}
+	if r.done >= r.total {
+		return
+	}
+	r.done++
+	if r.bar != nil {
+		_ = r.bar.Add(1)
+	}
+	r.renderLocked()
+	if !r.tty {
+		r.durableCheckpointLocked()
+	}
 }
 
 func (r *Reporter) Pacing(target string, waiting bool, duration time.Duration) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	s := r.stateLocked(target)
-	r.current = s.name
-	wasWaiting := s.pacingWaiters > 0
-	if waiting {
-		s.pacingWaiters++
-		if duration > s.wait {
-			s.wait = duration
-		}
-	} else if s.pacingWaiters > 0 {
-		s.pacingWaiters--
-	}
-	isWaiting := s.pacingWaiters > 0
-	if wasWaiting == isWaiting {
+	if r.closed || !r.frozen {
 		return
 	}
-	if !isWaiting {
-		s.wait = 0
+	key := safeTarget(target)
+	state := r.pacing[key]
+	if waiting {
+		state.waiters++
+		if duration > state.wait {
+			state.wait = duration
+		}
+	} else if state.waiters > 0 {
+		state.waiters--
+		if state.waiters == 0 {
+			state.wait = 0
+		}
 	}
-	// A target can have many requests queued in the shared pacer. A redrawable
-	// terminal may reflect the aggregate transition immediately. Durable output
-	// must not print a pair of lines for every routine 2s pacing slot: report
-	// only a materially long expected pause and let heartbeat describe a long
-	// idle period.
-	if r.tty || (isWaiting && s.wait >= durablePacingNotice) {
-		r.pacingTransitionLocked(s)
+	r.pacing[key] = state
+	if state.waiters == 0 {
+		r.renderLocked()
+		return
+	}
+	r.current = key + ": waiting for provider pacing"
+	if state.wait > 0 {
+		r.current += " (" + state.wait.Round(time.Second).String() + ")"
+	}
+	r.renderLocked()
+	if !r.tty && state.wait >= durablePacingNotice {
+		r.durableLocked("aiqa: " + r.current)
 	}
 }
+
 func (r *Reporter) TargetFinished(target, outcome string) {
+	r.Message(fmt.Sprintf("%s: completed — %s", safeTarget(target), safe(outcome)))
+}
+
+func (r *Reporter) RunFinished() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	s := r.stateLocked(target)
-	s.pacingWaiters = 0
-	s.wait = 0
-	s.finished = true
-	r.finishLineLocked()
-	r.lineLocked(fmt.Sprintf("aiqa: %s: completed — %s (%d/%d 100%%)", s.name, safe(outcome), s.done, s.total), true)
+	if r.closed {
+		return
+	}
+	r.stopSpinnerLocked()
+	r.finishBarLocked()
 }
-func (r *Reporter) RunFinished() { r.mu.Lock(); defer r.mu.Unlock(); r.finishLineLocked() }
 
-// Message writes a durable operator message after finalizing any active TTY
-// redraw. Callers use fixed safe text only.
+// Message prints a durable status after clearing the current redraw.
 func (r *Reporter) Message(text string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.finishLineLocked()
-	r.lineLocked("aiqa: "+safe(text), true)
+	if r.closed {
+		return
+	}
+	r.clearBarLocked()
+	r.durableLocked("aiqa: " + safe(text))
+	r.renderLocked()
 }
 
-// ObserveLifecycle translates only typed lifecycle operations. Attempts,
-// validators and slots never affect completion. Duplicate terminal events are
-// ignored by operation ID, preserving done <= total.
+// ObserveLifecycle retains telemetry compatibility until all runners call the
+// explicit API. It only has an effect for IDs reserved by Freeze.
 func (r *Reporter) ObserveLifecycle(event telemetry.LifecycleEvent) {
 	if event.Name == "target" && event.Phase == "start" {
 		r.DiscoveryStarted(event.Target)
@@ -207,218 +336,70 @@ func (r *Reporter) ObserveLifecycle(event telemetry.LifecycleEvent) {
 		return
 	}
 	if event.Name == "probe" && event.Phase == "start" {
-		r.mu.Lock()
-		defer r.mu.Unlock()
-		s := r.stateLocked(event.Target)
-		s.current = progressLabel(event.Model, event.Probe)
-		r.current = s.name
-		if s.planned {
-			r.renderLocked(s, "")
-		}
+		r.Start(event.OperationID)
 		return
 	}
-	if (event.Name != "probe" && event.Name != "extension.suite") || event.Phase != "end" || event.OperationID == "" {
-		return
+	if (event.Name == "probe" || event.Name == "extension.suite") && event.Phase == "end" {
+		r.Complete(event.OperationID, event.Outcome)
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	s, ok := r.targets[safe(event.Target)]
-	if !ok || !s.planned {
-		return
-	}
-	if _, seen := s.completed[event.OperationID]; seen {
-		return
-	}
-	s.completed[event.OperationID] = struct{}{}
-	if s.done < s.total {
-		s.done++
-	}
-	now := event.Time
-	if now.IsZero() {
-		now = r.now()
-	}
-	if s.terminals > 0 && !s.lastTerminal.IsZero() {
-		gap := now.Sub(s.lastTerminal)
-		if gap > 0 {
-			if s.intervalEMA == 0 {
-				s.intervalEMA = gap
-			} else {
-				s.intervalEMA = time.Duration(.25*float64(gap) + .75*float64(s.intervalEMA))
-			}
-		}
-	}
-	s.terminals++
-	s.lastTerminal = now
-	r.renderLocked(s, "")
 }
 
 func (r *Reporter) Close() {
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.closed {
-		r.mu.Unlock()
 		return
 	}
 	r.closed = true
-	close(r.stop)
-	r.finishLineLocked()
-	r.mu.Unlock()
-	<-r.done
+	r.stopSpinnerLocked()
+	r.finishBarLocked()
 }
-func (r *Reporter) heartbeatLoop() {
-	ticker := time.NewTicker(r.heartbeat)
-	defer ticker.Stop()
-	defer close(r.done)
-	for {
-		select {
-		case <-r.stop:
-			return
-		case <-ticker.C:
-			r.Heartbeat()
-		}
+
+func (r *Reporter) renderLocked() {
+	if r.bar == nil || r.current == "" || r.bar.IsFinished() {
+		return
+	}
+	r.bar.Describe("aiqa: " + r.current)
+}
+
+func (r *Reporter) stopSpinnerLocked() {
+	if r.spinner == nil {
+		return
+	}
+	_ = r.spinner.Exit()
+	_ = r.spinner.Clear()
+	r.spinner = nil
+}
+
+func (r *Reporter) clearBarLocked() {
+	if r.bar != nil && !r.bar.IsFinished() {
+		_ = r.bar.Clear()
 	}
 }
 
-// Heartbeat is public to let a deterministic owner drive it in tests.
-func (r *Reporter) Heartbeat() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.closed || r.current == "" {
+func (r *Reporter) finishBarLocked() {
+	if r.bar == nil || r.bar.IsFinished() {
 		return
 	}
-	s := r.targets[r.current]
-	if s == nil {
-		return
-	}
-	if r.tty {
-		r.renderLocked(s, "")
-		return
-	}
-	now := r.now()
-	if !s.lastCheckpoint.IsZero() && now.Sub(s.lastCheckpoint) < r.heartbeat {
-		return
-	}
-	r.progressLineLocked(s)
-	s.lastCheckpoint = now
+	_ = r.bar.Exit()
+	fmt.Fprintln(r.writer)
 }
 
-func (r *Reporter) stateLocked(target string) *targetState {
-	name := safe(target)
-	if name == "" {
-		name = "target"
-	}
-	if s := r.targets[name]; s != nil {
-		return s
-	}
-	s := &targetState{name: name, completed: map[string]struct{}{}, lastPercent: -1}
-	r.targets[name] = s
-	return s
-}
-func (r *Reporter) renderLocked(s *targetState, override string) {
-	if override != "" {
-		r.lineLocked("aiqa: "+override, !r.tty)
-		return
-	}
-	if !s.planned {
-		r.lineLocked("aiqa: Discovering "+s.name, !r.tty)
-		return
-	}
-	if r.tty {
-		r.lineLocked(r.status(s), false)
-		return
-	}
-	percent := percentOf(s.done, s.total)
-	if percent/10 != s.lastPercent/10 || s.done == s.total {
-		r.progressLineLocked(s)
-		s.lastPercent = percent
-		s.lastCheckpoint = r.now()
+func (r *Reporter) durableCheckpointLocked() {
+	if r.total == 0 || r.done == r.total || r.done == 1 || r.done*10/r.total != (r.done-1)*10/r.total {
+		r.durableLocked(fmt.Sprintf("aiqa: %d/%d %d%%  %s", r.done, r.total, percentOf(r.done, r.total), r.current))
 	}
 }
-func (r *Reporter) progressLineLocked(s *targetState) { r.lineLocked(r.status(s), true) }
-func (r *Reporter) pacingTransitionLocked(s *targetState) {
-	r.lineLocked(r.status(s), !r.tty)
+
+func (r *Reporter) durableLocked(text string) { fmt.Fprintln(r.writer, text) }
+
+func safeTarget(value string) string {
+	if value = safe(value); value != "" {
+		return value
+	}
+	return "target"
 }
-func (r *Reporter) status(s *targetState) string {
-	if !s.planned {
-		return r.withPacing(s, "aiqa: Discovering "+s.name)
-	}
-	// Native classification can reveal a later SDK/extension phase. Until the
-	// target itself ends, a completed current plan is not a completed target;
-	// calling it 100% would be a false promise to the operator.
-	if s.done >= s.total && !s.finished {
-		return r.withPacing(s, fmt.Sprintf("aiqa: %s %d/%d known probes completed; preparing next phase", s.name, s.done, s.total))
-	}
-	p := percentOf(s.done, s.total)
-	rate, eta := r.rateETA(s)
-	text := fmt.Sprintf("aiqa: %s %d/%d %d%%", s.name, s.done, s.total, p)
-	if r.tty {
-		text = fmt.Sprintf("aiqa: %s [%s] %d/%d %d%%", s.name, bar(p), s.done, s.total, p)
-	}
-	if rate > 0 {
-		text += fmt.Sprintf("  %.1f probe/s", rate)
-	}
-	text += "  ETA " + eta
-	if s.current != "" {
-		text += "  " + s.current
-	}
-	return r.withPacing(s, text)
-}
-func (r *Reporter) withPacing(s *targetState, text string) string {
-	if s.pacingWaiters == 0 {
-		return text
-	}
-	if s.wait >= time.Second {
-		return fmt.Sprintf("%s  waiting for provider pacing (%s)", text, s.wait.Round(time.Second))
-	}
-	return text + "  waiting for provider pacing"
-}
-func (r *Reporter) rateETA(s *targetState) (float64, string) {
-	if !s.planned || s.total <= s.done || s.terminals < 2 || s.intervalEMA <= 0 {
-		return 0, "estimating"
-	}
-	rate := 1 / s.intervalEMA.Seconds()
-	if math.IsInf(rate, 0) || math.IsNaN(rate) || rate <= 0 {
-		return 0, "unknown"
-	}
-	return rate, (time.Duration(float64(s.total-s.done) * float64(s.intervalEMA))).Round(time.Second).String()
-}
-func (r *Reporter) lineLocked(text string, newline bool) {
-	if r.closed {
-		return
-	}
-	if r.tty {
-		fmt.Fprint(r.writer, "\r"+text)
-		r.lastLine = true
-		if newline {
-			fmt.Fprint(r.writer, "\n")
-			r.lastLine = false
-		}
-		return
-	}
-	fmt.Fprintln(r.writer, text)
-}
-func (r *Reporter) finishLineLocked() {
-	if r.tty && r.lastLine {
-		fmt.Fprint(r.writer, "\n")
-		r.lastLine = false
-	}
-}
-func percentOf(done, total int) int {
-	if total <= 0 {
-		return 0
-	}
-	if done < 0 {
-		return 0
-	}
-	if done >= total {
-		return 100
-	}
-	return done * 100 / total
-}
-func bar(percent int) string {
-	const width = 20
-	filled := percent * width / 100
-	return strings.Repeat("#", filled) + strings.Repeat("-", width-filled)
-}
+
 func safe(value string) string {
 	value = strings.Map(func(r rune) rune {
 		if r < 32 || r == 127 {
@@ -442,6 +423,17 @@ func progressLabel(model, probe string) string {
 	}
 	return model + ":" + probe
 }
+
+func percentOf(done, total int) int {
+	if total <= 0 || done <= 0 {
+		return 0
+	}
+	if done >= total {
+		return 100
+	}
+	return done * 100 / total
+}
+
 func max(a, b int) int {
 	if a > b {
 		return a

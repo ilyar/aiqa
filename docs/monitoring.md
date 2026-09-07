@@ -6,17 +6,23 @@ run is observable without `--verbose`.
 
 ## Terminal behaviour
 
-When `stderr` is a TTY, AIQA redraws one ASCII progress line for the active
-target. It identifies the target, current model/probe when available,
-completed and planned logical units, percentage, measured rate, ETA, and
-provider pacing waits. The line is terminated before a target or run finishes
-or is interrupted.
+When `stderr` is a TTY, AIQA first renders one indeterminate `Planning` line.
+During that phase it discovers every target inventory, selects each target's
+models, and freezes one global logical-job plan. It then renders one ASCII
+progress line for the whole run. The line identifies the current target and
+model/probe when available, completed and planned logical units, percentage,
+measured rate, ETA, and provider pacing waits. The line is terminated before a
+run finishes or is interrupted.
+
+The interactive renderer is `github.com/schollz/progressbar/v3`; it owns the
+single terminal line. AIQA owns planning and logical-job accounting, rather
+than letting terminal redraws determine execution state.
 
 When `stderr` is redirected or CI is non-interactive, AIQA emits durable plain
-text milestones instead: run/discovery start, a target plan, 10-percent
-checkpoints, a 30-second heartbeat, plan revisions, pacing waits, target end,
-and final report paths. It emits neither ANSI escapes nor carriage-return
-redraws in this mode.
+text milestones instead: planning start, target discovery, frozen global plan,
+10-percent checkpoints, a 30-second heartbeat, pacing waits, target end, and
+final report paths. It emits neither ANSI escapes nor carriage-return redraws
+in this mode.
 
 Progress is deliberately written to `stderr`; `stdout` is not used for
 progress, diagnostics, or report serialization. Markdown and JSON reports are
@@ -29,11 +35,13 @@ attempt. Retries, HTTP transport attempts and rate-limit backoff do not make a
 run look more complete.
 
 Before provider inventory is received, AIQA shows an indeterminate planning or
-discovery state. Once selection and capability classification make the native
-work known, it publishes `done/total`. Conditional work may extend that plan;
-the terminal explicitly reports `plan revised` and never permits `done >
-total`. Adaptive model-parameter work and opaque executable extension activity
-are represented by host-owned units, never guessed external HTTP activity.
+discovery state. Once selection and capability classification make the work
+known, AIQA freezes one global `done/total`; that total never changes during
+execution. A unit has a stable host-owned ID. Conditional work is reserved at
+planning time and ends exactly once as executed, skipped, blocked, or failed.
+Adaptive model-parameter work is one composite unit, and opaque executable
+extension activity is one host-owned unit per declared suite; neither is guessed
+from external HTTP activity.
 
 Rate and ETA use completed lifecycle units. ETA is `estimating` until enough
 terminal events exist, and remains `unknown` rather than inventing a value when
@@ -57,8 +65,12 @@ or media.
 
 ## Implementation boundaries
 
-Progress is driven by local telemetry lifecycle events and explicit runner
-plans. It does not change provider requests, scheduling policy, retry policy,
-rate-limit classification, public report schemas, compatibility verdicts, or
-exit-code policy. Extension executables retain their own execution boundary:
-AIQA tracks declared host suite units but does not infer their HTTP attempts.
+Progress is driven by a two-phase `Prepare(all targets) → Freeze(plan) →
+Execute(plan)` contract. Preparation performs target inventory and model
+selection; execution reuses that evidence and does not repeat model discovery.
+A terminal renderer consumes frozen host-owned jobs; raw telemetry spans remain
+diagnostic evidence and do not themselves increment the operator counter. This
+does not change provider requests, scheduling policy, retry policy, rate-limit
+classification, public report schemas, compatibility verdicts, or exit-code
+policy. Extension executables retain their own execution boundary: AIQA tracks
+declared host suite units but does not infer their HTTP attempts.

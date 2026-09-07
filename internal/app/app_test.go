@@ -39,7 +39,7 @@ func TestRunShowsPlainProgressWithoutVerboseLog(t *testing.T) {
 		t.Fatalf("run: exit=%d err=%v", out.ExitCode, err)
 	}
 	text := output.String()
-	for _, want := range []string{"aiqa: Planning 1 target(s)", "Discovering openai", "planned", "completed; reports:"} {
+	for _, want := range []string{"aiqa: Planning 1 target(s)", "Discovering openai", "Planned ", "logical probe(s)", "completed; reports:"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("progress output missing %q:\n%s", want, text)
 		}

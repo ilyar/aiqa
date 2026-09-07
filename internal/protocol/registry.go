@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/ilyar/aiqa/internal/api"
 	"github.com/ilyar/aiqa/internal/config"
@@ -18,6 +19,30 @@ import (
 	"github.com/ilyar/aiqa/internal/result"
 	"github.com/ilyar/aiqa/internal/telemetry"
 )
+
+// JobID produces a stable namespace across targets and models. It is safe for
+// progress sinks which deduplicate IDs in the frozen global plan.
+func JobID(target, model, kind string) string {
+	return strings.Join([]string{"native", strings.TrimSpace(target), strings.TrimSpace(model), strings.TrimSpace(kind)}, ":")
+}
+
+// ExecuteFrozen remains a narrow compatibility wrapper. Native runners own
+// their logical boundaries and call StartJob/CompleteJob at those boundaries.
+func ExecuteFrozen(ctx context.Context, sink progress.Sink, jobs []Job, run func(context.Context) (RunResult, error)) (RunResult, error) {
+	return run(ctx)
+}
+
+// StartJob returns an idempotent terminal callback for one frozen native job.
+// A nil callback is deliberately harmless for legacy/non-rendering callers.
+func StartJob(sink progress.Sink, target, model, kind string) func(string) {
+	frozen, ok := sink.(progress.FrozenSink)
+	if !ok {
+		return func(string) {}
+	}
+	id := JobID(target, model, kind)
+	frozen.Start(id)
+	return func(outcome string) { frozen.Complete(id, outcome) }
+}
 
 // RunOptions is the protocol-neutral portion of a native target invocation.
 type RunOptions struct {
@@ -33,6 +58,17 @@ type RunOptions struct {
 	// Progress is an operator-facing state sink. It is independent of verbose
 	// JSONL logging and may be nil for compatibility with existing callers.
 	Progress progress.Sink
+	// Inventory is set only by a Preparer. Native execution consumes it rather
+	// than issuing another model-list request.
+	Inventory *Inventory
+}
+
+// Inventory is the transport observation obtained during preparation.
+type Inventory struct {
+	Models   []api.Model
+	Response api.Response
+	Err      error
+	Runtime  Runtime
 }
 
 // Runtime is the protocol-neutral execution state shared with extension
@@ -48,15 +84,45 @@ type RunResult struct {
 	Runtime Runtime
 }
 
+// Job is one report-visible logical unit of work. It intentionally does not
+// describe HTTP attempts: a composite check (notably model-param) is still one
+// job even when its implementation makes adaptive requests.
+type Job struct {
+	ID     string
+	Target string
+	Model  string
+	Label  string
+}
+
+// PreparedTarget is the immutable result of target discovery and selection.
+// Execute is deliberately renderer-agnostic; the application may concatenate
+// Jobs from every target and freeze one global progress total before invoking
+// any closure.
+type PreparedTarget struct {
+	Target     config.TargetConfig
+	Profile    profile.Profile
+	Jobs       []Job
+	Candidates []result.ModelReport
+	Execute    func(context.Context, progress.Sink) (RunResult, error)
+}
+
+// Preparer performs only inventory, selection and planning. Implementations
+// must retain the discovered inventory for Execute and must not list models a
+// second time.
+type Preparer func(context.Context, RunOptions) (PreparedTarget, error)
+
 // Runner is the adapter used by the application registry.
 type Runner func(context.Context, RunOptions) (RunResult, error)
 
 // Registry maps stable protocol IDs to native runners.
 type Registry struct {
-	runners map[config.Protocol]Runner
+	runners   map[config.Protocol]Runner
+	preparers map[config.Protocol]Preparer
 }
 
-func NewRegistry() *Registry { return &Registry{runners: make(map[config.Protocol]Runner)} }
+func NewRegistry() *Registry {
+	return &Registry{runners: make(map[config.Protocol]Runner), preparers: make(map[config.Protocol]Preparer)}
+}
 
 func (r *Registry) Register(protocol config.Protocol, runner Runner) error {
 	if r == nil {
@@ -70,6 +136,28 @@ func (r *Registry) Register(protocol config.Protocol, runner Runner) error {
 	}
 	r.runners[protocol] = runner
 	return nil
+}
+
+func (r *Registry) RegisterPreparer(protocol config.Protocol, preparer Preparer) error {
+	if r == nil {
+		return fmt.Errorf("nil protocol registry")
+	}
+	if protocol == "" || preparer == nil {
+		return fmt.Errorf("protocol and preparer are required")
+	}
+	if _, exists := r.preparers[protocol]; exists {
+		return fmt.Errorf("duplicate protocol preparer %q", protocol)
+	}
+	r.preparers[protocol] = preparer
+	return nil
+}
+
+func (r *Registry) Preparer(protocol config.Protocol) (Preparer, bool) {
+	if r == nil {
+		return nil, false
+	}
+	p, ok := r.preparers[protocol]
+	return p, ok
 }
 
 func (r *Registry) Runner(protocol config.Protocol) (Runner, bool) {

@@ -36,11 +36,8 @@ type paramCall struct {
 }
 
 func RunModelParameters(ctx context.Context, env Environment, model string, metadata map[string]any) ([]result.ParameterResult, *result.ContextProbeResult) {
-	// Context-window search is adaptive, so this suite is deliberately omitted
-	// from the initial native plan. Declare its host-owned logical units before
-	// the first probe starts; retries and individual search requests do not add
-	// progress units.
-	env.revisePlan(ModelParameterProbeCount)
+	// This adaptive implementation remains one preplanned logical job. It must
+	// not revise the frozen run total for its internal requests.
 	var out []result.ParameterResult
 	ctx, suiteOp := env.startSuite(ctx, "model-param", logging.Fields{"model": model})
 	defer endOperation(suiteOp, "completed", nil)

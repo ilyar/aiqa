@@ -89,6 +89,7 @@ type progressRecorder struct {
 
 func (r *progressRecorder) ObserveLifecycle(telemetry.LifecycleEvent) {}
 func (r *progressRecorder) RunStarted(int)                            {}
+func (r *progressRecorder) Planning(string)                           {}
 func (r *progressRecorder) DiscoveryStarted(string)                   {}
 func (r *progressRecorder) Plan(_ string, total int)                  { r.plans = append(r.plans, total) }
 func (r *progressRecorder) RevisePlan(_ string, total int)            { r.revisions = append(r.revisions, total) }

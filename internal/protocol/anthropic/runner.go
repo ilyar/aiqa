@@ -38,8 +38,9 @@ type RunOptions struct {
 	Telemetry *telemetry.Provider
 	// Progress receives the post-discovery native-probe plan. It is optional so
 	// package callers that do not render operator progress remain compatible.
-	Progress progress.Sink
-	Runtime  *Runtime
+	Progress  progress.Sink
+	Runtime   *Runtime
+	Inventory *protocolpkg.Inventory
 }
 
 // Runtime exposes the target-owned transport and executor to the extension
@@ -81,12 +82,62 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 	runtime := &Runtime{}
 	target, err := Run(ctx, RunOptions{
 		Target: options.Target, Config: options.Config, Profile: options.Profile,
-		UserAgent: options.UserAgent, Logf: options.Logf, Logger: options.Logger, Telemetry: options.Telemetry, Progress: options.Progress, Runtime: runtime,
+		UserAgent: options.UserAgent, Logf: options.Logf, Logger: options.Logger, Telemetry: options.Telemetry, Progress: options.Progress, Runtime: runtime, Inventory: options.Inventory,
 	})
 	return protocolpkg.RunResult{
 		Target:  target,
 		Runtime: protocolpkg.Runtime{Client: runtime.Client, Executor: runtime.Executor},
 	}, err
+}
+
+// PrepareTarget performs the only models-list request for an Anthropic target.
+// The Execute closure carries that observation into RunTarget after the global
+// plan has been frozen.
+func PrepareTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg.PreparedTarget, error) {
+	client, err := NewClient(options.Target.BaseURL, options.Target.APIKey, options.Target.APIVersion, options.UserAgent, options.Target.RequestInterval)
+	if err != nil {
+		return protocolpkg.PreparedTarget{}, err
+	}
+	client.SetConcurrency(options.Config.Concurrency)
+	listCtx, cancel := api.WithRequestTimeout(ctx, options.Config.Timeout)
+	models, response, listErr := client.ListModels(listCtx)
+	cancel()
+	selected, metadata := selectModels(requestedModels(options.Config, options.Target), models)
+	candidates := make([]result.ModelReport, 0, len(selected))
+	overrides, err := capability.LoadOverrideFile(options.Target.CapabilityFile)
+	if err != nil {
+		return protocolpkg.PreparedTarget{}, err
+	}
+	if overrides == nil {
+		overrides = map[string][]string{}
+	}
+	jobs := []protocolpkg.Job{{ID: protocolpkg.JobID(options.Target.ID, "", "inventory"), Target: options.Target.ID, Label: "model inventory"}}
+	for _, model := range selected {
+		unknown := options.Target.UnknownModel
+		if len(requestedModels(options.Config, options.Target)) > 0 {
+			unknown = "inventory"
+		}
+		classification := capability.ClassifyAnthropic(model, metadata[model], capability.Options{BaseURL: options.Target.BaseURL, Overrides: overrides, UnknownPolicy: unknown})
+		candidate := result.ModelReport{ID: model, Metadata: cloneMap(metadata[model]), Modules: capability.AssessModules(classification, options.Profile.Modules, capability.RoutingOptions{Modules: options.Target.Modules, AllowBillableArtifacts: options.Config.AllowBillableArtifacts, AllowHighTokenProbes: options.Config.AllowHighTokenProbes, AllowPersistentResources: options.Config.AllowPersistentResources})}
+		for _, e := range classification.Capabilities {
+			candidate.Capabilities = append(candidate.Capabilities, result.CapabilityAssessment{ID: e.Capability, Source: e.Source, Rule: e.Rule, Confidence: e.Confidence, Reason: e.Reason})
+		}
+		candidates = append(candidates, candidate)
+		if options.Config.HasTest("compat") {
+			jobs = append(jobs, protocolpkg.Job{ID: protocolpkg.JobID(options.Target.ID, model, "compat"), Target: options.Target.ID, Model: model, Label: "Anthropic compatibility"})
+		}
+		if options.Config.HasTest("model-param") {
+			jobs = append(jobs, protocolpkg.Job{ID: protocolpkg.JobID(options.Target.ID, model, "model-param"), Target: options.Target.ID, Model: model, Label: "model parameters"})
+		}
+	}
+	inv := &protocolpkg.Inventory{Models: models, Response: response, Err: listErr, Runtime: protocolpkg.Runtime{Client: client.TransportClient(), Executor: probe.NewExecutor(options.Config.Concurrency)}}
+	prepared := protocolpkg.PreparedTarget{Target: options.Target, Profile: options.Profile, Jobs: jobs, Candidates: candidates}
+	prepared.Execute = func(runCtx context.Context, sink progress.Sink) (protocolpkg.RunResult, error) {
+		runOptions := options
+		runOptions.Progress, runOptions.Inventory = sink, inv
+		return protocolpkg.ExecuteFrozen(runCtx, sink, jobs, func(ctx context.Context) (protocolpkg.RunResult, error) { return RunTarget(ctx, runOptions) })
+	}
+	return prepared, nil
 }
 
 func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
@@ -152,9 +203,16 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 		suiteCtx, discoverySuite = options.Telemetry.Start(logging.Scope(providerCtx, target.ID, "", "discovery", "", ""), "suite", logging.Fields{"suite": "discovery"})
 		discoveryCtx, discoveryProbe = options.Telemetry.Start(logging.Scope(suiteCtx, target.ID, "", "discovery", "anthropic.models.list.http", ""), "probe", logging.Fields{"probe": "aiqa.native.anthropic.models.list.http"})
 	}
-	listCtx, cancel := api.WithRequestTimeout(discoveryCtx, cfg.Timeout)
-	models, listResp, listErr := client.ListModels(listCtx)
-	cancel()
+	var models []api.Model
+	var listResp api.Response
+	var listErr error
+	if options.Inventory != nil {
+		models, listResp, listErr = options.Inventory.Models, options.Inventory.Response, options.Inventory.Err
+	} else {
+		listCtx, cancel := api.WithRequestTimeout(discoveryCtx, cfg.Timeout)
+		models, listResp, listErr = client.ListModels(listCtx)
+		cancel()
+	}
 	tmp.Discovery.ModelCount = len(models)
 	for _, model := range models {
 		tmp.Discovery.Models = append(tmp.Discovery.Models, cloneMap(model.Raw))
@@ -174,6 +232,13 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	if cfg.HasTest("compat") {
 		tmp.Discovery.Tests = append(tmp.Discovery.Tests, discoveryTests...)
 		tmp.Discovery.Tests = append(tmp.Discovery.Tests, paginationResult(ctx, client, cfg.Timeout, p, listResp, models, listErr, options.Telemetry))
+	}
+	if options.Inventory != nil {
+		outcome := "completed"
+		if listErr != nil || !listResp.Is2xx() {
+			outcome = "blocked"
+		}
+		protocolpkg.StartJob(options.Progress, target.ID, "", "inventory")(outcome)
 	}
 	selected, metadata := selectModels(requested, models)
 	if len(selected) == 0 {
@@ -266,7 +331,10 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 			}
 		}
 	}
-	plan := newProgressPlan(options.Progress, target.ID, plannedProbeCount(cfg, selected, modulePlans, routeBlocked))
+	var plan *progressPlan
+	if options.Inventory == nil {
+		plan = newProgressPlan(options.Progress, target.ID, plannedProbeCount(cfg, selected, modulePlans, routeBlocked))
+	}
 	jobs := make(chan int)
 	modelResults := make(chan modelItem, len(selected))
 	workers := cfg.Concurrency
@@ -295,10 +363,21 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 				for _, evidence := range classification.Capabilities {
 					mr.Capabilities = append(mr.Capabilities, result.CapabilityAssessment{ID: evidence.Capability, Source: evidence.Source, Rule: evidence.Rule, Confidence: evidence.Confidence, Reason: evidence.Reason})
 				}
+				compatDone := protocolpkg.StartJob(options.Progress, target.ID, model, "compat")
 				if cfg.HasTest("compat") && preflightTests[index] != nil && routeBlocked[index] {
 					mr.Compatibility = append(mr.Compatibility, *preflightTests[index])
 				} else if cfg.HasTest("compat") {
 					mr.Compatibility = runModelWithPreflight(modelCtx, client, cfg, p, model, modules, probeExecutor, options.Telemetry, preflights[index], preflightErrors[index], plan)
+				}
+				if cfg.HasTest("compat") {
+					if len(mr.Compatibility) == 0 {
+						compatDone("skipped")
+					} else {
+						compatDone("completed")
+					}
+				}
+				if cfg.HasTest("model-param") {
+					protocolpkg.StartJob(options.Progress, target.ID, model, "model-param")("skipped")
 				}
 				sort.Slice(mr.Compatibility, func(i, j int) bool { return mr.Compatibility[i].ID < mr.Compatibility[j].ID })
 				if options.Telemetry != nil {

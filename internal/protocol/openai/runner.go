@@ -26,6 +26,58 @@ import (
 
 // RunTarget executes one OpenAI-compatible target through the common protocol
 // registry contract.
+func PrepareTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg.PreparedTarget, error) {
+	client, err := api.NewClient(options.Target.BaseURL, options.Target.APIKey, options.UserAgent, options.Target.RequestInterval)
+	if err != nil {
+		return protocolpkg.PreparedTarget{}, err
+	}
+	client.SetConcurrency(options.Config.Concurrency)
+	listCtx, cancel := api.WithRequestTimeout(ctx, options.Config.Timeout)
+	models, response, listErr := client.ListModels(listCtx)
+	cancel()
+	selected, metadata := selectModels(requestedModels(options.Config, options.Target), models)
+	candidates := make([]result.ModelReport, 0, len(selected))
+	overrides, err := capability.LoadOverrideFile(options.Target.CapabilityFile)
+	if err != nil {
+		return protocolpkg.PreparedTarget{}, err
+	}
+	if overrides == nil {
+		overrides = map[string][]string{}
+	}
+	jobs := []protocolpkg.Job{{ID: protocolpkg.JobID(options.Target.ID, "", "inventory"), Target: options.Target.ID, Label: "model inventory"}}
+	if options.Config.HasTest("compat") {
+		jobs = append(jobs, protocolpkg.Job{ID: protocolpkg.JobID(options.Target.ID, "", "endpoint-compat"), Target: options.Target.ID, Label: "OpenAI endpoint compatibility"})
+	}
+	for _, model := range selected {
+		unknown := options.Target.UnknownModel
+		if len(requestedModels(options.Config, options.Target)) > 0 {
+			unknown = "inventory"
+		}
+		classification := capability.Classify(model, metadata[model], capability.Options{BaseURL: options.Target.BaseURL, Overrides: overrides, UnknownPolicy: unknown})
+		candidate := result.ModelReport{ID: model, Metadata: cloneMap(metadata[model]), Modules: capability.AssessModules(classification, options.Profile.Modules, capability.RoutingOptions{Modules: options.Target.Modules, AllowBillableArtifacts: options.Config.AllowBillableArtifacts, AllowHighTokenProbes: options.Config.AllowHighTokenProbes, AllowPersistentResources: options.Config.AllowPersistentResources})}
+		for _, e := range classification.Capabilities {
+			candidate.Capabilities = append(candidate.Capabilities, result.CapabilityAssessment{ID: e.Capability, Source: e.Source, Rule: e.Rule, Confidence: e.Confidence, Reason: e.Reason})
+		}
+		candidates = append(candidates, candidate)
+		if options.Config.HasTest("compat") {
+			jobs = append(jobs, protocolpkg.Job{ID: protocolpkg.JobID(options.Target.ID, model, "compat"), Target: options.Target.ID, Model: model, Label: "OpenAI compatibility"})
+		}
+		if options.Config.HasTest("model-param") {
+			jobs = append(jobs, protocolpkg.Job{ID: protocolpkg.JobID(options.Target.ID, model, "model-param"), Target: options.Target.ID, Model: model, Label: "model parameters"})
+		}
+	}
+	// A failed inventory is itself the single terminal discovery job; execution
+	// will preserve its report evidence without reissuing this request.
+	inv := &protocolpkg.Inventory{Models: models, Response: response, Err: listErr, Runtime: protocolpkg.Runtime{Client: client, Executor: probe.NewExecutor(options.Config.Concurrency)}}
+	prepared := protocolpkg.PreparedTarget{Target: options.Target, Profile: options.Profile, Jobs: jobs, Candidates: candidates}
+	prepared.Execute = func(runCtx context.Context, sink progress.Sink) (protocolpkg.RunResult, error) {
+		runOptions := options
+		runOptions.Progress, runOptions.Inventory = sink, inv
+		return protocolpkg.ExecuteFrozen(runCtx, sink, jobs, func(ctx context.Context) (protocolpkg.RunResult, error) { return RunTarget(ctx, runOptions) })
+	}
+	return prepared, nil
+}
+
 func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg.RunResult, error) {
 	target, cfg, p := options.Target, options.Config, options.Profile
 	overrides, err := capability.LoadOverrideFile(target.CapabilityFile)
@@ -50,14 +102,22 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 		overrides[strings.TrimSpace(parts[0])] = values
 	}
 
-	client, err := api.NewClient(target.BaseURL, target.APIKey, options.UserAgent, target.RequestInterval)
-	if err != nil {
-		return protocolpkg.RunResult{}, err
+	client := (*api.Client)(nil)
+	if options.Inventory != nil && options.Inventory.Runtime.Client != nil {
+		client = options.Inventory.Runtime.Client
+	} else {
+		client, err = api.NewClient(target.BaseURL, target.APIKey, options.UserAgent, target.RequestInterval)
+		if err != nil {
+			return protocolpkg.RunResult{}, err
+		}
 	}
 	client.SetConcurrency(cfg.Concurrency)
 	client.SetLogger(options.Logger)
 	client.SetLogFields(logging.Fields{"target": target.ID, "protocol": string(target.Protocol)})
 	executor := probe.NewExecutor(cfg.Concurrency)
+	if options.Inventory != nil && options.Inventory.Runtime.Executor != nil {
+		executor = options.Inventory.Runtime.Executor
+	}
 	executor.SetLogger(options.Logger)
 	executor.SetLogFields(logging.Fields{"target": target.ID, "protocol": string(target.Protocol)})
 	client.SetTelemetry(options.Telemetry)
@@ -93,16 +153,23 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 	// setup call. Keep its concrete probe live through derivation of every
 	// report-visible discovery result.
 	discoveryCtx := ctx
+	var models []api.Model
+	var listResp api.Response
+	var listErr error
 	var discoveryProvider, discoverySuite, discoveryProbe interface{ End(string, logging.Fields) }
-	if options.Telemetry != nil {
-		var providerCtx, suiteCtx context.Context
-		providerCtx, discoveryProvider = options.Telemetry.Start(logging.Scope(ctx, target.ID, "", "", "", ""), "provider", logging.Fields{"target": target.ID})
-		suiteCtx, discoverySuite = options.Telemetry.Start(logging.Scope(providerCtx, target.ID, "", "discovery", "", ""), "suite", logging.Fields{"suite": "discovery"})
-		discoveryCtx, discoveryProbe = options.Telemetry.Start(logging.Scope(suiteCtx, target.ID, "", "discovery", "models.list.http", ""), "probe", logging.Fields{"probe": "aiqa.native.models.list.http"})
+	if options.Inventory != nil {
+		models, listResp, listErr = options.Inventory.Models, options.Inventory.Response, options.Inventory.Err
+	} else {
+		if options.Telemetry != nil {
+			var providerCtx, suiteCtx context.Context
+			providerCtx, discoveryProvider = options.Telemetry.Start(logging.Scope(ctx, target.ID, "", "", "", ""), "provider", logging.Fields{"target": target.ID})
+			suiteCtx, discoverySuite = options.Telemetry.Start(logging.Scope(providerCtx, target.ID, "", "discovery", "", ""), "suite", logging.Fields{"suite": "discovery"})
+			discoveryCtx, discoveryProbe = options.Telemetry.Start(logging.Scope(suiteCtx, target.ID, "", "discovery", "models.list.http", ""), "probe", logging.Fields{"probe": "aiqa.native.models.list.http"})
+		}
+		listCtx, cancel := api.WithRequestTimeout(discoveryCtx, cfg.Timeout)
+		models, listResp, listErr = client.ListModels(listCtx)
+		cancel()
 	}
-	listCtx, cancel := api.WithRequestTimeout(discoveryCtx, cfg.Timeout)
-	models, listResp, listErr := client.ListModels(listCtx)
-	cancel()
 	tmp.Discovery.ModelCount = len(models)
 	for _, model := range models {
 		tmp.Discovery.Models = append(tmp.Discovery.Models, cloneMap(model.Raw))
@@ -122,10 +189,24 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 	if cfg.HasTest("compat") {
 		tmp.Discovery.Tests = append(tmp.Discovery.Tests, discoveryTests...)
 	}
+	if options.Inventory != nil {
+		outcome := "completed"
+		if listErr != nil || !listResp.Is2xx() {
+			outcome = "blocked"
+		}
+		protocolpkg.StartJob(options.Progress, target.ID, "", "inventory")(outcome)
+	}
 
 	requested := requestedModels(cfg, target)
 	selected, metadata := selectModels(requested, models)
 	if len(selected) == 0 {
+		// Endpoint compatibility is reserved in the frozen OpenAI plan whenever
+		// compat is selected. With no usable model there is no representative
+		// endpoint to exercise, so close the conditional unit explicitly instead
+		// of leaving an otherwise-complete run below 100%.
+		if cfg.HasTest("compat") {
+			protocolpkg.StartJob(options.Progress, target.ID, "", "endpoint-compat")("skipped")
+		}
 		if !cfg.HasTest("compat") {
 			tmp.Discovery.Tests = append(tmp.Discovery.Tests, discoveryTests...)
 		}
@@ -205,8 +286,11 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 		}
 	}
 	chatRepresentative := representativeModel(selected, modulePlans, capability.ModuleChat)
-	plan.Set(plannedNativeProbes(cfg, modulePlans, routeBlocked, chatRepresentative))
+	if options.Inventory == nil {
+		plan.Set(plannedNativeProbes(cfg, modulePlans, routeBlocked, chatRepresentative))
+	}
 	if cfg.HasTest("compat") {
+		endpointDone := protocolpkg.StartJob(options.Progress, target.ID, "", "endpoint-compat")
 		if chatRepresentative != "" {
 			tmp.Discovery.Compatibility = append(tmp.Discovery.Compatibility, suites.RunEndpointCompat(ctx, env, chatRepresentative)...)
 		} else {
@@ -222,6 +306,11 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 			}
 		}
 		suites.SortTests(tmp.Discovery.Compatibility)
+		if len(tmp.Discovery.Compatibility) == 0 {
+			endpointDone("skipped")
+		} else {
+			endpointDone("completed")
+		}
 	}
 
 	type modelItem struct {
@@ -256,6 +345,7 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 				}
 				chatModule := capability.Module(mr.Modules, capability.ModuleChat)
 				imageModule := capability.Module(mr.Modules, capability.ModuleImages)
+				compatDone := protocolpkg.StartJob(options.Progress, target.ID, model, "compat")
 				if cfg.HasTest("compat") && preflightTests[index] != nil && routeBlocked[index] {
 					mr.Compatibility = append(mr.Compatibility, *preflightTests[index])
 				} else if cfg.HasTest("compat") && chatModule != nil && chatModule.Execution == result.ExecutionExecuted {
@@ -264,14 +354,25 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 				if cfg.HasTest("compat") && imageModule != nil && imageModule.Execution == result.ExecutionExecuted {
 					mr.Compatibility = append(mr.Compatibility, suites.RunImageCompat(modelCtx, env, model)...)
 				}
+				if cfg.HasTest("compat") {
+					if len(mr.Compatibility) == 0 {
+						compatDone("skipped")
+					} else {
+						compatDone("completed")
+					}
+				}
 				suites.SortTests(mr.Compatibility)
 				if routeBlocked[index] && options.Telemetry != nil {
 					protocolpkg.LogTestResultsWithTelemetry(modelCtx, options.Telemetry, target.ID, model, mr.Compatibility)
 				} else if routeBlocked[index] {
 					protocolpkg.LogTestResults(logf, target.ID, model, mr.Compatibility)
 				}
+				paramDone := protocolpkg.StartJob(options.Progress, target.ID, model, "model-param")
 				if cfg.HasTest("model-param") && chatModule != nil && chatModule.Execution == result.ExecutionExecuted {
 					mr.Parameters, mr.Context = suites.RunModelParameters(modelCtx, env, model, metadata[model])
+					paramDone("completed")
+				} else if cfg.HasTest("model-param") {
+					paramDone("skipped")
 				}
 				stats := client.PacingStatsForModel(model)
 				mr.RateLimit = protocolpkg.RateLimitStats(stats)

@@ -56,6 +56,28 @@ type invocation struct {
 	suiteIDs  []string
 }
 
+// PlannedJobs returns the fixed host-owned logical units an extension phase
+// will execute. It is intentionally based on prepared model candidates, so
+// the application can freeze one global progress total before native probes
+// begin. Executable extensions remain opaque: one declared suite is one job.
+func PlannedJobs(registry *Registry, cfg config.Config, target config.TargetConfig, p profile.Profile, models []result.ModelReport) []progress.Job {
+	invocations := planTarget(registry, cfg, target, p, models)
+	jobs := make([]progress.Job, 0)
+	for _, planned := range invocations {
+		for _, suiteID := range planned.suiteIDs {
+			jobs = append(jobs, progress.Job{
+				ID: extensionJobID(target.ID, planned, suiteID), Target: target.ID,
+				Model: subjectModel(planned.subject), Label: planned.manifest.Extension.ID + "." + suiteID,
+			})
+		}
+	}
+	return jobs
+}
+
+func extensionJobID(target string, planned invocation, suiteID string) string {
+	return "extension:" + target + ":" + planned.manifest.Extension.ID + ":" + diagnosticSubjectRef(planned.subject) + ":" + suiteID
+}
+
 // ExecuteBuiltinSuites runs each built-in SDK suite under a distinct suite and
 // named probe operation. The callback is invoked with that probe context, so
 // the SDK's HTTP transport inherits the concrete suite ID instead of an
@@ -170,17 +192,19 @@ func executeTarget(ctx context.Context, registry *Registry, cfg config.Config, t
 	if len(invocations) == 0 {
 		return nil
 	}
-	// Native work may already be complete when SDK/extensions are scheduled.
-	// Reserve every declared host suite before the first invocation goroutine
-	// can create a probe, so the operator never sees a false 100% while an SDK
-	// suite is about to run. Built-ins expose one concrete probe per declared
-	// suite; opaque paths use the synthetic terminal below.
+	// Legacy callers can still build a target-local total. A FrozenSink was
+	// already given these exact jobs by app during planning; late revisions are
+	// forbidden there.
 	if sink != nil {
-		total := 0
-		for _, planned := range invocations {
-			total += len(planned.suiteIDs)
+		if _, frozen := sink.(progress.FrozenSink); frozen {
+			// Nothing: the immutable global plan is already published.
+		} else {
+			total := 0
+			for _, planned := range invocations {
+				total += len(planned.suiteIDs)
+			}
+			sink.AddPlan(target.ID, total)
 		}
-		sink.AddPlan(target.ID, total)
 	}
 	runs := make([]result.ExtensionRun, len(invocations))
 	var wg sync.WaitGroup
@@ -197,6 +221,17 @@ func executeTarget(ctx context.Context, registry *Registry, cfg config.Config, t
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			frozen, frozenProgress := sink.(progress.FrozenSink)
+			if frozenProgress {
+				for _, suiteID := range planned.suiteIDs {
+					frozen.Start(extensionJobID(target.ID, planned, suiteID))
+				}
+				defer func() {
+					for _, suiteID := range planned.suiteIDs {
+						frozen.Complete(extensionJobID(target.ID, planned, suiteID), "completed")
+					}
+				}()
+			}
 			// Built-ins produce concrete host probe operations when telemetry is
 			// available. Every other invocation needs a single declared-suite
 			// terminal so progress does not mistake opaque extension work for HTTP.

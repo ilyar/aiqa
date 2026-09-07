@@ -265,11 +265,10 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 	runnerLogf := func(level logging.Level, format string, args ...any) { logf(level, format, args...) }
 	targets := append([]config.TargetConfig(nil), cfg.Targets...)
 	sort.Slice(targets, func(i, j int) bool { return targets[i].ID < targets[j].ID })
+	preparedTargets := make([]protocolpkg.PreparedTarget, 0, len(targets))
+	allJobs := make([]progress.Job, 0)
 	for _, target := range targets {
-		targetCtx := logging.Scope(ctx, target.ID, "", "", "", "")
-		targetCtx, targetOp := tracing.Start(targetCtx, "target", logging.Fields{"target": target.ID, "protocol": string(target.Protocol)})
-		defer targetOp.End("interrupted", logging.Fields{"status": "interrupted", "error_present": true, "error_kind": "run_interrupted"})
-		r.Config.Targets = append(r.Config.Targets, result.TargetPublicConfig{ID: target.ID, Protocol: string(target.Protocol), BaseURL: target.BaseURL, BaseURLNormalized: target.BaseURLNormalized, APIVersion: target.APIVersion})
+		reporter.Planning("Discovering " + target.ID)
 		p, err := profile.LoadFile(target.ProfileFile)
 		if err != nil {
 			return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("load %s profile: %w", target.ID, err))
@@ -277,16 +276,33 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 		if p.Protocol != string(target.Protocol) {
 			return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("profile %s uses protocol %s, expected %s", target.ProfileFile, p.Protocol, target.Protocol))
 		}
-		runner, ok := nativeRegistry.Runner(target.Protocol)
+		preparer, ok := nativeRegistry.Preparer(target.Protocol)
 		if !ok {
 			return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("unsupported target protocol %s", target.Protocol))
 		}
+		prepared, err := preparer(logging.Scope(ctx, target.ID, "", "", "", ""), protocolpkg.RunOptions{Target: target, Config: cfg, Profile: p, UserAgent: "aiqa/" + build.Version, Logf: runnerLogf, Logger: logger, Telemetry: tracing})
+		if err != nil {
+			return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("prepare %s target: %w", target.ID, err))
+		}
+		preparedTargets = append(preparedTargets, prepared)
+		for _, job := range prepared.Jobs {
+			allJobs = append(allJobs, progress.Job{ID: job.ID, Target: job.Target, Model: job.Model, Label: job.Label})
+		}
+		allJobs = append(allJobs, extsuite.PlannedJobs(extRegistry, extensionCfg, prepared.Target, prepared.Profile, prepared.Candidates)...)
+	}
+	reporter.Freeze(allJobs)
+	for _, prepared := range preparedTargets {
+		target, p := prepared.Target, prepared.Profile
+		targetCtx := logging.Scope(ctx, target.ID, "", "", "", "")
+		targetCtx, targetOp := tracing.Start(targetCtx, "target", logging.Fields{"target": target.ID, "protocol": string(target.Protocol)})
+		defer targetOp.End("interrupted", logging.Fields{"status": "interrupted", "error_present": true, "error_kind": "run_interrupted"})
+		r.Config.Targets = append(r.Config.Targets, result.TargetPublicConfig{ID: target.ID, Protocol: string(target.Protocol), BaseURL: target.BaseURL, BaseURLNormalized: target.BaseURLNormalized, APIVersion: target.APIVersion})
 		targetOp.Event(logging.Trace, "plan", logging.Fields{
 			"target": target.ID, "protocol": string(target.Protocol),
 			"native_selected": cfg.HasTest("compat") || cfg.HasTest("model-param"),
 			"sdk_selected":    cfg.HasTest("sdk"), "extension_selected": cfg.HasTest("ext-suite"),
 		})
-		native, runErr := runner(targetCtx, protocolpkg.RunOptions{Target: target, Config: cfg, Profile: p, UserAgent: "aiqa/" + build.Version, Logf: runnerLogf, Logger: logger, Telemetry: tracing, Progress: reporter})
+		native, runErr := prepared.Execute(targetCtx, reporter)
 		if native.Target.ID == "" {
 			if runErr == nil {
 				runErr = errors.New("native runner returned no target report")
@@ -346,12 +362,16 @@ func newProtocolRegistry() (*protocolpkg.Registry, error) {
 	for _, item := range []struct {
 		protocol config.Protocol
 		runner   protocolpkg.Runner
+		preparer protocolpkg.Preparer
 	}{
-		{config.ProtocolOpenAI, protocolopenai.RunTarget},
-		{config.ProtocolAnthropic, protocolanthropic.RunTarget},
-		{config.ProtocolGoogleGenAI, protocolgoogle.RunTarget},
+		{config.ProtocolOpenAI, protocolopenai.RunTarget, protocolopenai.PrepareTarget},
+		{config.ProtocolAnthropic, protocolanthropic.RunTarget, protocolanthropic.PrepareTarget},
+		{config.ProtocolGoogleGenAI, protocolgoogle.RunTarget, protocolgoogle.PrepareTarget},
 	} {
 		if err := registry.Register(item.protocol, item.runner); err != nil {
+			return nil, err
+		}
+		if err := registry.RegisterPreparer(item.protocol, item.preparer); err != nil {
 			return nil, err
 		}
 	}
