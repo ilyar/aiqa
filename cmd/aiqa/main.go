@@ -61,7 +61,7 @@ environment:
   ANTHROPIC_API_KEY    Anthropic x-api-key value
   GOOGLE_GENAI_BASE_URL Google Gemini Developer API prefix before v1beta
   GOOGLE_GENAI_API_KEY Google Gemini API key (x-goog-api-key)
-  GOOGLE_GENAI_PROFILE  Google profile filename (default modern Interactions)
+  GOOGLE_GENAI_PROFILE  Google profile filename (default GenerateContent)
   GOOGLE_GENAI_API_VERSION API version (default v1beta)
   GOOGLE_GEMINI_BASE_URL, GOOGLE_API_KEY, GEMINI_API_KEY are accepted aliases
   AIQA_EXT_SUITE_PATHS OS path-list of trusted extension executables

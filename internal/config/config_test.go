@@ -259,6 +259,9 @@ func TestParseExpectedCLI(t *testing.T) {
 	if cfg.RequestInterval != 2*time.Second {
 		t.Fatalf("unexpected request interval: %s", cfg.RequestInterval)
 	}
+	if cfg.GoogleGenAIProfile != "google-genai-generate-content-compat-2026-09.json" {
+		t.Fatalf("unexpected Google GenAI default profile: %q", cfg.GoogleGenAIProfile)
+	}
 	if cfg.UnknownModel != "inventory" {
 		t.Fatalf("unexpected unknown-model policy: %s", cfg.UnknownModel)
 	}

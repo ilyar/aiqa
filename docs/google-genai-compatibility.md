@@ -28,7 +28,7 @@ The accepted controls are:
 | Base URL | `--google-genai-base-url`, `GOOGLE_GENAI_BASE_URL` | `GOOGLE_GEMINI_BASE_URL` |
 | API key | `--google-genai-api-key`, `GOOGLE_GENAI_API_KEY` | `GOOGLE_API_KEY`, then `GEMINI_API_KEY` |
 | API version | `--google-genai-api-version`, `GOOGLE_GENAI_API_VERSION` | default `v1beta` |
-| Profile | `--google-genai-profile`, `GOOGLE_GENAI_PROFILE` | default `google-genai-compat-2026-09.json` |
+| Profile | `--google-genai-profile`, `GOOGLE_GENAI_PROFILE` | default `google-genai-generate-content-compat-2026-09.json` |
 | Models | global `--model` | otherwise discovered from `/models` |
 
 An explicit flag wins over its environment counterpart. A canonical key wins
@@ -54,16 +54,16 @@ Two embedded `aiqa.profile.v3` profiles make the tested claim explicit:
 
 | Profile | Core claim | Optional surfaces |
 |---|---|---|
-| [`google-genai-compat-2026-09.json`](../profile/google-genai-compat-2026-09.json) | Models plus current Interactions | legacy `generateContent`, streams, counting, embeddings, tools, structured output, vision, and thinking |
-| [`google-genai-generate-content-compat-2026-09.json`](../profile/google-genai-generate-content-compat-2026-09.json) | Models plus legacy `generateContent` and its stream | Interactions and auxiliary surfaces |
+| [`google-genai-generate-content-compat-2026-09.json`](../profile/google-genai-generate-content-compat-2026-09.json) (default) | Models plus public Gemini Developer API `generateContent` and its stream | Interactions and auxiliary surfaces |
+| [`google-genai-compat-2026-09.json`](../profile/google-genai-compat-2026-09.json) (explicit opt-in) | Models plus current Interactions | `generateContent`, streams, counting, embeddings, tools, structured output, vision, and thinking |
 
-The modern profile is the default. Its Interactions core is not inferred from
-`supportedGenerationMethods`: that metadata describes model methods such as
-`generateContent`, `countTokens`, and `embedContent`, not universal
-Interactions support. A model is eligible for Interactions only when it was
+The public `generateContent` profile is the default. Its advertised methods
+are discovered from `supportedGenerationMethods`. Interactions is a separate,
+explicit opt-in contract: that metadata does not imply universal Interactions
+support. A model is eligible for the Interactions profile only when it was
 explicitly selected or appears in the versioned profile allowlist. If no
-eligible model is present, the modern core is reported as `INCONCLUSIVE` and
-the report asks for an explicit model rather than claiming a pass.
+eligible model is present, its core is reported as `INCONCLUSIVE` rather than
+claiming a pass.
 
 Classification is target-local and metadata-first:
 

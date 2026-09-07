@@ -183,7 +183,10 @@ func Parse(args []string) (Config, error) {
 		googleGenAIAPIVersion = "v1beta"
 	}
 	if googleGenAIProfile == "" {
-		googleGenAIProfile = "google-genai-compat-2026-09.json"
+		// The public Gemini Developer API currently exposes GenerateContent;
+		// Interactions remains an opt-in contract for compatible gateways. Do
+		// not make a public Google target fail because it lacks that surface.
+		googleGenAIProfile = "google-genai-generate-content-compat-2026-09.json"
 	}
 	googleGenAIModelEnv := strings.TrimSpace(os.Getenv("GOOGLE_GENAI_MODEL"))
 	cfg := Config{
