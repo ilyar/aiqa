@@ -83,12 +83,29 @@ func TestPacingAggregatesConcurrentWaitersWithoutIntermediateRenders(t *testing.
 
 	r.Pacing("openai", false, 2*time.Second)
 	got := out.String()
-	if strings.Count(got, "\n") != 2 {
-		t.Fatalf("pacing transitions rendered %d lines, want 2: %q", strings.Count(got, "\n"), got)
+	if strings.Count(got, "\n") != 1 {
+		t.Fatalf("pacing transitions rendered %d durable lines, want 1: %q", strings.Count(got, "\n"), got)
 	}
-	lines := strings.Split(strings.TrimSpace(got), "\n")
-	if strings.Contains(lines[1], "waiting for provider pacing") || !strings.Contains(lines[1], "gpt-test:chat.basic") {
-		t.Fatalf("pacing clear did not restore progress context: %q", lines[1])
+	if !strings.Contains(got, "gpt-test:chat.basic") {
+		t.Fatalf("pacing status omitted progress context: %q", got)
+	}
+}
+
+func TestDurableProgressSuppressesRoutinePacingTransitions(t *testing.T) {
+	var out bytes.Buffer
+	r := New(Options{Writer: &out, TTY: false, HeartbeatInterval: time.Hour})
+	t.Cleanup(r.Close)
+	r.Plan("openai", 10)
+	out.Reset()
+
+	r.Pacing("openai", true, 2*time.Second)
+	r.Pacing("openai", false, 2*time.Second)
+	if got := out.String(); got != "" {
+		t.Fatalf("routine pacing produced durable output: %q", got)
+	}
+	r.Pacing("openai", true, 5*time.Second)
+	if got := out.String(); !strings.Contains(got, "waiting for provider pacing (5s)") {
+		t.Fatalf("long pacing notice missing: %q", got)
 	}
 }
 

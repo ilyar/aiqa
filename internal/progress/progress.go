@@ -15,6 +15,7 @@ import (
 )
 
 const defaultHeartbeat = 30 * time.Second
+const durablePacingNotice = 5 * time.Second
 
 // Sink is the protocol-neutral progress contract. Native runners publish a
 // plan after discovery; telemetry supplies terminal probe lifecycle events.
@@ -163,10 +164,14 @@ func (r *Reporter) Pacing(target string, waiting bool, duration time.Duration) {
 	if !isWaiting {
 		s.wait = 0
 	}
-	// A target can have many requests queued in the shared pacer. Render only
-	// the aggregate transition: per-request begin/end events otherwise make a
-	// TTY flicker and flood durable output.
-	r.pacingTransitionLocked(s)
+	// A target can have many requests queued in the shared pacer. A redrawable
+	// terminal may reflect the aggregate transition immediately. Durable output
+	// must not print a pair of lines for every routine 2s pacing slot: report
+	// only a materially long expected pause and let heartbeat describe a long
+	// idle period.
+	if r.tty || (isWaiting && s.wait >= durablePacingNotice) {
+		r.pacingTransitionLocked(s)
+	}
 }
 func (r *Reporter) TargetFinished(target, outcome string) {
 	r.mu.Lock()
