@@ -86,11 +86,25 @@ func TestPacerWaitHonorsBackoffAfterReservation(t *testing.T) {
 func TestPacerConfiguredConcurrencyIsCeilingNotInitialBurst(t *testing.T) {
 	p := newPacer(100 * time.Millisecond)
 	p.setConcurrency(3)
+	if got := p.limit; got != 1 {
+		t.Fatalf("initial concurrency=%d, want 1", got)
+	}
+	// A configured value is only a ceiling. Grow to it through the same quiet
+	// success windows used in production before checking that concurrent work is
+	// still globally paced.
+	for range 20 {
+		p.success("")
+	}
+	if got := p.limit; got != 3 {
+		t.Fatalf("warmed concurrency=%d, want configured ceiling 3", got)
+	}
 	started := make(chan time.Time, 3)
 	release := make(chan struct{})
 	for range 3 {
 		go func() {
-			if err := p.wait(context.Background(), ""); err != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			if err := p.wait(ctx, ""); err != nil {
 				return
 			}
 			started <- time.Now()
@@ -98,10 +112,22 @@ func TestPacerConfiguredConcurrencyIsCeilingNotInitialBurst(t *testing.T) {
 			p.release("")
 		}()
 	}
-	first := <-started
+	deadline := time.NewTimer(time.Second)
+	defer deadline.Stop()
+	nextStarted := func() time.Time {
+		t.Helper()
+		select {
+		case startedAt := <-started:
+			return startedAt
+		case <-deadline.C:
+			t.Fatal("timed out waiting for paced request admission")
+			return time.Time{}
+		}
+	}
+	first := nextStarted()
 	last := first
 	for range 2 {
-		if next := <-started; next.After(last) {
+		if next := nextStarted(); next.After(last) {
 			last = next
 		}
 	}

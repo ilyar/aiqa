@@ -375,11 +375,20 @@ make qa
 `make qa` is the required local gate before committing to the main branch. It
 combines formatting, schemas/profiles, unit and integration tests, the
 deterministic example-generator contract, security and SBOM checks, race tests,
-a reproducible local build/version check, and `git diff --check`. It uses only
-local fixtures and does not call real model providers. `make example` remains
-an explicit integration maintenance command because it needs a local
-model-provider and Docker, and its reports include live timing, timestamps, and
-provider request IDs.
+a reproducible local build/version check, `git diff --check`, and the coverage
+and mutation-score ratchet in `.qa-gate.json`. It uses only local fixtures and
+does not call real model providers. The mutation gate requires
+[`gremlins`](https://github.com/go-gremlins/gremlins) on `PATH`; install it with:
+
+```bash
+go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
+```
+
+After intentionally improving the two measured metrics, run
+`make qa-update-gate` and review the two-space-indented baseline change before
+committing it. `make example` remains an explicit integration maintenance
+command because it needs a local model-provider and Docker, and its reports
+include live timing, timestamps, and provider request IDs.
 
 Integration tests run a deterministic mock endpoint and check:
 

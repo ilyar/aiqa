@@ -8,7 +8,7 @@ GOVULNCHECK_VERSION := v1.7.0
 CYCLONEDX_GOMOD_VERSION := v1.12.0
 EXAMPLE_SOURCES := ./script/example.go ./script/example_good.go ./script/example_bad.go
 
-.PHONY: all build test race vet fmt-check profiles-check schemas-check dependency-check vuln-check sbom-check security-check profile-upstream-check check example-check diff-check version-check qa install example clean dist http-client.private.env.json
+.PHONY: all build test race vet fmt-check profiles-check schemas-check dependency-check vuln-check sbom-check security-check profile-upstream-check check example-check diff-check version-check qa qa-gate qa-update-gate install example clean dist http-client.private.env.json
 
 all: check build
 
@@ -86,7 +86,13 @@ check: fmt-check profiles-check schemas-check dependency-check vet test
 
 # qa is the required local pre-commit gate. It combines deterministic local
 # checks and does not regenerate time-dependent public sample reports.
-qa: check example-check security-check race build version-check diff-check
+qa: check example-check security-check race build version-check diff-check qa-gate
+
+qa-gate:
+	./scripts/qa-gate check
+
+qa-update-gate:
+	./scripts/qa-gate update
 
 # Deterministic generator contract check. The real `make example` additionally
 # requires a local model-provider and Docker; its reports include live timing,
