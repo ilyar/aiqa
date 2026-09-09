@@ -59,6 +59,10 @@ func TestExecutionProgressBuildsSummaryFromFrozenTerminalDelivery(t *testing.T) 
 	if summary.SchemaVersion != execution.ExecutionSummarySchema || summary.Phase != string(execution.PhaseFinalizing) || summary.GlobalRequestCapacity != 2 || summary.PlannedJobs != 1 || summary.FinishedJobs != 1 || summary.CancelledJobs != 0 {
 		t.Fatalf("unexpected summary: %+v", summary)
 	}
+	p.RunCompleted()
+	if got := p.reducer.Snapshot().Run.Phase; got != execution.PhaseCompleted {
+		t.Fatalf("run phase=%q, want completed", got)
+	}
 }
 
 func TestExecutionProgressBridgesSchedulerWaitsGroupsAndPhysicalTransport(t *testing.T) {

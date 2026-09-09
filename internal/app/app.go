@@ -537,6 +537,7 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 		out.ExitCode = 2
 		return fatal(out, errors.Join(runErrors...))
 	}
+	executionProgress.RunCompleted()
 	// A compatibility verdict (including exit 1) is still a completed run;
 	// operational target errors are not. Never publish a terminal success line
 	// before the error boundary has been decided.

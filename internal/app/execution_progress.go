@@ -330,6 +330,16 @@ func (p *executionProgress) Finalize() error {
 	return nil
 }
 
+// Complete is called only after the public report has been atomically
+// committed and all required private artifacts have closed. It is deliberately
+// separate from Finalize so the terminal never announces completion while a
+// trace verdict or report write is still in flight.
+func (p *executionProgress) RunCompleted() {
+	p.apply(func(base execution.Base) execution.Event {
+		return execution.RunPhaseChanged{Base: base, Phase: execution.PhaseCompleted}
+	})
+}
+
 func (p *executionProgress) Summary() (*result.ExecutionSummary, error) {
 	p.mu.Lock()
 	err, frozen, unavailable := p.err, p.frozen, p.unavailable
