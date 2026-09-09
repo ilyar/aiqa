@@ -90,10 +90,10 @@ func (p *executionProgress) Freeze(jobs []progress.Job) {
 }
 
 func (p *executionProgress) Start(id string) {
-	p.frozenSink().Start(id)
 	if !p.isKnown(id) {
 		return
 	}
+	p.frozenSink().Start(id)
 	p.apply(func(base execution.Base) execution.Event { return execution.JobStarted{Base: withJob(base, id)} })
 	p.apply(func(base execution.Base) execution.Event {
 		return execution.RunPhaseChanged{Base: base, Phase: execution.PhaseRunning}
@@ -101,10 +101,10 @@ func (p *executionProgress) Start(id string) {
 }
 
 func (p *executionProgress) Complete(id, outcome string) {
-	p.frozenSink().Complete(id, outcome)
 	if !p.isKnown(id) {
 		return
 	}
+	p.frozenSink().Complete(id, outcome)
 	p.apply(func(base execution.Base) execution.Event {
 		return execution.JobFinished{Base: withJob(base, id), Outcome: executionOutcome(outcome)}
 	})
