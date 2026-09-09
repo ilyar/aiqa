@@ -58,11 +58,24 @@ func (p *executionProgress) RunStarted(targets int) {
 	})
 }
 func (p *executionProgress) DiscoveryStarted(target string) { p.sink.DiscoveryStarted(target) }
-func (p *executionProgress) Plan(target string, total int)  { p.sink.Plan(target, total) }
+func (p *executionProgress) Plan(target string, total int) {
+	if p.isFrozen() {
+		return
+	}
+	p.sink.Plan(target, total)
+}
 func (p *executionProgress) RevisePlan(target string, total int) {
+	if p.isFrozen() {
+		return
+	}
 	p.sink.RevisePlan(target, total)
 }
-func (p *executionProgress) AddPlan(target string, delta int) { p.sink.AddPlan(target, delta) }
+func (p *executionProgress) AddPlan(target string, delta int) {
+	if p.isFrozen() {
+		return
+	}
+	p.sink.AddPlan(target, delta)
+}
 func (p *executionProgress) Pacing(target string, waiting bool, duration time.Duration) {
 	p.sink.Pacing(target, waiting, duration)
 }
@@ -300,6 +313,12 @@ func (p *executionProgress) isKnown(id string) bool {
 	}
 	p.unavailable = true
 	return false
+}
+
+func (p *executionProgress) isFrozen() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.frozen
 }
 
 func (p *executionProgress) frozenSink() progress.FrozenSink {
