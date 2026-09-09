@@ -90,3 +90,18 @@ func TestTerminalTargetStateKeepsRuntimeOutcomesDistinct(t *testing.T) {
 		}
 	}
 }
+
+func TestOperatorReporterShowsCanonicalCompatibilityVerdict(t *testing.T) {
+	var output bytes.Buffer
+	r := newAppOperatorReporter(&output, true, false, 1)
+	r.SetCompatibilityVerdicts(map[string]string{"target": "pass"}, "pass")
+	r.ObserveExecutionSnapshot(execution.Snapshot{
+		Run:         execution.RunSnapshot{ID: "run", Phase: execution.PhaseCompleted},
+		Targets:     []execution.TargetSnapshot{{ID: "target", Phase: execution.PhaseCompleted}},
+		Jobs:        []execution.JobSnapshot{{ID: "job", TargetID: "target", State: execution.JobTerminal}},
+		PlannedJobs: 1, FinishedJobs: 1,
+	})
+	if got := output.String(); !strings.Contains(got, "PASS") || !strings.Contains(got, "FINISHED") {
+		t.Fatalf("terminal frame misses canonical verdict: %q", got)
+	}
+}

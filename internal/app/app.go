@@ -493,6 +493,7 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 		}
 	}
 	r.Summary = summarizeRun(r.Targets)
+	operatorReporter.SetCompatibilityVerdicts(targetVerdicts(r.Targets), r.Summary.Verdict)
 	if len(runErrors) > 0 {
 		runOutcome = "error"
 		runFields = logging.Fields{"status": "error", "error_present": true, "error_kind": "run_failure"}
@@ -821,6 +822,20 @@ func summarizeRun(targets []result.TargetReport) result.RunSummary {
 		out.VerdictReason = "all_targets_passed"
 	}
 	return out
+}
+
+func targetVerdicts(targets []result.TargetReport) map[string]string {
+	verdicts := make(map[string]string, len(targets))
+	for _, target := range targets {
+		verdict := target.Summary.Status
+		if target.Summary.Assessment != nil {
+			verdict = target.Summary.Assessment.Verdict
+		}
+		if verdict != "" {
+			verdicts[target.ID] = verdict
+		}
+	}
+	return verdicts
 }
 
 func multiExitCode(cfg config.Config, summary result.RunSummary) int {

@@ -23,8 +23,10 @@ type operatorReporter struct {
 	tty      bool
 	capacity int
 
-	mu    sync.Mutex
-	lines int
+	mu         sync.Mutex
+	lines      int
+	verdicts   map[string]string
+	runVerdict string
 }
 
 var terminalSize = func() (int, int, error) { return term.GetSize(2) }
@@ -40,7 +42,23 @@ func newAppOperatorReporter(writer io.Writer, tty bool, disabled bool, capacity 
 	if capacity < 1 {
 		capacity = 1
 	}
-	return &operatorReporter{Reporter: progress.New(progress.Options{Writer: legacyWriter, TTY: false}), writer: writer, tty: tty, capacity: capacity}
+	return &operatorReporter{Reporter: progress.New(progress.Options{Writer: legacyWriter, TTY: false}), writer: writer, tty: tty, capacity: capacity, verdicts: map[string]string{}}
+}
+
+// SetCompatibilityVerdicts supplies canonical assessment results after the
+// report has been assessed. Runtime state and conformance verdict intentionally
+// remain separate fields in terminal.Target.
+func (r *operatorReporter) SetCompatibilityVerdicts(verdicts map[string]string, runVerdict string) {
+	if r == nil {
+		return
+	}
+	copy := make(map[string]string, len(verdicts))
+	for target, verdict := range verdicts {
+		copy[target] = verdict
+	}
+	r.mu.Lock()
+	r.verdicts, r.runVerdict = copy, runVerdict
+	r.mu.Unlock()
 }
 
 // ObserveExecutionSnapshot draws an inline frame after an accepted reducer
@@ -55,6 +73,9 @@ func (r *operatorReporter) ObserveExecutionSnapshot(snapshot execution.Snapshot)
 		width = n
 	}
 	rows := make([]terminal.Target, 0, len(snapshot.Targets))
+	r.mu.Lock()
+	verdicts, runVerdict := r.verdicts, r.runVerdict
+	r.mu.Unlock()
 	for _, target := range snapshot.Targets {
 		done, total := 0, 0
 		for _, job := range snapshot.Jobs {
@@ -66,13 +87,13 @@ func (r *operatorReporter) ObserveExecutionSnapshot(snapshot execution.Snapshot)
 				done++
 			}
 		}
-		rows = append(rows, terminal.Target{ID: target.ID, State: terminalTargetState(target.Phase), JobsDone: done, JobsTotal: total})
+		rows = append(rows, terminal.Target{ID: target.ID, State: terminalTargetState(target.Phase), JobsDone: done, JobsTotal: total, Verdict: verdicts[target.ID]})
 	}
 	frame := terminal.Render(terminal.Snapshot{
 		RunID: snapshot.Run.ID, Phase: string(snapshot.Run.Phase), Elapsed: snapshot.Run.Offset.Round(1e9).String(),
 		ETA: etaText(snapshot, r.capacity), JobsDone: snapshot.FinishedJobs, JobsTotal: snapshot.PlannedJobs,
 		Inflight: countInflight(snapshot), Concurrency: r.capacity, HTTPDone: terminalRequests(snapshot),
-		TargetsDone: terminalTargetsDone(snapshot), TargetsTotal: len(snapshot.Targets), Rows: rows,
+		TargetsDone: terminalTargetsDone(snapshot), TargetsTotal: len(snapshot.Targets), Verdict: runVerdict, Rows: rows,
 	}, width, 0, terminal.Options{})
 	r.draw(frame)
 }
