@@ -546,7 +546,7 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 
 func newOperatorReporter(cfg config.Config) *operatorReporter {
 	if cfg.NoProgress || cfg.Progress == "off" {
-		return newAppOperatorReporter(io.Discard, false, true)
+		return newAppOperatorReporter(io.Discard, false, true, cfg.Concurrency)
 	}
 	tty := progressTTY()
 	switch cfg.Progress {
@@ -558,7 +558,7 @@ func newOperatorReporter(cfg config.Config) *operatorReporter {
 	case "plain":
 		tty = false
 	}
-	return newAppOperatorReporter(progressWriter, tty, false)
+	return newAppOperatorReporter(progressWriter, tty, false, cfg.Concurrency)
 }
 
 func newForensicRunID() (string, error) {

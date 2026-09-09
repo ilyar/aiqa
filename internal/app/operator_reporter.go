@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
+	"github.com/ilyar/aiqa/internal/eta"
 	"github.com/ilyar/aiqa/internal/execution"
 	"github.com/ilyar/aiqa/internal/progress"
 	"github.com/ilyar/aiqa/internal/terminal"
@@ -17,14 +19,15 @@ import (
 // provide display job identities.
 type operatorReporter struct {
 	*progress.Reporter
-	writer io.Writer
-	tty    bool
+	writer   io.Writer
+	tty      bool
+	capacity int
 
 	mu    sync.Mutex
 	lines int
 }
 
-func newAppOperatorReporter(writer io.Writer, tty bool, disabled bool) *operatorReporter {
+func newAppOperatorReporter(writer io.Writer, tty bool, disabled bool, capacity int) *operatorReporter {
 	if disabled {
 		return &operatorReporter{Reporter: progress.New(progress.Options{Writer: io.Discard})}
 	}
@@ -32,7 +35,10 @@ func newAppOperatorReporter(writer io.Writer, tty bool, disabled bool) *operator
 	if tty {
 		legacyWriter = io.Discard
 	}
-	return &operatorReporter{Reporter: progress.New(progress.Options{Writer: legacyWriter, TTY: false}), writer: writer, tty: tty}
+	if capacity < 1 {
+		capacity = 1
+	}
+	return &operatorReporter{Reporter: progress.New(progress.Options{Writer: legacyWriter, TTY: false}), writer: writer, tty: tty, capacity: capacity}
 }
 
 // ObserveExecutionSnapshot draws an inline frame after an accepted reducer
@@ -62,11 +68,68 @@ func (r *operatorReporter) ObserveExecutionSnapshot(snapshot execution.Snapshot)
 	}
 	frame := terminal.Render(terminal.Snapshot{
 		RunID: snapshot.Run.ID, Phase: string(snapshot.Run.Phase), Elapsed: snapshot.Run.Offset.Round(1e9).String(),
-		ETA: "estimating", JobsDone: snapshot.FinishedJobs, JobsTotal: snapshot.PlannedJobs,
-		Inflight: countInflight(snapshot), Concurrency: 1, HTTPDone: terminalRequests(snapshot),
+		ETA: etaText(snapshot, r.capacity), JobsDone: snapshot.FinishedJobs, JobsTotal: snapshot.PlannedJobs,
+		Inflight: countInflight(snapshot), Concurrency: r.capacity, HTTPDone: terminalRequests(snapshot),
 		TargetsDone: terminalTargetsDone(snapshot), TargetsTotal: len(snapshot.Targets), Rows: rows,
 	}, width, 0, terminal.Options{})
 	r.draw(frame)
+}
+
+func etaText(snapshot execution.Snapshot, capacity int) string {
+	if snapshot.Run.Phase == execution.PhasePreparing || snapshot.PlannedJobs == 0 {
+		return "estimating"
+	}
+	base := time.Unix(0, 0)
+	now := base.Add(snapshot.Run.Offset)
+	groups := make(map[string]eta.Group, len(snapshot.Groups))
+	for _, group := range snapshot.Groups {
+		cooldown := time.Time{}
+		if group.CooldownUntil > 0 {
+			cooldown = base.Add(group.CooldownUntil)
+		}
+		groups[group.ID] = eta.Group{ID: group.ID, Capacity: group.Capacity, StartInterval: group.Interval, Cooldown: cooldown}
+	}
+	if len(groups) == 0 {
+		return "estimating"
+	}
+	jobGroups := map[string]string{}
+	for _, request := range snapshot.Requests {
+		if request.JobID != "" && request.GroupID != "" {
+			jobGroups[request.JobID] = request.GroupID
+		}
+	}
+	for _, wait := range snapshot.Waits {
+		if wait.JobID != "" && wait.GroupID != "" {
+			jobGroups[wait.JobID] = wait.GroupID
+		}
+	}
+	defaultGroup := ""
+	for id := range groups {
+		defaultGroup = id
+		break
+	}
+	jobs := make([]eta.Job, 0, len(snapshot.Jobs))
+	for _, job := range snapshot.Jobs {
+		if job.State == execution.JobTerminal {
+			continue
+		}
+		group := jobGroups[job.ID]
+		if group == "" {
+			group = defaultGroup
+		}
+		jobs = append(jobs, eta.Job{ID: job.ID, Group: group, UnknownDuration: true})
+	}
+	result, err := eta.New(nil).Estimate(eta.Snapshot{Now: now, GlobalCapacity: max(1, capacity), Groups: groups, Jobs: jobs})
+	if err != nil || result.RangeLow == nil {
+		return "estimating"
+	}
+	if result.State == eta.LowerBound {
+		return ">= " + eta.RoundDisplay(*result.RangeLow).String()
+	}
+	if result.Estimate != nil {
+		return eta.RoundDisplay(*result.Estimate).String()
+	}
+	return "estimating"
 }
 
 func (r *operatorReporter) draw(frame terminal.Frame) {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ilyar/aiqa/internal/execution"
 )
@@ -17,7 +18,7 @@ func TestOperatorReporterRendersExecutionSnapshotsOnlyInTTY(t *testing.T) {
 		RunningJobs: 1,
 	}
 	var tty bytes.Buffer
-	r := newAppOperatorReporter(&tty, true, false)
+	r := newAppOperatorReporter(&tty, true, false, 1)
 	r.ObserveExecutionSnapshot(snapshot)
 	r.ObserveExecutionSnapshot(snapshot)
 	if got := tty.String(); !strings.Contains(got, "\x1b[") || !strings.Contains(got, "AIQA") {
@@ -25,8 +26,20 @@ func TestOperatorReporterRendersExecutionSnapshotsOnlyInTTY(t *testing.T) {
 	}
 
 	var plain bytes.Buffer
-	newAppOperatorReporter(&plain, false, false).ObserveExecutionSnapshot(snapshot)
+	newAppOperatorReporter(&plain, false, false, 1).ObserveExecutionSnapshot(snapshot)
 	if plain.Len() != 0 {
 		t.Fatalf("plain snapshot leaked terminal controls: %q", plain.String())
+	}
+}
+
+func TestOperatorETAUsesSchedulerCooldownAsLowerBound(t *testing.T) {
+	snapshot := execution.Snapshot{
+		Run:         execution.RunSnapshot{Phase: execution.PhaseRunning},
+		Groups:      []execution.GroupSnapshot{{ID: "quota", Capacity: 1, CooldownUntil: 61 * time.Second}},
+		Jobs:        []execution.JobSnapshot{{ID: "job", TargetID: "target", State: execution.JobPlanned}},
+		PlannedJobs: 1,
+	}
+	if got, want := etaText(snapshot, 1), ">= 1m1s"; got != want {
+		t.Fatalf("ETA=%q, want %q", got, want)
 	}
 }
