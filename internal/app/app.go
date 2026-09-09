@@ -353,7 +353,7 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 		if prepareErr == nil {
 			owner := api.ExecutionOwner{TargetID: target.ID, PreparationID: "prepare-" + target.ID}
 			executionProgress.RegisterPreparation(owner, execution.PreparationDiscovery)
-			options := protocolpkg.RunOptions{Target: target, Config: cfg, Profile: p, UserAgent: "aiqa/" + build.Version, Logf: runnerLogf, Logger: logger, Telemetry: tracing, Scheduler: admission, PacingGroup: pacingGroups[target.ID], ExecutionHooks: protocolpkg.ExecutionHooks{Observe: executionProgress.ObserveAPIExecution, ObserveScheduler: executionProgress.ObserveSchedulerFact, PreparationOwner: owner}}
+			options := protocolpkg.RunOptions{Target: target, Config: cfg, Profile: p, UserAgent: "aiqa/" + build.Version, Logf: runnerLogf, Logger: logger, Telemetry: tracing, Scheduler: admission, PacingGroup: pacingGroups[target.ID], ExecutionHooks: protocolpkg.ExecutionHooks{Observe: executionProgress.ObserveAPIExecution, ObserveScheduler: executionProgress.ObserveSchedulerFact, ObserveSchedulerGroup: func(fact scheduler.Fact) { executionProgress.ObserveSchedulerFact(fact, api.ExecutionOwner{}) }, PreparationOwner: owner}}
 			preparedTargets[index], prepareErr = preparer(protocolpkg.PreparationContext(targetContexts[index], options), options)
 		}
 		prepareErrs[index] = prepareErr

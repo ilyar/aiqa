@@ -43,6 +43,7 @@ type Client struct {
 	pacingObserver    PacingObserver
 	executionObserver ExecutionObserver
 	schedulerObserver SchedulerExecutionObserver
+	groupObserver     SchedulerGroupObserver
 	scheduler         schedulerConfig
 	schedulerOwners   map[string]ExecutionOwner
 	identity          uint64
@@ -187,6 +188,11 @@ type ExecutionObserver func(ExecutionEvent)
 // attempts stay owned by ExecutionObserver, preventing double accounting.
 type SchedulerExecutionObserver func(scheduler.Fact, ExecutionOwner)
 
+// SchedulerGroupObserver receives group-limit and cooldown revisions. These
+// facts are intentionally not attributed to a job because a group update has
+// no request owner.
+type SchedulerGroupObserver func(scheduler.Fact)
+
 func NewClient(baseURL, apiKey, userAgent string, initialInterval time.Duration) (*Client, error) {
 	return newClient(baseURL, apiKey, userAgent, initialInterval, nil)
 }
@@ -226,20 +232,20 @@ func newClient(baseURL, apiKey, userAgent string, initialInterval time.Duration,
 
 func (c *Client) CloneWithKey(apiKey string) *Client {
 	c.logMu.RLock()
-	logger, provider, fields, propagate, pacingObserver, executionObserver, schedulerObserver, admission, owners := c.logger, c.telemetry, cloneLogFields(c.logFields), cloneOrigins(c.propagate), c.pacingObserver, c.executionObserver, c.schedulerObserver, c.scheduler, cloneExecutionOwners(c.schedulerOwners)
+	logger, provider, fields, propagate, pacingObserver, executionObserver, schedulerObserver, groupObserver, admission, owners := c.logger, c.telemetry, cloneLogFields(c.logFields), cloneOrigins(c.propagate), c.pacingObserver, c.executionObserver, c.schedulerObserver, c.groupObserver, c.scheduler, cloneExecutionOwners(c.schedulerOwners)
 	c.logMu.RUnlock()
 	admission.facts = nil
-	clone := &Client{baseURL: c.baseURL, apiKey: apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: c.headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields, pacingObserver: pacingObserver, executionObserver: executionObserver, schedulerObserver: schedulerObserver, scheduler: admission, schedulerOwners: owners, identity: nextClientIdentity.Add(1)}
+	clone := &Client{baseURL: c.baseURL, apiKey: apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: c.headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields, pacingObserver: pacingObserver, executionObserver: executionObserver, schedulerObserver: schedulerObserver, groupObserver: groupObserver, scheduler: admission, schedulerOwners: owners, identity: nextClientIdentity.Add(1)}
 	clone.bindSchedulerFacts()
 	return clone
 }
 
 func (c *Client) CloneWithHeaders(headers http.Header) *Client {
 	c.logMu.RLock()
-	logger, provider, fields, propagate, pacingObserver, executionObserver, schedulerObserver, admission, owners := c.logger, c.telemetry, cloneLogFields(c.logFields), cloneOrigins(c.propagate), c.pacingObserver, c.executionObserver, c.schedulerObserver, c.scheduler, cloneExecutionOwners(c.schedulerOwners)
+	logger, provider, fields, propagate, pacingObserver, executionObserver, schedulerObserver, groupObserver, admission, owners := c.logger, c.telemetry, cloneLogFields(c.logFields), cloneOrigins(c.propagate), c.pacingObserver, c.executionObserver, c.schedulerObserver, c.groupObserver, c.scheduler, cloneExecutionOwners(c.schedulerOwners)
 	c.logMu.RUnlock()
 	admission.facts = nil
-	clone := &Client{baseURL: c.baseURL, apiKey: c.apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields, pacingObserver: pacingObserver, executionObserver: executionObserver, schedulerObserver: schedulerObserver, scheduler: admission, schedulerOwners: owners, identity: nextClientIdentity.Add(1)}
+	clone := &Client{baseURL: c.baseURL, apiKey: c.apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields, pacingObserver: pacingObserver, executionObserver: executionObserver, schedulerObserver: schedulerObserver, groupObserver: groupObserver, scheduler: admission, schedulerOwners: owners, identity: nextClientIdentity.Add(1)}
 	clone.bindSchedulerFacts()
 	return clone
 }
@@ -355,12 +361,33 @@ func (c *Client) SetSchedulerExecutionObserver(observer SchedulerExecutionObserv
 	c.bindSchedulerFacts()
 }
 
+// SetSchedulerGroupObserver enables group-state observations for this client
+// and its clones. Physical attempt accounting remains transport-owned.
+func (c *Client) SetSchedulerGroupObserver(observer SchedulerGroupObserver) {
+	c.logMu.Lock()
+	old := c.scheduler.facts
+	c.scheduler.facts = nil
+	c.groupObserver = observer
+	c.logMu.Unlock()
+	old.close()
+	c.bindSchedulerFacts()
+}
+
 // SchedulerFactObserver returns a bridge suitable for Broker.SetFactObserver.
 // It translates only scheduler-owned safe fields; callers with a shared broker
 // should install one composed observer rather than allowing clients to replace
 // each other's subscription.
 func (c *Client) SchedulerFactObserver() scheduler.FactObserver {
 	return func(fact scheduler.Fact) {
+		if fact.Kind == scheduler.FactGroupUpdated {
+			c.logMu.RLock()
+			observer := c.groupObserver
+			c.logMu.RUnlock()
+			if observer != nil {
+				observer(fact)
+			}
+			return
+		}
 		if fact.Kind != scheduler.FactWaitStarted && fact.Kind != scheduler.FactWaitUpdated && fact.Kind != scheduler.FactWaitEnded {
 			return
 		}
@@ -508,9 +535,9 @@ func (c *Client) SetScheduler(cfg SchedulerConfig) error {
 
 func (c *Client) bindSchedulerFacts() {
 	c.logMu.RLock()
-	admission, observer := c.scheduler, c.schedulerObserver
+	admission, observer, groupObserver := c.scheduler, c.schedulerObserver, c.groupObserver
 	c.logMu.RUnlock()
-	if admission.broker == nil || observer == nil || admission.facts != nil {
+	if admission.broker == nil || (observer == nil && groupObserver == nil) || admission.facts != nil {
 		return
 	}
 	binding := &schedulerFactBinding{}

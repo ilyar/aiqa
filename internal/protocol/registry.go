@@ -79,9 +79,10 @@ type RunOptions struct {
 // PreparationOwner is declared before discovery and therefore may carry only
 // a registered PreparationID, never a runtime JobID.
 type ExecutionHooks struct {
-	Observe          api.ExecutionObserver
-	ObserveScheduler api.SchedulerExecutionObserver
-	PreparationOwner api.ExecutionOwner
+	Observe               api.ExecutionObserver
+	ObserveScheduler      api.SchedulerExecutionObserver
+	ObserveSchedulerGroup api.SchedulerGroupObserver
+	PreparationOwner      api.ExecutionOwner
 }
 
 func (h ExecutionHooks) validate(target string) error {
@@ -119,6 +120,7 @@ func ConfigureClientScheduler(client *api.Client, options RunOptions) error {
 		return nil
 	}
 	client.SetSchedulerExecutionObserver(options.ExecutionHooks.ObserveScheduler)
+	client.SetSchedulerGroupObserver(options.ExecutionHooks.ObserveSchedulerGroup)
 	return client.SetScheduler(api.SchedulerConfig{
 		Broker:       options.Scheduler,
 		Target:       options.Target.ID,

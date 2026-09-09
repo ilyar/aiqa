@@ -159,3 +159,16 @@ func TestSchedulerFactObserverDecodesOpaqueOwnerForWait(t *testing.T) {
 		t.Fatalf("scheduler wait bridge=%#v", got)
 	}
 }
+
+func TestSchedulerFactObserverForwardsUnownedGroupRevision(t *testing.T) {
+	client, err := NewClient("https://provider.example/v1", "", "test", time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []scheduler.Fact
+	client.SetSchedulerGroupObserver(func(fact scheduler.Fact) { got = append(got, fact) })
+	client.SchedulerFactObserver()(scheduler.Fact{Kind: scheduler.FactGroupUpdated, Group: "group-a", Capacity: 2, Revision: 4})
+	if len(got) != 1 || got[0].Group != "group-a" || got[0].Revision != 4 {
+		t.Fatalf("scheduler group bridge=%#v", got)
+	}
+}
