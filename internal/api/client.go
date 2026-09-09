@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/ilyar/aiqa/internal/logging"
+	"github.com/ilyar/aiqa/internal/scheduler"
 	"github.com/ilyar/aiqa/internal/telemetry"
 	"go.opentelemetry.io/otel/propagation"
 )
@@ -37,7 +38,33 @@ type Client struct {
 	propagate      map[string]struct{}
 	logFields      logging.Fields
 	pacingObserver PacingObserver
+	scheduler      schedulerConfig
 	operation      atomic.Uint64
+}
+
+// SchedulerConfig attaches this client to a run-owned admission broker. Target
+// is an operator-safe target identifier, never a URL.  An empty Group uses the
+// client's normalized scheme/host origin; callers may instead provide a stable
+// shared alias when several endpoints consume one provider quota. MemoryBytes
+// is an optional conservative per-attempt reservation; otherwise the request
+// body size is reserved. Artifact fields are opt-in because ordinary HTTP
+// requests do not create remote artifacts.
+type SchedulerConfig struct {
+	Broker      *scheduler.Broker
+	Target      string
+	Group       string
+	MemoryBytes int64
+	ArtifactKey string
+	Artifacts   int
+}
+
+type schedulerConfig struct {
+	broker *scheduler.Broker
+	target string
+	group  string
+	memory int64
+	key    string
+	items  int
 }
 
 // PacingObserver reports an actual client-side pacing wait. target is the
@@ -84,16 +111,16 @@ func newClient(baseURL, apiKey, userAgent string, initialInterval time.Duration,
 
 func (c *Client) CloneWithKey(apiKey string) *Client {
 	c.logMu.RLock()
-	logger, provider, fields, propagate, pacingObserver := c.logger, c.telemetry, cloneLogFields(c.logFields), cloneOrigins(c.propagate), c.pacingObserver
+	logger, provider, fields, propagate, pacingObserver, admission := c.logger, c.telemetry, cloneLogFields(c.logFields), cloneOrigins(c.propagate), c.pacingObserver, c.scheduler
 	c.logMu.RUnlock()
-	return &Client{baseURL: c.baseURL, apiKey: apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: c.headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields, pacingObserver: pacingObserver}
+	return &Client{baseURL: c.baseURL, apiKey: apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: c.headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields, pacingObserver: pacingObserver, scheduler: admission}
 }
 
 func (c *Client) CloneWithHeaders(headers http.Header) *Client {
 	c.logMu.RLock()
-	logger, provider, fields, propagate, pacingObserver := c.logger, c.telemetry, cloneLogFields(c.logFields), cloneOrigins(c.propagate), c.pacingObserver
+	logger, provider, fields, propagate, pacingObserver, admission := c.logger, c.telemetry, cloneLogFields(c.logFields), cloneOrigins(c.propagate), c.pacingObserver, c.scheduler
 	c.logMu.RUnlock()
-	return &Client{baseURL: c.baseURL, apiKey: c.apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields, pacingObserver: pacingObserver}
+	return &Client{baseURL: c.baseURL, apiKey: c.apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields, pacingObserver: pacingObserver, scheduler: admission}
 }
 
 func cloneOrigins(origins map[string]struct{}) map[string]struct{} {
@@ -173,6 +200,77 @@ func (c *Client) SetPacingObserver(observer PacingObserver) {
 	c.logMu.Lock()
 	c.pacingObserver = observer
 	c.logMu.Unlock()
+}
+
+// SetScheduler configures optional run-owned admission. Passing a zero config
+// disables it. The configuration is copied, so clones retain a consistent
+// target/group binding. It is safe to call before concurrent work begins.
+func (c *Client) SetScheduler(cfg SchedulerConfig) error {
+	if cfg.Broker == nil {
+		if cfg.Target != "" || cfg.Group != "" || cfg.MemoryBytes != 0 || cfg.ArtifactKey != "" || cfg.Artifacts != 0 {
+			return errors.New("scheduler configuration requires a broker")
+		}
+		c.logMu.Lock()
+		c.scheduler = schedulerConfig{}
+		c.logMu.Unlock()
+		return nil
+	}
+	if !safeSchedulerTarget(cfg.Target) || cfg.MemoryBytes < 0 || cfg.Artifacts < 0 || (cfg.Artifacts > 0 && cfg.ArtifactKey == "") || (cfg.ArtifactKey != "" && !safeSchedulerID(cfg.ArtifactKey)) {
+		return errors.New("invalid scheduler configuration")
+	}
+	group := cfg.Group
+	if group == "" {
+		group = normalizedOrigin(c.baseURL)
+	}
+	if !safeSchedulerGroup(group) {
+		return errors.New("invalid scheduler group")
+	}
+	c.logMu.Lock()
+	c.scheduler = schedulerConfig{broker: cfg.Broker, target: cfg.Target, group: group, memory: cfg.MemoryBytes, key: cfg.ArtifactKey, items: cfg.Artifacts}
+	c.logMu.Unlock()
+	return nil
+}
+
+func normalizedOrigin(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	host := strings.ToLower(u.Hostname())
+	if port := u.Port(); port != "" {
+		host += ":" + port
+	}
+	return strings.ToLower(u.Scheme) + "://" + host
+}
+
+// safeSchedulerID accepts non-secret local labels (including target/model
+// artifact keys), never values copied from an HTTP request.
+func safeSchedulerID(value string) bool {
+	if value == "" || len(value) > 256 || strings.ContainsAny(value, "\r\n\t @?#") {
+		return false
+	}
+	return true
+}
+
+func safeSchedulerTarget(value string) bool {
+	return safeSchedulerID(value) && !strings.Contains(value, "://") && !strings.Contains(value, "/")
+}
+
+func safeSchedulerGroup(value string) bool {
+	return safeSchedulerID(value) && !strings.Contains(value, "@") && !strings.Contains(value, "?") && !strings.Contains(value, "#")
+}
+
+func (c *Client) acquireScheduler(ctx context.Context, bodyBytes int64) (*scheduler.Lease, error) {
+	c.logMu.RLock()
+	admission := c.scheduler
+	c.logMu.RUnlock()
+	if admission.broker == nil {
+		return nil, nil
+	}
+	memory := admission.memory
+	if memory == 0 && bodyBytes > 0 {
+		memory = bodyBytes
+	}
+	return admission.broker.Acquire(ctx, scheduler.Request{Target: admission.target, Group: admission.group, MemoryBytes: memory, ArtifactKey: admission.key, Artifacts: admission.items})
 }
 
 func (c *Client) waitForPacing(ctx context.Context, model string) error {
@@ -348,12 +446,22 @@ func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 			return nil, err
 		}
 		r.client.trace(ctx, logging.Trace, "pacing.wait.end", logging.Fields{"method": request.Method, "path": path, "attempt": attempt + 1, "wait_ms": time.Since(waitStarted).Milliseconds()})
+		lease, err := r.client.acquireScheduler(ctx, request.ContentLength)
+		if err != nil {
+			r.client.pacer.release(r.model)
+			r.client.trace(ctx, logging.Debug, "scheduler.acquire.cancelled", logging.Fields{"method": request.Method, "path": path, "attempt": attempt + 1, "reason": errorClass(err)})
+			endLogical("scheduler_cancelled", nil, err)
+			return nil, err
+		}
 		current := request
 		attemptCtx, cancelAttempt := attemptContext(ctx)
 		if attempt > 0 {
 			body, err := request.GetBody()
 			if err != nil {
 				cancelAttempt()
+				if lease != nil {
+					lease.CancelBeforeDispatch()
+				}
 				r.client.pacer.release(r.model)
 				r.client.trace(ctx, logging.Error, "sdk.retry.body_error", logging.Fields{"method": request.Method, "path": path, "attempt": attempt + 1, "reason": errorClass(err)})
 				endLogical("retry_body_error", nil, err)
@@ -397,17 +505,32 @@ func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 			endFields := responseFields(request.Method, path, attempt+1, response, err, time.Since(started))
 			if response != nil && response.Body != nil {
 				handedOff = true
+				var admissionDone chan struct{}
+				if lease != nil {
+					admissionDone = make(chan struct{})
+					go releaseLeaseOnCancel(attemptCtx, admissionDone, lease)
+				}
 				response.Body = &operationReadCloser{ReadCloser: response.Body, operation: logical, parent: sdkProbe, fields: endFields, outcome: "response_closed", cancel: cancelAttempt, onClose: func() {
+					if lease != nil {
+						close(admissionDone)
+						lease.Release()
+					}
 					r.client.trace(ctx, logging.Debug, "sdk.logical_request.result", endFields)
 				}}
 			} else {
 				cancelAttempt()
+				if lease != nil {
+					lease.Release()
+				}
 				r.client.trace(ctx, logging.Debug, "sdk.logical_request.result", endFields)
 				endLogical("response", response, err)
 			}
 			return response, err
 		}
 		cancelAttempt()
+		if lease != nil {
+			lease.Release()
+		}
 		r.client.pacer.release(r.model)
 		delay := time.Duration(1<<attempt) * 100 * time.Millisecond
 		if response != nil {
@@ -430,6 +553,14 @@ func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 		}
 	}
 	panic("unreachable")
+}
+
+func releaseLeaseOnCancel(ctx context.Context, done <-chan struct{}, lease *scheduler.Lease) {
+	select {
+	case <-ctx.Done():
+		lease.Release()
+	case <-done:
+	}
 }
 
 func (c *Client) ListModels(ctx context.Context) ([]Model, Response, error) {
@@ -576,6 +707,14 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 			return response, err
 		}
 		c.trace(ctx, logging.Trace, "pacing.wait.end", logging.Fields{"method": method, "path": path, "attempt": attempt + 1, "wait_ms": time.Since(waitStarted).Milliseconds()})
+		lease, err := c.acquireScheduler(ctx, int64(len(body)))
+		if err != nil {
+			c.pacer.release(model)
+			c.trace(ctx, logging.Debug, "scheduler.acquire.cancelled", logging.Fields{"method": method, "path": path, "attempt": attempt + 1, "reason": errorClass(err)})
+			response := Response{TraceID: traceID}
+			endLogical("scheduler_cancelled", response, err)
+			return response, err
+		}
 		if attempt > 0 {
 			c.pacer.retry(model)
 		}
@@ -583,6 +722,9 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 		attemptCtx, cancelAttempt := attemptContext(ctx)
 		resp, err := c.doRawURLOnce(attemptCtx, method, endpoint, body, contentType, attempt+1)
 		cancelAttempt()
+		if lease != nil {
+			lease.Release()
+		}
 		resp.TraceID = traceID
 		c.trace(ctx, logging.Trace, "http.attempt.result", rawResponseFields(method, path, attempt+1, resp, err))
 		if !shouldRetry(resp, err) {
@@ -769,6 +911,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 	var httpResp *http.Response
 	var started time.Time
 	var finalAttemptCancel context.CancelFunc
+	var finalLease *scheduler.Lease
 	attempts := 0
 	for attempt := 0; attempt < 3; attempt++ {
 		requestPath := safeRequestPath(&u)
@@ -782,12 +925,23 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 			return result, err
 		}
 		c.trace(ctx, logging.Trace, "pacing.wait.end", logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true, "wait_ms": time.Since(waitStarted).Milliseconds()})
+		lease, err := c.acquireScheduler(ctx, int64(len(raw)))
+		if err != nil {
+			c.pacer.release(model)
+			result := StreamResponse{TraceID: traceID}
+			c.trace(ctx, logging.Debug, "scheduler.acquire.cancelled", logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true, "reason": errorClass(err)})
+			endLogical("scheduler_cancelled", result, err)
+			return result, err
+		}
 		attemptCtx, cancelAttempt := attemptContext(ctx)
 		attemptCtx, attemptOp := c.startOperation(attemptCtx, "http.stream_attempt", logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true})
 		started = time.Now()
 		req, err := http.NewRequestWithContext(attemptCtx, http.MethodPost, u.String(), bytes.NewReader(raw))
 		if err != nil {
 			cancelAttempt()
+			if lease != nil {
+				lease.CancelBeforeDispatch()
+			}
 			c.pacer.release(model)
 			fields := logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true, "duration_ms": time.Since(started).Milliseconds(), "reason": errorClass(err)}
 			c.trace(attemptCtx, logging.Trace, "http.stream_attempt.result", fields)
@@ -809,6 +963,9 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 		httpResp, err = c.http.Do(req)
 		if err != nil {
 			cancelAttempt()
+			if lease != nil {
+				lease.Release()
+			}
 			c.pacer.release(model)
 			fields := logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true, "duration_ms": time.Since(started).Milliseconds(), "reason": errorClass(err)}
 			c.trace(attemptCtx, logging.Trace, "http.stream_attempt.result", fields)
@@ -845,6 +1002,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 		}
 		if !shouldRetryStatus(httpResp.StatusCode, httpResp.Header) {
 			finalAttemptCancel = cancelAttempt
+			finalLease = lease
 			break
 		}
 		delay := retryAfter(httpResp.Header)
@@ -853,6 +1011,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 		}
 		if attempt == 2 {
 			finalAttemptCancel = cancelAttempt
+			finalLease = lease
 			if httpResp.StatusCode == http.StatusTooManyRequests {
 				c.pacer.limited(model, delay)
 			}
@@ -863,6 +1022,9 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 		_, _ = io.Copy(io.Discard, io.LimitReader(httpResp.Body, 32<<10))
 		httpResp.Body.Close()
 		cancelAttempt()
+		if lease != nil {
+			lease.Release()
+		}
 		c.pacer.release(model)
 		if httpResp.StatusCode == http.StatusTooManyRequests {
 			c.pacer.limited(model, delay)
@@ -882,6 +1044,9 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 	}
 	if finalAttemptCancel != nil {
 		defer finalAttemptCancel()
+	}
+	if finalLease != nil {
+		defer finalLease.Release()
 	}
 	defer c.pacer.release(model)
 	defer httpResp.Body.Close()
