@@ -99,11 +99,13 @@ func Render(s Snapshot, width, height int, options Options) Frame {
 		return Frame{Lines: lines}
 	}
 	if width >= 110 {
-		lines = append(lines, fit(fmt.Sprintf("AIQA %s  |  Elapsed %s  |  Jobs %d/%d (%d%%)", phase, value(s.Elapsed, "--:--"), s.JobsDone, s.JobsTotal, percent(s.JobsDone, s.JobsTotal)), limit, options.ASCII))
-		lines = append(lines, fit(fmt.Sprintf("Run %s  |  ETA %s  |  HTTP %d/%d  |  In-flight %d/%d", clean(s.RunID), value(s.ETA, "unknown"), s.HTTPDone, s.HTTPTotal, s.Inflight, s.Concurrency), limit, options.ASCII))
-		lines = append(lines, fit("TARGET                 STATE       JOBS       VERDICT", limit, options.ASCII))
+		lines = append(lines, fit(fmt.Sprintf("AIQA Run %s", clean(s.RunID)), limit, options.ASCII))
+		lines = append(lines, fit(fmt.Sprintf("%s Elapsed %s Jobs %d/%d (%d%%)", phase, value(s.Elapsed, "--:--"), s.JobsDone, s.JobsTotal, percent(s.JobsDone, s.JobsTotal)), limit, options.ASCII))
+		lines = append(lines, fit(fmt.Sprintf("ETA %s HTTP %d/%d In-flight %d/%d", value(s.ETA, "unknown"), s.HTTPDone, s.HTTPTotal, s.Inflight, s.Concurrency), limit, options.ASCII))
+		lines = append(lines, "")
+		lines = append(lines, fit("TARGET       STATE      JOBS  VERDICT", limit, options.ASCII))
 		for _, r := range rows(s.Rows) {
-			lines = append(lines, fit(fmt.Sprintf("%-22s %-11s %5d/%-5d %s", middle(clean(r.ID), 22), safeUpper(r.State), r.JobsDone, r.JobsTotal, targetVerdict(r)), limit, options.ASCII))
+			lines = append(lines, fit(fmt.Sprintf("%-12s %-10s %-5s %s", middle(clean(r.ID), 12), safeUpper(r.State), fmt.Sprintf("%d/%d", r.JobsDone, r.JobsTotal), targetVerdict(r)), limit, options.ASCII))
 			if r.Detail != "" {
 				lines = append(lines, fit("  "+clean(r.Detail), limit, options.ASCII))
 			}

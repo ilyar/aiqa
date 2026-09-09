@@ -1,7 +1,9 @@
-AIQA RUNNING  |  Elapsed 09:03  |  Jobs 27/30 (90%)
-Run run-7f1a  |  ETA ~01:18  |  HTTP 0/16  |  In-flight 1/16
-TARGET                 STATE       JOBS       VERDICT
-anthropic              FINISHED       10/10    PASS
-google-genai           FINISHED        8/8     PASS-WITH-GAPS
-openai                 THROTTLED       9/12    --
+AIQA Run run-7f1a
+RUNNING Elapsed 09:03 Jobs 27/30 (90%)
+ETA ~01:18 HTTP 0/16 In-flight 1/16
+
+TARGET       STATE      JOBS  VERDICT
+anthropic    FINISHED   10/10 PASS
+google-genai FINISHED   8/8   PASS-WITH-GAPS
+openai       THROTTLED  9/12  --
   Retry-After: resumes in 01:01; waited 00:08
