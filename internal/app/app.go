@@ -18,6 +18,7 @@ import (
 	"github.com/ilyar/aiqa/internal/api"
 	"github.com/ilyar/aiqa/internal/assessment"
 	"github.com/ilyar/aiqa/internal/config"
+	"github.com/ilyar/aiqa/internal/execution"
 	"github.com/ilyar/aiqa/internal/extsuite"
 	extanthropic "github.com/ilyar/aiqa/internal/extsuite/builtin/anthropic"
 	extgoogle "github.com/ilyar/aiqa/internal/extsuite/builtin/googlegenai"
@@ -345,7 +346,10 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 			prepareErr = fmt.Errorf("unsupported target protocol %s", target.Protocol)
 		}
 		if prepareErr == nil {
-			preparedTargets[index], prepareErr = preparer(targetContexts[index], protocolpkg.RunOptions{Target: target, Config: cfg, Profile: p, UserAgent: "aiqa/" + build.Version, Logf: runnerLogf, Logger: logger, Telemetry: tracing, Scheduler: admission, PacingGroup: pacingGroups[target.ID]})
+			owner := api.ExecutionOwner{TargetID: target.ID, PreparationID: "prepare-" + target.ID}
+			executionProgress.RegisterPreparation(owner, execution.PreparationDiscovery)
+			options := protocolpkg.RunOptions{Target: target, Config: cfg, Profile: p, UserAgent: "aiqa/" + build.Version, Logf: runnerLogf, Logger: logger, Telemetry: tracing, Scheduler: admission, PacingGroup: pacingGroups[target.ID], ExecutionHooks: protocolpkg.ExecutionHooks{Observe: executionProgress.ObserveAPIExecution, PreparationOwner: owner}}
+			preparedTargets[index], prepareErr = preparer(protocolpkg.PreparationContext(targetContexts[index], options), options)
 		}
 		prepareErrs[index] = prepareErr
 	})

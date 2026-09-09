@@ -177,6 +177,13 @@ func (p *executionProgress) ObserveSchedulerFact(fact scheduler.Fact, owner api.
 // physical admission boundary, not the broker queue insertion.
 func (p *executionProgress) ObserveAPIExecution(event api.ExecutionEvent) {
 	owner := api.ExecutionOwner{TargetID: event.TargetID, JobID: event.JobID, PreparationID: event.PreparationID}
+	// Runtime JobID assignment is deliberately deferred until the frozen plan
+	// is the direct execution input. Do not manufacture a job identity from a
+	// target or trace context, and do not poison the otherwise measured
+	// preparation snapshot merely because an older runner has not migrated.
+	if owner.JobID == "" && owner.PreparationID == "" {
+		return
+	}
 	if !p.validOwner(owner) || event.AttemptID == "" || event.GroupID == "" {
 		p.markUnavailable()
 		return
