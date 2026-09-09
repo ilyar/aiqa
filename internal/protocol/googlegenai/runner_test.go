@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -60,6 +61,42 @@ func TestPreparedTargetExecutesFrozenSelectionAfterOverrideMutation(t *testing.T
 	}
 	if got := inventories.Load(); got != 1 {
 		t.Fatalf("model inventories=%d, want exactly one during prepare", got)
+	}
+}
+
+func TestRunTargetDiscoveryUsesFrozenInventoryJobOwner(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1beta/models" {
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"models":[{"name":"models/opaque","supportedGenerationMethods":["generateContent"]}]}`))
+	}))
+	defer server.Close()
+	capabilityFile := filepath.Join(t.TempDir(), "capabilities.json")
+	if err := os.WriteFile(capabilityFile, []byte(`{"models":{"opaque":["google-genai.generate-content.text"]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := profile.LoadFile("google-genai-generate-content-compat-2026-09.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var events []api.ExecutionEvent
+	options := protocolpkg.RunOptions{Target: config.TargetConfig{ID: "fixture", Protocol: config.ProtocolGoogleGenAI, BaseURL: server.URL, APIKey: "fixture-key", APIVersion: "v1beta", Models: []string{"opaque"}, CapabilityFile: capabilityFile}, Config: config.Config{Concurrency: 1, Timeout: time.Second}, Profile: p, ExecutionHooks: protocolpkg.ExecutionHooks{Observe: func(event api.ExecutionEvent) { mu.Lock(); events = append(events, event); mu.Unlock() }}}
+	if _, err := RunTarget(context.Background(), options); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	want := protocolpkg.JobID("fixture", "", "inventory")
+	if len(events) != 3 {
+		t.Fatalf("events=%#v", events)
+	}
+	for _, event := range events {
+		if event.JobID != want || event.PreparationID != "" {
+			t.Fatalf("inventory owner=%#v", events)
+		}
 	}
 }
 

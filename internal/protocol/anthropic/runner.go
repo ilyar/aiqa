@@ -39,12 +39,13 @@ type RunOptions struct {
 	Telemetry *telemetry.Provider
 	// Progress receives the post-discovery native-probe plan. It is optional so
 	// package callers that do not render operator progress remain compatible.
-	Progress    progress.Sink
-	Runtime     *Runtime
-	Inventory   *protocolpkg.Inventory
-	Scheduler   *scheduler.Broker
-	PacingGroup string
-	frozen      *frozenExecution
+	Progress          progress.Sink
+	Runtime           *Runtime
+	Inventory         *protocolpkg.Inventory
+	Scheduler         *scheduler.Broker
+	PacingGroup       string
+	ExecutionObserver api.ExecutionObserver
+	frozen            *frozenExecution
 }
 
 // frozenExecution retains every decision and probe observation that Prepare
@@ -107,7 +108,7 @@ func runTarget(ctx context.Context, options protocolpkg.RunOptions, frozen *froz
 	runtime := &Runtime{}
 	target, err := Run(ctx, RunOptions{
 		Target: options.Target, Config: options.Config, Profile: options.Profile,
-		UserAgent: options.UserAgent, Logf: options.Logf, Logger: options.Logger, Telemetry: options.Telemetry, Progress: options.Progress, Runtime: runtime, Inventory: options.Inventory, Scheduler: options.Scheduler, PacingGroup: options.PacingGroup, frozen: frozen,
+		UserAgent: options.UserAgent, Logf: options.Logf, Logger: options.Logger, Telemetry: options.Telemetry, Progress: options.Progress, Runtime: runtime, Inventory: options.Inventory, Scheduler: options.Scheduler, PacingGroup: options.PacingGroup, ExecutionObserver: options.ExecutionHooks.Observe, frozen: frozen,
 	})
 	return protocolpkg.RunResult{
 		Target:  target,
@@ -202,6 +203,7 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	probeExecutor.SetLogger(options.Logger)
 	probeExecutor.SetLogFields(logging.Fields{"target": target.ID, "protocol": string(target.Protocol)})
 	client.TransportClient().SetTelemetry(options.Telemetry)
+	client.TransportClient().SetExecutionObserver(options.ExecutionObserver)
 	if options.Progress != nil {
 		client.TransportClient().SetPacingObserver(func(target string, waiting bool, duration time.Duration) {
 			options.Progress.Pacing(target, waiting, duration)
@@ -230,7 +232,7 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	if options.Inventory != nil {
 		models, listResp, listErr = options.Inventory.Models, options.Inventory.Response, options.Inventory.Err
 	} else {
-		listCtx, cancel := api.WithRequestTimeout(discoveryCtx, cfg.Timeout)
+		listCtx, cancel := api.WithRequestTimeout(anthropicJobContext(discoveryCtx, target.ID, "", "inventory"), cfg.Timeout)
 		models, listResp, listErr = client.ListModels(listCtx)
 		cancel()
 	}
@@ -399,7 +401,8 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 				if cfg.HasTest("compat") && preflightTests[index] != nil && routeBlocked[index] {
 					mr.Compatibility = append(mr.Compatibility, *preflightTests[index])
 				} else if cfg.HasTest("compat") {
-					mr.Compatibility = runModelWithPreflight(modelCtx, client, cfg, p, model, modules, probeExecutor, options.Telemetry, preflights[index], preflightErrors[index], plan)
+					compatCtx := anthropicJobContext(modelCtx, target.ID, model, "compat")
+					mr.Compatibility = runModelWithPreflight(compatCtx, client, cfg, p, model, modules, probeExecutor, options.Telemetry, preflights[index], preflightErrors[index], plan)
 				}
 				if cfg.HasTest("compat") {
 					if len(mr.Compatibility) == 0 {
@@ -443,6 +446,10 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	guidance.QualifyArtifacts(&tmp, target.ID)
 	assessment.ApplyTarget(&tmp, p, target.ID, string(target.Protocol))
 	return toTarget(target, tmp), nil
+}
+
+func anthropicJobContext(ctx context.Context, target, model, kind string) context.Context {
+	return api.WithExecutionOwner(ctx, api.ExecutionOwner{TargetID: target, JobID: protocolpkg.JobID(target, model, kind)})
 }
 
 func (o RunOptions) frozenClient() *Client {

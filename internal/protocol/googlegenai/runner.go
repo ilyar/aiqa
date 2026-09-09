@@ -28,19 +28,20 @@ import (
 )
 
 type RunOptions struct {
-	Target      config.TargetConfig
-	Config      config.Config
-	Profile     profile.Profile
-	UserAgent   string
-	Logf        func(logging.Level, string, ...any)
-	Logger      *logging.Logger
-	Telemetry   *telemetry.Provider
-	Progress    progress.Sink
-	Runtime     *Runtime
-	Inventory   *protocolpkg.Inventory
-	Scheduler   *scheduler.Broker
-	PacingGroup string
-	frozen      *frozenExecution
+	Target            config.TargetConfig
+	Config            config.Config
+	Profile           profile.Profile
+	UserAgent         string
+	Logf              func(logging.Level, string, ...any)
+	Logger            *logging.Logger
+	Telemetry         *telemetry.Provider
+	Progress          progress.Sink
+	Runtime           *Runtime
+	Inventory         *protocolpkg.Inventory
+	Scheduler         *scheduler.Broker
+	PacingGroup       string
+	ExecutionObserver api.ExecutionObserver
+	frozen            *frozenExecution
 }
 
 // frozenExecution retains every decision and report-visible preflight made by
@@ -102,7 +103,7 @@ func runTarget(ctx context.Context, options protocolpkg.RunOptions, frozen *froz
 	runtime := &Runtime{}
 	target, err := Run(ctx, RunOptions{
 		Target: options.Target, Config: options.Config, Profile: options.Profile,
-		UserAgent: options.UserAgent, Logf: options.Logf, Logger: options.Logger, Telemetry: options.Telemetry, Progress: options.Progress, Runtime: runtime, Inventory: options.Inventory, Scheduler: options.Scheduler, PacingGroup: options.PacingGroup, frozen: frozen,
+		UserAgent: options.UserAgent, Logf: options.Logf, Logger: options.Logger, Telemetry: options.Telemetry, Progress: options.Progress, Runtime: runtime, Inventory: options.Inventory, Scheduler: options.Scheduler, PacingGroup: options.PacingGroup, ExecutionObserver: options.ExecutionHooks.Observe, frozen: frozen,
 	})
 	target.Notes = []string{"Google Gen AI Go SDK v1.71.0 does not expose public Interactions API methods; no SDK Interactions suite is claimed."}
 	return protocolpkg.RunResult{
@@ -197,6 +198,7 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	executor.SetLogger(options.Logger)
 	executor.SetLogFields(logging.Fields{"target": target.ID, "protocol": string(target.Protocol)})
 	client.TransportClient().SetTelemetry(options.Telemetry)
+	client.TransportClient().SetExecutionObserver(options.ExecutionObserver)
 	if options.Progress != nil {
 		client.TransportClient().SetPacingObserver(func(target string, waiting bool, duration time.Duration) {
 			options.Progress.Pacing(target, waiting, duration)
@@ -229,7 +231,7 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 			paginationResp = options.frozen.paginationResponse
 		}
 	} else {
-		listCtx, cancel := api.WithRequestTimeout(discoveryCtx, cfg.Timeout)
+		listCtx, cancel := api.WithRequestTimeout(googleJobContext(discoveryCtx, target.ID, "", "inventory"), cfg.Timeout)
 		models, listResp, paginationResp, listErr = discoverAll(listCtx, client)
 		cancel()
 	}
@@ -401,7 +403,8 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 			if cfg.HasTest("compat") && preflightTests[index] != nil && routeBlocked[index] {
 				mr.Compatibility = append(mr.Compatibility, *preflightTests[index])
 			} else if cfg.HasTest("compat") {
-				mr.Compatibility = runModelWithPreflight(modelCtx, client, cfg, p, model, modules, executor, options.Telemetry, strings.Contains(p.ID, "generate-content"), preflights[index], preflightErrors[index], plan)
+				compatCtx := googleJobContext(modelCtx, target.ID, model, "compat")
+				mr.Compatibility = runModelWithPreflight(compatCtx, client, cfg, p, model, modules, executor, options.Telemetry, strings.Contains(p.ID, "generate-content"), preflights[index], preflightErrors[index], plan)
 			}
 			if cfg.HasTest("compat") {
 				if len(mr.Compatibility) == 0 {
@@ -463,6 +466,10 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	guidance.QualifyArtifacts(&tmp, target.ID)
 	assessment.ApplyTarget(&tmp, p, target.ID, string(target.Protocol))
 	return toTarget(target, tmp), nil
+}
+
+func googleJobContext(ctx context.Context, target, model, kind string) context.Context {
+	return api.WithExecutionOwner(ctx, api.ExecutionOwner{TargetID: target, JobID: protocolpkg.JobID(target, model, kind)})
 }
 
 func (o RunOptions) frozenClient() *Client {

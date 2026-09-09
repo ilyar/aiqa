@@ -6,10 +6,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/ilyar/aiqa/internal/api"
 	"github.com/ilyar/aiqa/internal/config"
 	"github.com/ilyar/aiqa/internal/profile"
 	protocolpkg "github.com/ilyar/aiqa/internal/protocol"
@@ -24,6 +26,42 @@ func TestPlannedProbeCountCountsLogicalUnitsRatherThanResultRows(t *testing.T) {
 	}}
 	if got := plannedProbeCount(cfg, []string{"fixture"}, modules, []bool{false}); got != 19 {
 		t.Fatalf("planned probe count = %d, want 19 (16 message lifecycles + 3 token probes)", got)
+	}
+}
+
+func TestRunTargetDiscoveryUsesFrozenInventoryJobOwner(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"opaque","type":"model"}],"has_more":false}`))
+	}))
+	defer server.Close()
+	capabilityFile := filepath.Join(t.TempDir(), "capabilities.json")
+	if err := os.WriteFile(capabilityFile, []byte(`{"models":{"opaque":["anthropic.messages.text"]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := profile.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var events []api.ExecutionEvent
+	options := protocolpkg.RunOptions{Target: config.TargetConfig{ID: "fixture", Protocol: config.ProtocolAnthropic, BaseURL: server.URL, APIVersion: "2023-06-01", Models: []string{"opaque"}, CapabilityFile: capabilityFile}, Config: config.Config{Concurrency: 1, Timeout: time.Second}, Profile: p, ExecutionHooks: protocolpkg.ExecutionHooks{Observe: func(event api.ExecutionEvent) { mu.Lock(); events = append(events, event); mu.Unlock() }}}
+	if _, err := RunTarget(context.Background(), options); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	want := protocolpkg.JobID("fixture", "", "inventory")
+	if len(events) != 3 {
+		t.Fatalf("events=%#v", events)
+	}
+	for _, event := range events {
+		if event.JobID != want || event.PreparationID != "" {
+			t.Fatalf("inventory owner=%#v", events)
+		}
 	}
 }
 
