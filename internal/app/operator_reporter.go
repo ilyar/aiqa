@@ -140,6 +140,7 @@ func (r *operatorReporter) renderSnapshot(snapshot execution.Snapshot, verdicts 
 		width = n
 	}
 	rows := make([]terminal.Target, 0, len(snapshot.Targets))
+	waits := targetWaits(snapshot)
 	for _, target := range snapshot.Targets {
 		done, total := 0, 0
 		for _, job := range snapshot.Jobs {
@@ -151,15 +152,47 @@ func (r *operatorReporter) renderSnapshot(snapshot execution.Snapshot, verdicts 
 				done++
 			}
 		}
-		rows = append(rows, terminal.Target{ID: target.ID, State: terminalTargetState(target.Phase), JobsDone: done, JobsTotal: total, Verdict: verdicts[target.ID]})
+		waiting := waits[target.ID]
+		state := terminalTargetState(target.Phase)
+		detail := ""
+		if target.Phase == execution.PhaseRunning && waiting.count > 0 {
+			state = "waiting"
+			detail = fmt.Sprintf("waiting %d; next in %s", waiting.count, waiting.next.Round(time.Second))
+		}
+		rows = append(rows, terminal.Target{ID: target.ID, State: state, JobsDone: done, JobsTotal: total, Verdict: verdicts[target.ID], Detail: detail})
 	}
 	frame := terminal.Render(terminal.Snapshot{
 		RunID: snapshot.Run.ID, Phase: string(snapshot.Run.Phase), Elapsed: snapshot.Run.Offset.Round(1e9).String(),
 		ETA: etaText(snapshot, r.capacity), JobsDone: snapshot.FinishedJobs, JobsTotal: snapshot.PlannedJobs,
-		Inflight: countInflight(snapshot), Concurrency: r.capacity, HTTPDone: terminalRequests(snapshot),
+		Inflight: countInflight(snapshot), Concurrency: r.capacity, Waiting: len(snapshot.Waits), HTTPDone: terminalRequests(snapshot),
 		TargetsDone: terminalTargetsDone(snapshot), TargetsTotal: len(snapshot.Targets), Verdict: runVerdict, Rows: rows,
 	}, width, 0, terminal.Options{})
 	r.draw(frame)
+}
+
+type targetWait struct {
+	count int
+	next  time.Duration
+}
+
+func targetWaits(snapshot execution.Snapshot) map[string]targetWait {
+	byTarget := make(map[string]targetWait)
+	for _, wait := range snapshot.Waits {
+		if wait.TargetID == "" {
+			continue
+		}
+		remaining := wait.EligibleAt - snapshot.Run.Offset
+		if remaining < 0 {
+			remaining = 0
+		}
+		current, ok := byTarget[wait.TargetID]
+		if !ok || remaining < current.next {
+			current.next = remaining
+		}
+		current.count++
+		byTarget[wait.TargetID] = current
+	}
+	return byTarget
 }
 
 func terminalTargetState(phase execution.Phase) string {

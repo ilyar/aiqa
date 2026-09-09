@@ -96,6 +96,25 @@ func TestOperatorReporterRefreshesElapsedAndETAWithoutExecutionEvent(t *testing.
 	}
 }
 
+func TestOperatorReporterShowsSchedulerWaitsPerTarget(t *testing.T) {
+	oldSize := terminalSize
+	terminalSize = func() (int, int, error) { return 120, 24, nil }
+	t.Cleanup(func() { terminalSize = oldSize })
+	var output bytes.Buffer
+	r := newAppOperatorReporter(&output, true, false, 1)
+	t.Cleanup(r.Close)
+	r.ObserveExecutionSnapshot(execution.Snapshot{
+		Run:         execution.RunSnapshot{ID: "run", Phase: execution.PhaseRunning, Offset: 10 * time.Second},
+		Targets:     []execution.TargetSnapshot{{ID: "google-genai", Phase: execution.PhaseRunning}},
+		Jobs:        []execution.JobSnapshot{{ID: "job", TargetID: "google-genai", State: execution.JobRunning}},
+		Waits:       []execution.WaitSnapshot{{ID: "wait", TargetID: "google-genai", EligibleAt: 40 * time.Second}},
+		PlannedJobs: 1,
+	})
+	if got := output.String(); !strings.Contains(got, "Waiting 1") || !strings.Contains(got, "WAITING") || !strings.Contains(got, "next in 30s") {
+		t.Fatalf("terminal frame does not explain scheduler wait: %q", got)
+	}
+}
+
 func TestOperatorETAUsesSchedulerCooldownAsLowerBound(t *testing.T) {
 	snapshot := execution.Snapshot{
 		Run:         execution.RunSnapshot{Phase: execution.PhaseRunning},

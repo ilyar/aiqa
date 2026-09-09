@@ -43,6 +43,7 @@ type Snapshot struct {
 	JobsTotal    int
 	Inflight     int
 	Concurrency  int
+	Waiting      int
 	HTTPDone     int
 	HTTPTotal    int
 	TargetsDone  int
@@ -101,7 +102,11 @@ func Render(s Snapshot, width, height int, options Options) Frame {
 	if width >= 110 {
 		lines = append(lines, fit(runLabel(s.RunID), limit, options.ASCII))
 		lines = append(lines, fit(fmt.Sprintf("%s Elapsed %s Jobs %d/%d (%d%%)", phase, value(s.Elapsed, "--:--"), s.JobsDone, s.JobsTotal, percent(s.JobsDone, s.JobsTotal)), limit, options.ASCII))
-		lines = append(lines, fit(fmt.Sprintf("ETA %s HTTP %d/%d In-flight %d/%d", value(s.ETA, "unknown"), s.HTTPDone, s.HTTPTotal, s.Inflight, s.Concurrency), limit, options.ASCII))
+		runtime := fmt.Sprintf("ETA %s HTTP %d/%d In-flight %d/%d", value(s.ETA, "unknown"), s.HTTPDone, s.HTTPTotal, s.Inflight, s.Concurrency)
+		if s.Waiting > 0 {
+			runtime += fmt.Sprintf(" Waiting %d", s.Waiting)
+		}
+		lines = append(lines, fit(runtime, limit, options.ASCII))
 		lines = append(lines, "")
 		lines = append(lines, fit("TARGET       STATE      JOBS  VERDICT", limit, options.ASCII))
 		for _, r := range rows(s.Rows) {
