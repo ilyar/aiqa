@@ -77,6 +77,80 @@ func TestRunPlanRejectsInvalidBindingsBeforeExecution(t *testing.T) {
 	}
 }
 
+func TestRunPlanRequiresOneConsistentBindingPerTarget(t *testing.T) {
+	tests := []struct {
+		name string
+		edit func(*PlanInput)
+		want string
+	}{
+		{
+			name: "missing target binding",
+			edit: func(input *PlanInput) { input.Bindings = nil },
+			want: "no frozen binding",
+		},
+		{
+			name: "duplicate target binding",
+			edit: func(input *PlanInput) { input.Bindings = append(input.Bindings, input.Bindings[0]) },
+			want: "duplicate binding",
+		},
+		{
+			name: "invocation suite differs from job",
+			edit: func(input *PlanInput) { input.Bindings[0].SDKInvocations[0].SuiteID = "other" },
+			want: "disagrees with frozen suite/model",
+		},
+		{
+			name: "invocation model differs from job",
+			edit: func(input *PlanInput) { input.Bindings[0].SDKInvocations[0].ModelID = "model-b" },
+			want: "disagrees with frozen suite/model",
+		},
+		{
+			name: "invocation model was not selected",
+			edit: func(input *PlanInput) {
+				input.Jobs[1].ModelID = "model-b"
+				input.Bindings[0].SDKInvocations[0].ModelID = "model-b"
+			},
+			want: "unselected model",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			input := validPlanInput()
+			test.edit(&input)
+			_, err := NewRunPlan(input)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("NewRunPlan() error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestRunPlanExposesOnlyCopiedTargetExecution(t *testing.T) {
+	plan, err := NewRunPlan(validPlanInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution, ok := plan.TargetExecution("openai")
+	if !ok || execution.TargetID != "openai" || len(execution.Jobs) != 2 {
+		t.Fatalf("unexpected target execution: %+v, found=%t", execution, ok)
+	}
+	if execution.Binding.SDKInvocations[0].JobID != "sdk:openai:model-a:chat" {
+		t.Fatalf("unexpected frozen invocation: %+v", execution.Binding.SDKInvocations)
+	}
+	execution.Jobs[0].ID = "mutated"
+	execution.Binding.SDKInvocations[0].JobID = "mutated"
+	job, ok := plan.Job("native:openai:model-a:compat")
+	if !ok || job.ID != "native:openai:model-a:compat" {
+		t.Fatalf("frozen job changed through execution view: %+v, found=%t", job, ok)
+	}
+	binding, ok := plan.Binding("openai")
+	if !ok || binding.SDKInvocations[0].JobID != "sdk:openai:model-a:chat" {
+		t.Fatalf("frozen binding changed through execution view: %+v, found=%t", binding, ok)
+	}
+	if _, ok := plan.TargetExecution("unknown"); ok {
+		t.Fatal("unknown target received an execution view")
+	}
+}
+
 func TestRunPlanLongIDsRemainDistinct(t *testing.T) {
 	input := validPlanInput()
 	prefix := strings.Repeat("x", 96)

@@ -76,6 +76,16 @@ type TerminalOutcome struct {
 	Outcome string
 }
 
+// TargetExecutionPlan is the frozen, target-local execution view. It joins
+// the binding resolved during Prepare with precisely the jobs Execute may
+// claim for that target. Its exported values are copies: callers cannot alter
+// the RunPlan after Freeze.
+type TargetExecutionPlan struct {
+	TargetID string
+	Binding  TargetBinding
+	Jobs     []JobSpec
+}
+
 // RunPlan is the sole frozen plan for a run. Its fields stay private so callers
 // cannot change IDs, selections, or bindings after validation.
 type RunPlan struct {
@@ -152,6 +162,50 @@ func (p *RunPlan) Bindings() []TargetBinding {
 	return cloneBindings(p.bindings)
 }
 
+// Job returns one exact frozen job by its full ID. It never abbreviates IDs,
+// because progress and terminal-outcome reconciliation use the same value.
+func (p *RunPlan) Job(id string) (JobSpec, bool) {
+	if p == nil {
+		return JobSpec{}, false
+	}
+	for _, job := range p.jobs {
+		if job.ID == id {
+			return cloneJobs([]JobSpec{job})[0], true
+		}
+	}
+	return JobSpec{}, false
+}
+
+// Binding returns the exact target-local binding frozen during Prepare.
+func (p *RunPlan) Binding(targetID string) (TargetBinding, bool) {
+	if p == nil {
+		return TargetBinding{}, false
+	}
+	for _, binding := range p.bindings {
+		if binding.TargetID == targetID {
+			return cloneBindings([]TargetBinding{binding})[0], true
+		}
+	}
+	return TargetBinding{}, false
+}
+
+// TargetExecution returns the complete frozen execution view for one target.
+// Consumers use this instead of independently deriving jobs from selection,
+// profile, or extension configuration after Freeze.
+func (p *RunPlan) TargetExecution(targetID string) (TargetExecutionPlan, bool) {
+	binding, ok := p.Binding(targetID)
+	if !ok {
+		return TargetExecutionPlan{}, false
+	}
+	execution := TargetExecutionPlan{TargetID: targetID, Binding: binding}
+	for _, job := range p.jobs {
+		if job.TargetID == targetID {
+			execution.Jobs = append(execution.Jobs, cloneJobs([]JobSpec{job})[0])
+		}
+	}
+	return execution, true
+}
+
 // ValidateFingerprint prevents Execute from silently using selection, override,
 // or profile state different from the frozen plan.
 func (p *RunPlan) ValidateFingerprint(fingerprint string) error {
@@ -177,9 +231,8 @@ func ValidatePlan(p *RunPlan) error {
 	}
 	targets := make(map[string]struct{}, len(p.targets))
 	for _, target := range p.targets {
-		target = strings.TrimSpace(target)
-		if target == "" {
-			return fmt.Errorf("plan contains empty target id")
+		if err := validateFrozenID("target id", target); err != nil {
+			return err
 		}
 		if _, exists := targets[target]; exists {
 			return fmt.Errorf("duplicate target id %q", target)
@@ -188,33 +241,45 @@ func ValidatePlan(p *RunPlan) error {
 	}
 	requirements := make(map[string]struct{}, len(p.requirements))
 	for _, requirement := range p.requirements {
-		id := strings.TrimSpace(requirement.ID)
-		if id == "" {
-			return fmt.Errorf("plan contains empty requirement id")
+		if err := validateFrozenID("requirement id", requirement.ID); err != nil {
+			return err
 		}
-		if _, exists := requirements[id]; exists {
-			return fmt.Errorf("duplicate requirement id %q", id)
+		if _, exists := requirements[requirement.ID]; exists {
+			return fmt.Errorf("duplicate requirement id %q", requirement.ID)
 		}
-		requirements[id] = struct{}{}
+		requirements[requirement.ID] = struct{}{}
 	}
 	jobs := make(map[string]JobSpec, len(p.jobs))
 	for _, job := range p.jobs {
-		id := strings.TrimSpace(job.ID)
-		if id == "" {
-			return fmt.Errorf("plan contains empty job id")
+		if err := validateFrozenID("job id", job.ID); err != nil {
+			return err
 		}
-		if _, exists := jobs[id]; exists {
-			return fmt.Errorf("duplicate job id %q", id)
+		if err := validateFrozenID("job target id", job.TargetID); err != nil {
+			return fmt.Errorf("job %q: %w", job.ID, err)
+		}
+		if err := validateFrozenID("job suite", job.Suite); err != nil {
+			return fmt.Errorf("job %q: %w", job.ID, err)
+		}
+		if err := validateFrozenID("job kind", job.Kind); err != nil {
+			return fmt.Errorf("job %q: %w", job.ID, err)
+		}
+		if job.ModelID != "" {
+			if err := validateFrozenID("job model id", job.ModelID); err != nil {
+				return fmt.Errorf("job %q: %w", job.ID, err)
+			}
+		}
+		if _, exists := jobs[job.ID]; exists {
+			return fmt.Errorf("duplicate job id %q", job.ID)
 		}
 		if _, exists := targets[job.TargetID]; !exists {
-			return fmt.Errorf("job %q references unknown target %q", id, job.TargetID)
+			return fmt.Errorf("job %q references unknown target %q", job.ID, job.TargetID)
 		}
 		for _, requirementID := range job.RequirementIDs {
 			if _, exists := requirements[requirementID]; !exists {
-				return fmt.Errorf("job %q references unknown requirement %q", id, requirementID)
+				return fmt.Errorf("job %q references unknown requirement %q", job.ID, requirementID)
 			}
 		}
-		jobs[id] = job
+		jobs[job.ID] = job
 	}
 	for id, job := range jobs {
 		for _, dependency := range job.Dependencies {
@@ -226,12 +291,49 @@ func ValidatePlan(p *RunPlan) error {
 			}
 		}
 	}
+	bindings := make(map[string]TargetBinding, len(p.bindings))
 	bound := make(map[string]struct{}, len(p.jobs))
 	for _, binding := range p.bindings {
+		if err := validateFrozenID("binding target id", binding.TargetID); err != nil {
+			return err
+		}
 		if _, exists := targets[binding.TargetID]; !exists {
 			return fmt.Errorf("binding references unknown target %q", binding.TargetID)
 		}
+		if _, duplicate := bindings[binding.TargetID]; duplicate {
+			return fmt.Errorf("duplicate binding for target %q", binding.TargetID)
+		}
+		if err := validateFrozenID("binding profile revision", binding.ProfileRevision); err != nil {
+			return fmt.Errorf("binding %q: %w", binding.TargetID, err)
+		}
+		selectedModels := make(map[string]struct{}, len(binding.SelectedModels))
+		for _, modelID := range binding.SelectedModels {
+			if err := validateFrozenID("selected model id", modelID); err != nil {
+				return fmt.Errorf("binding %q: %w", binding.TargetID, err)
+			}
+			if _, duplicate := selectedModels[modelID]; duplicate {
+				return fmt.Errorf("binding %q has duplicate selected model %q", binding.TargetID, modelID)
+			}
+			selectedModels[modelID] = struct{}{}
+		}
+		for _, job := range jobs {
+			if job.TargetID != binding.TargetID || job.ModelID == "" {
+				continue
+			}
+			if _, selected := selectedModels[job.ModelID]; !selected {
+				return fmt.Errorf("binding %q has job %q for unselected model %q", binding.TargetID, job.ID, job.ModelID)
+			}
+		}
 		for _, invocation := range binding.SDKInvocations {
+			if err := validateFrozenID("SDK invocation job id", invocation.JobID); err != nil {
+				return fmt.Errorf("binding %q: %w", binding.TargetID, err)
+			}
+			if err := validateFrozenID("SDK invocation suite id", invocation.SuiteID); err != nil {
+				return fmt.Errorf("binding %q: %w", binding.TargetID, err)
+			}
+			if err := validateFrozenID("SDK invocation model id", invocation.ModelID); err != nil {
+				return fmt.Errorf("binding %q: %w", binding.TargetID, err)
+			}
 			job, exists := jobs[invocation.JobID]
 			if !exists {
 				return fmt.Errorf("binding %q references unknown job %q", binding.TargetID, invocation.JobID)
@@ -239,11 +341,33 @@ func ValidatePlan(p *RunPlan) error {
 			if job.TargetID != binding.TargetID {
 				return fmt.Errorf("binding %q cannot invoke job %q for target %q", binding.TargetID, invocation.JobID, job.TargetID)
 			}
+			if job.Suite != invocation.SuiteID || job.ModelID != invocation.ModelID {
+				return fmt.Errorf("binding %q invocation for job %q disagrees with frozen suite/model", binding.TargetID, invocation.JobID)
+			}
+			if _, selected := selectedModels[invocation.ModelID]; !selected {
+				return fmt.Errorf("binding %q invokes unselected model %q", binding.TargetID, invocation.ModelID)
+			}
 			if _, duplicate := bound[invocation.JobID]; duplicate {
 				return fmt.Errorf("job %q has duplicate execution binding", invocation.JobID)
 			}
 			bound[invocation.JobID] = struct{}{}
 		}
+		bindings[binding.TargetID] = binding
+	}
+	for targetID := range targets {
+		if _, exists := bindings[targetID]; !exists {
+			return fmt.Errorf("target %q has no frozen binding", targetID)
+		}
+	}
+	return nil
+}
+
+func validateFrozenID(kind, value string) error {
+	if value == "" {
+		return fmt.Errorf("%s is required", kind)
+	}
+	if strings.TrimSpace(value) != value {
+		return fmt.Errorf("%s must not have leading or trailing whitespace", kind)
 	}
 	return nil
 }
