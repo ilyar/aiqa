@@ -35,6 +35,10 @@ type executionProgress struct {
 	unavailable bool
 }
 
+type executionSnapshotObserver interface {
+	ObserveExecutionSnapshot(execution.Snapshot)
+}
+
 func newExecutionProgress(runID string, capacity int, sink progress.Sink) (*executionProgress, error) {
 	if sink == nil {
 		return nil, fmt.Errorf("nil progress sink")
@@ -373,6 +377,9 @@ func (p *executionProgress) applyAt(offset time.Duration, event func(execution.B
 	// waiter existed, so it would under-report real scheduler delay.
 	if err := p.builder.Observe(p.reducer.Snapshot()); err != nil {
 		p.err = err
+	}
+	if observer, ok := p.sink.(executionSnapshotObserver); ok && p.err == nil {
+		observer.ObserveExecutionSnapshot(p.reducer.Snapshot())
 	}
 }
 
