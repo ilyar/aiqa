@@ -103,7 +103,11 @@ type PreparedTarget struct {
 	Profile    profile.Profile
 	Jobs       []Job
 	Candidates []result.ModelReport
-	Execute    func(context.Context, progress.Sink) (RunResult, error)
+	// Binding preserves the resolved selection and exact SDK invocations from
+	// Prepare. It is intentionally data-only so existing native runners remain
+	// compatible while application orchestration moves to RunPlan.
+	Binding TargetBinding
+	Execute func(context.Context, progress.Sink) (RunResult, error)
 }
 
 // Preparer performs only inventory, selection and planning. Implementations
