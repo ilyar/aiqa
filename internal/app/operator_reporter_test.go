@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ilyar/aiqa/internal/execution"
+	"github.com/rivo/uniseg"
 )
 
 func TestOperatorReporterRendersExecutionSnapshotsOnlyInTTY(t *testing.T) {
@@ -29,6 +30,26 @@ func TestOperatorReporterRendersExecutionSnapshotsOnlyInTTY(t *testing.T) {
 	newAppOperatorReporter(&plain, false, false, 1).ObserveExecutionSnapshot(snapshot)
 	if plain.Len() != 0 {
 		t.Fatalf("plain snapshot leaked terminal controls: %q", plain.String())
+	}
+}
+
+func TestOperatorReporterHonorsCurrentTerminalWidth(t *testing.T) {
+	old := terminalSize
+	terminalSize = func() (int, int, error) { return 48, 24, nil }
+	t.Cleanup(func() { terminalSize = old })
+	var output bytes.Buffer
+	r := newAppOperatorReporter(&output, true, false, 1)
+	r.ObserveExecutionSnapshot(execution.Snapshot{
+		Run:         execution.RunSnapshot{ID: strings.Repeat("run", 32), Phase: execution.PhaseRunning},
+		Targets:     []execution.TargetSnapshot{{ID: strings.Repeat("target", 32), Phase: execution.PhaseRunning}},
+		Jobs:        []execution.JobSnapshot{{ID: "job", TargetID: strings.Repeat("target", 32), State: execution.JobRunning}},
+		PlannedJobs: 1,
+	})
+	for _, line := range strings.Split(output.String(), "\n") {
+		line = strings.ReplaceAll(line, "\r\x1b[2K", "")
+		if uniseg.StringWidth(line) > 47 {
+			t.Fatalf("line width=%d > 47: %q", uniseg.StringWidth(line), line)
+		}
 	}
 }
 

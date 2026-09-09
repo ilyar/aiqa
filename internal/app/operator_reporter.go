@@ -27,6 +27,8 @@ type operatorReporter struct {
 	lines int
 }
 
+var terminalSize = func() (int, int, error) { return term.GetSize(2) }
+
 func newAppOperatorReporter(writer io.Writer, tty bool, disabled bool, capacity int) *operatorReporter {
 	if disabled {
 		return &operatorReporter{Reporter: progress.New(progress.Options{Writer: io.Discard})}
@@ -49,7 +51,7 @@ func (r *operatorReporter) ObserveExecutionSnapshot(snapshot execution.Snapshot)
 		return
 	}
 	width := 80
-	if n, _, err := term.GetSize(2); err == nil && n > 1 {
+	if n, _, err := terminalSize(); err == nil && n > 1 {
 		width = n
 	}
 	rows := make([]terminal.Target, 0, len(snapshot.Targets))
