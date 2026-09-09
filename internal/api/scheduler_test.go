@@ -267,6 +267,39 @@ func TestReserveArtifactRefundsOnlyBeforeDispatchAndIsNoopWithoutScheduler(t *te
 	}
 }
 
+func TestOpaqueLeaseUsesSharedAdmissionCapacity(t *testing.T) {
+	broker, err := scheduler.New(scheduler.Config{Capacity: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := NewClient("https://provider.example", "", "test", time.Nanosecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configureAdmission(t, client, broker, "target-a", "provider-a")
+	lease, err := client.AcquireOpaqueLease(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blockedCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	blocked := make(chan error, 1)
+	go func() {
+		waitingLease, err := client.AcquireOpaqueLease(blockedCtx, 1)
+		if waitingLease != nil {
+			waitingLease.Release()
+		}
+		blocked <- err
+	}()
+	waitForSchedulerCondition(t, func() bool {
+		return len(broker.Snapshot().Waiting) == 1 && broker.Snapshot().Waiting[0].Reason == scheduler.WaitGlobalCapacity
+	})
+	lease.Release()
+	if err := <-blocked; err != nil {
+		t.Fatalf("shared opaque admission=%v", err)
+	}
+}
+
 // A04: an explicit Retry-After becomes a group-local broker cooldown. This
 // covers native raw, SDK RoundTripper, and SSE stream attempts. The test uses
 // loopback synchronization and cancellation rather than sleeping for the

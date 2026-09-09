@@ -367,6 +367,30 @@ func (c *Client) ReserveArtifact(ctx context.Context, modelID string) (*Artifact
 	return &ArtifactReservation{lease: lease}, nil
 }
 
+// AcquireOpaqueLease reserves run-wide capacity for an executable extension
+// whose provider dispatches cannot be observed by the host. The lease covers
+// the whole process invocation, not inferred HTTP attempts, and is released
+// by the caller when that process has stopped. A client without admission is
+// deliberately backward-compatible and returns a nil lease.
+func (c *Client) AcquireOpaqueLease(ctx context.Context, weight int) (*scheduler.Lease, error) {
+	if weight < 1 {
+		return nil, scheduler.ErrInvalidRequest
+	}
+	c.logMu.RLock()
+	admission := c.scheduler
+	c.logMu.RUnlock()
+	if admission.broker == nil {
+		return nil, nil
+	}
+	admissionCtx := ctx
+	var cancel context.CancelFunc
+	if admission.queueTimeout > 0 {
+		admissionCtx, cancel = context.WithTimeout(ctx, admission.queueTimeout)
+		defer cancel()
+	}
+	return admission.broker.Acquire(admissionCtx, scheduler.Request{Target: admission.target, Group: admission.group, Weight: weight})
+}
+
 // applySchedulerRetryAfter shares an explicit provider Retry-After signal with
 // every client bound to this run's pacing group. It deliberately receives only
 // a parsed header duration: neither a URL nor any response/request content is

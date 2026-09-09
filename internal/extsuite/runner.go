@@ -18,6 +18,7 @@ import (
 	"github.com/ilyar/aiqa/internal/profile"
 	"github.com/ilyar/aiqa/internal/progress"
 	"github.com/ilyar/aiqa/internal/result"
+	"github.com/ilyar/aiqa/internal/scheduler"
 	"github.com/ilyar/aiqa/internal/telemetry"
 )
 
@@ -342,7 +343,23 @@ func executeTarget(ctx context.Context, registry *Registry, cfg config.Config, t
 					lock.Lock()
 					defer lock.Unlock()
 				}
-				executor.DoN(slots, func() { telemetry, runErr = planned.extension.Run(runCtx, request, collector) })
+				// An executable is opaque to the host: reserve its declared
+				// capacity for the full process lifetime rather than pretending
+				// to observe its individual HTTP attempts. This is run-wide when
+				// the app has bound the client to its shared broker.
+				var leaseErr error
+				var lease *scheduler.Lease
+				if client != nil {
+					lease, leaseErr = client.AcquireOpaqueLease(runCtx, slots)
+				}
+				if leaseErr != nil {
+					runErr = fmt.Errorf("executable admission unavailable: %w", leaseErr)
+				} else {
+					executor.DoN(slots, func() { telemetry, runErr = planned.extension.Run(runCtx, request, collector) })
+					if lease != nil {
+						lease.Release()
+					}
+				}
 			} else {
 				// A built-in SDK invocation owns the actual provider dispatch.  Its
 				// declared billable-artifact suites therefore reserve the shared
