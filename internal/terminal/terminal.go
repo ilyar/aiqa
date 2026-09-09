@@ -179,13 +179,10 @@ func value(got, fallback string) string {
 }
 
 // runLabel makes a run identifier useful outside this terminal session. The
-// execution layer stores its opaque IDs as run-<suffix>; the operator-facing
-// form carries the producing tool namespace without discarding that suffix.
+// execution layer stores its opaque IDs as run-<suffix>; preserve that exact
+// ID under the tool namespace so it can be copied to trace/report lookup.
 func runLabel(id string) string {
 	id = clean(id)
-	if strings.HasPrefix(id, "run-") {
-		id = strings.TrimPrefix(id, "run-")
-	}
 	if strings.HasPrefix(id, "aiqa-") {
 		return id
 	}
