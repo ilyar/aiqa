@@ -40,6 +40,24 @@ type RunOptions struct {
 	Inventory   *protocolpkg.Inventory
 	Scheduler   *scheduler.Broker
 	PacingGroup string
+	frozen      *frozenExecution
+}
+
+// frozenExecution retains every decision and report-visible preflight made by
+// Prepare. Execute consumes this snapshot without re-reading mutable inputs.
+type frozenExecution struct {
+	client             *Client
+	executor           *probe.Executor
+	selected           []string
+	metadata           map[string]map[string]any
+	classifications    []capability.Classification
+	modulePlans        [][]result.ModuleAssessment
+	preflights         []*api.Response
+	preflightErrs      []error
+	preflightTests     []*result.TestResult
+	routeBlocked       []bool
+	overrideBinding    []string
+	paginationResponse api.Response
 }
 
 type Runtime struct {
@@ -77,10 +95,14 @@ func (p *progressPlan) addDynamicProbe() {
 // RunTarget adapts the Google GenAI implementation to the shared protocol
 // registry contract.
 func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg.RunResult, error) {
+	return runTarget(ctx, options, nil)
+}
+
+func runTarget(ctx context.Context, options protocolpkg.RunOptions, frozen *frozenExecution) (protocolpkg.RunResult, error) {
 	runtime := &Runtime{}
 	target, err := Run(ctx, RunOptions{
 		Target: options.Target, Config: options.Config, Profile: options.Profile,
-		UserAgent: options.UserAgent, Logf: options.Logf, Logger: options.Logger, Telemetry: options.Telemetry, Progress: options.Progress, Runtime: runtime, Inventory: options.Inventory, Scheduler: options.Scheduler, PacingGroup: options.PacingGroup,
+		UserAgent: options.UserAgent, Logf: options.Logf, Logger: options.Logger, Telemetry: options.Telemetry, Progress: options.Progress, Runtime: runtime, Inventory: options.Inventory, Scheduler: options.Scheduler, PacingGroup: options.PacingGroup, frozen: frozen,
 	})
 	target.Notes = []string{"Google Gen AI Go SDK v1.71.0 does not expose public Interactions API methods; no SDK Interactions suite is claimed."}
 	return protocolpkg.RunResult{
@@ -109,7 +131,7 @@ func PrepareTarget(ctx context.Context, options protocolpkg.RunOptions) (protoco
 		discoveryCtx, discoveryProbe = options.Telemetry.Start(logging.Scope(suiteCtx, options.Target.ID, "", "discovery", "google.models.list.http", ""), "probe", logging.Fields{"probe": "aiqa.native.google.models.list.http"})
 	}
 	listCtx, cancel := api.WithRequestTimeout(discoveryCtx, options.Config.Timeout)
-	models, response, _, listErr := discoverAll(listCtx, client)
+	models, response, paginationResponse, listErr := discoverAll(listCtx, client)
 	cancel()
 	if discoveryProbe != nil {
 		outcome := "completed"
@@ -121,26 +143,13 @@ func PrepareTarget(ctx context.Context, options protocolpkg.RunOptions) (protoco
 		discoveryProvider.End(outcome, logging.Fields{"status": outcome})
 	}
 	selected, metadata := selectModels(requestedModels(options.Config, options.Target), models)
-	candidates := make([]result.ModelReport, 0, len(selected))
-	overrides, err := capability.LoadOverrideFile(options.Target.CapabilityFile)
+	executor := probe.NewExecutor(options.Config.Concurrency)
+	frozen, err := freezeExecution(ctx, options, client, executor, selected, metadata, paginationResponse)
 	if err != nil {
 		return protocolpkg.PreparedTarget{}, err
 	}
-	if overrides == nil {
-		overrides = map[string][]string{}
-	}
 	jobs := []protocolpkg.Job{{ID: protocolpkg.JobID(options.Target.ID, "", "inventory"), Target: options.Target.ID, Label: "model inventory"}}
-	for _, model := range selected {
-		unknown := options.Target.UnknownModel
-		if len(requestedModels(options.Config, options.Target)) > 0 {
-			unknown = "inventory"
-		}
-		classification := capability.ClassifyGoogleGenAI(model, metadata[model], capability.Options{BaseURL: options.Target.BaseURL, Overrides: overrides, UnknownPolicy: unknown})
-		candidate := result.ModelReport{ID: model, Metadata: cloneMap(metadata[model]), Modules: capability.AssessModules(classification, options.Profile.Modules, capability.RoutingOptions{Modules: options.Target.Modules, AllowBillableArtifacts: options.Config.AllowBillableArtifacts, AllowHighTokenProbes: options.Config.AllowHighTokenProbes, AllowPersistentResources: options.Config.AllowPersistentResources})}
-		for _, e := range classification.Capabilities {
-			candidate.Capabilities = append(candidate.Capabilities, result.CapabilityAssessment{ID: e.Capability, Source: e.Source, Rule: e.Rule, Confidence: e.Confidence, Reason: e.Reason})
-		}
-		candidates = append(candidates, candidate)
+	for _, model := range frozen.selected {
 		if options.Config.HasTest("compat") {
 			jobs = append(jobs, protocolpkg.Job{ID: protocolpkg.JobID(options.Target.ID, model, "compat"), Target: options.Target.ID, Model: model, Label: "Google GenAI compatibility"})
 		}
@@ -148,42 +157,32 @@ func PrepareTarget(ctx context.Context, options protocolpkg.RunOptions) (protoco
 			jobs = append(jobs, protocolpkg.Job{ID: protocolpkg.JobID(options.Target.ID, model, "model-param"), Target: options.Target.ID, Model: model, Label: "model parameters"})
 		}
 	}
-	inv := &protocolpkg.Inventory{Models: models, Response: response, Err: listErr, Runtime: protocolpkg.Runtime{Client: client.TransportClient(), Executor: probe.NewExecutor(options.Config.Concurrency)}}
-	prepared := protocolpkg.PreparedTarget{Target: options.Target, Profile: options.Profile, Jobs: jobs, Candidates: candidates}
+	inv := &protocolpkg.Inventory{Models: models, Response: response, Err: listErr, Runtime: protocolpkg.Runtime{Client: client.TransportClient(), Executor: executor}}
+	prepared := protocolpkg.PreparedTarget{Target: options.Target, Profile: options.Profile, Jobs: jobs, Candidates: frozen.candidates(), Binding: protocolpkg.TargetBinding{TargetID: options.Target.ID, ProfileRevision: options.Profile.Revision, ResolvedOverrides: frozen.overrides(), SelectedModels: append([]string(nil), frozen.selected...), Classification: "google-genai-capability-selection-v1"}}
 	prepared.Execute = func(runCtx context.Context, sink progress.Sink) (protocolpkg.RunResult, error) {
 		runOptions := options
 		runOptions.Progress, runOptions.Inventory = sink, inv
-		return protocolpkg.ExecuteFrozen(runCtx, sink, jobs, func(ctx context.Context) (protocolpkg.RunResult, error) { return RunTarget(ctx, runOptions) })
+		return protocolpkg.ExecuteFrozen(runCtx, sink, jobs, func(ctx context.Context) (protocolpkg.RunResult, error) { return runTarget(ctx, runOptions, &frozen) })
 	}
 	return prepared, nil
 }
 
 func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	target, cfg, p := options.Target, options.Config, options.Profile
-	overrides, err := capability.LoadOverrideFile(target.CapabilityFile)
-	if err != nil {
-		return result.TargetReport{}, err
-	}
-	if overrides == nil {
-		overrides = map[string][]string{}
-	}
-	for _, raw := range target.ModelCapabilities {
-		parts := strings.SplitN(raw, "=", 2)
-		if len(parts) != 2 {
-			return result.TargetReport{}, fmt.Errorf("invalid --google-genai-model-capability %q", raw)
+	var overrides map[string][]string
+	var err error
+	if options.frozen == nil {
+		overrides, err = resolvedOverrides(target)
+		if err != nil {
+			return result.TargetReport{}, err
 		}
-		values := strings.Split(parts[1], "+")
-		for index := range values {
-			values[index] = strings.TrimSpace(values[index])
-			if !capability.Known[values[index]] || !strings.HasPrefix(values[index], "google-genai.") {
-				return result.TargetReport{}, fmt.Errorf("unknown or non-Google capability %q", values[index])
-			}
-		}
-		overrides[strings.TrimSpace(parts[0])] = values
 	}
-	client, err := NewClient(target.BaseURL, target.APIKey, target.APIVersion, options.UserAgent, target.RequestInterval)
-	if err != nil {
-		return result.TargetReport{}, err
+	client := options.frozenClient()
+	if client == nil {
+		client, err = NewClient(target.BaseURL, target.APIKey, target.APIVersion, options.UserAgent, target.RequestInterval)
+		if err != nil {
+			return result.TargetReport{}, err
+		}
 	}
 	client.SetConcurrency(cfg.Concurrency)
 	if err := protocolpkg.ConfigureClientScheduler(client.TransportClient(), protocolpkg.RunOptions{Target: target, Scheduler: options.Scheduler, PacingGroup: options.PacingGroup}); err != nil {
@@ -191,7 +190,10 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	}
 	client.TransportClient().SetLogger(options.Logger)
 	client.TransportClient().SetLogFields(logging.Fields{"target": target.ID, "protocol": string(target.Protocol)})
-	executor := probe.NewExecutor(cfg.Concurrency)
+	executor := options.frozenExecutor()
+	if executor == nil {
+		executor = probe.NewExecutor(cfg.Concurrency)
+	}
 	executor.SetLogger(options.Logger)
 	executor.SetLogFields(logging.Fields{"target": target.ID, "protocol": string(target.Protocol)})
 	client.TransportClient().SetTelemetry(options.Telemetry)
@@ -223,6 +225,9 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	if options.Inventory != nil {
 		models, listResp, listErr = options.Inventory.Models, options.Inventory.Response, options.Inventory.Err
 		paginationResp = listResp
+		if options.frozen != nil {
+			paginationResp = options.frozen.paginationResponse
+		}
 	} else {
 		listCtx, cancel := api.WithRequestTimeout(discoveryCtx, cfg.Timeout)
 		models, listResp, paginationResp, listErr = discoverAll(listCtx, client)
@@ -255,6 +260,9 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 		protocolpkg.StartJob(options.Progress, target.ID, "", "inventory")(outcome)
 	}
 	selected, metadata := selectModels(requested, models)
+	if options.frozen != nil {
+		selected, metadata = options.frozen.selected, options.frozen.metadata
+	}
 	if len(selected) == 0 {
 		reportpkg.Finalize(&tmp)
 		guidance.ExtractArtifacts(&tmp)
@@ -278,80 +286,85 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	routeBlocked := make([]bool, len(selected))
 	classifications := make([]capability.Classification, len(selected))
 	modulePlans := make([][]result.ModuleAssessment, len(selected))
-	for index, model := range selected {
-		unknownPolicy := target.UnknownModel
-		if len(requested) > 0 {
-			unknownPolicy = "inventory"
-		}
-		classification := capability.ClassifyGoogleGenAI(model, metadata[model], capability.Options{BaseURL: target.BaseURL, Overrides: overrides, UnknownPolicy: unknownPolicy})
-		if len(requested) > 0 && classification.Unknown {
-			var test result.TestResult
-			var response api.Response
-			var preflightErr error
-			preflightCtx := logging.Scope(ctx, target.ID, model, "", "", "")
-			var modelOp, suiteOp *telemetry.Operation
-			if options.Telemetry != nil {
-				preflightCtx, modelOp = options.Telemetry.Start(preflightCtx, "model", logging.Fields{"model": model})
-				preflightCtx, suiteOp = options.Telemetry.Start(logging.Scope(preflightCtx, target.ID, model, "compat", "", ""), "suite", logging.Fields{"suite": "compat"})
+	if options.frozen != nil {
+		preflights, preflightErrors, preflightTests = options.frozen.preflights, options.frozen.preflightErrs, options.frozen.preflightTests
+		routeBlocked, classifications, modulePlans = options.frozen.routeBlocked, options.frozen.classifications, options.frozen.modulePlans
+	} else {
+		for index, model := range selected {
+			unknownPolicy := target.UnknownModel
+			if len(requested) > 0 {
+				unknownPolicy = "inventory"
 			}
-			preflightProbeID := "google.interactions.basic"
-			if strings.Contains(p.ID, "generate-content") {
-				preflightProbeID = "google.generate-content.basic"
-			}
-			nativeChildProbe(preflightCtx, options.Telemetry, preflightProbeID, func(probeCtx context.Context) result.TestResult {
-				test, response, preflightErr = runGooglePreflight(probeCtx, client, cfg.Timeout, p, model)
-				return test
-			})
-			if suiteOp != nil {
-				suiteOp.End(string(test.Status), logging.Fields{"status": string(test.Status), "http_status": test.HTTP.StatusCode})
-				modelOp.End(string(test.Status), logging.Fields{"status": string(test.Status), "http_status": test.HTTP.StatusCode})
-			}
-			preflightTests[index], preflights[index], preflightErrors[index] = &test, &response, preflightErr
-			switch {
-			case response.Is2xx() && preflightErr == nil:
-				classification.Unknown = false
-				classification.Reason = ""
-				capabilityID := capability.GoogleGenerateText
-				if !strings.Contains(p.ID, "generate-content") {
-					capabilityID = capability.GoogleInteractionsText
+			classification := capability.ClassifyGoogleGenAI(model, metadata[model], capability.Options{BaseURL: target.BaseURL, Overrides: overrides, UnknownPolicy: unknownPolicy})
+			if len(requested) > 0 && classification.Unknown {
+				var test result.TestResult
+				var response api.Response
+				var preflightErr error
+				preflightCtx := logging.Scope(ctx, target.ID, model, "", "", "")
+				var modelOp, suiteOp *telemetry.Operation
+				if options.Telemetry != nil {
+					preflightCtx, modelOp = options.Telemetry.Start(preflightCtx, "model", logging.Fields{"model": model})
+					preflightCtx, suiteOp = options.Telemetry.Start(logging.Scope(preflightCtx, target.ID, model, "compat", "", ""), "suite", logging.Fields{"suite": "compat"})
 				}
-				classification.Capabilities = append(classification.Capabilities, capability.Evidence{Capability: capabilityID, Source: "preflight", Rule: "google-genai.text.preflight", Confidence: "high", Reason: "minimal Google text preflight accepted the requested model"})
-			case isTransientResponse(response, preflightErr):
-				classification.Reason = "model availability is inconclusive after transient preflight failure"
-				routeBlocked[index] = true
-				markRouteBlockedTest(preflightTests[index], "model availability could not be determined after a transient preflight failure")
-			default:
-				if isModelRouteRejection(response) {
-					classification.Reason = "explicit model route rejection"
-					markRouteRejectionTest(preflightTests[index])
-				} else {
-					classification.Reason = "model availability is inconclusive after validation preflight failure"
-					markRouteBlockedTest(preflightTests[index], "model availability could not be determined from this validation response")
+				preflightProbeID := "google.interactions.basic"
+				if strings.Contains(p.ID, "generate-content") {
+					preflightProbeID = "google.generate-content.basic"
 				}
-				routeBlocked[index] = true
+				nativeChildProbe(preflightCtx, options.Telemetry, preflightProbeID, func(probeCtx context.Context) result.TestResult {
+					test, response, preflightErr = runGooglePreflight(probeCtx, client, cfg.Timeout, p, model)
+					return test
+				})
+				if suiteOp != nil {
+					suiteOp.End(string(test.Status), logging.Fields{"status": string(test.Status), "http_status": test.HTTP.StatusCode})
+					modelOp.End(string(test.Status), logging.Fields{"status": string(test.Status), "http_status": test.HTTP.StatusCode})
+				}
+				preflightTests[index], preflights[index], preflightErrors[index] = &test, &response, preflightErr
+				switch {
+				case response.Is2xx() && preflightErr == nil:
+					classification.Unknown = false
+					classification.Reason = ""
+					capabilityID := capability.GoogleGenerateText
+					if !strings.Contains(p.ID, "generate-content") {
+						capabilityID = capability.GoogleInteractionsText
+					}
+					classification.Capabilities = append(classification.Capabilities, capability.Evidence{Capability: capabilityID, Source: "preflight", Rule: "google-genai.text.preflight", Confidence: "high", Reason: "minimal Google text preflight accepted the requested model"})
+				case isTransientResponse(response, preflightErr):
+					classification.Reason = "model availability is inconclusive after transient preflight failure"
+					routeBlocked[index] = true
+					markRouteBlockedTest(preflightTests[index], "model availability could not be determined after a transient preflight failure")
+				default:
+					if isModelRouteRejection(response) {
+						classification.Reason = "explicit model route rejection"
+						markRouteRejectionTest(preflightTests[index])
+					} else {
+						classification.Reason = "model availability is inconclusive after validation preflight failure"
+						markRouteBlockedTest(preflightTests[index], "model availability could not be determined from this validation response")
+					}
+					routeBlocked[index] = true
+				}
 			}
-		}
-		if interactionEligible(requested, p, model) && (classification.Unknown || classification.Has(capability.GoogleGenerateText) || classification.Has(capability.GoogleInteractionsText)) {
-			// Interactions is selected by explicit/profile policy, not by the
-			// legacy generateContent inventory method.
-			classification.Capabilities = append(classification.Capabilities,
-				capability.Evidence{Capability: capability.GoogleInteractionsText, Source: "profile_allowlist", Rule: "google-genai.interactions.allowlist", Confidence: "high", Reason: "model is explicitly eligible for the selected Interactions surface"},
-				capability.Evidence{Capability: capability.GoogleInteractionsTools, Source: "profile_allowlist", Rule: "google-genai.interactions.allowlist", Confidence: "medium", Reason: "text model is eligible for client-side Interactions tool probing"},
-				capability.Evidence{Capability: capability.GoogleInteractionsStructured, Source: "profile_allowlist", Rule: "google-genai.interactions.allowlist", Confidence: "medium", Reason: "text model is eligible for Interactions structured-output probing"},
-			)
-			if cfg.AllowPersistentResources {
+			if interactionEligible(requested, p, model) && (classification.Unknown || classification.Has(capability.GoogleGenerateText) || classification.Has(capability.GoogleInteractionsText)) {
+				// Interactions is selected by explicit/profile policy, not by the
+				// legacy generateContent inventory method.
 				classification.Capabilities = append(classification.Capabilities,
-					capability.Evidence{Capability: capability.GoogleInteractionsStateful, Source: "explicit_opt_in", Rule: "google-genai.interactions.stateful.opt_in", Confidence: "high", Reason: "persistent Interaction probing was explicitly authorized"},
+					capability.Evidence{Capability: capability.GoogleInteractionsText, Source: "profile_allowlist", Rule: "google-genai.interactions.allowlist", Confidence: "high", Reason: "model is explicitly eligible for the selected Interactions surface"},
+					capability.Evidence{Capability: capability.GoogleInteractionsTools, Source: "profile_allowlist", Rule: "google-genai.interactions.allowlist", Confidence: "medium", Reason: "text model is eligible for client-side Interactions tool probing"},
+					capability.Evidence{Capability: capability.GoogleInteractionsStructured, Source: "profile_allowlist", Rule: "google-genai.interactions.allowlist", Confidence: "medium", Reason: "text model is eligible for Interactions structured-output probing"},
 				)
+				if cfg.AllowPersistentResources {
+					classification.Capabilities = append(classification.Capabilities,
+						capability.Evidence{Capability: capability.GoogleInteractionsStateful, Source: "explicit_opt_in", Rule: "google-genai.interactions.stateful.opt_in", Confidence: "high", Reason: "persistent Interaction probing was explicitly authorized"},
+					)
+				}
 			}
-		}
-		classification.Capabilities = uniqueEvidence(classification.Capabilities)
-		classifications[index] = classification
-		modulePlans[index] = capability.AssessModules(classification, p.Modules, capability.RoutingOptions{Modules: target.Modules, AllowBillableArtifacts: cfg.AllowBillableArtifacts, AllowHighTokenProbes: cfg.AllowHighTokenProbes, AllowPersistentResources: cfg.AllowPersistentResources})
-		if routeBlocked[index] {
-			for moduleIndex := range modulePlans[index] {
-				if modulePlans[index][moduleIndex].Applicability != result.ApplicabilityNotApplicable {
-					modulePlans[index][moduleIndex].BlockedBy = []string{"google.text.basic"}
+			classification.Capabilities = uniqueEvidence(classification.Capabilities)
+			classifications[index] = classification
+			modulePlans[index] = capability.AssessModules(classification, p.Modules, capability.RoutingOptions{Modules: target.Modules, AllowBillableArtifacts: cfg.AllowBillableArtifacts, AllowHighTokenProbes: cfg.AllowHighTokenProbes, AllowPersistentResources: cfg.AllowPersistentResources})
+			if routeBlocked[index] {
+				for moduleIndex := range modulePlans[index] {
+					if modulePlans[index][moduleIndex].Applicability != result.ApplicabilityNotApplicable {
+						modulePlans[index][moduleIndex].BlockedBy = []string{"google.text.basic"}
+					}
 				}
 			}
 		}
@@ -450,6 +463,137 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	guidance.QualifyArtifacts(&tmp, target.ID)
 	assessment.ApplyTarget(&tmp, p, target.ID, string(target.Protocol))
 	return toTarget(target, tmp), nil
+}
+
+func (o RunOptions) frozenClient() *Client {
+	if o.frozen != nil {
+		return o.frozen.client
+	}
+	return nil
+}
+func (o RunOptions) frozenExecutor() *probe.Executor {
+	if o.frozen != nil {
+		return o.frozen.executor
+	}
+	return nil
+}
+
+func freezeExecution(ctx context.Context, options protocolpkg.RunOptions, client *Client, executor *probe.Executor, selected []string, metadata map[string]map[string]any, paginationResponse api.Response) (frozenExecution, error) {
+	overrides, err := resolvedOverrides(options.Target)
+	if err != nil {
+		return frozenExecution{}, err
+	}
+	frozen := frozenExecution{client: client, executor: executor, selected: append([]string(nil), selected...), metadata: metadata, overrideBinding: canonicalOverrides(overrides), paginationResponse: paginationResponse, classifications: make([]capability.Classification, len(selected)), modulePlans: make([][]result.ModuleAssessment, len(selected)), preflights: make([]*api.Response, len(selected)), preflightErrs: make([]error, len(selected)), preflightTests: make([]*result.TestResult, len(selected)), routeBlocked: make([]bool, len(selected))}
+	explicit, legacy := len(requestedModels(options.Config, options.Target)) > 0, strings.Contains(options.Profile.ID, "generate-content")
+	for index, model := range selected {
+		unknown := options.Target.UnknownModel
+		if explicit {
+			unknown = "inventory"
+		}
+		classification := capability.ClassifyGoogleGenAI(model, metadata[model], capability.Options{BaseURL: options.Target.BaseURL, Overrides: overrides, UnknownPolicy: unknown})
+		if explicit && classification.Unknown {
+			var test result.TestResult
+			var response api.Response
+			var preflightErr error
+			probeID := "google.interactions.basic"
+			if legacy {
+				probeID = "google.generate-content.basic"
+			}
+			nativeChildProbe(logging.Scope(ctx, options.Target.ID, model, "", "", ""), options.Telemetry, probeID, func(probeCtx context.Context) result.TestResult {
+				test, response, preflightErr = runGooglePreflight(probeCtx, client, options.Config.Timeout, options.Profile, model)
+				return test
+			})
+			frozen.preflightTests[index], frozen.preflights[index], frozen.preflightErrs[index] = &test, &response, preflightErr
+			switch {
+			case response.Is2xx() && preflightErr == nil:
+				classification.Unknown, classification.Reason = false, ""
+				capabilityID := capability.GoogleGenerateText
+				if !legacy {
+					capabilityID = capability.GoogleInteractionsText
+				}
+				classification.Capabilities = append(classification.Capabilities, capability.Evidence{Capability: capabilityID, Source: "preflight", Rule: "google-genai.text.preflight", Confidence: "high", Reason: "minimal Google text preflight accepted the requested model"})
+			case isTransientResponse(response, preflightErr):
+				classification.Reason, frozen.routeBlocked[index] = "model availability is inconclusive after transient preflight failure", true
+				markRouteBlockedTest(&test, "model availability could not be determined after a transient preflight failure")
+			default:
+				frozen.routeBlocked[index] = true
+				if isModelRouteRejection(response) {
+					classification.Reason = "explicit model route rejection"
+					markRouteRejectionTest(&test)
+				} else {
+					classification.Reason = "model availability is inconclusive after validation preflight failure"
+					markRouteBlockedTest(&test, "model availability could not be determined from this validation response")
+				}
+			}
+		}
+		if interactionEligible(requestedModels(options.Config, options.Target), options.Profile, model) && (classification.Unknown || classification.Has(capability.GoogleGenerateText) || classification.Has(capability.GoogleInteractionsText)) {
+			classification.Capabilities = append(classification.Capabilities, capability.Evidence{Capability: capability.GoogleInteractionsText, Source: "profile_allowlist", Rule: "google-genai.interactions.allowlist", Confidence: "high", Reason: "model is explicitly eligible for the selected Interactions surface"}, capability.Evidence{Capability: capability.GoogleInteractionsTools, Source: "profile_allowlist", Rule: "google-genai.interactions.allowlist", Confidence: "medium", Reason: "text model is eligible for client-side Interactions tool probing"}, capability.Evidence{Capability: capability.GoogleInteractionsStructured, Source: "profile_allowlist", Rule: "google-genai.interactions.allowlist", Confidence: "medium", Reason: "text model is eligible for Interactions structured-output probing"})
+			if options.Config.AllowPersistentResources {
+				classification.Capabilities = append(classification.Capabilities, capability.Evidence{Capability: capability.GoogleInteractionsStateful, Source: "explicit_opt_in", Rule: "google-genai.interactions.stateful.opt_in", Confidence: "high", Reason: "persistent Interaction probing was explicitly authorized"})
+			}
+		}
+		classification.Capabilities = uniqueEvidence(classification.Capabilities)
+		frozen.classifications[index] = classification
+		frozen.modulePlans[index] = capability.AssessModules(classification, options.Profile.Modules, capability.RoutingOptions{Modules: options.Target.Modules, AllowBillableArtifacts: options.Config.AllowBillableArtifacts, AllowHighTokenProbes: options.Config.AllowHighTokenProbes, AllowPersistentResources: options.Config.AllowPersistentResources})
+		if frozen.routeBlocked[index] {
+			for moduleIndex := range frozen.modulePlans[index] {
+				if frozen.modulePlans[index][moduleIndex].Applicability != result.ApplicabilityNotApplicable {
+					frozen.modulePlans[index][moduleIndex].BlockedBy = []string{"google.text.basic"}
+				}
+			}
+		}
+	}
+	return frozen, nil
+}
+
+func (f frozenExecution) candidates() []result.ModelReport {
+	candidates := make([]result.ModelReport, 0, len(f.selected))
+	for index, model := range f.selected {
+		candidate := result.ModelReport{ID: model, Metadata: cloneMap(f.metadata[model]), Modules: append([]result.ModuleAssessment(nil), f.modulePlans[index]...)}
+		for _, evidence := range f.classifications[index].Capabilities {
+			candidate.Capabilities = append(candidate.Capabilities, result.CapabilityAssessment{ID: evidence.Capability, Source: evidence.Source, Rule: evidence.Rule, Confidence: evidence.Confidence, Reason: evidence.Reason})
+		}
+		candidates = append(candidates, candidate)
+	}
+	return candidates
+}
+func (f frozenExecution) overrides() []string { return append([]string(nil), f.overrideBinding...) }
+
+func resolvedOverrides(target config.TargetConfig) (map[string][]string, error) {
+	overrides, err := capability.LoadOverrideFile(target.CapabilityFile)
+	if err != nil {
+		return nil, err
+	}
+	if overrides == nil {
+		overrides = map[string][]string{}
+	}
+	for _, raw := range target.ModelCapabilities {
+		parts := strings.SplitN(raw, "=", 2)
+		if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
+			return nil, fmt.Errorf("invalid --google-genai-model-capability %q", raw)
+		}
+		values := strings.Split(parts[1], "+")
+		for index := range values {
+			values[index] = strings.TrimSpace(values[index])
+			if !capability.Known[values[index]] || !strings.HasPrefix(values[index], "google-genai.") {
+				return nil, fmt.Errorf("unknown or non-Google capability %q", values[index])
+			}
+		}
+		overrides[strings.TrimSpace(parts[0])] = values
+	}
+	return overrides, nil
+}
+func canonicalOverrides(overrides map[string][]string) []string {
+	keys := make([]string, 0, len(overrides))
+	for model := range overrides {
+		keys = append(keys, model)
+	}
+	sort.Strings(keys)
+	resolved := make([]string, 0, len(keys))
+	for _, model := range keys {
+		resolved = append(resolved, model+"="+strings.Join(overrides[model], "+"))
+	}
+	return resolved
 }
 
 // plannedProbeCount is deliberately expressed in lifecycle operations. A

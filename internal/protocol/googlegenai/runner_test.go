@@ -7,7 +7,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,9 +18,50 @@ import (
 	"github.com/ilyar/aiqa/internal/config"
 	"github.com/ilyar/aiqa/internal/logging"
 	"github.com/ilyar/aiqa/internal/profile"
+	protocolpkg "github.com/ilyar/aiqa/internal/protocol"
 	"github.com/ilyar/aiqa/internal/result"
 	"github.com/ilyar/aiqa/internal/telemetry"
 )
+
+func TestPreparedTargetExecutesFrozenSelectionAfterOverrideMutation(t *testing.T) {
+	var inventories atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1beta/models" {
+			t.Fatalf("unexpected request after prepare: %s", r.URL.Path)
+		}
+		inventories.Add(1)
+		_, _ = w.Write([]byte(`{"models":[{"name":"models/opaque","supportedGenerationMethods":["generateContent"]}]}`))
+	}))
+	defer server.Close()
+	capabilityFile := filepath.Join(t.TempDir(), "capabilities.json")
+	if err := os.WriteFile(capabilityFile, []byte(`{"models":{"opaque":["google-genai.generate-content.text"]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := profile.LoadFile("google-genai-generate-content-compat-2026-09.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := protocolpkg.RunOptions{Target: config.TargetConfig{ID: "fixture", Protocol: config.ProtocolGoogleGenAI, BaseURL: server.URL, APIKey: "fixture-key", APIVersion: "v1beta", Models: []string{"opaque"}, CapabilityFile: capabilityFile}, Config: config.Config{Concurrency: 1, Timeout: time.Second}, Profile: p}
+	prepared, err := PrepareTarget(context.Background(), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := prepared.Binding.SelectedModels; len(got) != 1 || got[0] != "opaque" {
+		t.Fatalf("frozen selected models = %v, want opaque", got)
+	}
+	if got := prepared.Binding.ResolvedOverrides; len(got) != 1 || got[0] != "opaque=google-genai.generate-content.text" {
+		t.Fatalf("frozen overrides = %v", got)
+	}
+	if err := os.WriteFile(capabilityFile, []byte(`not json`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := prepared.Execute(context.Background(), nil); err != nil {
+		t.Fatalf("execute reread mutated override or selection: %v", err)
+	}
+	if got := inventories.Load(); got != 1 {
+		t.Fatalf("model inventories=%d, want exactly one during prepare", got)
+	}
+}
 
 // TestRunAgainstDeterministicFixture exercises the native runner through a
 // local Gemini-shaped service.  It intentionally covers the Interactions
