@@ -62,6 +62,9 @@ func TestExecutionProgressBridgesSchedulerWaitsGroupsAndPhysicalTransport(t *tes
 	if len(snapshot.Requests) != 1 || snapshot.Requests[0].ID != "attempt-1" || snapshot.Requests[0].State != execution.RequestTerminal {
 		t.Fatalf("transport bridge snapshot=%#v", snapshot.Requests)
 	}
+	if got := snapshot.Requests[0].Outcome; got != execution.OutcomeSucceeded {
+		t.Fatalf("transport success outcome=%q, want %q", got, execution.OutcomeSucceeded)
+	}
 	if p.err != nil {
 		t.Fatalf("bridge reducer error=%v", p.err)
 	}

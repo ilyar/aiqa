@@ -92,6 +92,17 @@ func TestProgressTTYDisablesRedrawForDumbTerminalAndCI(t *testing.T) {
 	}
 }
 
+func TestProgressTTYRequiresInteractiveStderr(t *testing.T) {
+	old := stderrIsTerminal
+	stderrIsTerminal = func() bool { return false }
+	t.Cleanup(func() { stderrIsTerminal = old })
+	t.Setenv("CI", "")
+	t.Setenv("TERM", "xterm-256color")
+	if progressTTY() {
+		t.Fatal("progressTTY() accepted a non-terminal stderr device")
+	}
+}
+
 func TestRunCompatibilityWritesReports(t *testing.T) {
 	server := newMockOpenAI(t)
 	defer server.Close()

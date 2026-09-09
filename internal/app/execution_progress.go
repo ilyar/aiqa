@@ -371,7 +371,7 @@ func withJob(base execution.Base, id string) execution.Base {
 
 func executionOutcome(outcome string) execution.Outcome {
 	switch outcome {
-	case "completed", "success", "pass", "passed":
+	case "completed", "success", "succeeded", "pass", "passed":
 		return execution.OutcomeSucceeded
 	case "skipped", "skip":
 		return execution.OutcomeSkipped

@@ -15,6 +15,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/term"
+
 	"github.com/ilyar/aiqa/internal/api"
 	"github.com/ilyar/aiqa/internal/assessment"
 	"github.com/ilyar/aiqa/internal/config"
@@ -64,6 +66,7 @@ var attachForensicSink = func(logger *logging.Logger, file *os.File) (*logging.S
 // deliberately remain separate from the private logging sinks: operator
 // progress is always visible, while --verbose only governs JSONL retention.
 var progressWriter io.Writer = os.Stderr
+var stderrIsTerminal = func() bool { return term.IsTerminal(int(os.Stderr.Fd())) }
 var progressTTY = func() bool {
 	// A pseudo-terminal is not sufficient when its consumer does not implement
 	// carriage-return redraws (CI log collectors and `TERM=dumb` wrappers are
@@ -71,8 +74,10 @@ var progressTTY = func() bool {
 	if os.Getenv("CI") != "" || strings.EqualFold(os.Getenv("TERM"), "dumb") {
 		return false
 	}
-	info, err := os.Stderr.Stat()
-	return err == nil && info.Mode()&os.ModeCharDevice != 0
+	// A character device is not necessarily an interactive terminal: /dev/null
+	// is one too. The dashboard contract is specifically about stderr, so do
+	// not let stdout redirection (or a non-terminal stderr device) affect it.
+	return stderrIsTerminal()
 }
 
 func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, error) {
