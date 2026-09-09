@@ -397,6 +397,30 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 			runErrors = append(runErrors, fmt.Errorf("run extension suites for target %s: %w", targets[index].ID, execution.extensionErr))
 		}
 	}
+	// A requested model selector is cross-target.  Only when no target matched
+	// any requested model do we materialize the local no-match coverage gap;
+	// one target's empty inventory must not penalize another target that did
+	// evaluate the same requested scope.
+	globallyUnmatched := len(cfg.Models) > 0
+	if globallyUnmatched {
+		for _, target := range r.Targets {
+			if len(target.Models) > 0 {
+				globallyUnmatched = false
+				break
+			}
+		}
+	}
+	if globallyUnmatched {
+		for index := range r.Targets {
+			target := r.Targets[index]
+			internal := reportFromTarget(target, targets[index].BaseURL)
+			internal.Config.RequestedModels = append([]string(nil), cfg.Models...)
+			if assessment.ApplyGloballyUnmatchedRequestedScope(&internal, target.ID, target.Protocol, true) {
+				r.Targets[index].Requirements = internal.Requirements
+				r.Targets[index].Summary = internal.Summary
+			}
+		}
+	}
 	r.Summary = summarizeRun(r.Targets)
 	finalReport, err := reportpkg.FinalizeV3(r, cfg)
 	if err != nil {

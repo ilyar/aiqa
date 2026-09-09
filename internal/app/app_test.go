@@ -667,8 +667,8 @@ func TestMissingRequestedModelIsSilentAndDoesNotProbe(t *testing.T) {
 	cfg.Models = []string{"missing-model"}
 	cfg.Formats = nil
 	out, err := Run(context.Background(), cfg, BuildInfo{Version: "test"})
-	if err != nil || out.ExitCode != 0 {
-		t.Fatalf("silent absence changed run result: exit=%d err=%v report=%+v", out.ExitCode, err, out.ReportV3)
+	if err != nil || out.ExitCode != 1 {
+		t.Fatalf("global no-match must be inconclusive under core policy: exit=%d err=%v report=%+v", out.ExitCode, err, out.ReportV3)
 	}
 	if modelCalls.Load() != 0 || len(out.ReportV3.Targets) != 1 || len(out.ReportV3.Targets[0].Models) != 0 {
 		t.Fatalf("missing model was probed or materialized: calls=%d targets=%+v", modelCalls.Load(), out.ReportV3.Targets)
@@ -676,10 +676,17 @@ func TestMissingRequestedModelIsSilentAndDoesNotProbe(t *testing.T) {
 	if len(out.ReportV3.Config.RequestedModels) != 1 || out.ReportV3.Config.RequestedModels[0] != "missing-model" {
 		t.Fatalf("global request provenance missing: %+v", out.ReportV3.Config)
 	}
+	foundCoverage := false
 	for _, requirement := range out.ReportV3.Targets[0].Requirements {
 		if requirement.Subject.Kind == "model" {
 			t.Fatalf("missing model created canonical requirement: %+v", requirement)
 		}
+		if requirement.ID == "selection.requested_models" && requirement.FailureKind == "no_evaluated_requested_scope" {
+			foundCoverage = true
+		}
+	}
+	if !foundCoverage || out.ReportV3.Targets[0].Summary.Assessment == nil || out.ReportV3.Targets[0].Summary.Assessment.Comparison.Rankable {
+		t.Fatalf("missing requested scope did not become explicit non-rankable coverage: %+v", out.ReportV3.Targets[0].Summary.Assessment)
 	}
 }
 
