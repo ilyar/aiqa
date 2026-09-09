@@ -44,8 +44,11 @@ type Client struct {
 	executionObserver ExecutionObserver
 	scheduler         schedulerConfig
 	schedulerOwners   map[string]ExecutionOwner
+	identity          uint64
 	operation         atomic.Uint64
 }
+
+var nextClientIdentity atomic.Uint64
 
 // SchedulerConfig attaches this client to a run-owned admission broker. Target
 // is an operator-safe target identifier, never a URL.  An empty Group uses the
@@ -191,6 +194,7 @@ func newClient(baseURL, apiKey, userAgent string, initialInterval time.Duration,
 		pacer:     newPacer(initialInterval),
 		headers:   headers.Clone(),
 		logFields: logging.Fields{},
+		identity:  nextClientIdentity.Add(1),
 	}
 	client.http.CheckRedirect = func(request *http.Request, _ []*http.Request) error {
 		client.injectTraceContext(request.Context(), request)
@@ -203,14 +207,14 @@ func (c *Client) CloneWithKey(apiKey string) *Client {
 	c.logMu.RLock()
 	logger, provider, fields, propagate, pacingObserver, executionObserver, admission, owners := c.logger, c.telemetry, cloneLogFields(c.logFields), cloneOrigins(c.propagate), c.pacingObserver, c.executionObserver, c.scheduler, cloneExecutionOwners(c.schedulerOwners)
 	c.logMu.RUnlock()
-	return &Client{baseURL: c.baseURL, apiKey: apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: c.headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields, pacingObserver: pacingObserver, executionObserver: executionObserver, scheduler: admission, schedulerOwners: owners}
+	return &Client{baseURL: c.baseURL, apiKey: apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: c.headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields, pacingObserver: pacingObserver, executionObserver: executionObserver, scheduler: admission, schedulerOwners: owners, identity: nextClientIdentity.Add(1)}
 }
 
 func (c *Client) CloneWithHeaders(headers http.Header) *Client {
 	c.logMu.RLock()
 	logger, provider, fields, propagate, pacingObserver, executionObserver, admission, owners := c.logger, c.telemetry, cloneLogFields(c.logFields), cloneOrigins(c.propagate), c.pacingObserver, c.executionObserver, c.scheduler, cloneExecutionOwners(c.schedulerOwners)
 	c.logMu.RUnlock()
-	return &Client{baseURL: c.baseURL, apiKey: c.apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields, pacingObserver: pacingObserver, executionObserver: executionObserver, scheduler: admission, schedulerOwners: owners}
+	return &Client{baseURL: c.baseURL, apiKey: c.apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields, pacingObserver: pacingObserver, executionObserver: executionObserver, scheduler: admission, schedulerOwners: owners, identity: nextClientIdentity.Add(1)}
 }
 
 func cloneOrigins(origins map[string]struct{}) map[string]struct{} {
@@ -392,7 +396,7 @@ func (c *Client) newExecutionAttempt(ctx context.Context) *executionAttempt {
 	if owner.TargetID == "" {
 		owner.TargetID = admission.target
 	}
-	return &executionAttempt{client: c, event: ExecutionEvent{TargetID: owner.TargetID, JobID: owner.JobID, PreparationID: owner.PreparationID, AttemptID: fmt.Sprintf("api-attempt-%d", c.operation.Add(1)), GroupID: admission.group}}
+	return &executionAttempt{client: c, event: ExecutionEvent{TargetID: owner.TargetID, JobID: owner.JobID, PreparationID: owner.PreparationID, AttemptID: fmt.Sprintf("api-attempt-%d-%d", c.identity, c.operation.Add(1)), GroupID: admission.group}}
 }
 
 func (c *Client) emitExecution(event ExecutionEvent) {

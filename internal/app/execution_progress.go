@@ -262,7 +262,10 @@ func (p *executionProgress) Summary() (*result.ExecutionSummary, error) {
 	p.mu.Lock()
 	err, frozen, unavailable := p.err, p.frozen, p.unavailable
 	p.mu.Unlock()
-	if err != nil || !frozen || unavailable {
+	if err != nil {
+		return nil, fmt.Errorf("reduce execution events: %w", err)
+	}
+	if !frozen || unavailable {
 		// The block is optional. A runner event for a job not present in the
 		// frozen plan is an accounting mismatch, not permission to fabricate a
 		// terminal result or to fail an otherwise valid provider report.

@@ -115,6 +115,21 @@ func TestExecutionObserverSSETerminatesOnceAfterConsumption(t *testing.T) {
 	}
 }
 
+func TestExecutionAttemptIDsDoNotCollideAcrossClientClones(t *testing.T) {
+	client, err := NewClient("https://provider.example/v1", "", "test", time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clone := client.CloneWithHeaders(http.Header{"X-Test": []string{"clone"}})
+	client.SetExecutionObserver(func(ExecutionEvent) {})
+	clone.SetExecutionObserver(func(ExecutionEvent) {})
+	owner := WithExecutionOwner(context.Background(), ExecutionOwner{TargetID: "target-a", JobID: "frozen-job"})
+	first, second := client.newExecutionAttempt(owner), clone.newExecutionAttempt(owner)
+	if first == nil || second == nil || first.event.AttemptID == second.event.AttemptID {
+		t.Fatalf("clone attempt IDs collide: first=%#v second=%#v", first, second)
+	}
+}
+
 func TestSchedulerFactObserverDecodesOpaqueOwnerForPhysicalAttempt(t *testing.T) {
 	broker, err := scheduler.New(scheduler.Config{Capacity: 1})
 	if err != nil {
