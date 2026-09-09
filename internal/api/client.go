@@ -29,20 +29,21 @@ import (
 const maxResponseBody = 64 << 20
 
 type Client struct {
-	baseURL        *url.URL
-	apiKey         string
-	http           *http.Client
-	userAgent      string
-	pacer          *pacer
-	headers        http.Header
-	logMu          sync.RWMutex
-	logger         *logging.Logger
-	telemetry      *telemetry.Provider
-	propagate      map[string]struct{}
-	logFields      logging.Fields
-	pacingObserver PacingObserver
-	scheduler      schedulerConfig
-	operation      atomic.Uint64
+	baseURL           *url.URL
+	apiKey            string
+	http              *http.Client
+	userAgent         string
+	pacer             *pacer
+	headers           http.Header
+	logMu             sync.RWMutex
+	logger            *logging.Logger
+	telemetry         *telemetry.Provider
+	propagate         map[string]struct{}
+	logFields         logging.Fields
+	pacingObserver    PacingObserver
+	executionObserver ExecutionObserver
+	scheduler         schedulerConfig
+	operation         atomic.Uint64
 }
 
 // SchedulerConfig attaches this client to a run-owned admission broker. Target
@@ -120,6 +121,47 @@ func (r *ArtifactReservation) CancelBeforeDispatch() {
 // The callback must return promptly and must not call back into Client.
 type PacingObserver func(target string, waiting bool, duration time.Duration)
 
+// ExecutionOwner is safe correlation metadata supplied by the run plan. It
+// contains opaque local IDs only; endpoint, model, payload and credentials are
+// intentionally absent.
+type ExecutionOwner struct {
+	TargetID      string
+	JobID         string
+	PreparationID string
+}
+
+type executionOwnerKey struct{}
+
+// WithExecutionOwner attaches a target-local frozen job or registered
+// preparation owner to physical transport attempts.
+func WithExecutionOwner(ctx context.Context, owner ExecutionOwner) context.Context {
+	return context.WithValue(ctx, executionOwnerKey{}, owner)
+}
+
+type ExecutionEventKind string
+
+const (
+	ExecutionRequestAdmitted ExecutionEventKind = "request_admitted"
+	ExecutionRequestHeaders  ExecutionEventKind = "request_headers"
+	ExecutionRequestTerminal ExecutionEventKind = "request_terminal"
+)
+
+// ExecutionEvent is the API-side, privacy-safe transport fact. AttemptID is
+// generated locally and terminal delivery is exactly once per attempt.
+type ExecutionEvent struct {
+	Kind          ExecutionEventKind
+	TargetID      string
+	JobID         string
+	PreparationID string
+	AttemptID     string
+	GroupID       string
+	Outcome       string
+}
+
+// ExecutionObserver receives transport facts synchronously outside transport
+// and scheduler locks. It must return promptly and must not call Client.
+type ExecutionObserver func(ExecutionEvent)
+
 func NewClient(baseURL, apiKey, userAgent string, initialInterval time.Duration) (*Client, error) {
 	return newClient(baseURL, apiKey, userAgent, initialInterval, nil)
 }
@@ -158,16 +200,16 @@ func newClient(baseURL, apiKey, userAgent string, initialInterval time.Duration,
 
 func (c *Client) CloneWithKey(apiKey string) *Client {
 	c.logMu.RLock()
-	logger, provider, fields, propagate, pacingObserver, admission := c.logger, c.telemetry, cloneLogFields(c.logFields), cloneOrigins(c.propagate), c.pacingObserver, c.scheduler
+	logger, provider, fields, propagate, pacingObserver, executionObserver, admission := c.logger, c.telemetry, cloneLogFields(c.logFields), cloneOrigins(c.propagate), c.pacingObserver, c.executionObserver, c.scheduler
 	c.logMu.RUnlock()
-	return &Client{baseURL: c.baseURL, apiKey: apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: c.headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields, pacingObserver: pacingObserver, scheduler: admission}
+	return &Client{baseURL: c.baseURL, apiKey: apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: c.headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields, pacingObserver: pacingObserver, executionObserver: executionObserver, scheduler: admission}
 }
 
 func (c *Client) CloneWithHeaders(headers http.Header) *Client {
 	c.logMu.RLock()
-	logger, provider, fields, propagate, pacingObserver, admission := c.logger, c.telemetry, cloneLogFields(c.logFields), cloneOrigins(c.propagate), c.pacingObserver, c.scheduler
+	logger, provider, fields, propagate, pacingObserver, executionObserver, admission := c.logger, c.telemetry, cloneLogFields(c.logFields), cloneOrigins(c.propagate), c.pacingObserver, c.executionObserver, c.scheduler
 	c.logMu.RUnlock()
-	return &Client{baseURL: c.baseURL, apiKey: c.apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields, pacingObserver: pacingObserver, scheduler: admission}
+	return &Client{baseURL: c.baseURL, apiKey: c.apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields, pacingObserver: pacingObserver, executionObserver: executionObserver, scheduler: admission}
 }
 
 func cloneOrigins(origins map[string]struct{}) map[string]struct{} {
@@ -247,6 +289,81 @@ func (c *Client) SetPacingObserver(observer PacingObserver) {
 	c.logMu.Lock()
 	c.pacingObserver = observer
 	c.logMu.Unlock()
+}
+
+// SetExecutionObserver enables opt-in typed transport facts. It does not
+// affect logs, headers, retries, or request construction.
+func (c *Client) SetExecutionObserver(observer ExecutionObserver) {
+	c.logMu.Lock()
+	c.executionObserver = observer
+	c.logMu.Unlock()
+}
+
+// SchedulerFactObserver returns a bridge suitable for Broker.SetFactObserver.
+// It translates only scheduler-owned safe fields; callers with a shared broker
+// should install one composed observer rather than allowing clients to replace
+// each other's subscription.
+func (c *Client) SchedulerFactObserver() scheduler.FactObserver {
+	return func(fact scheduler.Fact) {
+		if fact.Kind != scheduler.FactRequestAdmitted && fact.Kind != scheduler.FactRequestReleased {
+			return
+		}
+		kind := ExecutionRequestAdmitted
+		outcome := ""
+		if fact.Kind == scheduler.FactRequestReleased {
+			kind, outcome = ExecutionRequestTerminal, "released"
+		}
+		c.emitExecution(ExecutionEvent{Kind: kind, TargetID: fact.Target, AttemptID: fact.RequestID, GroupID: fact.Group, Outcome: outcome})
+	}
+}
+
+type executionAttempt struct {
+	client *Client
+	event  ExecutionEvent
+	once   sync.Once
+}
+
+func (c *Client) newExecutionAttempt(ctx context.Context) *executionAttempt {
+	c.logMu.RLock()
+	admission, observer := c.scheduler, c.executionObserver
+	c.logMu.RUnlock()
+	if observer == nil {
+		return nil
+	}
+	owner, _ := ctx.Value(executionOwnerKey{}).(ExecutionOwner)
+	if owner.TargetID == "" {
+		owner.TargetID = admission.target
+	}
+	return &executionAttempt{client: c, event: ExecutionEvent{TargetID: owner.TargetID, JobID: owner.JobID, PreparationID: owner.PreparationID, AttemptID: fmt.Sprintf("api-attempt-%d", c.operation.Add(1)), GroupID: admission.group}}
+}
+
+func (c *Client) emitExecution(event ExecutionEvent) {
+	c.logMu.RLock()
+	observer := c.executionObserver
+	c.logMu.RUnlock()
+	if observer != nil {
+		observer(event)
+	}
+}
+func (a *executionAttempt) admitted() {
+	if a != nil {
+		a.event.Kind = ExecutionRequestAdmitted
+		a.client.emitExecution(a.event)
+	}
+}
+func (a *executionAttempt) headers() {
+	if a != nil {
+		a.event.Kind = ExecutionRequestHeaders
+		a.client.emitExecution(a.event)
+	}
+}
+func (a *executionAttempt) terminal(outcome string) {
+	if a != nil {
+		a.once.Do(func() {
+			a.event.Kind, a.event.Outcome = ExecutionRequestTerminal, outcome
+			a.client.emitExecution(a.event)
+		})
+	}
 }
 
 // SetScheduler configures optional run-owned admission. Passing a zero config
@@ -987,12 +1104,14 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 			return response, err
 		}
 		c.admitted(lease, model)
+		attemptEvent := c.newExecutionAttempt(ctx)
+		attemptEvent.admitted()
 		if attempt > 0 {
 			c.pacer.retry(model)
 		}
 		c.trace(ctx, logging.Trace, "http.attempt.begin", logging.Fields{"method": method, "path": path, "attempt": attempt + 1})
 		attemptCtx, cancelAttempt := attemptContext(ctx)
-		resp, err := c.doRawURLOnce(attemptCtx, method, endpoint, body, contentType, attempt+1)
+		resp, err := c.doRawURLOnce(attemptCtx, method, endpoint, body, contentType, attempt+1, attemptEvent)
 		cancelAttempt()
 		var rateLimitDelay time.Duration
 		if resp.StatusCode == http.StatusTooManyRequests {
@@ -1001,7 +1120,10 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 			c.succeeded(lease, model, resp.Duration)
 		}
 		if lease != nil {
+			attemptEvent.terminal(executionOutcome(resp, err))
 			lease.Release()
+		} else {
+			attemptEvent.terminal(executionOutcome(resp, err))
 		}
 		resp.TraceID = traceID
 		c.trace(ctx, logging.Trace, "http.attempt.result", rawResponseFields(method, path, attempt+1, resp, err))
@@ -1049,7 +1171,17 @@ func isArtifactCreationPath(path string) bool {
 	return strings.Trim(path, "/") == "images/generations"
 }
 
-func (c *Client) doRawURLOnce(ctx context.Context, method, endpoint string, body []byte, contentType string, attemptNumber int) (resp Response, err error) {
+func executionOutcome(response Response, err error) string {
+	if err != nil {
+		return "error"
+	}
+	if response.Is2xx() {
+		return "succeeded"
+	}
+	return "failed"
+}
+
+func (c *Client) doRawURLOnce(ctx context.Context, method, endpoint string, body []byte, contentType string, attemptNumber int, executionEvent *executionAttempt) (resp Response, err error) {
 	path := safeEndpointPath(endpoint)
 	ctx, attempt := c.startOperation(ctx, "http.attempt", logging.Fields{"method": method, "path": path, "attempt": attemptNumber})
 	if attempt != nil {
@@ -1076,6 +1208,7 @@ func (c *Client) doRawURLOnce(ctx context.Context, method, endpoint string, body
 	if err != nil {
 		return Response{Duration: time.Since(started)}, err
 	}
+	executionEvent.headers()
 	defer httpResp.Body.Close()
 	limited := io.LimitReader(httpResp.Body, maxResponseBody+1)
 	responseBody, readErr := io.ReadAll(limited)
