@@ -479,7 +479,10 @@ func newOperatorReporter(cfg config.Config) *progress.Reporter {
 	tty := progressTTY()
 	switch cfg.Progress {
 	case "tty":
-		tty = true
+		// A requested TTY mode still falls back to durable plain output when
+		// stderr is redirected; emitting carriage returns into a pipe violates
+		// the operator-output contract.
+		tty = progressTTY()
 	case "plain":
 		tty = false
 	}
