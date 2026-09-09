@@ -314,6 +314,7 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 	targets := append([]config.TargetConfig(nil), cfg.Targets...)
 	sort.Slice(targets, func(i, j int) bool { return targets[i].ID < targets[j].ID })
 	preparedTargets := make([]protocolpkg.PreparedTarget, len(targets))
+	frozenExtensions := make([]extsuite.FrozenInvocations, len(targets))
 	allJobs := make([]progress.Job, 0)
 	prepareErrs := make([]error, len(targets))
 	// A target owns both discovery and execution. Starting these lifecycles
@@ -364,11 +365,12 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 			return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("prepare %s target: %w", targets[index].ID, prepareErr))
 		}
 	}
-	for _, prepared := range preparedTargets {
+	for index, prepared := range preparedTargets {
 		for _, job := range prepared.Jobs {
 			allJobs = append(allJobs, progress.Job{ID: job.ID, Target: job.Target, Model: job.Model, Label: job.Label})
 		}
-		allJobs = append(allJobs, extsuite.PlannedJobs(extRegistry, extensionCfg, prepared.Target, prepared.Profile, prepared.Candidates)...)
+		frozenExtensions[index] = extsuite.FreezeTarget(extRegistry, extensionCfg, prepared.Target, prepared.Profile, prepared.Candidates)
+		allJobs = append(allJobs, extsuite.PlannedJobsForFrozen(prepared.Target, frozenExtensions[index])...)
 	}
 	plan, err := runPlanFromPrepared(forensicRunID, preparedTargets, allJobs)
 	if err != nil {
@@ -410,7 +412,7 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 		if executionErr != nil {
 			logf(logging.Error, "[%s] target runner returned an error", target.ID)
 		} else {
-			targetReport, extensionErr = finishTargetExtensions(targetCtx, extensionCfg, target, p, targetReport, extRegistry, native.Runtime.Client, native.Runtime.Executor, logger, tracing, reporter)
+			targetReport, extensionErr = finishTargetExtensions(targetCtx, extensionCfg, target, p, targetReport, frozenExtensions[index], native.Runtime.Client, native.Runtime.Executor, logger, tracing, reporter)
 			if extensionErr != nil {
 				logf(logging.Error, "[%s] extension suites returned an error", target.ID)
 			}
@@ -680,7 +682,7 @@ func reportFromTarget(target result.TargetReport, baseURL string) result.Report 
 	return result.Report{SchemaVersion: "aiqa.report.internal", Profile: target.Profile, Config: result.PublicConfig{BaseURL: baseURL}, Discovery: target.Discovery, Models: target.Models, Requirements: target.Requirements, Summary: target.Summary, Guidance: target.Guidance, RateLimit: target.RateLimit, ExtensionRateLimit: target.ExtensionRateLimit, Extensions: target.Extensions}
 }
 
-func finishTargetExtensions(ctx context.Context, cfg config.Config, target config.TargetConfig, p profile.Profile, targetReport result.TargetReport, registry *extsuite.Registry, client *api.Client, executor *probe.Executor, logger *logging.Logger, tracing *telemetry.Provider, reporter progress.Sink) (result.TargetReport, error) {
+func finishTargetExtensions(ctx context.Context, cfg config.Config, target config.TargetConfig, p profile.Profile, targetReport result.TargetReport, frozen extsuite.FrozenInvocations, client *api.Client, executor *probe.Executor, logger *logging.Logger, tracing *telemetry.Provider, reporter progress.Sink) (result.TargetReport, error) {
 	if !cfg.HasExtensionTests() {
 		return targetReport, nil
 	}
@@ -688,7 +690,7 @@ func finishTargetExtensions(ctx context.Context, cfg config.Config, target confi
 		return targetReport, fmt.Errorf("prepare %s extension runtime: native target runtime is unavailable", target.ID)
 	}
 	before := client.PacingStats()
-	targetReport.Extensions = extsuite.ExecuteTargetWithTelemetryAndProgress(ctx, registry, cfg, target, p, targetReport.Models, client, executor, logger, tracing, reporter)
+	targetReport.Extensions = extsuite.ExecuteFrozenTargetWithTelemetryAndProgress(ctx, cfg, target, p, frozen, client, executor, logger, tracing, reporter)
 	if hasBuiltInExtension(targetReport.Extensions) {
 		after := client.PacingStats()
 		delta := api.DeltaPacingStats(before, after)
