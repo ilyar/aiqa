@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -88,6 +89,10 @@ type Request struct {
 	MemoryBytes int64
 	ArtifactKey string
 	Artifacts   int
+	// Owner is an opaque, scheduler-safe correlation key for a physical HTTP
+	// attempt. The scheduler never interprets it and callers must not use it
+	// for opaque/artifact/memory reservations.
+	Owner string
 	// Reservation distinguishes an observed physical HTTP attempt from an
 	// opaque extension invocation or an artifact reservation. Empty retains
 	// the physical-attempt default (or artifact for an artifact request).
@@ -131,6 +136,7 @@ type Fact struct {
 	At          time.Time
 	RequestID   string
 	WaitID      string
+	Owner       string
 	Target      string
 	Group       string
 	Reservation ReservationKind
@@ -317,7 +323,7 @@ func (b *Broker) Acquire(ctx context.Context, req Request) (*Lease, error) {
 	p := &pending{id: b.nextID, requestID: fmt.Sprintf("request-%d", b.nextID), waitID: fmt.Sprintf("wait-%d", b.nextID), req: normalise(req), started: b.cfg.Clock.Now(), result: make(chan acquireResult, 1)}
 	b.nextID++
 	b.queue = append(b.queue, p)
-	b.recordFactLocked(Fact{Kind: FactRequestQueued, At: p.started, RequestID: p.requestID, Target: p.req.Target, Group: p.req.Group, Reservation: p.req.Reservation})
+	b.recordFactLocked(Fact{Kind: FactRequestQueued, At: p.started, RequestID: p.requestID, Owner: p.req.Owner, Target: p.req.Target, Group: p.req.Group, Reservation: p.req.Reservation})
 	b.scheduleLocked()
 	b.signalChangedLocked()
 	b.mu.Unlock()
@@ -352,7 +358,7 @@ func (b *Broker) Acquire(ctx context.Context, req Request) (*Lease, error) {
 			if removed {
 				if p.evented {
 					b.events = append(b.events, Event{Kind: "wait_ended", Target: p.req.Target, Group: p.req.Group, Reason: p.waitReason, At: b.cfg.Clock.Now()})
-					b.recordFactLocked(Fact{Kind: FactWaitEnded, At: b.cfg.Clock.Now(), RequestID: p.requestID, WaitID: p.waitID, Target: p.req.Target, Group: p.req.Group, Reservation: p.req.Reservation, Reason: p.waitReason})
+					b.recordFactLocked(Fact{Kind: FactWaitEnded, At: b.cfg.Clock.Now(), RequestID: p.requestID, WaitID: p.waitID, Owner: p.req.Owner, Target: p.req.Target, Group: p.req.Group, Reservation: p.req.Reservation, Reason: p.waitReason})
 				}
 				b.scheduleLocked()
 				b.signalChangedLocked()
@@ -448,7 +454,7 @@ func normalise(r Request) Request {
 }
 func (b *Broker) validateLocked(r Request) error {
 	r = normalise(r)
-	if r.Target == "" || r.Group == "" || r.Weight < 1 || r.MemoryBytes < 0 || r.Artifacts < 0 || !validReservationKind(r.Reservation) {
+	if r.Target == "" || r.Group == "" || r.Weight < 1 || r.MemoryBytes < 0 || r.Artifacts < 0 || !validReservationKind(r.Reservation) || (r.Owner != "" && !validOwner(r.Owner)) || (r.Reservation != ReservationPhysical && r.Owner != "") {
 		return ErrInvalidRequest
 	}
 	if r.Weight > b.cfg.Capacity || (b.cfg.MemoryBudget > 0 && r.MemoryBytes > b.cfg.MemoryBudget) || (r.Artifacts > 0 && b.cfg.ArtifactBudget == 0) {
@@ -465,6 +471,18 @@ func (b *Broker) validateLocked(r Request) error {
 		return ErrArtifactBudgetExhausted
 	}
 	return nil
+}
+
+func validOwner(owner string) bool {
+	if len(owner) < len("owner-")+16 || len(owner) > 128 || !strings.HasPrefix(owner, "owner-") {
+		return false
+	}
+	for _, r := range owner[len("owner-"):] {
+		if !(r >= 'a' && r <= 'f' || r >= '0' && r <= '9') {
+			return false
+		}
+	}
+	return true
 }
 
 func validReservationKind(kind ReservationKind) bool {
@@ -783,10 +801,10 @@ func (b *Broker) setWaitLocked(p *pending, reason WaitReason, eligible time.Time
 	p.waitReason, p.eligibleAt = reason, eligible
 	if !p.evented {
 		b.events = append(b.events, Event{Kind: "wait_started", Target: p.req.Target, Group: p.req.Group, Reason: reason, At: b.cfg.Clock.Now(), EligibleAt: eligible})
-		b.recordFactLocked(Fact{Kind: FactWaitStarted, At: b.cfg.Clock.Now(), RequestID: p.requestID, WaitID: p.waitID, Target: p.req.Target, Group: p.req.Group, Reservation: p.req.Reservation, Reason: reason, EligibleAt: eligible})
+		b.recordFactLocked(Fact{Kind: FactWaitStarted, At: b.cfg.Clock.Now(), RequestID: p.requestID, WaitID: p.waitID, Owner: p.req.Owner, Target: p.req.Target, Group: p.req.Group, Reservation: p.req.Reservation, Reason: reason, EligibleAt: eligible})
 		p.evented = true
 	} else {
-		b.recordFactLocked(Fact{Kind: FactWaitUpdated, At: b.cfg.Clock.Now(), RequestID: p.requestID, WaitID: p.waitID, Target: p.req.Target, Group: p.req.Group, Reservation: p.req.Reservation, Reason: reason, EligibleAt: eligible})
+		b.recordFactLocked(Fact{Kind: FactWaitUpdated, At: b.cfg.Clock.Now(), RequestID: p.requestID, WaitID: p.waitID, Owner: p.req.Owner, Target: p.req.Target, Group: p.req.Group, Reservation: p.req.Reservation, Reason: reason, EligibleAt: eligible})
 	}
 }
 
@@ -806,9 +824,9 @@ func (b *Broker) grantLocked(p *pending) {
 	b.removeLocked(p)
 	if p.evented {
 		b.events = append(b.events, Event{Kind: "wait_ended", Target: p.req.Target, Group: p.req.Group, Reason: p.waitReason, At: b.cfg.Clock.Now()})
-		b.recordFactLocked(Fact{Kind: FactWaitEnded, At: b.cfg.Clock.Now(), RequestID: p.requestID, WaitID: p.waitID, Target: p.req.Target, Group: p.req.Group, Reservation: p.req.Reservation, Reason: p.waitReason})
+		b.recordFactLocked(Fact{Kind: FactWaitEnded, At: b.cfg.Clock.Now(), RequestID: p.requestID, WaitID: p.waitID, Owner: p.req.Owner, Target: p.req.Target, Group: p.req.Group, Reservation: p.req.Reservation, Reason: p.waitReason})
 	}
-	b.recordFactLocked(Fact{Kind: FactRequestAdmitted, At: b.cfg.Clock.Now(), RequestID: p.requestID, Target: p.req.Target, Group: p.req.Group, Reservation: p.req.Reservation})
+	b.recordFactLocked(Fact{Kind: FactRequestAdmitted, At: b.cfg.Clock.Now(), RequestID: p.requestID, Owner: p.req.Owner, Target: p.req.Target, Group: p.req.Group, Reservation: p.req.Reservation})
 	p.result <- acquireResult{lease: &Lease{broker: b, req: p.req, id: p.requestID}}
 }
 
@@ -929,9 +947,9 @@ func (l *Lease) release(refundArtifacts bool) {
 			}
 		} else if l.req.Artifacts > 0 {
 			b.committed[l.req.ArtifactKey] += l.req.Artifacts
-			b.recordFactLocked(Fact{Kind: FactArtifactCommitted, At: b.cfg.Clock.Now(), RequestID: l.id, Target: l.req.Target, Group: l.req.Group, Reservation: l.req.Reservation})
+			b.recordFactLocked(Fact{Kind: FactArtifactCommitted, At: b.cfg.Clock.Now(), RequestID: l.id, Owner: l.req.Owner, Target: l.req.Target, Group: l.req.Group, Reservation: l.req.Reservation})
 		}
-		b.recordFactLocked(Fact{Kind: FactRequestReleased, At: b.cfg.Clock.Now(), RequestID: l.id, Target: l.req.Target, Group: l.req.Group, Reservation: l.req.Reservation})
+		b.recordFactLocked(Fact{Kind: FactRequestReleased, At: b.cfg.Clock.Now(), RequestID: l.id, Owner: l.req.Owner, Target: l.req.Target, Group: l.req.Group, Reservation: l.req.Reservation})
 		b.scheduleLocked()
 		b.signalChangedLocked()
 		b.mu.Unlock()

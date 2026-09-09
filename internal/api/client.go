@@ -43,6 +43,7 @@ type Client struct {
 	pacingObserver    PacingObserver
 	executionObserver ExecutionObserver
 	scheduler         schedulerConfig
+	schedulerOwners   map[string]ExecutionOwner
 	operation         atomic.Uint64
 }
 
@@ -200,16 +201,16 @@ func newClient(baseURL, apiKey, userAgent string, initialInterval time.Duration,
 
 func (c *Client) CloneWithKey(apiKey string) *Client {
 	c.logMu.RLock()
-	logger, provider, fields, propagate, pacingObserver, executionObserver, admission := c.logger, c.telemetry, cloneLogFields(c.logFields), cloneOrigins(c.propagate), c.pacingObserver, c.executionObserver, c.scheduler
+	logger, provider, fields, propagate, pacingObserver, executionObserver, admission, owners := c.logger, c.telemetry, cloneLogFields(c.logFields), cloneOrigins(c.propagate), c.pacingObserver, c.executionObserver, c.scheduler, cloneExecutionOwners(c.schedulerOwners)
 	c.logMu.RUnlock()
-	return &Client{baseURL: c.baseURL, apiKey: apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: c.headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields, pacingObserver: pacingObserver, executionObserver: executionObserver, scheduler: admission}
+	return &Client{baseURL: c.baseURL, apiKey: apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: c.headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields, pacingObserver: pacingObserver, executionObserver: executionObserver, scheduler: admission, schedulerOwners: owners}
 }
 
 func (c *Client) CloneWithHeaders(headers http.Header) *Client {
 	c.logMu.RLock()
-	logger, provider, fields, propagate, pacingObserver, executionObserver, admission := c.logger, c.telemetry, cloneLogFields(c.logFields), cloneOrigins(c.propagate), c.pacingObserver, c.executionObserver, c.scheduler
+	logger, provider, fields, propagate, pacingObserver, executionObserver, admission, owners := c.logger, c.telemetry, cloneLogFields(c.logFields), cloneOrigins(c.propagate), c.pacingObserver, c.executionObserver, c.scheduler, cloneExecutionOwners(c.schedulerOwners)
 	c.logMu.RUnlock()
-	return &Client{baseURL: c.baseURL, apiKey: c.apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields, pacingObserver: pacingObserver, executionObserver: executionObserver, scheduler: admission}
+	return &Client{baseURL: c.baseURL, apiKey: c.apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields, pacingObserver: pacingObserver, executionObserver: executionObserver, scheduler: admission, schedulerOwners: owners}
 }
 
 func cloneOrigins(origins map[string]struct{}) map[string]struct{} {
@@ -219,6 +220,17 @@ func cloneOrigins(origins map[string]struct{}) map[string]struct{} {
 	copy := make(map[string]struct{}, len(origins))
 	for origin := range origins {
 		copy[origin] = struct{}{}
+	}
+	return copy
+}
+
+func cloneExecutionOwners(owners map[string]ExecutionOwner) map[string]ExecutionOwner {
+	if owners == nil {
+		return nil
+	}
+	copy := make(map[string]ExecutionOwner, len(owners))
+	for key, owner := range owners {
+		copy[key] = owner
 	}
 	return copy
 }
@@ -308,13 +320,59 @@ func (c *Client) SchedulerFactObserver() scheduler.FactObserver {
 		if fact.Kind != scheduler.FactRequestAdmitted && fact.Kind != scheduler.FactRequestReleased {
 			return
 		}
+		owner, ok := c.schedulerOwnerForKey(fact.Owner)
+		if !ok {
+			return
+		}
 		kind := ExecutionRequestAdmitted
 		outcome := ""
 		if fact.Kind == scheduler.FactRequestReleased {
 			kind, outcome = ExecutionRequestTerminal, "released"
 		}
-		c.emitExecution(ExecutionEvent{Kind: kind, TargetID: fact.Target, AttemptID: fact.RequestID, GroupID: fact.Group, Outcome: outcome})
+		c.emitExecution(ExecutionEvent{Kind: kind, TargetID: owner.TargetID, JobID: owner.JobID, PreparationID: owner.PreparationID, AttemptID: fact.RequestID, GroupID: fact.Group, Outcome: outcome})
 	}
+}
+
+func (c *Client) schedulerOwnerForKey(key string) (ExecutionOwner, bool) {
+	if key == "" {
+		return ExecutionOwner{}, false
+	}
+	c.logMu.RLock()
+	owner, ok := c.schedulerOwners[key]
+	c.logMu.RUnlock()
+	return owner, ok
+}
+
+func (c *Client) schedulerOwner(ctx context.Context, target string) string {
+	owner, ok := ctx.Value(executionOwnerKey{}).(ExecutionOwner)
+	if !ok || !validExecutionOwner(owner, target) {
+		return ""
+	}
+	kind, id := "job", owner.JobID
+	if owner.PreparationID != "" {
+		kind, id = "preparation", owner.PreparationID
+	}
+	sum := sha256.Sum256([]byte(kind + "\x00" + owner.TargetID + "\x00" + id))
+	key := "owner-" + hex.EncodeToString(sum[:])
+	c.logMu.Lock()
+	if c.schedulerOwners == nil {
+		c.schedulerOwners = make(map[string]ExecutionOwner)
+	}
+	c.schedulerOwners[key] = owner
+	c.logMu.Unlock()
+	return key
+}
+
+func validExecutionOwner(owner ExecutionOwner, target string) bool {
+	if owner.TargetID != target || ((owner.JobID == "") == (owner.PreparationID == "")) {
+		return false
+	}
+	for _, value := range []string{owner.TargetID, owner.JobID, owner.PreparationID} {
+		if len(value) > 16384 || strings.ContainsAny(value, "\r\n\t") {
+			return false
+		}
+	}
+	return true
 }
 
 type executionAttempt struct {
@@ -456,7 +514,7 @@ func (c *Client) acquireScheduler(ctx context.Context, bodyBytes int64) (*schedu
 		admissionCtx, cancel = context.WithTimeout(ctx, admission.queueTimeout)
 		defer cancel()
 	}
-	return admission.broker.Acquire(admissionCtx, scheduler.Request{Target: admission.target, Group: admission.group, MemoryBytes: memory, ArtifactKey: admission.key, Artifacts: admission.items})
+	return admission.broker.Acquire(admissionCtx, scheduler.Request{Target: admission.target, Group: admission.group, MemoryBytes: memory, ArtifactKey: admission.key, Artifacts: admission.items, Owner: c.schedulerOwner(ctx, admission.target)})
 }
 
 func (c *Client) reserveMemory(ctx context.Context, bytes int64) (*scheduler.MemoryLease, error) {
@@ -582,7 +640,7 @@ func (c *Client) AcquireOpaqueLease(ctx context.Context, weight int) (*scheduler
 		admissionCtx, cancel = context.WithTimeout(ctx, admission.queueTimeout)
 		defer cancel()
 	}
-	return admission.broker.Acquire(admissionCtx, scheduler.Request{Target: admission.target, Group: admission.group, Weight: weight})
+	return admission.broker.Acquire(admissionCtx, scheduler.Request{Target: admission.target, Group: admission.group, Weight: weight, Reservation: scheduler.ReservationOpaque})
 }
 
 func (c *Client) hasScheduler() bool {

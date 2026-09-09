@@ -507,3 +507,28 @@ func TestFactObserverDistinguishesArtifactAndMemoryReservations(t *testing.T) {
 		t.Fatalf("reservation facts missing or misclassified: %#v", facts)
 	}
 }
+
+func TestFactObserverPreservesOnlyValidatedPhysicalOwner(t *testing.T) {
+	b := broker(t, Config{Capacity: 1})
+	var facts []Fact
+	b.SetFactObserver(func(f Fact) { facts = append(facts, f) })
+	owner := "owner-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	lease, err := b.Acquire(context.Background(), Request{Target: "target", Group: "group", Owner: owner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease.Release()
+	for _, fact := range facts {
+		if fact.Kind == FactRequestQueued || fact.Kind == FactRequestAdmitted || fact.Kind == FactRequestReleased {
+			if fact.Owner != owner {
+				t.Fatalf("owner lost from physical fact: %#v", fact)
+			}
+		}
+	}
+	if _, err := b.Acquire(context.Background(), Request{Target: "target", Group: "group", Owner: "untrusted"}); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("unsafe owner error=%v", err)
+	}
+	if _, err := b.Acquire(context.Background(), Request{Target: "target", Group: "group", Reservation: ReservationOpaque, Owner: owner}); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("opaque reservation accepted owner: %v", err)
+	}
+}
