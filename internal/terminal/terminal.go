@@ -178,9 +178,9 @@ func value(got, fallback string) string {
 	return clean(got)
 }
 
-// runLabel makes a run identifier useful outside this terminal session. The
-// execution layer stores its opaque IDs as run-<suffix>; preserve that exact
-// ID under the tool namespace so it can be copied to trace/report lookup.
+// runLabel returns the canonical run identifier after terminal-safe cleaning.
+// Production IDs are generated as aiqa-<UID>; legacy IDs remain namespaced for
+// display but are not rewritten in trace/report artifacts.
 func runLabel(id string) string {
 	id = clean(id)
 	if strings.HasPrefix(id, "aiqa-") {

@@ -568,7 +568,7 @@ func newForensicRunID() (string, error) {
 	if _, err := rand.Read(bytes); err != nil {
 		return "", err
 	}
-	return "run-" + hex.EncodeToString(bytes), nil
+	return "aiqa-" + hex.EncodeToString(bytes), nil
 }
 
 // targetWorkflowLimit controls application-level target orchestration only.

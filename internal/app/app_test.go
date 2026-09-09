@@ -25,6 +25,16 @@ import (
 	"github.com/ilyar/aiqa/internal/result"
 )
 
+func TestNewForensicRunIDUsesCanonicalAIQANamespace(t *testing.T) {
+	id, err := newForensicRunID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(id, "aiqa-") || len(id) != len("aiqa-")+32 {
+		t.Fatalf("run ID=%q, want aiqa-<32 lowercase hex characters>", id)
+	}
+}
+
 func TestRunShowsPlainProgressWithoutVerboseLog(t *testing.T) {
 	server := newMockOpenAI(t)
 	defer server.Close()
