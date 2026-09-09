@@ -44,6 +44,24 @@ type RunOptions struct {
 	Inventory   *protocolpkg.Inventory
 	Scheduler   *scheduler.Broker
 	PacingGroup string
+	frozen      *frozenExecution
+}
+
+// frozenExecution retains every decision and probe observation that Prepare
+// makes. Execute must consume this snapshot rather than consulting mutable
+// inventory or capability inputs again.
+type frozenExecution struct {
+	client          *Client
+	executor        *probe.Executor
+	selected        []string
+	metadata        map[string]map[string]any
+	classifications []capability.Classification
+	modulePlans     [][]result.ModuleAssessment
+	preflights      []*api.Response
+	preflightErrs   []error
+	preflightTests  []*result.TestResult
+	routeBlocked    []bool
+	overrideBinding []string
 }
 
 // Runtime exposes the target-owned transport and executor to the extension
@@ -82,10 +100,14 @@ func (p *progressPlan) addDynamicProbe() {
 // RunTarget adapts the Anthropic implementation to the shared protocol
 // registry contract.
 func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg.RunResult, error) {
+	return runTarget(ctx, options, nil)
+}
+
+func runTarget(ctx context.Context, options protocolpkg.RunOptions, frozen *frozenExecution) (protocolpkg.RunResult, error) {
 	runtime := &Runtime{}
 	target, err := Run(ctx, RunOptions{
 		Target: options.Target, Config: options.Config, Profile: options.Profile,
-		UserAgent: options.UserAgent, Logf: options.Logf, Logger: options.Logger, Telemetry: options.Telemetry, Progress: options.Progress, Runtime: runtime, Inventory: options.Inventory, Scheduler: options.Scheduler, PacingGroup: options.PacingGroup,
+		UserAgent: options.UserAgent, Logf: options.Logf, Logger: options.Logger, Telemetry: options.Telemetry, Progress: options.Progress, Runtime: runtime, Inventory: options.Inventory, Scheduler: options.Scheduler, PacingGroup: options.PacingGroup, frozen: frozen,
 	})
 	return protocolpkg.RunResult{
 		Target:  target,
@@ -126,26 +148,13 @@ func PrepareTarget(ctx context.Context, options protocolpkg.RunOptions) (protoco
 		discoveryProvider.End(outcome, logging.Fields{"status": outcome})
 	}
 	selected, metadata := selectModels(requestedModels(options.Config, options.Target), models)
-	candidates := make([]result.ModelReport, 0, len(selected))
-	overrides, err := capability.LoadOverrideFile(options.Target.CapabilityFile)
+	executor := probe.NewExecutor(options.Config.Concurrency)
+	frozen, err := freezeExecution(ctx, options, client, executor, selected, metadata)
 	if err != nil {
 		return protocolpkg.PreparedTarget{}, err
 	}
-	if overrides == nil {
-		overrides = map[string][]string{}
-	}
 	jobs := []protocolpkg.Job{{ID: protocolpkg.JobID(options.Target.ID, "", "inventory"), Target: options.Target.ID, Label: "model inventory"}}
-	for _, model := range selected {
-		unknown := options.Target.UnknownModel
-		if len(requestedModels(options.Config, options.Target)) > 0 {
-			unknown = "inventory"
-		}
-		classification := capability.ClassifyAnthropic(model, metadata[model], capability.Options{BaseURL: options.Target.BaseURL, Overrides: overrides, UnknownPolicy: unknown})
-		candidate := result.ModelReport{ID: model, Metadata: cloneMap(metadata[model]), Modules: capability.AssessModules(classification, options.Profile.Modules, capability.RoutingOptions{Modules: options.Target.Modules, AllowBillableArtifacts: options.Config.AllowBillableArtifacts, AllowHighTokenProbes: options.Config.AllowHighTokenProbes, AllowPersistentResources: options.Config.AllowPersistentResources})}
-		for _, e := range classification.Capabilities {
-			candidate.Capabilities = append(candidate.Capabilities, result.CapabilityAssessment{ID: e.Capability, Source: e.Source, Rule: e.Rule, Confidence: e.Confidence, Reason: e.Reason})
-		}
-		candidates = append(candidates, candidate)
+	for _, model := range frozen.selected {
 		if options.Config.HasTest("compat") {
 			jobs = append(jobs, protocolpkg.Job{ID: protocolpkg.JobID(options.Target.ID, model, "compat"), Target: options.Target.ID, Model: model, Label: "Anthropic compatibility"})
 		}
@@ -153,49 +162,32 @@ func PrepareTarget(ctx context.Context, options protocolpkg.RunOptions) (protoco
 			jobs = append(jobs, protocolpkg.Job{ID: protocolpkg.JobID(options.Target.ID, model, "model-param"), Target: options.Target.ID, Model: model, Label: "model parameters"})
 		}
 	}
-	inv := &protocolpkg.Inventory{Models: models, Response: response, Err: listErr, Runtime: protocolpkg.Runtime{Client: client.TransportClient(), Executor: probe.NewExecutor(options.Config.Concurrency)}}
-	prepared := protocolpkg.PreparedTarget{Target: options.Target, Profile: options.Profile, Jobs: jobs, Candidates: candidates}
+	inv := &protocolpkg.Inventory{Models: models, Response: response, Err: listErr, Runtime: protocolpkg.Runtime{Client: client.TransportClient(), Executor: executor}}
+	prepared := protocolpkg.PreparedTarget{Target: options.Target, Profile: options.Profile, Jobs: jobs, Candidates: frozen.candidates(), Binding: protocolpkg.TargetBinding{TargetID: options.Target.ID, ProfileRevision: options.Profile.Revision, ResolvedOverrides: frozen.overrides(), SelectedModels: append([]string(nil), frozen.selected...), Classification: "anthropic-capability-selection-v1"}}
 	prepared.Execute = func(runCtx context.Context, sink progress.Sink) (protocolpkg.RunResult, error) {
 		runOptions := options
 		runOptions.Progress, runOptions.Inventory = sink, inv
-		return protocolpkg.ExecuteFrozen(runCtx, sink, jobs, func(ctx context.Context) (protocolpkg.RunResult, error) { return RunTarget(ctx, runOptions) })
+		return protocolpkg.ExecuteFrozen(runCtx, sink, jobs, func(ctx context.Context) (protocolpkg.RunResult, error) { return runTarget(ctx, runOptions, &frozen) })
 	}
 	return prepared, nil
 }
 
 func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	target, cfg, p := options.Target, options.Config, options.Profile
-	overrides, err := capability.LoadOverrideFile(target.CapabilityFile)
-	if err != nil {
-		return result.TargetReport{}, err
-	}
-	if overrides == nil {
-		overrides = map[string][]string{}
-	}
-	for model, values := range overrides {
-		for _, value := range values {
-			if !strings.HasPrefix(value, "anthropic.") {
-				return result.TargetReport{}, fmt.Errorf("Anthropic capability file assigns non-Anthropic capability %q to %q", value, model)
-			}
+	var overrides map[string][]string
+	var err error
+	if options.frozen == nil {
+		overrides, err = resolvedOverrides(target)
+		if err != nil {
+			return result.TargetReport{}, err
 		}
 	}
-	for _, raw := range target.ModelCapabilities {
-		parts := strings.SplitN(raw, "=", 2)
-		if len(parts) != 2 {
-			return result.TargetReport{}, fmt.Errorf("invalid --anthropic-model-capability %q", raw)
+	client := options.frozenClient()
+	if client == nil {
+		client, err = NewClient(target.BaseURL, target.APIKey, target.APIVersion, options.UserAgent, target.RequestInterval)
+		if err != nil {
+			return result.TargetReport{}, err
 		}
-		values := strings.Split(parts[1], "+")
-		for index := range values {
-			values[index] = strings.TrimSpace(values[index])
-			if !capability.Known[values[index]] || !strings.HasPrefix(values[index], "anthropic.") {
-				return result.TargetReport{}, fmt.Errorf("unknown or non-Anthropic capability %q", values[index])
-			}
-		}
-		overrides[strings.TrimSpace(parts[0])] = values
-	}
-	client, err := NewClient(target.BaseURL, target.APIKey, target.APIVersion, options.UserAgent, target.RequestInterval)
-	if err != nil {
-		return result.TargetReport{}, err
 	}
 	client.SetConcurrency(cfg.Concurrency)
 	if err := protocolpkg.ConfigureClientScheduler(client.TransportClient(), protocolpkg.RunOptions{Target: target, Scheduler: options.Scheduler, PacingGroup: options.PacingGroup}); err != nil {
@@ -203,7 +195,10 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	}
 	client.TransportClient().SetLogger(options.Logger)
 	client.TransportClient().SetLogFields(logging.Fields{"target": target.ID, "protocol": string(target.Protocol)})
-	probeExecutor := probe.NewExecutor(cfg.Concurrency)
+	probeExecutor := options.frozenExecutor()
+	if probeExecutor == nil {
+		probeExecutor = probe.NewExecutor(cfg.Concurrency)
+	}
 	probeExecutor.SetLogger(options.Logger)
 	probeExecutor.SetLogFields(logging.Fields{"target": target.ID, "protocol": string(target.Protocol)})
 	client.TransportClient().SetTelemetry(options.Telemetry)
@@ -267,6 +262,9 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 		protocolpkg.StartJob(options.Progress, target.ID, "", "inventory")(outcome)
 	}
 	selected, metadata := selectModels(requested, models)
+	if options.frozen != nil {
+		selected, metadata = options.frozen.selected, options.frozen.metadata
+	}
 	if len(selected) == 0 {
 		reportpkg.Finalize(&tmp)
 		guidance.ExtractArtifacts(&tmp)
@@ -296,63 +294,68 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	routeBlocked := make([]bool, len(selected))
 	classifications := make([]capability.Classification, len(selected))
 	modulePlans := make([][]result.ModuleAssessment, len(selected))
-	for index, model := range selected {
-		unknownPolicy := target.UnknownModel
-		if len(requested) > 0 {
-			unknownPolicy = "inventory"
-		}
-		classifications[index] = capability.ClassifyAnthropic(model, metadata[model], capability.Options{BaseURL: target.BaseURL, Overrides: overrides, UnknownPolicy: unknownPolicy})
-		if len(requested) > 0 && classifications[index].Unknown {
-			var test result.TestResult
-			var response api.Response
-			var preflightErr error
-			preflightCtx := logging.Scope(ctx, target.ID, model, "", "", "")
-			var modelEnd func(string, logging.Fields)
-			if options.Telemetry != nil {
-				var modelOp *telemetry.Operation
-				preflightCtx, modelOp = options.Telemetry.Start(preflightCtx, "model", logging.Fields{"model": model})
-				modelEnd = modelOp.End
-			} else {
-				modelEnd = func(string, logging.Fields) {}
+	if options.frozen != nil {
+		preflights, preflightErrors, preflightTests = options.frozen.preflights, options.frozen.preflightErrs, options.frozen.preflightTests
+		routeBlocked, classifications, modulePlans = options.frozen.routeBlocked, options.frozen.classifications, options.frozen.modulePlans
+	} else {
+		for index, model := range selected {
+			unknownPolicy := target.UnknownModel
+			if len(requested) > 0 {
+				unknownPolicy = "inventory"
 			}
-			// The preflight is itself the report-visible basic-message test. Its
-			// request and validator must therefore share one concrete lifecycle.
-			runNativeProbe(preflightCtx, options.Telemetry, "anthropic.messages.basic", func(probeCtx context.Context) result.TestResult {
-				test, response, preflightErr = runMessagesPreflight(probeCtx, client, cfg.Timeout, p, model)
-				return test
-			})
-			modelEnd(string(test.Status), logging.Fields{"status": string(test.Status), "http_status": test.HTTP.StatusCode})
-			preflightTests[index], preflights[index], preflightErrors[index] = &test, &response, preflightErr
-			switch {
-			case response.Is2xx() && preflightErr == nil:
-				classifications[index].Unknown = false
-				classifications[index].Reason = ""
-				classifications[index].Capabilities = append(classifications[index].Capabilities, capability.Evidence{Capability: capability.AnthropicMessagesText, Source: "preflight", Rule: "anthropic.messages.preflight", Confidence: "high", Reason: "minimal Messages preflight accepted the requested model"})
-			case isTransientResponse(response, preflightErr):
-				classifications[index].Reason = "model availability is inconclusive after transient preflight failure"
-				routeBlocked[index] = true
-				markRouteBlockedTest(preflightTests[index], "model availability could not be determined after a transient preflight failure")
-			default:
-				if isModelRouteRejection(response) {
-					classifications[index].Reason = "explicit model route rejection"
-					markRouteRejectionTest(preflightTests[index])
+			classifications[index] = capability.ClassifyAnthropic(model, metadata[model], capability.Options{BaseURL: target.BaseURL, Overrides: overrides, UnknownPolicy: unknownPolicy})
+			if len(requested) > 0 && classifications[index].Unknown {
+				var test result.TestResult
+				var response api.Response
+				var preflightErr error
+				preflightCtx := logging.Scope(ctx, target.ID, model, "", "", "")
+				var modelEnd func(string, logging.Fields)
+				if options.Telemetry != nil {
+					var modelOp *telemetry.Operation
+					preflightCtx, modelOp = options.Telemetry.Start(preflightCtx, "model", logging.Fields{"model": model})
+					modelEnd = modelOp.End
 				} else {
-					classifications[index].Reason = "model availability is inconclusive after validation preflight failure"
-					markRouteBlockedTest(preflightTests[index], "model availability could not be determined from this validation response")
+					modelEnd = func(string, logging.Fields) {}
 				}
-				routeBlocked[index] = true
+				// The preflight is itself the report-visible basic-message test. Its
+				// request and validator must therefore share one concrete lifecycle.
+				runNativeProbe(preflightCtx, options.Telemetry, "anthropic.messages.basic", func(probeCtx context.Context) result.TestResult {
+					test, response, preflightErr = runMessagesPreflight(probeCtx, client, cfg.Timeout, p, model)
+					return test
+				})
+				modelEnd(string(test.Status), logging.Fields{"status": string(test.Status), "http_status": test.HTTP.StatusCode})
+				preflightTests[index], preflights[index], preflightErrors[index] = &test, &response, preflightErr
+				switch {
+				case response.Is2xx() && preflightErr == nil:
+					classifications[index].Unknown = false
+					classifications[index].Reason = ""
+					classifications[index].Capabilities = append(classifications[index].Capabilities, capability.Evidence{Capability: capability.AnthropicMessagesText, Source: "preflight", Rule: "anthropic.messages.preflight", Confidence: "high", Reason: "minimal Messages preflight accepted the requested model"})
+				case isTransientResponse(response, preflightErr):
+					classifications[index].Reason = "model availability is inconclusive after transient preflight failure"
+					routeBlocked[index] = true
+					markRouteBlockedTest(preflightTests[index], "model availability could not be determined after a transient preflight failure")
+				default:
+					if isModelRouteRejection(response) {
+						classifications[index].Reason = "explicit model route rejection"
+						markRouteRejectionTest(preflightTests[index])
+					} else {
+						classifications[index].Reason = "model availability is inconclusive after validation preflight failure"
+						markRouteBlockedTest(preflightTests[index], "model availability could not be determined from this validation response")
+					}
+					routeBlocked[index] = true
+				}
 			}
-		}
-		modulePlans[index] = capability.AssessModules(classifications[index], p.Modules, capability.RoutingOptions{
-			Modules:                  target.Modules,
-			AllowBillableArtifacts:   cfg.AllowBillableArtifacts,
-			AllowHighTokenProbes:     cfg.AllowHighTokenProbes,
-			AllowPersistentResources: cfg.AllowPersistentResources,
-		})
-		if routeBlocked[index] {
-			for moduleIndex := range modulePlans[index] {
-				if modulePlans[index][moduleIndex].Applicability != result.ApplicabilityNotApplicable {
-					modulePlans[index][moduleIndex].BlockedBy = []string{"anthropic.messages.basic"}
+			modulePlans[index] = capability.AssessModules(classifications[index], p.Modules, capability.RoutingOptions{
+				Modules:                  target.Modules,
+				AllowBillableArtifacts:   cfg.AllowBillableArtifacts,
+				AllowHighTokenProbes:     cfg.AllowHighTokenProbes,
+				AllowPersistentResources: cfg.AllowPersistentResources,
+			})
+			if routeBlocked[index] {
+				for moduleIndex := range modulePlans[index] {
+					if modulePlans[index][moduleIndex].Applicability != result.ApplicabilityNotApplicable {
+						modulePlans[index][moduleIndex].BlockedBy = []string{"anthropic.messages.basic"}
+					}
 				}
 			}
 		}
@@ -440,6 +443,133 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	guidance.QualifyArtifacts(&tmp, target.ID)
 	assessment.ApplyTarget(&tmp, p, target.ID, string(target.Protocol))
 	return toTarget(target, tmp), nil
+}
+
+func (o RunOptions) frozenClient() *Client {
+	if o.frozen != nil {
+		return o.frozen.client
+	}
+	return nil
+}
+
+func (o RunOptions) frozenExecutor() *probe.Executor {
+	if o.frozen != nil {
+		return o.frozen.executor
+	}
+	return nil
+}
+
+func freezeExecution(ctx context.Context, options protocolpkg.RunOptions, client *Client, executor *probe.Executor, selected []string, metadata map[string]map[string]any) (frozenExecution, error) {
+	overrides, err := resolvedOverrides(options.Target)
+	if err != nil {
+		return frozenExecution{}, err
+	}
+	frozen := frozenExecution{client: client, executor: executor, selected: append([]string(nil), selected...), metadata: metadata, overrideBinding: canonicalOverrides(overrides), classifications: make([]capability.Classification, len(selected)), modulePlans: make([][]result.ModuleAssessment, len(selected)), preflights: make([]*api.Response, len(selected)), preflightErrs: make([]error, len(selected)), preflightTests: make([]*result.TestResult, len(selected)), routeBlocked: make([]bool, len(selected))}
+	explicit := len(requestedModels(options.Config, options.Target)) > 0
+	for index, model := range selected {
+		unknown := options.Target.UnknownModel
+		if explicit {
+			unknown = "inventory"
+		}
+		classification := capability.ClassifyAnthropic(model, metadata[model], capability.Options{BaseURL: options.Target.BaseURL, Overrides: overrides, UnknownPolicy: unknown})
+		if explicit && classification.Unknown {
+			var test result.TestResult
+			var response api.Response
+			var preflightErr error
+			probeCtx := logging.Scope(ctx, options.Target.ID, model, "", "", "")
+			runNativeProbe(probeCtx, options.Telemetry, "anthropic.messages.basic", func(probeCtx context.Context) result.TestResult {
+				test, response, preflightErr = runMessagesPreflight(probeCtx, client, options.Config.Timeout, options.Profile, model)
+				return test
+			})
+			frozen.preflightTests[index], frozen.preflights[index], frozen.preflightErrs[index] = &test, &response, preflightErr
+			switch {
+			case response.Is2xx() && preflightErr == nil:
+				classification.Unknown, classification.Reason = false, ""
+				classification.Capabilities = append(classification.Capabilities, capability.Evidence{Capability: capability.AnthropicMessagesText, Source: "preflight", Rule: "anthropic.messages.preflight", Confidence: "high", Reason: "minimal Messages preflight accepted the requested model"})
+			case isTransientResponse(response, preflightErr):
+				classification.Reason, frozen.routeBlocked[index] = "model availability is inconclusive after transient preflight failure", true
+				markRouteBlockedTest(&test, "model availability could not be determined after a transient preflight failure")
+			default:
+				frozen.routeBlocked[index] = true
+				if isModelRouteRejection(response) {
+					classification.Reason = "explicit model route rejection"
+					markRouteRejectionTest(&test)
+				} else {
+					classification.Reason = "model availability is inconclusive after validation preflight failure"
+					markRouteBlockedTest(&test, "model availability could not be determined from this validation response")
+				}
+			}
+		}
+		frozen.classifications[index] = classification
+		frozen.modulePlans[index] = capability.AssessModules(classification, options.Profile.Modules, capability.RoutingOptions{Modules: options.Target.Modules, AllowBillableArtifacts: options.Config.AllowBillableArtifacts, AllowHighTokenProbes: options.Config.AllowHighTokenProbes, AllowPersistentResources: options.Config.AllowPersistentResources})
+		if frozen.routeBlocked[index] {
+			for moduleIndex := range frozen.modulePlans[index] {
+				if frozen.modulePlans[index][moduleIndex].Applicability != result.ApplicabilityNotApplicable {
+					frozen.modulePlans[index][moduleIndex].BlockedBy = []string{"anthropic.messages.basic"}
+				}
+			}
+		}
+	}
+	return frozen, nil
+}
+
+func (f frozenExecution) candidates() []result.ModelReport {
+	candidates := make([]result.ModelReport, 0, len(f.selected))
+	for index, model := range f.selected {
+		candidate := result.ModelReport{ID: model, Metadata: cloneMap(f.metadata[model]), Modules: append([]result.ModuleAssessment(nil), f.modulePlans[index]...)}
+		for _, evidence := range f.classifications[index].Capabilities {
+			candidate.Capabilities = append(candidate.Capabilities, result.CapabilityAssessment{ID: evidence.Capability, Source: evidence.Source, Rule: evidence.Rule, Confidence: evidence.Confidence, Reason: evidence.Reason})
+		}
+		candidates = append(candidates, candidate)
+	}
+	return candidates
+}
+
+func (f frozenExecution) overrides() []string { return append([]string(nil), f.overrideBinding...) }
+
+func resolvedOverrides(target config.TargetConfig) (map[string][]string, error) {
+	overrides, err := capability.LoadOverrideFile(target.CapabilityFile)
+	if err != nil {
+		return nil, err
+	}
+	if overrides == nil {
+		overrides = map[string][]string{}
+	}
+	for model, values := range overrides {
+		for _, value := range values {
+			if !strings.HasPrefix(value, "anthropic.") {
+				return nil, fmt.Errorf("Anthropic capability file assigns non-Anthropic capability %q to %q", value, model)
+			}
+		}
+	}
+	for _, raw := range target.ModelCapabilities {
+		parts := strings.SplitN(raw, "=", 2)
+		if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
+			return nil, fmt.Errorf("invalid --anthropic-model-capability %q", raw)
+		}
+		values := strings.Split(parts[1], "+")
+		for index := range values {
+			values[index] = strings.TrimSpace(values[index])
+			if !capability.Known[values[index]] || !strings.HasPrefix(values[index], "anthropic.") {
+				return nil, fmt.Errorf("unknown or non-Anthropic capability %q", values[index])
+			}
+		}
+		overrides[strings.TrimSpace(parts[0])] = values
+	}
+	return overrides, nil
+}
+
+func canonicalOverrides(overrides map[string][]string) []string {
+	keys := make([]string, 0, len(overrides))
+	for model := range overrides {
+		keys = append(keys, model)
+	}
+	sort.Strings(keys)
+	resolved := make([]string, 0, len(keys))
+	for _, model := range keys {
+		resolved = append(resolved, model+"="+strings.Join(overrides[model], "+"))
+	}
+	return resolved
 }
 
 // plannedProbeCount counts lifecycle probes, not result rows, HTTP attempts,
