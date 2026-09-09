@@ -398,3 +398,17 @@ func TestReserveMemoryConsumesOnlyMemoryBudget(t *testing.T) {
 		t.Fatalf("memory release was not exactly once: %+v", s)
 	}
 }
+
+func TestEnsureAdaptiveGroupMergesSharedConservativeBounds(t *testing.T) {
+	b := broker(t, Config{Capacity: 8})
+	if err := b.EnsureAdaptiveGroup("shared", AdaptiveGroup{InitialInterval: time.Second, MaxCapacity: 6}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.EnsureAdaptiveGroup("shared", AdaptiveGroup{InitialInterval: 3 * time.Second, MaxCapacity: 3}); err != nil {
+		t.Fatal(err)
+	}
+	group := b.Snapshot().Groups["shared"]
+	if group.LearnedCapacity != 1 || group.Capacity != 8 || group.InitialInterval != 3*time.Second || group.Interval != 3*time.Second {
+		t.Fatalf("unexpected merged group: %+v", group)
+	}
+}

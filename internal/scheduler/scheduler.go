@@ -393,6 +393,50 @@ func (b *Broker) groupLocked(name string) *groupState {
 	return g
 }
 
+// EnsureAdaptiveGroup enables the run-wide learned pacing policy for name.
+// It is safe to call repeatedly while targets bind clients before dispatch.
+// Multiple clients sharing an alias may have different conservative starting
+// intervals; retaining the largest interval and smallest ceiling avoids a
+// later binding making an already shared quota more aggressive.
+func (b *Broker) EnsureAdaptiveGroup(name string, adaptive AdaptiveGroup) error {
+	if name == "" || adaptive.InitialInterval <= 0 || adaptive.MaxCapacity < 0 {
+		return ErrInvalidRequest
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	g := b.groupLocked(name)
+	if g.inFlight != 0 {
+		return fmt.Errorf("%w: cannot reconfigure active group", ErrInvalidRequest)
+	}
+	if adaptive.MaxCapacity == 0 || adaptive.MaxCapacity > b.cfg.Capacity {
+		adaptive.MaxCapacity = b.cfg.Capacity
+	}
+	if g.Adaptive != nil {
+		if adaptive.InitialInterval > g.initialInterval {
+			g.initialInterval = adaptive.InitialInterval
+			if g.Interval < adaptive.InitialInterval {
+				g.Interval = adaptive.InitialInterval
+			}
+		}
+		if adaptive.MaxCapacity < g.Adaptive.MaxCapacity {
+			g.Adaptive.MaxCapacity = adaptive.MaxCapacity
+			if g.learnedCapacity > adaptive.MaxCapacity {
+				g.learnedCapacity = adaptive.MaxCapacity
+			}
+		}
+		g.revision++
+		b.signalChangedLocked()
+		return nil
+	}
+	g.Group = Group{Capacity: b.cfg.Capacity, Adaptive: &adaptive}
+	g.learnedCapacity = 1
+	g.initialInterval = adaptive.InitialInterval
+	g.Interval = adaptive.InitialInterval
+	g.revision++
+	b.signalChangedLocked()
+	return nil
+}
+
 func (g *groupState) admissionCapacity() int {
 	if g.Adaptive != nil {
 		return g.learnedCapacity
