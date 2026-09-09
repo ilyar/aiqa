@@ -21,6 +21,7 @@ func TestOperatorReporterRendersExecutionSnapshotsOnlyInTTY(t *testing.T) {
 	}
 	var tty bytes.Buffer
 	r := newAppOperatorReporter(&tty, true, false, 1)
+	t.Cleanup(r.Close)
 	r.ObserveExecutionSnapshot(snapshot)
 	r.ObserveExecutionSnapshot(snapshot)
 	if got := tty.String(); !strings.Contains(got, "\x1b[") || !strings.Contains(got, "AIQA") {
@@ -40,6 +41,7 @@ func TestOperatorReporterHonorsCurrentTerminalWidth(t *testing.T) {
 	t.Cleanup(func() { terminalSize = old })
 	var output bytes.Buffer
 	r := newAppOperatorReporter(&output, true, false, 1)
+	t.Cleanup(r.Close)
 	r.ObserveExecutionSnapshot(execution.Snapshot{
 		Run:         execution.RunSnapshot{ID: strings.Repeat("run", 32), Phase: execution.PhaseRunning},
 		Targets:     []execution.TargetSnapshot{{ID: strings.Repeat("target", 32), Phase: execution.PhaseRunning}},
@@ -64,6 +66,33 @@ func TestOperatorReporterClearsRowsRemovedByShorterFrame(t *testing.T) {
 	// are no longer part of the frame; plain output never uses this path.
 	if !strings.Contains(got, "\x1b[3A") || strings.Count(got, "\x1b[2K") < 6 {
 		t.Fatalf("shorter frame did not clear stale rows: %q", got)
+	}
+}
+
+func TestOperatorReporterRefreshesElapsedAndETAWithoutExecutionEvent(t *testing.T) {
+	oldNow := operatorNow
+	now := time.Unix(100, 0)
+	operatorNow = func() time.Time { return now }
+	t.Cleanup(func() { operatorNow = oldNow })
+
+	var output bytes.Buffer
+	r := newAppOperatorReporter(&output, true, false, 1)
+	t.Cleanup(r.Close)
+	r.ObserveExecutionSnapshot(execution.Snapshot{
+		Run:         execution.RunSnapshot{ID: "run", Phase: execution.PhaseRunning, Offset: 43 * time.Second},
+		Targets:     []execution.TargetSnapshot{{ID: "target", Phase: execution.PhaseRunning}},
+		Jobs:        []execution.JobSnapshot{{ID: "job", TargetID: "target", State: execution.JobPlanned}},
+		Groups:      []execution.GroupSnapshot{{ID: "quota", Capacity: 1, CooldownUntil: 60 * time.Second}},
+		PlannedJobs: 1,
+	})
+
+	// No reducer event arrives while a request is in cooldown. The refresh path
+	// must nevertheless advance both elapsed time and the ETA countdown.
+	now = now.Add(2 * time.Second)
+	r.renderLatest()
+	got := output.String()
+	if !strings.Contains(got, "Elapsed 45s") || !strings.Contains(got, "ETA >= 15s") {
+		t.Fatalf("refresh did not advance elapsed/ETA: %q", got)
 	}
 }
 
@@ -94,6 +123,7 @@ func TestTerminalTargetStateKeepsRuntimeOutcomesDistinct(t *testing.T) {
 func TestOperatorReporterShowsCanonicalCompatibilityVerdict(t *testing.T) {
 	var output bytes.Buffer
 	r := newAppOperatorReporter(&output, true, false, 1)
+	t.Cleanup(r.Close)
 	r.SetCompatibilityVerdicts(map[string]string{"target": "pass"}, "pass")
 	r.ObserveExecutionSnapshot(execution.Snapshot{
 		Run:         execution.RunSnapshot{ID: "run", Phase: execution.PhaseCompleted},

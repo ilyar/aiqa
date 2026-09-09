@@ -23,13 +23,39 @@ type operatorReporter struct {
 	tty      bool
 	capacity int
 
-	mu         sync.Mutex
+	mu         sync.Mutex // serializes terminal writes
 	lines      int
+	stateMu    sync.Mutex
 	verdicts   map[string]string
 	runVerdict string
+	snapshot   *execution.Snapshot
+	snapshotAt time.Time
+	refresh    terminalRefreshTicker
+	stop       chan struct{}
+	refreshWG  sync.WaitGroup
 }
 
 var terminalSize = func() (int, int, error) { return term.GetSize(2) }
+
+const terminalRefreshInterval = time.Second
+
+// operatorNow is a seam for deterministic terminal refresh tests. Production
+// values carry Go's monotonic clock, so wall-clock changes do not perturb an
+// in-progress elapsed duration.
+var operatorNow = time.Now
+
+type terminalRefreshTicker interface {
+	Chan() <-chan time.Time
+	Stop()
+}
+
+type realTerminalRefreshTicker struct{ *time.Ticker }
+
+func (t realTerminalRefreshTicker) Chan() <-chan time.Time { return t.C }
+
+var newTerminalRefreshTicker = func(interval time.Duration) terminalRefreshTicker {
+	return realTerminalRefreshTicker{Ticker: time.NewTicker(interval)}
+}
 
 func newAppOperatorReporter(writer io.Writer, tty bool, disabled bool, capacity int) *operatorReporter {
 	if disabled {
@@ -56,9 +82,9 @@ func (r *operatorReporter) SetCompatibilityVerdicts(verdicts map[string]string, 
 	for target, verdict := range verdicts {
 		copy[target] = verdict
 	}
-	r.mu.Lock()
+	r.stateMu.Lock()
 	r.verdicts, r.runVerdict = copy, runVerdict
-	r.mu.Unlock()
+	r.stateMu.Unlock()
 }
 
 // ObserveExecutionSnapshot draws an inline frame after an accepted reducer
@@ -68,14 +94,52 @@ func (r *operatorReporter) ObserveExecutionSnapshot(snapshot execution.Snapshot)
 	if r == nil || !r.tty {
 		return
 	}
+	r.stateMu.Lock()
+	r.snapshot = &snapshot
+	r.snapshotAt = operatorNow()
+	if r.refresh == nil {
+		r.refresh = newTerminalRefreshTicker(terminalRefreshInterval)
+		r.stop = make(chan struct{})
+		r.refreshWG.Add(1)
+		go r.refreshLoop(r.refresh, r.stop)
+	}
+	r.stateMu.Unlock()
+	r.renderLatest()
+}
+
+func (r *operatorReporter) refreshLoop(ticker terminalRefreshTicker, stop <-chan struct{}) {
+	defer r.refreshWG.Done()
+	for {
+		select {
+		case <-ticker.Chan():
+			r.renderLatest()
+		case <-stop:
+			return
+		}
+	}
+}
+
+func (r *operatorReporter) renderLatest() {
+	r.stateMu.Lock()
+	if r.snapshot == nil {
+		r.stateMu.Unlock()
+		return
+	}
+	snapshot := *r.snapshot
+	if elapsed := operatorNow().Sub(r.snapshotAt); elapsed > 0 {
+		snapshot.Run.Offset += elapsed
+	}
+	verdicts, runVerdict := r.verdicts, r.runVerdict
+	r.stateMu.Unlock()
+	r.renderSnapshot(snapshot, verdicts, runVerdict)
+}
+
+func (r *operatorReporter) renderSnapshot(snapshot execution.Snapshot, verdicts map[string]string, runVerdict string) {
 	width := 80
 	if n, _, err := terminalSize(); err == nil && n > 1 {
 		width = n
 	}
 	rows := make([]terminal.Target, 0, len(snapshot.Targets))
-	r.mu.Lock()
-	verdicts, runVerdict := r.verdicts, r.runVerdict
-	r.mu.Unlock()
 	for _, target := range snapshot.Targets {
 		done, total := 0, 0
 		for _, job := range snapshot.Jobs {
@@ -186,7 +250,19 @@ func (r *operatorReporter) draw(frame terminal.Frame) {
 }
 
 func (r *operatorReporter) Close() {
-	if r != nil && r.tty {
+	if r == nil {
+		return
+	}
+	if r.tty {
+		r.stateMu.Lock()
+		ticker, stop := r.refresh, r.stop
+		r.refresh, r.stop = nil, nil
+		r.stateMu.Unlock()
+		if ticker != nil {
+			ticker.Stop()
+			close(stop)
+			r.refreshWG.Wait()
+		}
 		r.mu.Lock()
 		if r.lines > 0 {
 			_, _ = io.WriteString(r.writer, "\n")
