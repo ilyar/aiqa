@@ -106,9 +106,75 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 	var sidecarPath, verdictPath string
 	var verdictFile *os.File
 	var sidecarWriteErr error
-	var publicReport *result.ReportV3
-	var reportsWritten bool
 	var finalVerdict *traceverify.Verdict
+	var sidecarSink *logging.Sink
+	var sidecarFile *os.File
+	var forensicFinalized bool
+	finalizeForensics := func() error {
+		if forensicFinalized {
+			return nil
+		}
+		forensicFinalized = true
+
+		var finalizationErr error
+		if sidecarSink != nil {
+			finalizationErr = errors.Join(sidecarSink.Close(), sidecarFile.Close())
+			if finalizationErr != nil {
+				sidecarWriteErr = finalizationErr
+				finalizationErr = fmt.Errorf("write private diagnostic log %q: %w", sidecarPath, finalizationErr)
+			}
+		}
+		if verdictFile == nil {
+			return finalizationErr
+		}
+
+		trace, err := os.Open(sidecarPath)
+		if err == nil {
+			verdict := traceverify.Verify(trace)
+			if sidecarWriteErr != nil {
+				verdict.Status = traceverify.Inconclusive
+				verdict.Violations = append(verdict.Violations, traceverify.Violation{
+					Code: "trace_write_failed", Severity: "error",
+					Remediation: "restore private trace sidecar writes before using forensic evidence",
+				})
+			}
+			finalVerdict = &verdict
+			err = trace.Close()
+			if err == nil {
+				data, marshalErr := json.MarshalIndent(verdict, "", "  ")
+				if marshalErr != nil {
+					err = marshalErr
+				} else if _, writeErr := verdictFile.Write(append(data, '\n')); writeErr != nil {
+					err = writeErr
+				} else {
+					err = verdictFile.Sync()
+				}
+			}
+		}
+		if closeErr := verdictFile.Close(); err == nil {
+			err = closeErr
+		}
+		if err != nil {
+			return errors.Join(finalizationErr, fmt.Errorf("write private trace verdict %q: %w", verdictPath, err))
+		}
+		return finalizationErr
+	}
+	// Early returns still close private artifacts after the lifecycle defers have
+	// ended their producers. A completed run finalizes explicitly below so its
+	// report is committed exactly once from the final forensic state.
+	defer func() {
+		if forensicFinalized {
+			return
+		}
+		if err := finalizeForensics(); err != nil {
+			if runErr == nil {
+				runErr = err
+				out.ExitCode = 2
+			} else {
+				runErr = errors.Join(runErr, err)
+			}
+		}
+	}()
 	if cfg.Verbosity > 0 {
 		sidecarPath = cfg.Name + ".log"
 		file, err := os.OpenFile(sidecarPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
@@ -132,92 +198,7 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 				return RunResult{ExitCode: 2}, fmt.Errorf("create private trace verdict %q: %w", verdictPath, err)
 			}
 		}
-		defer func() {
-			if err := errors.Join(sink.Close(), file.Close()); err != nil {
-				sidecarWriteErr = err
-				err = fmt.Errorf("write private diagnostic log %q: %w", sidecarPath, err)
-				if runErr == nil {
-					runErr = err
-					out.ExitCode = 2
-				} else {
-					runErr = errors.Join(runErr, err)
-				}
-			}
-			if verdictFile == nil {
-				return
-			}
-			trace, err := os.Open(sidecarPath)
-			if err == nil {
-				verdict := traceverify.Verify(trace)
-				if sidecarWriteErr != nil {
-					verdict.Status = traceverify.Inconclusive
-					verdict.Violations = append(verdict.Violations, traceverify.Violation{
-						Code: "trace_write_failed", Severity: "error",
-						Remediation: "restore private trace sidecar writes before using forensic evidence",
-					})
-				}
-				finalVerdict = &verdict
-				err = trace.Close()
-				if err == nil {
-					data, marshalErr := json.MarshalIndent(verdict, "", "  ")
-					if marshalErr != nil {
-						err = marshalErr
-					} else if _, writeErr := verdictFile.Write(append(data, '\n')); writeErr != nil {
-						err = writeErr
-					} else {
-						err = verdictFile.Sync()
-					}
-				}
-			}
-			if closeErr := verdictFile.Close(); err == nil {
-				err = closeErr
-			}
-			if err != nil {
-				err = fmt.Errorf("write private trace verdict %q: %w", verdictPath, err)
-				if runErr == nil {
-					runErr = err
-					out.ExitCode = 2
-				} else {
-					runErr = errors.Join(runErr, err)
-				}
-				return
-			}
-			if publicReport != nil && reportsWritten {
-				// Public reports expose only the private verdict filename and its
-				// final status. Rewriting after finalization prevents a stale
-				// "pending" claim while retaining the trace's confidentiality.
-				if finalVerdict == nil {
-					runErr = errors.Join(runErr, errors.New("private trace verdict was not produced"))
-					out.ExitCode = 2
-					return
-				}
-				publicReport.ForensicTrace = &result.ForensicTrace{VerdictPath: verdictPath, Status: string(finalVerdict.Status)}
-				// Re-finalize exactly once after every private artifact is closed.
-				// The rewritten files and opt-in stdout therefore share the same
-				// final forensic attachment; no pending snapshot can escape.
-				final, finalizeErr := reportpkg.FinalizeV3(*publicReport, cfg)
-				if finalizeErr == nil {
-					var paths []string
-					paths, finalizeErr = final.Commit(cfg.Name)
-					if finalizeErr == nil {
-						out.Paths = append(out.Paths[:0], paths...)
-						if sidecarPath != "" {
-							out.Paths = append(out.Paths, sidecarPath)
-						}
-						if verdictPath != "" {
-							out.Paths = append(out.Paths, verdictPath)
-						}
-						if cfg.Stdout != "" {
-							out.Stdout, finalizeErr = final.Bytes(cfg.Stdout)
-						}
-					}
-				}
-				if finalizeErr != nil {
-					runErr = errors.Join(runErr, fmt.Errorf("finalize report with forensic trace verdict: %w", finalizeErr))
-					out.ExitCode = 2
-				}
-			}
-		}()
+		sidecarSink, sidecarFile = sink, file
 	}
 	forensicRunID, err := newForensicRunID()
 	if err != nil {
@@ -229,15 +210,39 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 	}
 	reporter = executionProgress
 	tracing := telemetry.New(logger, reporter)
-	defer tracing.Shutdown(context.Background())
+	tracingShutdown := false
+	shutdownTracing := func() error {
+		if tracingShutdown {
+			return nil
+		}
+		tracingShutdown = true
+		return tracing.Shutdown(context.Background())
+	}
+	defer func() {
+		if !tracingShutdown {
+			if err := shutdownTracing(); err != nil {
+				if runErr == nil {
+					runErr = fmt.Errorf("shutdown tracing: %w", err)
+					out.ExitCode = 2
+				} else {
+					runErr = errors.Join(runErr, fmt.Errorf("shutdown tracing: %w", err))
+				}
+			}
+		}
+	}()
 	ctx = logging.WithLogger(ctx, logger)
 	ctx, runOp := tracing.Start(ctx, "run", logging.Fields{"run_id": forensicRunID, "suite_count": len(cfg.Tests), "target": "all"})
 	runOutcome := "completed"
 	runFields := logging.Fields{}
+	runEnded := false
 	// This defer is deliberately registered before target defers. On an early
 	// return Go closes targets first (LIFO), then the run, preserving the graph
 	// invariant that no child outlives its parent.
-	defer func() { runOp.End(runOutcome, runFields) }()
+	defer func() {
+		if !runEnded {
+			runOp.End(runOutcome, runFields)
+		}
+	}()
 	logf := func(level logging.Level, format string, args ...any) { logger.Logf(level, format, args...) }
 	// SDK is a first-class test selector. Keep ExtSuites limited to explicitly
 	// requested executable extensions; neither selector is rewritten into the
@@ -254,23 +259,20 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 			AllowHighTokenProbes: cfg.AllowHighTokenProbes, AllowPersistentResources: cfg.AllowPersistentResources,
 		},
 	}
-	publicReport = &r
 	addSidecarPath := func(result *RunResult) {
 		if sidecarPath != "" {
 			result.Paths = append(result.Paths, sidecarPath)
 		}
 		if verdictPath != "" {
 			// The file is created before the first provider action. The deferred
-			// finalizer fills it only after every lifecycle span has ended.
+			// cleanup path fills it only after every lifecycle span has ended.
 			result.Paths = append(result.Paths, verdictPath)
 		}
 	}
 	fatal := func(out RunResult, cause error) (RunResult, error) {
 		// A fatal path has not reached a trustworthy final execution state.
 		// Never expose a partial aggregate as if it described a completed run.
-		if publicReport != nil {
-			publicReport.Execution = nil
-		}
+		r.Execution = nil
 		// Runtime failures are emitted through the same filtered logger as every
 		// other application message. This keeps stderr and the verbose sidecar in
 		// sync, and intentionally leaves parse/configuration failures to main.
@@ -469,6 +471,25 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 		}
 	}
 	r.Summary = summarizeRun(r.Targets)
+	if len(runErrors) > 0 {
+		runOutcome = "error"
+		runFields = logging.Fields{"status": "error", "error_present": true, "error_kind": "run_failure"}
+	}
+	// A report may only describe the completed lifecycle. Close its producer,
+	// flush local tracing, and seal private forensic artifacts before deriving
+	// the one public snapshot that is committed for this run.
+	runOp.End(runOutcome, runFields)
+	runEnded = true
+	if err := shutdownTracing(); err != nil {
+		return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("shutdown tracing: %w", err))
+	}
+	forensicErr := finalizeForensics()
+	if verdictPath != "" {
+		if finalVerdict == nil {
+			return fatal(RunResult{ReportV3: &r, ExitCode: 2}, errors.New("private trace verdict was not produced"))
+		}
+		r.ForensicTrace = &result.ForensicTrace{VerdictPath: verdictPath, Status: string(finalVerdict.Status)}
+	}
 	finalReport, err := reportpkg.FinalizeV3(r, cfg)
 	if err != nil {
 		return fatal(RunResult{ReportV3: &r, ExitCode: 2}, err)
@@ -477,8 +498,6 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 	if err != nil {
 		return fatal(RunResult{ReportV3: &r, Paths: paths, ExitCode: 2}, err)
 	}
-	reportsWritten = true
-	runOp.Event(logging.Info, "report_serialized", logging.Fields{"status": "completed"})
 	var stdout []byte
 	if cfg.Stdout != "" {
 		stdout, err = finalReport.Bytes(cfg.Stdout)
@@ -487,12 +506,19 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 		}
 	}
 	out = RunResult{ReportV3: &r, Paths: paths, Stdout: stdout, ExitCode: multiExitCode(cfg, r.Summary)}
-	reporter.Message("completed; reports: " + strings.Join(paths, ", "))
 	addSidecarPath(&out)
+	if forensicErr != nil {
+		out.ExitCode = 2
+		return fatal(out, forensicErr)
+	}
 	if len(runErrors) > 0 {
 		out.ExitCode = 2
 		return fatal(out, errors.Join(runErrors...))
 	}
+	// A compatibility verdict (including exit 1) is still a completed run;
+	// operational target errors are not. Never publish a terminal success line
+	// before the error boundary has been decided.
+	reporter.Message("completed; reports: " + strings.Join(paths, ", "))
 	return out, nil
 }
 
