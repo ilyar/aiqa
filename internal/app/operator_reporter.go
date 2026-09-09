@@ -157,9 +157,7 @@ func (r *operatorReporter) renderSnapshot(snapshot execution.Snapshot, verdicts 
 		detail := ""
 		if target.Phase == execution.PhaseRunning && waiting.count > 0 {
 			state = "waiting"
-			if waiting.next <= 0 {
-				detail = fmt.Sprintf("waiting %d; dispatching", waiting.count)
-			} else {
+			if waiting.next > 0 {
 				detail = fmt.Sprintf("waiting %d; next in %s", waiting.count, waiting.next.Round(time.Second))
 			}
 		}
