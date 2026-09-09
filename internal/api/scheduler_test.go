@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"runtime"
 	"strings"
 	"sync/atomic"
@@ -103,6 +104,26 @@ func TestSchedulerGroupsDefaultOriginAndIsolation(t *testing.T) {
 	}
 	if calls.Load() != 2 {
 		t.Fatalf("calls=%d, want 2", calls.Load())
+	}
+}
+
+func TestNormalizedOriginUsesEffectiveDefaultPort(t *testing.T) {
+	for _, test := range []struct{ left, right string }{
+		{"https://EXAMPLE.test", "https://example.test:443"},
+		{"http://EXAMPLE.test", "http://example.test:80"},
+		{"https://[2001:db8::1]", "https://[2001:db8::1]:443"},
+	} {
+		left, err := url.Parse(test.left)
+		if err != nil {
+			t.Fatal(err)
+		}
+		right, err := url.Parse(test.right)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := normalizedOrigin(right), normalizedOrigin(left); got != want {
+			t.Fatalf("origin %q=%q, want %q", test.right, got, want)
+		}
 	}
 }
 

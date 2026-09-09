@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -281,14 +282,21 @@ func normalizedOrigin(u *url.URL) string {
 	if u == nil {
 		return ""
 	}
+	scheme := strings.ToLower(u.Scheme)
 	host := strings.ToLower(u.Hostname())
-	if port := u.Port(); port != "" {
-		host += ":" + port
+	port := u.Port()
+	if (scheme == "https" && port == "443") || (scheme == "http" && port == "80") {
+		port = ""
+	}
+	if port != "" {
+		host = net.JoinHostPort(host, port)
+	} else if strings.Contains(host, ":") { // IPv6 without an explicit port.
+		host = "[" + host + "]"
 	}
 	// Scheduler groups can reach live execution snapshots, so the default must
 	// preserve origin equivalence without retaining the provider origin itself.
 	// An explicit group is already a validated local alias.
-	origin := strings.ToLower(u.Scheme) + "://" + host
+	origin := scheme + "://" + host
 	sum := sha256.Sum256([]byte(origin))
 	return "origin-" + hex.EncodeToString(sum[:])
 }
