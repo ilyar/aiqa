@@ -99,7 +99,10 @@ func TestWaitSnapshotUsesMonotonicTimeAndEnds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := r.Apply(WaitStarted{Base: Base{Meta: Meta{RunID: "run-1", Seq: 1, TargetID: "openai", JobID: "job", GroupID: "group-3", Offset: 0}}, WaitID: "wait-12", Reason: WaitRetryAfter, Source: "retry_after_seconds", EligibleAt: 61 * time.Second, ScheduleRevision: 4}); err != nil {
+	if err := r.Apply(PreparationRegistered{Base: Base{Meta: Meta{RunID: "run-1", Seq: 1, TargetID: "openai"}}, Owner: PreparationOwner{ID: "openai-discovery", TargetID: "openai", Kind: PreparationDiscovery}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Apply(WaitStarted{Base: Base{Meta: Meta{RunID: "run-1", Seq: 2, TargetID: "openai", PreparationID: "openai-discovery", GroupID: "group-3", Offset: 0}}, WaitID: "wait-12", Reason: WaitRetryAfter, Source: "retry_after_seconds", EligibleAt: 61 * time.Second, ScheduleRevision: 4}); err != nil {
 		t.Fatal(err)
 	}
 	c.advance(8 * time.Second)
@@ -111,18 +114,78 @@ func TestWaitSnapshotUsesMonotonicTimeAndEnds(t *testing.T) {
 	if s.Waits[0].Reason != WaitRetryAfter || s.Waits[0].Source != "retry_after_seconds" {
 		t.Fatalf("wait source lost: %#v", s.Waits[0])
 	}
-	if err := r.Apply(WaitUpdated{Base: Base{Meta: Meta{RunID: "run-1", Seq: 2, TargetID: "openai", JobID: "job", GroupID: "group-3", Offset: 8 * time.Second}}, WaitID: "wait-12", Reason: WaitInitialPacing, Source: "initial_pacing", EligibleAt: 70 * time.Second, ScheduleRevision: 5}); err != nil {
+	if err := r.Apply(WaitUpdated{Base: Base{Meta: Meta{RunID: "run-1", Seq: 3, TargetID: "openai", PreparationID: "openai-discovery", GroupID: "group-3", Offset: 8 * time.Second}}, WaitID: "wait-12", Reason: WaitInitialPacing, Source: "initial_pacing", EligibleAt: 70 * time.Second, ScheduleRevision: 5}); err != nil {
 		t.Fatal(err)
 	}
 	c.advance(time.Second)
 	if got := r.Snapshot().Waits[0]; got.ResumesIn != 61*time.Second || got.Reason != WaitInitialPacing {
 		t.Fatalf("updated deadline=%#v", got)
 	}
-	if err := r.Apply(WaitEnded{Base: Base{Meta: Meta{RunID: "run-1", Seq: 3, Offset: 9 * time.Second}}, WaitID: "wait-12"}); err != nil {
+	if err := r.Apply(WaitEnded{Base: Base{Meta: Meta{RunID: "run-1", Seq: 4, Offset: 9 * time.Second}}, WaitID: "wait-12"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := r.Snapshot(); len(got.Waits) != 0 {
 		t.Fatalf("ended wait remains: %#v", got.Waits)
+	}
+}
+
+func TestPreparationOwnersRepresentPreFreezeDiscoveryWithoutFrozenJobs(t *testing.T) {
+	r, err := New("run-1", newFakeClock())
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := PreparationOwner{ID: "openai-model-discovery", TargetID: "openai", Kind: PreparationDiscovery}
+	if err := r.Apply(PreparationRegistered{Base: Base{Meta: Meta{RunID: "run-1", Seq: 1, TargetID: "openai"}}, Owner: owner}); err != nil {
+		t.Fatal(err)
+	}
+	m := Meta{RunID: "run-1", Seq: 2, TargetID: "openai", PreparationID: owner.ID, AttemptID: "models-list-attempt", GroupID: "origin-openai", Offset: time.Second}
+	if err := r.Apply(RequestQueued{Base: Base{Meta: m}}); err != nil {
+		t.Fatal(err)
+	}
+	m.Seq = 3
+	if err := r.Apply(RequestAdmitted{Base: Base{Meta: m}}); err != nil {
+		t.Fatal(err)
+	}
+	m.Seq = 4
+	if err := r.Apply(RequestCompleted{Base: Base{Meta: m}, Outcome: OutcomeSucceeded}); err != nil {
+		t.Fatal(err)
+	}
+	s := r.SnapshotAt(time.Second)
+	if s.PlannedJobs != 0 || len(s.Jobs) != 0 {
+		t.Fatalf("preparation altered frozen job accounting: %#v", s)
+	}
+	if len(s.Preparations) != 1 || s.Preparations[0] != (PreparationSnapshot{ID: owner.ID, TargetID: owner.TargetID, Kind: owner.Kind}) {
+		t.Fatalf("preparation owner not represented: %#v", s.Preparations)
+	}
+	if len(s.Requests) != 1 || s.Requests[0].PreparationID != owner.ID || s.Requests[0].JobID != "" {
+		t.Fatalf("discovery request has wrong owner: %#v", s.Requests)
+	}
+}
+
+func TestRuntimeJobIDsRemainStrictAndCannotMasqueradeAsPreparation(t *testing.T) {
+	r, err := New("run-1", newFakeClock())
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := PreparationOwner{ID: "target-discovery", TargetID: "target", Kind: PreparationDiscovery}
+	if err := r.Apply(PreparationRegistered{Base: Base{Meta: Meta{RunID: "run-1", Seq: 1, TargetID: "target"}}, Owner: owner}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Apply(JobStarted{Base: Base{Meta: Meta{RunID: "run-1", Seq: 2, JobID: "not-frozen"}}}); !errors.Is(err, ErrUnknownEntity) {
+		t.Fatalf("unknown runtime JobID = %v, want ErrUnknownEntity", err)
+	}
+	badOwner := Meta{RunID: "run-1", Seq: 3, TargetID: "target", JobID: "not-frozen", PreparationID: owner.ID, AttemptID: "attempt", GroupID: "group"}
+	if err := r.Apply(RequestQueued{Base: Base{Meta: badOwner}}); !errors.Is(err, ErrInvalidEvent) {
+		t.Fatalf("mixed preparation/job owner = %v, want ErrInvalidEvent", err)
+	}
+	if err := r.Apply(PlanFrozen{Base: meta("run-1", 4, 0), Revision: 1, Jobs: []JobSpec{{ID: "frozen-job", TargetID: "target"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Apply(PreparationRegistered{Base: Base{Meta: Meta{RunID: "run-1", Seq: 5, TargetID: "target"}}, Owner: PreparationOwner{ID: "late", TargetID: "target", Kind: PreparationPreflight}}); !errors.Is(err, ErrInvalidEvent) {
+		t.Fatalf("late preparation registration = %v, want ErrInvalidEvent", err)
+	}
+	if err := r.Apply(JobStarted{Base: Base{Meta: Meta{RunID: "run-1", Seq: 6, TargetID: "other-target", JobID: "frozen-job"}}}); !errors.Is(err, ErrInvalidEvent) {
+		t.Fatalf("mismatched job target = %v, want ErrInvalidEvent", err)
 	}
 }
 

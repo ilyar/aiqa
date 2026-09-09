@@ -95,14 +95,18 @@ const (
 // Meta is embedded by every event.  Offset is the only time source used for
 // wait elapsed/countdown values.  IDs are opaque safe identifiers, not labels.
 type Meta struct {
-	RunID     string
-	Seq       uint64
-	At        time.Time
-	Offset    time.Duration
-	TargetID  string
-	JobID     string
-	AttemptID string
-	GroupID   string
+	RunID    string
+	Seq      uint64
+	At       time.Time
+	Offset   time.Duration
+	TargetID string
+	JobID    string
+	// PreparationID identifies a registered pre-freeze owner. It is mutually
+	// exclusive with JobID for request and wait events: preparation work is
+	// observed, but is never fabricated as a frozen progress job.
+	PreparationID string
+	AttemptID     string
+	GroupID       string
 }
 
 // Event is closed to this package: all state mutations are represented by the
@@ -130,6 +134,31 @@ type TargetPhaseChanged struct {
 }
 
 func (TargetPhaseChanged) event() {}
+
+// PreparationKind is intentionally closed. It records only the local role of
+// a pre-freeze owner, never a provider endpoint, model name, or payload.
+type PreparationKind string
+
+const (
+	PreparationDiscovery PreparationKind = "discovery"
+	PreparationPreflight PreparationKind = "preflight"
+)
+
+// PreparationOwner is a registered owner for work which happens before the
+// execution plan is frozen. A discovery request therefore has an explicit
+// target-local identity without polluting frozen-job accounting.
+type PreparationOwner struct {
+	ID       string
+	TargetID string
+	Kind     PreparationKind
+}
+
+type PreparationRegistered struct {
+	Base
+	Owner PreparationOwner
+}
+
+func (PreparationRegistered) event() {}
 
 // JobSpec is a display-independent frozen job descriptor. Requirement IDs are
 // evidence links only and therefore never affect progress accounting.
@@ -323,6 +352,10 @@ type TargetSnapshot struct {
 	ID    string
 	Phase Phase
 }
+type PreparationSnapshot struct {
+	ID, TargetID string
+	Kind         PreparationKind
+}
 type JobSnapshot struct {
 	ID, TargetID                 string
 	RequirementIDs, Dependencies []string
@@ -333,16 +366,16 @@ type JobSnapshot struct {
 	CompletedSteps, TotalSteps   int
 }
 type RequestSnapshot struct {
-	ID, TargetID, JobID, GroupID string
-	State                        RequestState
-	Outcome                      Outcome
+	ID, TargetID, JobID, PreparationID, GroupID string
+	State                                       RequestState
+	Outcome                                     Outcome
 }
 type WaitSnapshot struct {
-	ID, TargetID, JobID, GroupID             string
-	Reason                                   WaitReason
-	Source                                   WaitSource
-	ScheduleRevision                         uint64
-	StartedAt, EligibleAt, Waited, ResumesIn time.Duration
+	ID, TargetID, JobID, PreparationID, GroupID string
+	Reason                                      WaitReason
+	Source                                      WaitSource
+	ScheduleRevision                            uint64
+	StartedAt, EligibleAt, Waited, ResumesIn    time.Duration
 }
 type GroupSnapshot struct {
 	ID             string
@@ -363,6 +396,7 @@ type Snapshot struct {
 	SchemaVersion                                                     string
 	Run                                                               RunSnapshot
 	Targets                                                           []TargetSnapshot
+	Preparations                                                      []PreparationSnapshot
 	Jobs                                                              []JobSnapshot
 	Requests                                                          []RequestSnapshot
 	Waits                                                             []WaitSnapshot
@@ -376,6 +410,7 @@ type Reducer struct {
 	clock        Clock
 	run          RunSnapshot
 	targets      map[string]Phase
+	preparations map[string]*preparation
 	jobs         map[string]*job
 	requests     map[string]*request
 	waits        map[string]*wait
@@ -390,16 +425,20 @@ type job struct {
 	completed, total int
 }
 type request struct {
-	id, target, job, group string
-	state                  RequestState
-	outcome                Outcome
+	id, target, job, preparation, group string
+	state                               RequestState
+	outcome                             Outcome
 }
 type wait struct {
-	id, target, job, group string
-	reason                 WaitReason
-	source                 WaitSource
-	revision               uint64
-	started, eligible      time.Duration
+	id, target, job, preparation, group string
+	reason                              WaitReason
+	source                              WaitSource
+	revision                            uint64
+	started, eligible                   time.Duration
+}
+type preparation struct {
+	id, target string
+	kind       PreparationKind
 }
 type group struct {
 	id                 string
@@ -420,7 +459,7 @@ func New(runID string, clock Clock) (*Reducer, error) {
 	if clock == nil {
 		clock = RealClock()
 	}
-	return &Reducer{clock: clock, run: RunSnapshot{ID: runID, Phase: PhaseValidating}, targets: map[string]Phase{}, jobs: map[string]*job{}, requests: map[string]*request{}, waits: map[string]*wait{}, groups: map[string]*group{}, artifacts: map[string]*artifact{}, seenTerminal: map[string]Outcome{}}, nil
+	return &Reducer{clock: clock, run: RunSnapshot{ID: runID, Phase: PhaseValidating}, targets: map[string]Phase{}, preparations: map[string]*preparation{}, jobs: map[string]*job{}, requests: map[string]*request{}, waits: map[string]*wait{}, groups: map[string]*group{}, artifacts: map[string]*artifact{}, seenTerminal: map[string]Outcome{}}, nil
 }
 
 // Apply changes the state once. Terminal duplicates with an identical outcome
@@ -461,7 +500,7 @@ func (r *Reducer) validateMeta(m Meta) error {
 	if m.Offset < 0 {
 		return fmt.Errorf("%w: negative monotonic offset", ErrInvalidEvent)
 	}
-	for n, v := range map[string]string{"target_id": m.TargetID, "job_id": m.JobID, "attempt_id": m.AttemptID, "group_id": m.GroupID} {
+	for n, v := range map[string]string{"target_id": m.TargetID, "job_id": m.JobID, "preparation_id": m.PreparationID, "attempt_id": m.AttemptID, "group_id": m.GroupID} {
 		if v != "" {
 			if err := validateID(n, v); err != nil {
 				return err
@@ -483,18 +522,20 @@ func (r *Reducer) apply(e Event, m Meta) error {
 			return bad("target phase")
 		}
 		r.targets[m.TargetID] = v.Phase
+	case PreparationRegistered:
+		return r.registerPreparation(v, m)
 	case PlanFrozen:
 		return r.freeze(v, m)
 	case JobQueued:
-		return r.jobState(m.JobID, JobQueuedState)
+		return r.jobState(m, JobQueuedState)
 	case JobStarted:
-		return r.jobState(m.JobID, JobRunning)
+		return r.jobState(m, JobRunning)
 	case JobProgress:
-		return r.progress(m.JobID, v)
+		return r.progress(m, v)
 	case JobFinished:
-		return r.jobTerminal(m.JobID, v.Outcome)
+		return r.jobTerminal(m, v.Outcome)
 	case JobCancelled:
-		return r.jobTerminal(m.JobID, v.Outcome)
+		return r.jobTerminal(m, v.Outcome)
 	case RequestQueued:
 		return r.requestState(m, RequestQueuedState, "")
 	case RequestAdmitted:
@@ -565,21 +606,83 @@ func (r *Reducer) freeze(v PlanFrozen, m Meta) error {
 	r.run.Phase = PhasePlanFrozen
 	return nil
 }
-func (r *Reducer) jobState(id string, state JobState) error {
-	j := r.jobs[id]
+func (r *Reducer) registerPreparation(v PreparationRegistered, m Meta) error {
+	if r.run.PlanRevision != 0 {
+		return bad("preparation registered after plan freeze")
+	}
+	owner := v.Owner
+	if m.TargetID == "" || m.TargetID != owner.TargetID || m.JobID != "" || m.PreparationID != "" {
+		return bad("preparation identity")
+	}
+	if err := validateID("preparation_id", owner.ID); err != nil {
+		return err
+	}
+	if err := validateID("preparation target_id", owner.TargetID); err != nil {
+		return err
+	}
+	if !validPreparationKind(owner.Kind) {
+		return bad("preparation kind")
+	}
+	if _, exists := r.preparations[owner.ID]; exists {
+		return fmt.Errorf("%w: duplicate preparation %q", ErrInvalidEvent, owner.ID)
+	}
+	r.preparations[owner.ID] = &preparation{id: owner.ID, target: owner.TargetID, kind: owner.Kind}
+	if _, exists := r.targets[owner.TargetID]; !exists {
+		r.targets[owner.TargetID] = PhasePreparing
+	}
+	return nil
+}
+
+// jobForMeta enforces that every runtime JobID is one of the frozen plan's
+// opaque identifiers. Preparation owners use PreparationID instead and cannot
+// bypass this check by supplying both fields.
+func (r *Reducer) jobForMeta(m Meta) (*job, error) {
+	if m.JobID == "" || m.PreparationID != "" {
+		return nil, bad("job identity")
+	}
+	j := r.jobs[m.JobID]
 	if j == nil {
-		return unknown("job", id)
+		return nil, unknown("job", m.JobID)
+	}
+	if m.TargetID != "" && m.TargetID != j.spec.TargetID {
+		return nil, bad("job target")
+	}
+	return j, nil
+}
+
+func (r *Reducer) ownerForRequest(m Meta) error {
+	if m.TargetID == "" || m.GroupID == "" || (m.JobID == "" && m.PreparationID == "") || (m.JobID != "" && m.PreparationID != "") {
+		return bad("request owner")
+	}
+	if m.JobID != "" {
+		_, err := r.jobForMeta(m)
+		return err
+	}
+	p := r.preparations[m.PreparationID]
+	if p == nil {
+		return unknown("preparation", m.PreparationID)
+	}
+	if p.target != m.TargetID {
+		return bad("preparation target")
+	}
+	return nil
+}
+
+func (r *Reducer) jobState(m Meta, state JobState) error {
+	j, err := r.jobForMeta(m)
+	if err != nil {
+		return err
 	}
 	if j.state == JobTerminal {
-		return fmt.Errorf("%w: job %q already terminal", ErrInvalidEvent, id)
+		return fmt.Errorf("%w: job %q already terminal", ErrInvalidEvent, m.JobID)
 	}
 	j.state = state
 	return nil
 }
-func (r *Reducer) progress(id string, v JobProgress) error {
-	j := r.jobs[id]
-	if j == nil {
-		return unknown("job", id)
+func (r *Reducer) progress(m Meta, v JobProgress) error {
+	j, err := r.jobForMeta(m)
+	if err != nil {
+		return err
 	}
 	if j.state == JobTerminal || v.CompletedSteps < 0 || v.TotalSteps < 0 || (v.TotalSteps > 0 && v.CompletedSteps > v.TotalSteps) {
 		return bad("job progress")
@@ -587,20 +690,20 @@ func (r *Reducer) progress(id string, v JobProgress) error {
 	j.completed, j.total = v.CompletedSteps, v.TotalSteps
 	return nil
 }
-func (r *Reducer) jobTerminal(id string, o Outcome) error {
+func (r *Reducer) jobTerminal(m Meta, o Outcome) error {
 	if !validOutcome(o) {
 		return bad("job outcome")
 	}
-	j := r.jobs[id]
-	if j == nil {
-		return unknown("job", id)
+	j, err := r.jobForMeta(m)
+	if err != nil {
+		return err
 	}
-	key := "job:" + id
+	key := "job:" + m.JobID
 	if prior, ok := r.seenTerminal[key]; ok {
 		if prior == o {
 			return nil
 		}
-		return fmt.Errorf("%w: job %q has %q and %q", ErrTerminalConflict, id, prior, o)
+		return fmt.Errorf("%w: job %q has %q and %q", ErrTerminalConflict, m.JobID, prior, o)
 	}
 	r.seenTerminal[key] = o
 	j.state = JobTerminal
@@ -608,7 +711,7 @@ func (r *Reducer) jobTerminal(id string, o Outcome) error {
 	return nil
 }
 func (r *Reducer) requestState(m Meta, state RequestState, o Outcome) error {
-	if m.AttemptID == "" || m.TargetID == "" || m.JobID == "" || m.GroupID == "" {
+	if m.AttemptID == "" {
 		return bad("request identity")
 	}
 	x := r.requests[m.AttemptID]
@@ -616,11 +719,13 @@ func (r *Reducer) requestState(m Meta, state RequestState, o Outcome) error {
 		if state != RequestQueuedState {
 			return unknown("request", m.AttemptID)
 		}
-		if r.jobs[m.JobID] == nil {
-			return unknown("job", m.JobID)
+		if err := r.ownerForRequest(m); err != nil {
+			return err
 		}
-		x = &request{id: m.AttemptID, target: m.TargetID, job: m.JobID, group: m.GroupID}
+		x = &request{id: m.AttemptID, target: m.TargetID, job: m.JobID, preparation: m.PreparationID, group: m.GroupID}
 		r.requests[x.id] = x
+	} else if x.target != m.TargetID || x.job != m.JobID || x.preparation != m.PreparationID || x.group != m.GroupID {
+		return bad("request owner changed")
 	}
 	if state == RequestTerminal {
 		if !validOutcome(o) {
@@ -640,8 +745,8 @@ func (r *Reducer) requestState(m Meta, state RequestState, o Outcome) error {
 	return nil
 }
 func (r *Reducer) waitStart(v WaitStarted, m Meta) error {
-	if m.TargetID == "" || m.JobID == "" || m.GroupID == "" {
-		return bad("wait identity")
+	if err := r.ownerForRequest(m); err != nil {
+		return fmt.Errorf("%w: wait: %v", ErrInvalidEvent, err)
 	}
 	if err := validateWait(v.WaitID, v.Reason, v.Source, v.EligibleAt, m.Offset); err != nil {
 		return err
@@ -649,7 +754,7 @@ func (r *Reducer) waitStart(v WaitStarted, m Meta) error {
 	if _, ok := r.waits[v.WaitID]; ok {
 		return bad("duplicate wait")
 	}
-	r.waits[v.WaitID] = &wait{id: v.WaitID, target: m.TargetID, job: m.JobID, group: m.GroupID, reason: v.Reason, source: v.Source, revision: v.ScheduleRevision, started: m.Offset, eligible: v.EligibleAt}
+	r.waits[v.WaitID] = &wait{id: v.WaitID, target: m.TargetID, job: m.JobID, preparation: m.PreparationID, group: m.GroupID, reason: v.Reason, source: v.Source, revision: v.ScheduleRevision, started: m.Offset, eligible: v.EligibleAt}
 	return nil
 }
 func (r *Reducer) waitUpdate(v WaitUpdated, m Meta) error {
@@ -659,6 +764,9 @@ func (r *Reducer) waitUpdate(v WaitUpdated, m Meta) error {
 	w := r.waits[v.WaitID]
 	if w == nil {
 		return unknown("wait", v.WaitID)
+	}
+	if (m.TargetID != "" && m.TargetID != w.target) || (m.JobID != "" && m.JobID != w.job) || (m.PreparationID != "" && m.PreparationID != w.preparation) || (m.GroupID != "" && m.GroupID != w.group) {
+		return bad("wait owner changed")
 	}
 	w.reason, w.source, w.revision, w.eligible = v.Reason, v.Source, v.ScheduleRevision, v.EligibleAt
 	return nil
@@ -741,6 +849,9 @@ func (r *Reducer) snapshot(now time.Duration) Snapshot {
 	for id, p := range r.targets {
 		s.Targets = append(s.Targets, TargetSnapshot{ID: id, Phase: p})
 	}
+	for _, p := range r.preparations {
+		s.Preparations = append(s.Preparations, PreparationSnapshot{ID: p.id, TargetID: p.target, Kind: p.kind})
+	}
 	for _, j := range r.jobs {
 		x := JobSnapshot{ID: j.spec.ID, TargetID: j.spec.TargetID, RequirementIDs: append([]string(nil), j.spec.RequirementIDs...), Dependencies: append([]string(nil), j.spec.Dependencies...), EstimateClass: j.spec.EstimateClass, Composite: j.spec.Composite, State: j.state, Outcome: j.outcome, CompletedSteps: j.completed, TotalSteps: j.total}
 		s.Jobs = append(s.Jobs, x)
@@ -758,7 +869,7 @@ func (r *Reducer) snapshot(now time.Duration) Snapshot {
 		}
 	}
 	for _, x := range r.requests {
-		s.Requests = append(s.Requests, RequestSnapshot{ID: x.id, TargetID: x.target, JobID: x.job, GroupID: x.group, State: x.state, Outcome: x.outcome})
+		s.Requests = append(s.Requests, RequestSnapshot{ID: x.id, TargetID: x.target, JobID: x.job, PreparationID: x.preparation, GroupID: x.group, State: x.state, Outcome: x.outcome})
 	}
 	for _, w := range r.waits {
 		waited := now - w.started
@@ -769,7 +880,7 @@ func (r *Reducer) snapshot(now time.Duration) Snapshot {
 		if resume < 0 {
 			resume = 0
 		}
-		s.Waits = append(s.Waits, WaitSnapshot{ID: w.id, TargetID: w.target, JobID: w.job, GroupID: w.group, Reason: w.reason, Source: w.source, ScheduleRevision: w.revision, StartedAt: w.started, EligibleAt: w.eligible, Waited: waited, ResumesIn: resume})
+		s.Waits = append(s.Waits, WaitSnapshot{ID: w.id, TargetID: w.target, JobID: w.job, PreparationID: w.preparation, GroupID: w.group, Reason: w.reason, Source: w.source, ScheduleRevision: w.revision, StartedAt: w.started, EligibleAt: w.eligible, Waited: waited, ResumesIn: resume})
 	}
 	for _, g := range r.groups {
 		s.Groups = append(s.Groups, GroupSnapshot{ID: g.id, Capacity: g.capacity, Interval: g.interval, CooldownUntil: g.cooldown, CooldownReason: g.reason})
@@ -778,6 +889,7 @@ func (r *Reducer) snapshot(now time.Duration) Snapshot {
 		s.Artifacts = append(s.Artifacts, ArtifactSnapshot{ID: a.id, Bytes: a.bytes, Reserved: a.reserved, Committed: a.committed})
 	}
 	sort.Slice(s.Targets, func(i, j int) bool { return s.Targets[i].ID < s.Targets[j].ID })
+	sort.Slice(s.Preparations, func(i, j int) bool { return s.Preparations[i].ID < s.Preparations[j].ID })
 	sort.Slice(s.Jobs, func(i, j int) bool { return s.Jobs[i].ID < s.Jobs[j].ID })
 	sort.Slice(s.Requests, func(i, j int) bool { return s.Requests[i].ID < s.Requests[j].ID })
 	sort.Slice(s.Waits, func(i, j int) bool { return s.Waits[i].ID < s.Waits[j].ID })
@@ -816,6 +928,13 @@ func validPhase(p Phase) bool {
 func validOutcome(o Outcome) bool {
 	switch o {
 	case OutcomeSucceeded, OutcomeFailed, OutcomeSkipped, OutcomeBlocked, OutcomeRunnerError, OutcomeCancelled:
+		return true
+	}
+	return false
+}
+func validPreparationKind(k PreparationKind) bool {
+	switch k {
+	case PreparationDiscovery, PreparationPreflight:
 		return true
 	}
 	return false
