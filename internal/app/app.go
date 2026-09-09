@@ -424,7 +424,7 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 		if executionErr != nil {
 			logf(logging.Error, "[%s] target runner returned an error", target.ID)
 		} else {
-			targetReport, extensionErr = finishTargetExtensions(targetCtx, extensionCfg, target, p, targetReport, frozenExtensions[index], native.Runtime.Client, native.Runtime.Executor, logger, tracing, reporter)
+			targetReport, extensionErr = finishTargetExtensions(targetCtx, extensionCfg, target, p, targetPlan, targetReport, frozenExtensions[index], native.Runtime.Client, native.Runtime.Executor, logger, tracing, reporter)
 			if extensionErr != nil {
 				logf(logging.Error, "[%s] extension suites returned an error", target.ID)
 			}
@@ -714,9 +714,12 @@ func reportFromTarget(target result.TargetReport, baseURL string) result.Report 
 	return result.Report{SchemaVersion: "aiqa.report.internal", Profile: target.Profile, Config: result.PublicConfig{BaseURL: baseURL}, Discovery: target.Discovery, Models: target.Models, Requirements: target.Requirements, Summary: target.Summary, Guidance: target.Guidance, RateLimit: target.RateLimit, ExtensionRateLimit: target.ExtensionRateLimit, Extensions: target.Extensions}
 }
 
-func finishTargetExtensions(ctx context.Context, cfg config.Config, target config.TargetConfig, p profile.Profile, targetReport result.TargetReport, frozen extsuite.FrozenInvocations, client *api.Client, executor *probe.Executor, logger *logging.Logger, tracing *telemetry.Provider, reporter progress.Sink) (result.TargetReport, error) {
+func finishTargetExtensions(ctx context.Context, cfg config.Config, target config.TargetConfig, p profile.Profile, plan protocolpkg.TargetExecutionPlan, targetReport result.TargetReport, frozen extsuite.FrozenInvocations, client *api.Client, executor *probe.Executor, logger *logging.Logger, tracing *telemetry.Provider, reporter progress.Sink) (result.TargetReport, error) {
 	if !cfg.HasExtensionTests() {
 		return targetReport, nil
+	}
+	if err := validateFrozenExtensionBindings(target, plan, frozen); err != nil {
+		return targetReport, err
 	}
 	if client == nil || executor == nil {
 		return targetReport, fmt.Errorf("prepare %s extension runtime: native target runtime is unavailable", target.ID)
@@ -741,6 +744,27 @@ func finishTargetExtensions(ctx context.Context, cfg config.Config, target confi
 	targetReport.Guidance = tmp.Guidance
 	targetReport.ExtensionRateLimit = tmp.ExtensionRateLimit
 	return targetReport, nil
+}
+
+func validateFrozenExtensionBindings(target config.TargetConfig, plan protocolpkg.TargetExecutionPlan, frozen extsuite.FrozenInvocations) error {
+	if plan.TargetID != target.ID || plan.Binding.TargetID != target.ID {
+		return fmt.Errorf("frozen extension plan target mismatch")
+	}
+	want := make(map[string]protocolpkg.SDKInvocation, len(plan.Binding.SDKInvocations))
+	for _, invocation := range plan.Binding.SDKInvocations {
+		want[invocation.JobID] = invocation
+	}
+	got := extsuite.InvocationBindingsForFrozen(target, frozen)
+	if len(got) != len(want) {
+		return fmt.Errorf("frozen extension invocation count differs from execution plan")
+	}
+	for _, invocation := range got {
+		bound, ok := want[invocation.JobID]
+		if !ok || bound.SuiteID != invocation.SuiteID || bound.ModelID != invocation.ModelID {
+			return fmt.Errorf("frozen extension invocation differs from execution plan")
+		}
+	}
+	return nil
 }
 
 func hasBuiltInExtension(runs []result.ExtensionRun) bool {
