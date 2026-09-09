@@ -4,6 +4,7 @@ package openai
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +24,21 @@ import (
 	"github.com/ilyar/aiqa/internal/suites"
 	"github.com/ilyar/aiqa/internal/telemetry"
 )
+
+// frozenExecution is the protocol-private counterpart to PreparedTarget.Binding.
+// Binding provides the audit-visible summary; this retains the structured
+// selection evidence that native execution needs without consulting mutable
+// capability or inventory inputs after the application's freeze barrier.
+type frozenExecution struct {
+	selected        []string
+	metadata        map[string]map[string]any
+	classifications []capability.Classification
+	modulePlans     [][]result.ModuleAssessment
+	preflights      []*api.Response
+	preflightErrs   []error
+	preflightTests  []*result.TestResult
+	routeBlocked    []bool
+}
 
 // RunTarget executes one OpenAI-compatible target through the common protocol
 // registry contract.
@@ -56,29 +72,20 @@ func PrepareTarget(ctx context.Context, options protocolpkg.RunOptions) (protoco
 		discoveryProvider.End(outcome, logging.Fields{"status": outcome})
 	}
 	selected, metadata := selectModels(requestedModels(options.Config, options.Target), models)
-	candidates := make([]result.ModelReport, 0, len(selected))
-	overrides, err := capability.LoadOverrideFile(options.Target.CapabilityFile)
+	overrides, err := resolvedOverrides(options.Target)
 	if err != nil {
 		return protocolpkg.PreparedTarget{}, err
 	}
-	if overrides == nil {
-		overrides = map[string][]string{}
+	executor := probe.NewExecutor(options.Config.Concurrency)
+	execution, err := freezeExecution(ctx, options, client, executor, selected, metadata, overrides)
+	if err != nil {
+		return protocolpkg.PreparedTarget{}, err
 	}
 	jobs := []protocolpkg.Job{{ID: protocolpkg.JobID(options.Target.ID, "", "inventory"), Target: options.Target.ID, Label: "model inventory"}}
 	if options.Config.HasTest("compat") {
 		jobs = append(jobs, protocolpkg.Job{ID: protocolpkg.JobID(options.Target.ID, "", "endpoint-compat"), Target: options.Target.ID, Label: "OpenAI endpoint compatibility"})
 	}
 	for _, model := range selected {
-		unknown := options.Target.UnknownModel
-		if len(requestedModels(options.Config, options.Target)) > 0 {
-			unknown = "inventory"
-		}
-		classification := capability.Classify(model, metadata[model], capability.Options{BaseURL: options.Target.BaseURL, Overrides: overrides, UnknownPolicy: unknown})
-		candidate := result.ModelReport{ID: model, Metadata: cloneMap(metadata[model]), Modules: capability.AssessModules(classification, options.Profile.Modules, capability.RoutingOptions{Modules: options.Target.Modules, AllowBillableArtifacts: options.Config.AllowBillableArtifacts, AllowHighTokenProbes: options.Config.AllowHighTokenProbes, AllowPersistentResources: options.Config.AllowPersistentResources})}
-		for _, e := range classification.Capabilities {
-			candidate.Capabilities = append(candidate.Capabilities, result.CapabilityAssessment{ID: e.Capability, Source: e.Source, Rule: e.Rule, Confidence: e.Confidence, Reason: e.Reason})
-		}
-		candidates = append(candidates, candidate)
 		if options.Config.HasTest("compat") {
 			jobs = append(jobs, protocolpkg.Job{ID: protocolpkg.JobID(options.Target.ID, model, "compat"), Target: options.Target.ID, Model: model, Label: "OpenAI compatibility"})
 		}
@@ -88,41 +95,34 @@ func PrepareTarget(ctx context.Context, options protocolpkg.RunOptions) (protoco
 	}
 	// A failed inventory is itself the single terminal discovery job; execution
 	// will preserve its report evidence without reissuing this request.
-	inv := &protocolpkg.Inventory{Models: models, Response: response, Err: listErr, Runtime: protocolpkg.Runtime{Client: client, Executor: probe.NewExecutor(options.Config.Concurrency)}}
-	prepared := protocolpkg.PreparedTarget{Target: options.Target, Profile: options.Profile, Jobs: jobs, Candidates: candidates}
+	inv := &protocolpkg.Inventory{Models: models, Response: response, Err: listErr, Runtime: protocolpkg.Runtime{Client: client, Executor: executor}}
+	prepared := protocolpkg.PreparedTarget{
+		Target: options.Target, Profile: options.Profile, Jobs: jobs, Candidates: execution.candidates(),
+		Binding: protocolpkg.TargetBinding{
+			TargetID: options.Target.ID, ProfileRevision: options.Profile.Revision,
+			ResolvedOverrides: canonicalOverrides(overrides), SelectedModels: append([]string(nil), selected...),
+			Classification: "openai-capability-selection-v1",
+		},
+	}
 	prepared.Execute = func(runCtx context.Context, sink progress.Sink) (protocolpkg.RunResult, error) {
 		runOptions := options
 		runOptions.Progress, runOptions.Inventory = sink, inv
-		return protocolpkg.ExecuteFrozen(runCtx, sink, jobs, func(ctx context.Context) (protocolpkg.RunResult, error) { return RunTarget(ctx, runOptions) })
+		return protocolpkg.ExecuteFrozen(runCtx, sink, jobs, func(ctx context.Context) (protocolpkg.RunResult, error) {
+			return runTarget(ctx, runOptions, &execution)
+		})
 	}
 	return prepared, nil
 }
 
 func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg.RunResult, error) {
+	return runTarget(ctx, options, nil)
+}
+
+func runTarget(ctx context.Context, options protocolpkg.RunOptions, frozen *frozenExecution) (protocolpkg.RunResult, error) {
 	target, cfg, p := options.Target, options.Config, options.Profile
-	overrides, err := capability.LoadOverrideFile(target.CapabilityFile)
-	if err != nil {
-		return protocolpkg.RunResult{}, err
-	}
-	if overrides == nil {
-		overrides = map[string][]string{}
-	}
-	for _, raw := range target.ModelCapabilities {
-		parts := strings.SplitN(raw, "=", 2)
-		if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
-			return protocolpkg.RunResult{}, fmt.Errorf("invalid --model-capability %q", raw)
-		}
-		values := strings.Split(parts[1], "+")
-		for index := range values {
-			values[index] = strings.TrimSpace(values[index])
-			if !capability.Known[values[index]] {
-				return protocolpkg.RunResult{}, fmt.Errorf("unknown capability %q in --model-capability", values[index])
-			}
-		}
-		overrides[strings.TrimSpace(parts[0])] = values
-	}
 
 	client := (*api.Client)(nil)
+	var err error
 	if options.Inventory != nil && options.Inventory.Runtime.Client != nil {
 		client = options.Inventory.Runtime.Client
 	} else {
@@ -220,8 +220,21 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 		protocolpkg.StartJob(options.Progress, target.ID, "", "inventory")(outcome)
 	}
 
-	requested := requestedModels(cfg, target)
-	selected, metadata := selectModels(requested, models)
+	execution := frozenExecution{}
+	if frozen != nil {
+		execution = *frozen
+	} else {
+		selected, metadata := selectModels(requestedModels(cfg, target), models)
+		overrides, freezeErr := resolvedOverrides(target)
+		if freezeErr != nil {
+			return protocolpkg.RunResult{}, freezeErr
+		}
+		execution, freezeErr = freezeExecution(ctx, options, client, executor, selected, metadata, overrides)
+		if freezeErr != nil {
+			return protocolpkg.RunResult{}, freezeErr
+		}
+	}
+	selected, metadata := execution.selected, execution.metadata
 	if len(selected) == 0 {
 		// Endpoint compatibility is reserved in the frozen OpenAI plan whenever
 		// compat is selected. With no usable model there is no representative
@@ -248,66 +261,9 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 		logf(logging.Warn, "[%s] context probing is enabled; the per-model prompt budget is %d tokens", target.ID, cfg.ContextBudget)
 	}
 
-	classifications := make([]capability.Classification, len(selected))
-	modulePlans := make([][]result.ModuleAssessment, len(selected))
-	preflights := make([]*api.Response, len(selected))
-	preflightErrors := make([]error, len(selected))
-	preflightTests := make([]*result.TestResult, len(selected))
-	routeBlocked := make([]bool, len(selected))
-	for index, model := range selected {
-		explicit := len(requested) > 0
-		unknownPolicy := target.UnknownModel
-		if explicit {
-			unknownPolicy = "inventory"
-		}
-		classifications[index] = capability.Classify(model, metadata[model], capability.Options{BaseURL: target.BaseURL, Overrides: overrides, UnknownPolicy: unknownPolicy})
-		if explicit && classifications[index].Unknown {
-			preflightCtx := logging.Scope(ctx, target.ID, model, "", "", "")
-			var modelEnd func(string, logging.Fields)
-			if options.Telemetry != nil {
-				var modelOp *telemetry.Operation
-				preflightCtx, modelOp = options.Telemetry.Start(preflightCtx, "model", logging.Fields{"model": model})
-				modelEnd = modelOp.End
-			} else {
-				modelEnd = func(string, logging.Fields) {}
-			}
-			test, response, preflightErr := suites.RunChatPreflight(preflightCtx, env, model)
-			modelEnd(string(test.Status), logging.Fields{"status": string(test.Status), "http_status": test.HTTP.StatusCode})
-			preflightTests[index], preflights[index], preflightErrors[index] = &test, &response, preflightErr
-			switch {
-			case response.Is2xx() && preflightErr == nil:
-				classifications[index].Unknown = false
-				classifications[index].Reason = ""
-				classifications[index].Capabilities = append(classifications[index].Capabilities, capability.Evidence{Capability: capability.ChatText, Source: "preflight", Rule: "openai.chat.preflight", Confidence: "high", Reason: "minimal Chat Completions preflight accepted the requested model"})
-			case isTransientResponse(response, preflightErr):
-				classifications[index].Reason = "model availability is inconclusive after transient preflight failure"
-				routeBlocked[index] = true
-				markRouteBlockedTest(preflightTests[index], "model availability could not be determined after a transient preflight failure")
-			default:
-				if isModelRouteRejection(response) {
-					classifications[index].Reason = "explicit model route rejection"
-					markRouteRejectionTest(preflightTests[index])
-				} else {
-					classifications[index].Reason = "model availability is inconclusive after validation preflight failure"
-					markRouteBlockedTest(preflightTests[index], "model availability could not be determined from this validation response")
-				}
-				routeBlocked[index] = true
-			}
-		}
-		modulePlans[index] = capability.AssessModules(classifications[index], p.Modules, capability.RoutingOptions{
-			Modules:                  target.Modules,
-			AllowBillableArtifacts:   cfg.AllowBillableArtifacts,
-			AllowHighTokenProbes:     cfg.AllowHighTokenProbes,
-			AllowPersistentResources: cfg.AllowPersistentResources,
-		})
-		if routeBlocked[index] {
-			for moduleIndex := range modulePlans[index] {
-				if modulePlans[index][moduleIndex].Applicability != result.ApplicabilityNotApplicable {
-					modulePlans[index][moduleIndex].BlockedBy = []string{"chat.basic"}
-				}
-			}
-		}
-	}
+	classifications, modulePlans := execution.classifications, execution.modulePlans
+	preflights, preflightErrors, preflightTests := execution.preflights, execution.preflightErrs, execution.preflightTests
+	routeBlocked := execution.routeBlocked
 	chatRepresentative := representativeModel(selected, modulePlans, capability.ModuleChat)
 	if options.Inventory == nil {
 		plan.Set(plannedNativeProbes(cfg, modulePlans, routeBlocked, chatRepresentative))
@@ -509,6 +465,120 @@ func profileInfo(p profile.Profile) result.ProfileInfo {
 
 func toTarget(target config.TargetConfig, report result.Report) result.TargetReport {
 	return result.TargetReport{ID: target.ID, Protocol: string(target.Protocol), Profile: report.Profile, Discovery: report.Discovery, Models: report.Models, Requirements: report.Requirements, Summary: report.Summary, Guidance: report.Guidance, RateLimit: report.RateLimit}
+}
+
+func freezeExecution(ctx context.Context, options protocolpkg.RunOptions, client *api.Client, executor *probe.Executor, selected []string, metadata map[string]map[string]any, overrides map[string][]string) (frozenExecution, error) {
+	target, cfg, p := options.Target, options.Config, options.Profile
+	logf := options.Logf
+	if logf == nil {
+		logf = func(logging.Level, string, ...any) {}
+	}
+	env := suites.Environment{TargetID: target.ID, Client: client, Config: cfg, Profile: p, Logf: logf, Probes: executor, Telemetry: options.Telemetry, Progress: options.Progress}
+	frozen := frozenExecution{
+		selected: append([]string(nil), selected...), metadata: metadata,
+		classifications: make([]capability.Classification, len(selected)), modulePlans: make([][]result.ModuleAssessment, len(selected)),
+		preflights: make([]*api.Response, len(selected)), preflightErrs: make([]error, len(selected)), preflightTests: make([]*result.TestResult, len(selected)), routeBlocked: make([]bool, len(selected)),
+	}
+	explicit := len(requestedModels(cfg, target)) > 0
+	for index, model := range selected {
+		unknownPolicy := target.UnknownModel
+		if explicit {
+			unknownPolicy = "inventory"
+		}
+		frozen.classifications[index] = capability.Classify(model, metadata[model], capability.Options{BaseURL: target.BaseURL, Overrides: overrides, UnknownPolicy: unknownPolicy})
+		if explicit && frozen.classifications[index].Unknown {
+			preflightCtx := logging.Scope(ctx, target.ID, model, "", "", "")
+			var modelEnd func(string, logging.Fields)
+			if options.Telemetry != nil {
+				var modelOp *telemetry.Operation
+				preflightCtx, modelOp = options.Telemetry.Start(preflightCtx, "model", logging.Fields{"model": model})
+				modelEnd = modelOp.End
+			} else {
+				modelEnd = func(string, logging.Fields) {}
+			}
+			test, response, preflightErr := suites.RunChatPreflight(preflightCtx, env, model)
+			modelEnd(string(test.Status), logging.Fields{"status": string(test.Status), "http_status": test.HTTP.StatusCode})
+			frozen.preflightTests[index], frozen.preflights[index], frozen.preflightErrs[index] = &test, &response, preflightErr
+			switch {
+			case response.Is2xx() && preflightErr == nil:
+				frozen.classifications[index].Unknown = false
+				frozen.classifications[index].Reason = ""
+				frozen.classifications[index].Capabilities = append(frozen.classifications[index].Capabilities, capability.Evidence{Capability: capability.ChatText, Source: "preflight", Rule: "openai.chat.preflight", Confidence: "high", Reason: "minimal Chat Completions preflight accepted the requested model"})
+			case isTransientResponse(response, preflightErr):
+				frozen.classifications[index].Reason = "model availability is inconclusive after transient preflight failure"
+				frozen.routeBlocked[index] = true
+				markRouteBlockedTest(frozen.preflightTests[index], "model availability could not be determined after a transient preflight failure")
+			default:
+				if isModelRouteRejection(response) {
+					frozen.classifications[index].Reason = "explicit model route rejection"
+					markRouteRejectionTest(frozen.preflightTests[index])
+				} else {
+					frozen.classifications[index].Reason = "model availability is inconclusive after validation preflight failure"
+					markRouteBlockedTest(frozen.preflightTests[index], "model availability could not be determined from this validation response")
+				}
+				frozen.routeBlocked[index] = true
+			}
+		}
+		frozen.modulePlans[index] = capability.AssessModules(frozen.classifications[index], p.Modules, capability.RoutingOptions{Modules: target.Modules, AllowBillableArtifacts: cfg.AllowBillableArtifacts, AllowHighTokenProbes: cfg.AllowHighTokenProbes, AllowPersistentResources: cfg.AllowPersistentResources})
+		if frozen.routeBlocked[index] {
+			for moduleIndex := range frozen.modulePlans[index] {
+				if frozen.modulePlans[index][moduleIndex].Applicability != result.ApplicabilityNotApplicable {
+					frozen.modulePlans[index][moduleIndex].BlockedBy = []string{"chat.basic"}
+				}
+			}
+		}
+	}
+	return frozen, nil
+}
+
+func (f frozenExecution) candidates() []result.ModelReport {
+	candidates := make([]result.ModelReport, 0, len(f.selected))
+	for index, model := range f.selected {
+		candidate := result.ModelReport{ID: model, Metadata: cloneMap(f.metadata[model]), Modules: append([]result.ModuleAssessment(nil), f.modulePlans[index]...)}
+		for _, evidence := range f.classifications[index].Capabilities {
+			candidate.Capabilities = append(candidate.Capabilities, result.CapabilityAssessment{ID: evidence.Capability, Source: evidence.Source, Rule: evidence.Rule, Confidence: evidence.Confidence, Reason: evidence.Reason})
+		}
+		candidates = append(candidates, candidate)
+	}
+	return candidates
+}
+
+func resolvedOverrides(target config.TargetConfig) (map[string][]string, error) {
+	overrides, err := capability.LoadOverrideFile(target.CapabilityFile)
+	if err != nil {
+		return nil, err
+	}
+	if overrides == nil {
+		overrides = map[string][]string{}
+	}
+	for _, raw := range target.ModelCapabilities {
+		parts := strings.SplitN(raw, "=", 2)
+		if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
+			return nil, fmt.Errorf("invalid --model-capability %q", raw)
+		}
+		values := strings.Split(parts[1], "+")
+		for index := range values {
+			values[index] = strings.TrimSpace(values[index])
+			if !capability.Known[values[index]] {
+				return nil, fmt.Errorf("unknown capability %q in --model-capability", values[index])
+			}
+		}
+		overrides[strings.TrimSpace(parts[0])] = values
+	}
+	return overrides, nil
+}
+
+func canonicalOverrides(overrides map[string][]string) []string {
+	keys := make([]string, 0, len(overrides))
+	for model := range overrides {
+		keys = append(keys, model)
+	}
+	sort.Strings(keys)
+	resolved := make([]string, 0, len(keys))
+	for _, model := range keys {
+		resolved = append(resolved, model+"="+strings.Join(overrides[model], "+"))
+	}
+	return resolved
 }
 
 func selectModels(requested []string, discovered []api.Model) ([]string, map[string]map[string]any) {
