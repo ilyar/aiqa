@@ -145,3 +145,44 @@ func TestSchedulerFactObserverDecodesOpaqueOwnerForPhysicalAttempt(t *testing.T)
 		}
 	}
 }
+
+func TestSchedulerBoundClientsAndClonesSubscribeIndependently(t *testing.T) {
+	broker, err := scheduler.New(scheduler.Config{Capacity: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := NewClient("https://provider.example/v1", "", "test", time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.SetScheduler(SchedulerConfig{Broker: broker, Target: "target-a", Group: "group-a"}); err != nil {
+		t.Fatal(err)
+	}
+	clone := first.CloneWithKey("other-key")
+	var firstEvents, cloneEvents []ExecutionEvent
+	first.SetExecutionObserver(func(event ExecutionEvent) { firstEvents = append(firstEvents, event) })
+	clone.SetExecutionObserver(func(event ExecutionEvent) { cloneEvents = append(cloneEvents, event) })
+	acquire := func(client *Client, job string) {
+		t.Helper()
+		lease, err := client.acquireScheduler(WithExecutionOwner(context.Background(), ExecutionOwner{TargetID: "target-a", JobID: job}), 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lease.Release()
+	}
+	acquire(first, "native:target-a:first:compat")
+	if len(firstEvents) != 2 || len(cloneEvents) != 0 {
+		t.Fatalf("owner maps crossed first=%#v clone=%#v", firstEvents, cloneEvents)
+	}
+	acquire(clone, "native:target-a:clone:compat")
+	if len(firstEvents) != 2 || len(cloneEvents) != 2 {
+		t.Fatalf("clone subscription not isolated first=%#v clone=%#v", firstEvents, cloneEvents)
+	}
+	if err := first.SetScheduler(SchedulerConfig{}); err != nil {
+		t.Fatal(err)
+	}
+	acquire(clone, "native:target-a:clone:second")
+	if len(firstEvents) != 2 || len(cloneEvents) != 4 {
+		t.Fatalf("unsubscribe did not silence reconfigured client first=%#v clone=%#v", firstEvents, cloneEvents)
+	}
+}
