@@ -15,7 +15,8 @@ framework.
 When `stderr` is redirected, `TERM=dumb`, or CI is non-interactive, AIQA emits
 plain durable milestones and no terminal control sequences. Progress remains
 on `stderr`; `--stdout=json|markdown` emits only the selected final public
-report on stdout.
+report on stdout. With no terminal completion events it emits an independent
+30-second heartbeat during planning and execution.
 
 Progress is deliberately written to `stderr`; `stdout` is not used for
 progress, diagnostics, or report serialization. Markdown and JSON reports are
