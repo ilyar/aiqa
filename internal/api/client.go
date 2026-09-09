@@ -499,9 +499,16 @@ func (c *Client) releasePacing(model string) {
 	}
 }
 
+func (c *Client) admitted(lease *scheduler.Lease, model string) {
+	if lease != nil {
+		c.pacer.observedAttempt(model)
+	}
+}
+
 func (c *Client) succeeded(lease *scheduler.Lease, model string, duration time.Duration) {
 	if lease != nil {
 		lease.Succeeded()
+		c.pacer.observedSuccess(model, duration)
 		return
 	}
 	c.pacer.success(model, duration)
@@ -511,11 +518,14 @@ func (c *Client) rateLimited(lease *scheduler.Lease, model string, header http.H
 	delay := retryAfter(header)
 	if lease != nil {
 		if applied := lease.RateLimited(delay); applied > 0 {
+			c.pacer.observedRateLimit(model, applied)
 			return applied
 		}
 		// A static legacy group has no learned no-header cooldown. Preserve a
 		// bounded retry delay while adaptive groups supply their shared interval.
-		return 100 * time.Millisecond
+		fallback := 100 * time.Millisecond
+		c.pacer.observedRateLimit(model, fallback)
+		return fallback
 	}
 	return c.pacer.limited(model, delay)
 }
@@ -695,6 +705,7 @@ func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 			endLogical("scheduler_cancelled", nil, err)
 			return nil, err
 		}
+		r.client.admitted(lease, r.model)
 		current := request
 		attemptCtx, cancelAttempt := attemptContext(ctx)
 		if attempt > 0 {
@@ -975,6 +986,7 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 			endLogical("scheduler_cancelled", response, err)
 			return response, err
 		}
+		c.admitted(lease, model)
 		if attempt > 0 {
 			c.pacer.retry(model)
 		}
@@ -1209,6 +1221,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 			endLogical("scheduler_cancelled", result, err)
 			return result, err
 		}
+		c.admitted(lease, model)
 		attemptCtx, cancelAttempt := attemptContext(ctx)
 		attemptCtx, attemptOp := c.startOperation(attemptCtx, "http.stream_attempt", logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true})
 		started = time.Now()

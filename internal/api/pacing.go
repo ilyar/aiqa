@@ -218,6 +218,55 @@ func (p *pacer) logical(model string) {
 	p.mu.Unlock()
 }
 
+// observedAttempt records transport telemetry for a broker-admitted attempt.
+// It intentionally does not reserve local pacer capacity or alter pacing.
+func (p *pacer) observedAttempt(model string) {
+	p.mu.Lock()
+	p.stats.PhysicalAttempts++
+	if model != "" {
+		s := p.byModel[model]
+		s.PhysicalAttempts++
+		p.byModel[model] = s
+	}
+	p.mu.Unlock()
+}
+
+// observedSuccess records broker-admitted success telemetry without applying
+// target-local adaptive pacing. Shared adaptation belongs to scheduler.Lease.
+func (p *pacer) observedSuccess(model string, duration time.Duration) {
+	p.mu.Lock()
+	p.stats.SuccessfulRequests++
+	p.stats.LatencySamples = append(p.stats.LatencySamples, duration.Milliseconds())
+	if p.maxSuccessfulInFlight < 1 {
+		p.maxSuccessfulInFlight = 1
+	}
+	if model != "" {
+		s := p.byModel[model]
+		s.SuccessfulRequests++
+		s.LatencySamples = append(s.LatencySamples, duration.Milliseconds())
+		if s.SafeConcurrency < 1 {
+			s.SafeConcurrency = 1
+		}
+		p.byModel[model] = s
+	}
+	p.mu.Unlock()
+}
+
+// observedRateLimit records the result and shared cooldown duration without
+// changing the dormant target-local pacer policy.
+func (p *pacer) observedRateLimit(model string, delay time.Duration) {
+	p.mu.Lock()
+	p.stats.RateLimited++
+	p.stats.Backoff += delay
+	if model != "" {
+		s := p.byModel[model]
+		s.RateLimited++
+		s.Backoff += delay
+		p.byModel[model] = s
+	}
+	p.mu.Unlock()
+}
+
 func (p *pacer) retry(model string) {
 	p.mu.Lock()
 	p.stats.RetryAttempts++
