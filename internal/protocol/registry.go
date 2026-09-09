@@ -69,6 +69,39 @@ type RunOptions struct {
 	// PacingGroup optionally aliases several target origins that consume one
 	// provider quota. It is a safe local label, never a URL or credential.
 	PacingGroup string
+	// ExecutionHooks optionally connects privacy-safe transport facts to the
+	// run reducer. It is deliberately data-only at this boundary: native
+	// execution jobs are not inferred until a later frozen-plan mapping step.
+	ExecutionHooks ExecutionHooks
+}
+
+// ExecutionHooks is the protocol-neutral execution-observability contract.
+// PreparationOwner is declared before discovery and therefore may carry only
+// a registered PreparationID, never a runtime JobID.
+type ExecutionHooks struct {
+	Observe          api.ExecutionObserver
+	PreparationOwner api.ExecutionOwner
+}
+
+func (h ExecutionHooks) validate(target string) error {
+	owner := h.PreparationOwner
+	if owner.TargetID == "" && owner.PreparationID == "" && owner.JobID == "" {
+		return nil
+	}
+	if owner.TargetID != target || owner.PreparationID == "" || owner.JobID != "" {
+		return fmt.Errorf("invalid execution preparation owner")
+	}
+	return nil
+}
+
+// PreparationContext attaches the declared discovery owner to a Prepare
+// request context. It intentionally never derives or attaches a runtime job.
+func PreparationContext(ctx context.Context, options RunOptions) context.Context {
+	owner := options.ExecutionHooks.PreparationOwner
+	if owner.PreparationID == "" {
+		return ctx
+	}
+	return api.WithExecutionOwner(ctx, owner)
 }
 
 // ConfigureClientScheduler binds a target-owned API client to the optional
@@ -102,10 +135,14 @@ func ConfigureClientObservability(client *api.Client, options RunOptions) error 
 	if err := ConfigureClientScheduler(client, options); err != nil {
 		return err
 	}
+	if err := options.ExecutionHooks.validate(options.Target.ID); err != nil {
+		return err
+	}
 	client.SetLogger(options.Logger)
 	client.SetLogFields(logging.Fields{"target": options.Target.ID, "protocol": string(options.Target.Protocol)})
 	client.SetTelemetry(options.Telemetry)
 	client.SetOTelPropagationAllowlist(options.Config.OTelPropagationTo)
+	client.SetExecutionObserver(options.ExecutionHooks.Observe)
 	return nil
 }
 

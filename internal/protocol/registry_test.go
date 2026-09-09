@@ -2,6 +2,9 @@ package protocol
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -101,5 +104,51 @@ func TestConfigureClientSchedulerUsesOnlyLocalTargetAndAlias(t *testing.T) {
 	}
 	if err := ConfigureClientScheduler(client, RunOptions{PacingGroup: "shared-quota"}); err == nil {
 		t.Fatal("pacing alias without run broker was accepted")
+	}
+}
+
+func TestConfigureClientObservabilityAttachesDeclaredPreparationOwner(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	defer server.Close()
+	client, err := api.NewClient(server.URL, "", "test", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var events []api.ExecutionEvent
+	options := RunOptions{
+		Target: config.TargetConfig{ID: "target-a", Protocol: config.ProtocolOpenAI},
+		ExecutionHooks: ExecutionHooks{
+			Observe:          func(event api.ExecutionEvent) { mu.Lock(); events = append(events, event); mu.Unlock() },
+			PreparationOwner: api.ExecutionOwner{TargetID: "target-a", PreparationID: "target-a-discovery"},
+		},
+	}
+	if err := ConfigureClientObservability(client, options); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.DoJSON(PreparationContext(context.Background(), options), http.MethodGet, "models", nil); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(events) != 3 || events[0].PreparationID != "target-a-discovery" || events[0].JobID != "" || events[2].Kind != api.ExecutionRequestTerminal {
+		t.Fatalf("preparation lifecycle=%#v", events)
+	}
+}
+
+func TestConfigureClientObservabilityRejectsRuntimeJobAsPreparationOwner(t *testing.T) {
+	client, err := api.NewClient("https://provider.example", "", "test", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = ConfigureClientObservability(client, RunOptions{
+		Target:         config.TargetConfig{ID: "target-a"},
+		ExecutionHooks: ExecutionHooks{PreparationOwner: api.ExecutionOwner{TargetID: "target-a", PreparationID: "discovery", JobID: "not-frozen"}},
+	})
+	if err == nil {
+		t.Fatal("runtime JobID was accepted as preparation owner")
 	}
 }
