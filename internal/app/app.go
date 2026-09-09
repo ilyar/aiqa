@@ -75,6 +75,11 @@ var progressTTY = func() bool {
 }
 
 func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, error) {
+	if cfg.RunTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, cfg.RunTimeout)
+		defer cancel()
+	}
 	if len(cfg.Targets) == 0 && cfg.BaseURL != "" {
 		profileFile := cfg.OpenAIProfile
 		if profileFile == "" {
