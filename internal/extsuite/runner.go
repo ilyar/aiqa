@@ -113,8 +113,20 @@ func ExecuteBuiltinSuites(ctx context.Context, request RunRequest, extensionID s
 			return execution{ctx: probeCtx, suite: suiteOp, probe: probeOp, event: run(probeCtx, suiteID)}
 		})
 	}
+	// probe.Map intentionally returns only after all workers complete, which is
+	// right for ordered result slices but wrong for live suite terminals. Keep
+	// the same globally bounded executor and consume each completion as it is
+	// produced. Collector.Finish later restores the immutable planned order.
+	completed := make(chan execution, len(tasks))
+	for _, task := range tasks {
+		task := task
+		go func() {
+			executor.Do(func() { completed <- task() })
+		}()
+	}
 	var firstErr error
-	for _, executed := range probe.Map(executor, tasks...) {
+	for range tasks {
+		executed := <-completed
 		outcome := string(executed.event.Outcome)
 		fields := logging.Fields{"extension": extensionID, "suite": executed.event.SuiteID, "outcome": outcome, "http_status": executed.event.HTTP.StatusCode, "duration_ms": executed.event.DurationMS, "error_present": executed.event.Error != ""}
 		if executed.probe != nil {
@@ -226,16 +238,7 @@ func executeTarget(ctx context.Context, registry *Registry, cfg config.Config, t
 				for _, suiteID := range planned.suiteIDs {
 					frozen.Start(extensionJobID(target.ID, planned, suiteID))
 				}
-				defer func() {
-					for _, suiteID := range planned.suiteIDs {
-						frozen.Complete(extensionJobID(target.ID, planned, suiteID), "completed")
-					}
-				}()
 			}
-			// Built-ins produce concrete host probe operations when telemetry is
-			// available. Every other invocation needs a single declared-suite
-			// terminal so progress does not mistake opaque extension work for HTTP.
-			syntheticProgress := sink != nil && (provider == nil || planned.extension.Provenance().Source == "executable")
 			invocationCtx := logging.Scope(ctx, target.ID, subjectModel(planned.subject), "", "", "")
 			var invocationEnd func(string, logging.Fields)
 			var subjectEnd func(string, logging.Fields)
@@ -307,12 +310,22 @@ func executeTarget(ctx context.Context, registry *Registry, cfg config.Config, t
 					pacingCompliance = "extension_required_unverified"
 				}
 				runs[index] = result.ExtensionRun{Provenance: provenance, TargetID: target.ID, Subject: planned.subject, Runner: result.ExtensionRunnerResult{Status: result.StatusError, PacingCompliance: pacingCompliance, Summary: "Extension invocation could not be validated", Error: err.Error()}}
-				if syntheticProgress {
-					reportDeclaredSuiteTerminals(sink, target.ID, planned, runs[index], time.Now())
-				}
+				reportRunnerErrorSuiteTerminals(sink, frozen, frozenProgress, target.ID, planned, time.Now())
 				logDiagnostic(logger, logging.Error, "extsuite.invocation.rejected", logging.Fields{"target": target.ID, "extension": planned.manifest.Extension.ID, "subject_ref": diagnosticSubjectRef(planned.subject), "reason": "collector_validation"})
 				invocationEnd("error", logging.Fields{"status": "error", "error_present": true, "error_kind": "collector_validation"})
 				subjectEnd("error", logging.Fields{"status": "error", "error_present": true, "error_kind": "collector_validation"})
+				return
+			}
+			// Deliver a suite terminal as soon as the host has validated it.
+			// probe.Map retains final report ordering but waits for every worker;
+			// tying lifecycle delivery to its return hides fast SDK completions.
+			if err := collector.SetTerminalObserver(func(suite result.ExtensionSuiteResult) {
+				reportSuiteTerminal(sink, frozen, frozenProgress, target.ID, planned, suite, string(suite.Status), time.Now())
+			}); err != nil {
+				runs[index] = result.ExtensionRun{Provenance: planned.extension.Provenance(), TargetID: target.ID, Subject: planned.subject, Runner: result.ExtensionRunnerResult{Status: result.StatusError, Summary: "Extension invocation could not initialize terminal delivery", Error: err.Error()}}
+				reportRunnerErrorSuiteTerminals(sink, frozen, frozenProgress, target.ID, planned, time.Now())
+				invocationEnd("error", logging.Fields{"status": "error", "error_present": true, "error_kind": "terminal_delivery"})
+				subjectEnd("error", logging.Fields{"status": "error", "error_present": true, "error_kind": "terminal_delivery"})
 				return
 			}
 			runCtx := invocationCtx
@@ -337,9 +350,7 @@ func executeTarget(ctx context.Context, registry *Registry, cfg config.Config, t
 				runErr = fmt.Errorf("extension deadline exceeded: %w", runCtx.Err())
 			}
 			runs[index] = collector.Finish(planned.extension.Provenance(), telemetry, runErr, started)
-			if syntheticProgress {
-				reportDeclaredSuiteTerminals(sink, target.ID, planned, runs[index], time.Now())
-			}
+			reportMissingSuiteTerminals(sink, frozen, frozenProgress, target.ID, planned, runs[index], time.Now())
 			fields := logging.Fields{"status": string(runs[index].Runner.Status), "total_ms": runs[index].Runner.TotalDurationMS, "exit_code": runs[index].Runner.ExitCode, "error_present": runErr != nil}
 			if runErr != nil {
 				fields["error_kind"] = "extension_runner"
@@ -352,30 +363,50 @@ func executeTarget(ctx context.Context, registry *Registry, cfg config.Config, t
 	return runs
 }
 
-func reportDeclaredSuiteTerminals(sink progress.Sink, target string, planned invocation, run result.ExtensionRun, at time.Time) {
+func reportSuiteTerminal(sink progress.Sink, frozen progress.FrozenSink, frozenProgress bool, target string, planned invocation, suite result.ExtensionSuiteResult, outcome string, at time.Time) {
+	if frozenProgress {
+		frozen.Complete(extensionJobID(target, planned, suite.SuiteID), outcome)
+	}
 	if sink == nil {
 		return
 	}
-	statuses := make(map[string]result.Status, len(run.Suites))
+	sink.ObserveLifecycle(telemetry.LifecycleEvent{
+		Time:        at,
+		Name:        "extension.suite",
+		Phase:       "end",
+		OperationID: "extension:" + target + ":" + planned.manifest.Extension.ID + ":" + diagnosticSubjectRef(planned.subject) + ":" + suite.SuiteID,
+		Target:      target,
+		Model:       subjectModel(planned.subject),
+		Suite:       suite.SuiteID,
+		Outcome:     outcome,
+	})
+}
+
+// reportMissingSuiteTerminals closes only suites with no locally validated
+// result. A missing terminal is a runner_error, never a generic "completed"
+// progress result, even if a sibling suite passed.
+func reportMissingSuiteTerminals(sink progress.Sink, frozen progress.FrozenSink, frozenProgress bool, target string, planned invocation, run result.ExtensionRun, at time.Time) {
 	for _, suite := range run.Suites {
-		statuses[suite.SuiteID] = suite.Status
-	}
-	for _, suiteID := range planned.suiteIDs {
-		outcome := string(statuses[suiteID])
-		if outcome == "" {
-			outcome = string(run.Runner.Status)
+		if !hasSignal(suite.Signals, "extension.runner.missing_result") {
+			continue
 		}
-		sink.ObserveLifecycle(telemetry.LifecycleEvent{
-			Time:        at,
-			Name:        "extension.suite",
-			Phase:       "end",
-			OperationID: "extension:" + target + ":" + planned.manifest.Extension.ID + ":" + diagnosticSubjectRef(planned.subject) + ":" + suiteID,
-			Target:      target,
-			Model:       subjectModel(planned.subject),
-			Suite:       suiteID,
-			Outcome:     outcome,
-		})
+		reportSuiteTerminal(sink, frozen, frozenProgress, target, planned, suite, "runner_error", at)
 	}
+}
+
+func reportRunnerErrorSuiteTerminals(sink progress.Sink, frozen progress.FrozenSink, frozenProgress bool, target string, planned invocation, at time.Time) {
+	for _, suiteID := range planned.suiteIDs {
+		reportSuiteTerminal(sink, frozen, frozenProgress, target, planned, result.ExtensionSuiteResult{SuiteID: suiteID}, "runner_error", at)
+	}
+}
+
+func hasSignal(signals []result.EvidenceSignal, code string) bool {
+	for _, signal := range signals {
+		if signal.Code == code {
+			return true
+		}
+	}
+	return false
 }
 
 func subjectModel(subject result.SubjectRef) string {

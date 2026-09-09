@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ilyar/aiqa/internal/api"
@@ -265,72 +266,107 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 	runnerLogf := func(level logging.Level, format string, args ...any) { logf(level, format, args...) }
 	targets := append([]config.TargetConfig(nil), cfg.Targets...)
 	sort.Slice(targets, func(i, j int) bool { return targets[i].ID < targets[j].ID })
-	preparedTargets := make([]protocolpkg.PreparedTarget, 0, len(targets))
+	preparedTargets := make([]protocolpkg.PreparedTarget, len(targets))
 	allJobs := make([]progress.Job, 0)
-	for _, target := range targets {
+	prepareErrs := make([]error, len(targets))
+	parallelTargets(targetWorkflowLimit(cfg, len(targets)), len(targets), func(index int) {
+		target := targets[index]
 		reporter.Planning("Discovering " + target.ID)
-		p, err := profile.LoadFile(target.ProfileFile)
-		if err != nil {
-			return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("load %s profile: %w", target.ID, err))
-		}
-		if p.Protocol != string(target.Protocol) {
-			return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("profile %s uses protocol %s, expected %s", target.ProfileFile, p.Protocol, target.Protocol))
+		p, prepareErr := profile.LoadFile(target.ProfileFile)
+		if prepareErr == nil && p.Protocol != string(target.Protocol) {
+			prepareErr = fmt.Errorf("profile %s uses protocol %s, expected %s", target.ProfileFile, p.Protocol, target.Protocol)
 		}
 		preparer, ok := nativeRegistry.Preparer(target.Protocol)
-		if !ok {
-			return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("unsupported target protocol %s", target.Protocol))
+		if prepareErr == nil && !ok {
+			prepareErr = fmt.Errorf("unsupported target protocol %s", target.Protocol)
 		}
-		prepared, err := preparer(logging.Scope(ctx, target.ID, "", "", "", ""), protocolpkg.RunOptions{Target: target, Config: cfg, Profile: p, UserAgent: "aiqa/" + build.Version, Logf: runnerLogf, Logger: logger, Telemetry: tracing})
-		if err != nil {
-			return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("prepare %s target: %w", target.ID, err))
+		if prepareErr == nil {
+			preparedTargets[index], prepareErr = preparer(logging.Scope(ctx, target.ID, "", "", "", ""), protocolpkg.RunOptions{Target: target, Config: cfg, Profile: p, UserAgent: "aiqa/" + build.Version, Logf: runnerLogf, Logger: logger, Telemetry: tracing})
 		}
-		preparedTargets = append(preparedTargets, prepared)
+		prepareErrs[index] = prepareErr
+	})
+	// Prepare is a global freeze barrier: no target may execute before every
+	// target has either produced its immutable discovery result or failed.
+	for index, prepareErr := range prepareErrs {
+		if prepareErr != nil {
+			return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("prepare %s target: %w", targets[index].ID, prepareErr))
+		}
+	}
+	for _, prepared := range preparedTargets {
 		for _, job := range prepared.Jobs {
 			allJobs = append(allJobs, progress.Job{ID: job.ID, Target: job.Target, Model: job.Model, Label: job.Label})
 		}
 		allJobs = append(allJobs, extsuite.PlannedJobs(extRegistry, extensionCfg, prepared.Target, prepared.Profile, prepared.Candidates)...)
 	}
+	plan, err := runPlanFromPrepared(forensicRunID, preparedTargets, allJobs)
+	if err != nil {
+		return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("freeze execution plan: %w", err))
+	}
+	if err := protocolpkg.ValidatePlan(plan); err != nil {
+		return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("validate execution plan: %w", err))
+	}
 	reporter.Freeze(allJobs)
 	for _, prepared := range preparedTargets {
+		target := prepared.Target
+		r.Config.Targets = append(r.Config.Targets, result.TargetPublicConfig{ID: target.ID, Protocol: string(target.Protocol), BaseURL: target.BaseURL, BaseURLNormalized: target.BaseURLNormalized, APIVersion: target.APIVersion})
+	}
+	type targetExecution struct {
+		report       result.TargetReport
+		runErr       error
+		extensionErr error
+		emptyReport  bool
+	}
+	executions := make([]targetExecution, len(preparedTargets))
+	parallelTargets(targetWorkflowLimit(cfg, len(preparedTargets)), len(preparedTargets), func(index int) {
+		prepared := preparedTargets[index]
 		target, p := prepared.Target, prepared.Profile
 		targetCtx := logging.Scope(ctx, target.ID, "", "", "", "")
 		targetCtx, targetOp := tracing.Start(targetCtx, "target", logging.Fields{"target": target.ID, "protocol": string(target.Protocol)})
-		defer targetOp.End("interrupted", logging.Fields{"status": "interrupted", "error_present": true, "error_kind": "run_interrupted"})
-		r.Config.Targets = append(r.Config.Targets, result.TargetPublicConfig{ID: target.ID, Protocol: string(target.Protocol), BaseURL: target.BaseURL, BaseURLNormalized: target.BaseURLNormalized, APIVersion: target.APIVersion})
 		targetOp.Event(logging.Trace, "plan", logging.Fields{
 			"target": target.ID, "protocol": string(target.Protocol),
 			"native_selected": cfg.HasTest("compat") || cfg.HasTest("model-param"),
 			"sdk_selected":    cfg.HasTest("sdk"), "extension_selected": cfg.HasTest("ext-suite"),
 		})
-		native, runErr := prepared.Execute(targetCtx, reporter)
+		native, executionErr := prepared.Execute(targetCtx, reporter)
 		if native.Target.ID == "" {
-			if runErr == nil {
-				runErr = errors.New("native runner returned no target report")
+			if executionErr == nil {
+				executionErr = errors.New("native runner returned no target report")
 			}
 			targetOp.End("error", logging.Fields{"status": "error", "error_present": true, "error_kind": "native_runner"})
-			return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("run %s target: %w", target.Protocol, runErr))
+			executions[index] = targetExecution{runErr: executionErr, emptyReport: true}
+			return
 		}
 		targetReport := native.Target
 		var extensionErr error
 		tmp := reportFromTarget(targetReport, target.BaseURL)
 		guidance.Apply(&tmp, p, guidance.Options{Mode: cfg.Guidance, Pack: cfg.GuidancePack, Locale: cfg.GuidanceLocale})
 		targetReport.Guidance = tmp.Guidance
-		if runErr != nil {
+		if executionErr != nil {
 			logf(logging.Error, "[%s] target runner returned an error", target.ID)
-			runErrors = append(runErrors, fmt.Errorf("run %s target %s: %w", target.Protocol, target.ID, runErr))
 		} else {
 			targetReport, extensionErr = finishTargetExtensions(targetCtx, extensionCfg, target, p, targetReport, extRegistry, native.Runtime.Client, native.Runtime.Executor, logger, tracing, reporter)
 			if extensionErr != nil {
 				logf(logging.Error, "[%s] extension suites returned an error", target.ID)
-				runErrors = append(runErrors, fmt.Errorf("run extension suites for target %s: %w", target.ID, extensionErr))
 			}
 		}
-		r.Targets = append(r.Targets, targetReport)
 		outcome := "completed"
-		if runErr != nil || extensionErr != nil {
+		if executionErr != nil || extensionErr != nil {
 			outcome = "error"
 		}
 		targetOp.End(outcome, logging.Fields{"status": outcome, "error_present": outcome == "error"})
+		executions[index] = targetExecution{report: targetReport, runErr: executionErr, extensionErr: extensionErr}
+	})
+	for index, execution := range executions {
+		if execution.emptyReport {
+			return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("run %s target: %w", targets[index].Protocol, execution.runErr))
+		}
+		r.Targets = append(r.Targets, execution.report)
+		if execution.runErr != nil {
+			runErrors = append(runErrors, fmt.Errorf("run %s target %s: %w", targets[index].Protocol, targets[index].ID, execution.runErr))
+		}
+		if execution.extensionErr != nil {
+			runErrors = append(runErrors, fmt.Errorf("run extension suites for target %s: %w", targets[index].ID, execution.extensionErr))
+		}
 	}
 	r.Summary = summarizeRun(r.Targets)
 	paths, err := reportpkg.WriteV3(r, cfg)
@@ -355,6 +391,90 @@ func newForensicRunID() (string, error) {
 		return "", err
 	}
 	return "run-" + hex.EncodeToString(bytes), nil
+}
+
+// targetWorkflowLimit controls application-level target orchestration only.
+// It deliberately does not claim to be a process-wide HTTP admission limit:
+// transport integration owns that invariant. Auto mode shares the existing
+// request concurrency value as a conservative number of active workflows.
+func targetWorkflowLimit(cfg config.Config, targets int) int {
+	if targets < 1 {
+		return 1
+	}
+	limit := cfg.TargetConcurrency
+	if limit == 0 {
+		limit = cfg.Concurrency
+	}
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > targets {
+		return targets
+	}
+	return limit
+}
+
+// parallelTargets runs independent target-local work under one bounded pool.
+// Every caller writes only its own indexed result, then aggregates in index
+// order after this function returns.
+func parallelTargets(limit, targets int, work func(int)) {
+	if targets == 0 {
+		return
+	}
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > targets {
+		limit = targets
+	}
+	indices := make(chan int)
+	var workers sync.WaitGroup
+	workers.Add(limit)
+	for worker := 0; worker < limit; worker++ {
+		go func() {
+			defer workers.Done()
+			for index := range indices {
+				work(index)
+			}
+		}()
+	}
+	for index := 0; index < targets; index++ {
+		indices <- index
+	}
+	close(indices)
+	workers.Wait()
+}
+
+// runPlanFromPrepared is the application boundary that freezes discovery.
+// Native runners receive the PreparedTarget closures that captured this exact
+// inventory, so Execute cannot recalculate selection or discover a second time.
+func runPlanFromPrepared(id string, prepared []protocolpkg.PreparedTarget, jobs []progress.Job) (*protocolpkg.RunPlan, error) {
+	input := protocolpkg.PlanInput{ID: id, Revision: 1}
+	for _, target := range prepared {
+		input.Targets = append(input.Targets, target.Target.ID)
+		binding := target.Binding
+		binding.TargetID = target.Target.ID
+		if binding.ProfileRevision == "" {
+			binding.ProfileRevision = target.Profile.Revision
+		}
+		if len(binding.SelectedModels) == 0 {
+			for _, candidate := range target.Candidates {
+				binding.SelectedModels = append(binding.SelectedModels, candidate.ID)
+			}
+		}
+		input.Bindings = append(input.Bindings, binding)
+		for _, probe := range target.Profile.Probes {
+			input.Requirements = append(input.Requirements, protocolpkg.RequirementSpec{
+				ID: target.Target.ID + ":" + probe.ID, Required: probe.Required,
+			})
+		}
+	}
+	for _, job := range jobs {
+		input.Jobs = append(input.Jobs, protocolpkg.JobSpec{
+			ID: job.ID, TargetID: job.Target, ModelID: job.Model, Suite: "planned", Kind: "workflow",
+		})
+	}
+	return protocolpkg.NewRunPlan(input)
 }
 
 func newProtocolRegistry() (*protocolpkg.Registry, error) {

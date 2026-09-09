@@ -110,6 +110,113 @@ func TestExtensionProgressUsesDeclaredSuitesWithoutHTTPInference(t *testing.T) {
 	}
 }
 
+type lifecycleSignalSink struct {
+	*progressCapture
+	terminals chan telemetry.LifecycleEvent
+}
+
+func (p *lifecycleSignalSink) ObserveLifecycle(event telemetry.LifecycleEvent) {
+	p.progressCapture.ObserveLifecycle(event)
+	p.terminals <- event
+}
+
+func TestBuiltinSuiteTerminalIsDeliveredBeforeSlowSiblingAndReportStaysPlanned(t *testing.T) {
+	manifest := testManifest("fixture.sdk.realtime", "openai",
+		SuiteDescriptor{ID: "alpha-slow", Subject: "provider", Cost: "text", InternalConcurrency: 1},
+		SuiteDescriptor{ID: "zeta-fast", Subject: "provider", Cost: "text", InternalConcurrency: 1})
+	slowStarted := make(chan struct{})
+	releaseSlow := make(chan struct{})
+	extension := &testExtension{source: "builtin", manifest: manifest}
+	extension.run = func(ctx context.Context, request RunRequest, sink EventSink) (RunnerTelemetry, error) {
+		err := ExecuteBuiltinSuites(ctx, request, manifest.Extension.ID, sink, func(ctx context.Context, suiteID string) SuiteEvent {
+			if suiteID == "alpha-slow" {
+				close(slowStarted)
+				select {
+				case <-releaseSlow:
+				case <-ctx.Done():
+				}
+			} else {
+				<-slowStarted
+			}
+			return SuiteEvent{SchemaVersion: ProtocolVersion, Type: "suite_result", RunID: request.RunID, ExtensionID: manifest.Extension.ID, SuiteID: suiteID, Subject: request.Subject, Outcome: result.ExtensionOutcomePass, DurationMS: 1, Summary: "ok"}
+		})
+		return RunnerTelemetry{}, err
+	}
+	registry, err := NewRegistry(extension)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := profile.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sink := &lifecycleSignalSink{progressCapture: &progressCapture{}, terminals: make(chan telemetry.LifecycleEvent, 2)}
+	done := make(chan []result.ExtensionRun, 1)
+	go func() {
+		done <- ExecuteTargetWithTelemetryAndProgress(context.Background(), registry, config.Config{Tests: []string{"sdk"}, Timeout: time.Second, Concurrency: 2}, config.TargetConfig{ID: "fixture", Protocol: config.ProtocolOpenAI, BaseURL: "https://example.test/v1", APIKey: "secret"}, p, nil, nil, probe.NewExecutor(2), nil, nil, sink)
+	}()
+	select {
+	case terminal := <-sink.terminals:
+		if terminal.Suite != "zeta-fast" || terminal.Outcome != string(result.StatusPass) {
+			t.Fatalf("first terminal=%+v, want validated fast suite", terminal)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("fast suite terminal was held behind slow sibling")
+	}
+	select {
+	case <-done:
+		t.Fatal("invocation completed before slow suite was released")
+	default:
+	}
+	close(releaseSlow)
+	select {
+	case runs := <-done:
+		if len(runs) != 1 || len(runs[0].Suites) != 2 {
+			t.Fatalf("runs=%+v", runs)
+		}
+		if got := []string{runs[0].Suites[0].SuiteID, runs[0].Suites[1].SuiteID}; !reflect.DeepEqual(got, []string{"alpha-slow", "zeta-fast"}) {
+			t.Fatalf("final report order=%v, want immutable planned order", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("invocation did not finish after slow suite release")
+	}
+}
+
+func TestMissingSuiteTerminalIsReportedAsRunnerError(t *testing.T) {
+	manifest := testManifest("fixture.missing.terminal", "openai",
+		SuiteDescriptor{ID: "reported", Subject: "provider", Cost: "text", InternalConcurrency: 1},
+		SuiteDescriptor{ID: "missing", Subject: "provider", Cost: "text", InternalConcurrency: 1})
+	extension := &testExtension{source: "builtin", manifest: manifest}
+	extension.run = func(_ context.Context, request RunRequest, sink EventSink) (RunnerTelemetry, error) {
+		return RunnerTelemetry{}, sink.Emit(SuiteEvent{SchemaVersion: ProtocolVersion, Type: "suite_result", RunID: request.RunID, ExtensionID: manifest.Extension.ID, SuiteID: "reported", Subject: request.Subject, Outcome: result.ExtensionOutcomePass, DurationMS: 1, Summary: "ok"})
+	}
+	registry, err := NewRegistry(extension)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := profile.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sink := &progressCapture{}
+	runs := ExecuteTargetWithTelemetryAndProgress(context.Background(), registry, config.Config{Tests: []string{"sdk"}, Timeout: time.Second, Concurrency: 1}, config.TargetConfig{ID: "fixture", Protocol: config.ProtocolOpenAI, BaseURL: "https://example.test/v1", APIKey: "secret"}, p, nil, nil, probe.NewExecutor(1), nil, nil, sink)
+	if len(runs) != 1 || runs[0].Runner.Status != result.StatusError {
+		t.Fatalf("missing suite did not fail runner: %+v", runs)
+	}
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	if len(sink.lifecycle) != 2 {
+		t.Fatalf("terminals=%+v", sink.lifecycle)
+	}
+	outcomes := map[string]string{}
+	for _, terminal := range sink.lifecycle {
+		outcomes[terminal.Suite] = terminal.Outcome
+	}
+	if outcomes["reported"] != string(result.StatusPass) || outcomes["missing"] != "runner_error" {
+		t.Fatalf("terminal outcomes=%v, want reported=pass missing=runner_error", outcomes)
+	}
+}
+
 func TestCollectorDerivesProfileStatusesAndPreservesPartialResults(t *testing.T) {
 	p, err := profile.Load()
 	if err != nil {

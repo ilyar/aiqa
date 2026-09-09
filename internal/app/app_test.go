@@ -21,6 +21,7 @@ import (
 
 	"github.com/ilyar/aiqa/internal/config"
 	"github.com/ilyar/aiqa/internal/logging"
+	"github.com/ilyar/aiqa/internal/profile"
 	"github.com/ilyar/aiqa/internal/result"
 )
 
@@ -352,6 +353,59 @@ func TestBuiltInExtensionRequestsShareGlobalConcurrencyCeiling(t *testing.T) {
 	}
 	if got := maximum.Load(); got < 1 || got > 3 {
 		t.Fatalf("maximum concurrent extension requests=%d, want 1..3", got)
+	}
+}
+
+func TestRunFreezesParallelPreparationBeforeParallelTargetExecution(t *testing.T) {
+	var prepareRequests atomic.Int32
+	var executeRequests atomic.Int32
+	prepareBarrier := make(chan struct{})
+	executeBarrier := make(chan struct{})
+	server := newMockOpenAIWithMiddleware(t, func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/v1/models":
+				if prepareRequests.Add(1) == 2 {
+					close(prepareBarrier)
+				}
+				select {
+				case <-prepareBarrier:
+				case <-r.Context().Done():
+					return
+				}
+			case "/v1/chat/completions":
+				if executeRequests.Add(1) == 2 {
+					close(executeBarrier)
+				}
+				select {
+				case <-executeBarrier:
+				case <-r.Context().Done():
+					return
+				}
+			}
+			next.ServeHTTP(w, r)
+		})
+	})
+	defer server.Close()
+	withTempWorkingDirectory(t)
+	cfg := testConfig(server.URL+"/v1", []string{"compat"})
+	cfg.Formats = nil
+	cfg.TargetConcurrency = 2
+	cfg.Targets = []config.TargetConfig{
+		{ID: "zeta", Protocol: config.ProtocolOpenAI, BaseURL: server.URL + "/v1", APIKey: "test-key", ProfileFile: profile.DefaultFile, Modules: []string{"auto"}, UnknownModel: "inventory", RequestInterval: time.Millisecond},
+		{ID: "alpha", Protocol: config.ProtocolOpenAI, BaseURL: server.URL + "/v1", APIKey: "test-key", ProfileFile: profile.DefaultFile, Modules: []string{"auto"}, UnknownModel: "inventory", RequestInterval: time.Millisecond},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := Run(ctx, cfg, BuildInfo{Version: "test"})
+	if err != nil || out.ExitCode != 0 {
+		t.Fatalf("parallel run: exit=%d err=%v", out.ExitCode, err)
+	}
+	if prepareRequests.Load() < 2 || executeRequests.Load() < 2 {
+		t.Fatalf("barriers did not observe overlapping workflows: prepare=%d execute=%d", prepareRequests.Load(), executeRequests.Load())
+	}
+	if got := []string{out.ReportV3.Targets[0].ID, out.ReportV3.Targets[1].ID}; !reflect.DeepEqual(got, []string{"alpha", "zeta"}) {
+		t.Fatalf("report target order=%v, want deterministic ID order", got)
 	}
 }
 

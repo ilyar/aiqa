@@ -27,7 +27,11 @@ type Collector struct {
 	trace       map[string]*extensionTraceSpan
 	traceUsed   map[string]bool
 	traceSuites map[string]int
-	mu          sync.Mutex
+	// terminal observes a locally validated suite result. It is deliberately
+	// host-only: extensions cannot influence progress/lifecycle delivery, and
+	// the observer runs after the result has been accepted by the collector.
+	terminal func(result.ExtensionSuiteResult)
+	mu       sync.Mutex
 }
 
 type extensionTraceSpan struct {
@@ -89,6 +93,20 @@ func (c *Collector) Emit(event SuiteEvent) error {
 // wire contract: external extensions cannot provide host trace contexts.
 func (c *Collector) EmitContext(ctx context.Context, event SuiteEvent) error {
 	return c.emit(ctx, event)
+}
+
+// SetTerminalObserver installs a host-owned callback for immediately
+// delivering validated terminal suite results. It must be set before Run
+// begins; changing it after a terminal result was accepted is rejected so a
+// progress consumer cannot miss an already-completed suite.
+func (c *Collector) SetTerminalObserver(observer func(result.ExtensionSuiteResult)) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.seen) != 0 {
+		return fmt.Errorf("cannot set terminal observer after suite results were emitted")
+	}
+	c.terminal = observer
+	return nil
 }
 
 // EmitTrace validates a v2 cooperative extension record and maps it to a
@@ -230,38 +248,47 @@ func traceOutcome(event TraceEvent) string {
 
 func (c *Collector) emit(ctx context.Context, event SuiteEvent) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if event.SchemaVersion != ProtocolVersion || event.Type != "suite_result" || event.RunID != c.request.RunID || event.ExtensionID != c.manifest.Extension.ID {
+		c.mu.Unlock()
 		return fmt.Errorf("invalid extension suite envelope")
 	}
 	if event.Subject != c.request.Subject {
+		c.mu.Unlock()
 		return fmt.Errorf("suite %q reported the wrong subject", event.SuiteID)
 	}
 	if _, ok := c.planned[event.SuiteID]; !ok {
+		c.mu.Unlock()
 		return fmt.Errorf("extension reported unplanned suite %q", event.SuiteID)
 	}
 	if c.seen[event.SuiteID] {
+		c.mu.Unlock()
 		return fmt.Errorf("extension reported suite %q more than once", event.SuiteID)
 	}
 	for _, trace := range c.trace {
 		if trace.suiteID == event.SuiteID {
+			c.mu.Unlock()
 			return fmt.Errorf("extension reported terminal suite %q with unfinished trace spans", event.SuiteID)
 		}
 	}
 	if !validOutcome(event.Outcome) || event.DurationMS < 0 || strings.TrimSpace(event.Summary) == "" {
+		c.mu.Unlock()
 		return fmt.Errorf("suite %q reported an invalid outcome, duration, or summary", event.SuiteID)
 	}
 	if event.HTTP.StatusCode < 0 || event.HTTP.StatusCode > 599 || event.Outcome == result.ExtensionOutcomeRequestRejected && event.HTTP.StatusCode < 100 {
+		c.mu.Unlock()
 		return fmt.Errorf("suite %q reported invalid HTTP evidence", event.SuiteID)
 	}
 	if !validErrorKind(event.ErrorKind) {
+		c.mu.Unlock()
 		return fmt.Errorf("suite %q reported invalid error kind %q", event.SuiteID, event.ErrorKind)
 	}
 	if !validUsage(event.Usage) {
+		c.mu.Unlock()
 		return fmt.Errorf("suite %q reported invalid usage", event.SuiteID)
 	}
 	for _, signal := range event.Signals {
 		if !stableID.MatchString(signal.Code) {
+			c.mu.Unlock()
 			return fmt.Errorf("suite %q reported invalid signal code %q", event.SuiteID, signal.Code)
 		}
 	}
@@ -291,9 +318,14 @@ func (c *Collector) emit(ctx context.Context, event SuiteEvent) error {
 		item.RelatedRequirementIDs = append([]string(nil), binding.RelatedRequirementIDs...)
 	}
 	c.results = append(c.results, item)
+	terminal := c.terminal
+	c.mu.Unlock()
 	fields := logging.Fields{"extension": c.manifest.Extension.ID, "suite": event.SuiteID, "subject_kind": event.Subject.Kind, "subject_ref": diagnosticSubjectRef(event.Subject), "outcome": event.Outcome, "status": item.Status, "duration_ms": event.DurationMS, "http_status": event.HTTP.StatusCode, "error_kind": orDash(event.ErrorKind), "error_code": item.ErrorCode, "error_present": event.Error != "", "signals": diagnosticSignals(event.Signals), "usage_fields": diagnosticUsageFields(event.Usage)}
 	logDiagnosticContext(ctx, c.logger, logging.Trace, "extsuite.suite.result_parsed", fields)
 	logDiagnosticContext(ctx, c.logger, logging.Debug, "extsuite.suite.completed", logging.Fields{"extension": c.manifest.Extension.ID, "suite": event.SuiteID, "subject_ref": diagnosticSubjectRef(event.Subject), "status": item.Status, "outcome": event.Outcome, "reason": diagnosticReason(event), "duration_ms": event.DurationMS})
+	if terminal != nil {
+		terminal(item)
+	}
 	return nil
 }
 
