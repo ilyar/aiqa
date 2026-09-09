@@ -2,8 +2,11 @@ package report
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,34 +16,244 @@ import (
 	"github.com/ilyar/aiqa/internal/result"
 )
 
-func WriteV3(r result.ReportV3, cfg config.Config) ([]string, error) {
+// FinalV3 is one immutable public-report snapshot.  It is created only after
+// all public attachments (including a forensic verdict) have their final
+// values.  File output and an explicitly selected stdout payload must use the
+// same snapshot, so neither can make a stale pending/final claim.
+type FinalV3 struct {
+	payloads map[string][]byte
+}
+
+// FinalizeV3 redacts and normalizes a report once, then serializes every
+// configured format before any output path is modified.  This is deliberately
+// separate from Commit so callers can write an exact final payload to stdout
+// without re-rendering it.
+func FinalizeV3(r result.ReportV3, cfg config.Config) (FinalV3, error) {
 	result.RedactSecrets(&r, reportSecrets(cfg)...)
 	r = normalizeV3Collections(r)
-	var paths []string
+	if err := validateExecutionSummary(r.Execution); err != nil {
+		return FinalV3{}, err
+	}
+
+	payloads := make(map[string][]byte, len(cfg.Formats))
 	for _, format := range cfg.Formats {
+		if _, exists := payloads[format]; exists {
+			return FinalV3{}, fmt.Errorf("duplicate report format %q", format)
+		}
 		var data []byte
-		var ext string
 		var err error
 		switch format {
 		case "json":
 			data, err = json.MarshalIndent(r, "", "  ")
-			ext = ".json"
 		case "markdown":
 			data = []byte(MarkdownV3(r))
-			ext = ".md"
 		default:
-			return paths, fmt.Errorf("unsupported format %q", format)
+			return FinalV3{}, fmt.Errorf("unsupported format %q", format)
 		}
 		if err != nil {
-			return paths, err
+			return FinalV3{}, fmt.Errorf("serialize %s report: %w", format, err)
 		}
-		path := cfg.Name + ext
-		if err := atomicWrite(path, append(data, '\n'), 0o644); err != nil {
-			return paths, err
+		payloads[format] = append(data, '\n')
+	}
+	return FinalV3{payloads: payloads}, nil
+}
+
+// Bytes returns a defensive copy of one configured report payload.  It is the
+// public stdout seam: the caller is responsible for validating its CLI option,
+// while this package guarantees the bytes are identical to the committed file.
+func (f FinalV3) Bytes(format string) ([]byte, error) {
+	data, ok := f.payloads[format]
+	if !ok {
+		return nil, fmt.Errorf("report format %q was not finalized", format)
+	}
+	return append([]byte(nil), data...), nil
+}
+
+// Commit writes all payloads using a staged, best-effort transactional commit.
+// All files are fully rendered and fsynced before any destination is replaced.
+// If a replacement fails, prior destinations are restored and no paths are
+// claimed as written.  POSIX has no crash-atomic multi-file rename primitive;
+// this contract covers ordinary write errors, not abrupt process termination.
+func (f FinalV3) Commit(name string) ([]string, error) {
+	return f.commit(name, os.Rename)
+}
+
+// WriteV3 preserves the historical file-writer API while using the final
+// snapshot transaction.  Callers which also need stdout should call
+// FinalizeV3 once, then Commit and Bytes on the returned value.
+func WriteV3(r result.ReportV3, cfg config.Config) ([]string, error) {
+	final, err := FinalizeV3(r, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return final.Commit(cfg.Name)
+}
+
+type stagedV3Output struct {
+	path    string
+	tmp     string
+	backup  string
+	existed bool
+	placed  bool
+}
+
+func (f FinalV3) commit(name string, rename func(string, string) error) ([]string, error) {
+	formats := []string{"json", "markdown"}
+	staged := make([]stagedV3Output, 0, len(f.payloads))
+	for _, format := range formats {
+		data, ok := f.payloads[format]
+		if !ok {
+			continue
 		}
-		paths = append(paths, path)
+		ext := map[string]string{"json": ".json", "markdown": ".md"}[format]
+		path := name + ext
+		tmp, err := stageReport(path, data)
+		if err != nil {
+			removeStagedV3(staged)
+			return nil, err
+		}
+		staged = append(staged, stagedV3Output{path: path, tmp: tmp})
+	}
+
+	if err := commitStagedV3(staged, rename); err != nil {
+		return nil, err
+	}
+	paths := make([]string, len(staged))
+	for i := range staged {
+		paths[i] = staged[i].path
 	}
 	return paths, nil
+}
+
+func stageReport(path string, data []byte) (string, error) {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".aiqa-report-stage-*")
+	if err != nil {
+		return "", fmt.Errorf("create staged report %s: %w", path, err)
+	}
+	tmpName := tmp.Name()
+	fail := func(cause error) (string, error) {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		return "", cause
+	}
+	if _, err := tmp.Write(data); err != nil {
+		return fail(fmt.Errorf("write staged report %s: %w", path, err))
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		return fail(fmt.Errorf("chmod staged report %s: %w", path, err))
+	}
+	if err := tmp.Sync(); err != nil {
+		return fail(fmt.Errorf("sync staged report %s: %w", path, err))
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return "", fmt.Errorf("close staged report %s: %w", path, err)
+	}
+	return tmpName, nil
+}
+
+func commitStagedV3(staged []stagedV3Output, rename func(string, string) error) (err error) {
+	defer func() {
+		if err == nil {
+			for _, output := range staged {
+				if output.backup != "" {
+					_ = os.Remove(output.backup)
+				}
+			}
+			return
+		}
+		err = errors.Join(err, rollbackStagedV3(staged, rename))
+	}()
+
+	for i := range staged {
+		output := &staged[i]
+		if _, statErr := os.Lstat(output.path); statErr == nil {
+			backup, createErr := os.CreateTemp(filepath.Dir(output.path), ".aiqa-report-backup-*")
+			if createErr != nil {
+				return fmt.Errorf("create report backup %s: %w", output.path, createErr)
+			}
+			output.backup = backup.Name()
+			if closeErr := backup.Close(); closeErr != nil {
+				return fmt.Errorf("close report backup %s: %w", output.path, closeErr)
+			}
+			if renameErr := rename(output.path, output.backup); renameErr != nil {
+				return fmt.Errorf("backup report %s: %w", output.path, renameErr)
+			}
+			output.existed = true
+		} else if !os.IsNotExist(statErr) {
+			return fmt.Errorf("stat report destination %s: %w", output.path, statErr)
+		}
+		if renameErr := rename(output.tmp, output.path); renameErr != nil {
+			return fmt.Errorf("commit report %s: %w", output.path, renameErr)
+		}
+		output.tmp = ""
+		output.placed = true
+	}
+	return nil
+}
+
+func rollbackStagedV3(staged []stagedV3Output, rename func(string, string) error) error {
+	var errs []error
+	for i := len(staged) - 1; i >= 0; i-- {
+		output := staged[i]
+		if output.placed {
+			if removeErr := os.Remove(output.path); removeErr != nil && !os.IsNotExist(removeErr) {
+				errs = append(errs, fmt.Errorf("remove partial report %s: %w", output.path, removeErr))
+			}
+		}
+		if output.existed {
+			if restoreErr := rename(output.backup, output.path); restoreErr != nil {
+				errs = append(errs, fmt.Errorf("restore report %s: %w", output.path, restoreErr))
+			}
+		} else if output.backup != "" {
+			_ = os.Remove(output.backup)
+		}
+		if output.tmp != "" {
+			_ = os.Remove(output.tmp)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func removeStagedV3(staged []stagedV3Output) {
+	for _, output := range staged {
+		if output.tmp != "" {
+			_ = os.Remove(output.tmp)
+		}
+	}
+}
+
+func validateExecutionSummary(execution *result.ExecutionSummary) error {
+	if execution == nil {
+		return nil
+	}
+	if execution.SchemaVersion != "aiqa.execution-summary.v1" {
+		return fmt.Errorf("unsupported execution summary schema %q", execution.SchemaVersion)
+	}
+	validPhases := map[string]bool{
+		"validating": true, "preparing": true, "plan_frozen": true, "running": true,
+		"finalizing": true, "completed": true, "interrupted": true, "failed_runtime": true,
+	}
+	if !validPhases[execution.Phase] {
+		return fmt.Errorf("unsupported execution summary phase %q", execution.Phase)
+	}
+	if execution.ElapsedMS < 0 || execution.SumRequestWaitMS < 0 || execution.WallTimeWithWaitersMS < 0 {
+		return errors.New("execution summary durations must be non-negative")
+	}
+	if execution.GlobalRequestCapacity < 1 || execution.ObservedPeakInflight < 0 || execution.ObservedPeakInflight > execution.GlobalRequestCapacity {
+		return errors.New("execution summary request capacity is inconsistent")
+	}
+	if execution.PlannedJobs < 0 || execution.FinishedJobs < 0 || execution.CancelledJobs < 0 || execution.FinishedJobs+execution.CancelledJobs > execution.PlannedJobs {
+		return errors.New("execution summary job counts are inconsistent")
+	}
+	if execution.Phase == "completed" && (execution.FinishedJobs != execution.PlannedJobs || execution.CancelledJobs != 0) {
+		return errors.New("completed execution summary must account for every planned job")
+	}
+	if execution.PacingGroupCount < 0 || execution.SchedulerPolicy == "" || execution.EstimateMethod == "" {
+		return errors.New("execution summary scheduler metadata is incomplete")
+	}
+	return nil
 }
 
 // WriteVerboseLog writes the optional private diagnostic sidecar.  It is kept
@@ -142,6 +355,7 @@ func MarkdownV3(r result.ReportV3) string {
 	fmt.Fprintf(&b, "**Run verdict:** %s\n\n", statusLabelString(r.Summary.Verdict))
 	fmt.Fprintln(&b, "Targets are assessed independently. Percentages are not combined into a cross-protocol score.")
 	fmt.Fprintln(&b)
+	writeExecutionSummary(&b, r.Execution)
 
 	fmt.Fprintln(&b, "## Rate-limit and latency")
 	fmt.Fprintln(&b)
@@ -203,6 +417,19 @@ func MarkdownV3(r result.ReportV3) string {
 		fmt.Fprintf(&b, "| **All targets** | **%d** | **%d** | **%d** | **%d** | **%d** | **%d** |\n", combined.input, combined.output, combined.cacheCreation, combined.cacheRead, combined.reasoning, combined.total)
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func writeExecutionSummary(b *strings.Builder, execution *result.ExecutionSummary) {
+	if execution == nil {
+		return
+	}
+	fmt.Fprintln(b, "## Execution")
+	fmt.Fprintln(b)
+	fmt.Fprintf(b, "- **Phase:** `%s`\n", escapeInline(execution.Phase))
+	fmt.Fprintf(b, "- **Jobs:** %d planned; %d finished; %d cancelled\n", execution.PlannedJobs, execution.FinishedJobs, execution.CancelledJobs)
+	fmt.Fprintf(b, "- **HTTP in flight:** %d/%d observed peak\n", execution.ObservedPeakInflight, execution.GlobalRequestCapacity)
+	fmt.Fprintf(b, "- **Pacing groups:** %d\n", execution.PacingGroupCount)
+	fmt.Fprintf(b, "- **Elapsed:** %dms\n\n", execution.ElapsedMS)
 }
 
 func writeTargetClassifications(b *strings.Builder, target result.TargetReport) {
