@@ -359,6 +359,29 @@ type ReportV3 struct {
 	Targets       []TargetReport `json:"targets"`
 	Summary       RunSummary     `json:"summary"`
 	ForensicTrace *ForensicTrace `json:"forensic_trace,omitempty"`
+	// Execution is additive telemetry about AIQA's own run. It is deliberately
+	// separate from conformance summary and provider usage so report v3 verdict
+	// semantics remain unchanged for consumers that do not use it.
+	Execution *ExecutionSummary `json:"execution,omitempty"`
+}
+
+// ExecutionSummary is the optional public aggregate for aiqa.execution.v1.
+// It contains only scheduler/run accounting and never target URLs, payloads,
+// response bodies, credentials, or prompts.
+type ExecutionSummary struct {
+	SchemaVersion         string `json:"schema_version"`
+	Phase                 string `json:"phase"`
+	ElapsedMS             int64  `json:"elapsed_ms"`
+	GlobalRequestCapacity int    `json:"global_request_capacity"`
+	ObservedPeakInflight  int    `json:"observed_peak_inflight"`
+	PlannedJobs           int    `json:"planned_jobs"`
+	FinishedJobs          int    `json:"finished_jobs"`
+	CancelledJobs         int    `json:"cancelled_jobs"`
+	PacingGroupCount      int    `json:"pacing_group_count"`
+	SchedulerPolicy       string `json:"scheduler_policy"`
+	EstimateMethod        string `json:"estimate_method"`
+	SumRequestWaitMS      int64  `json:"sum_request_wait_ms,omitempty"`
+	WallTimeWithWaitersMS int64  `json:"wall_time_with_waiters_ms,omitempty"`
 }
 
 // ForensicTrace is the public, non-sensitive link to a private trace verdict.

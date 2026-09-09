@@ -262,3 +262,111 @@ func TestUnknownUnrequestedModuleDoesNotCreateCoverageGap(t *testing.T) {
 		t.Fatalf("unrequested unknown module affected coverage: assessment=%+v requirements=%+v", got, r.Requirements)
 	}
 }
+
+func TestGloballyUnmatchedRequestedScopeIsInconclusiveWithoutSyntheticModel(t *testing.T) {
+	p, err := profile.LoadFile("openai-compat-2026-09.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := result.Report{Config: result.PublicConfig{
+		BaseURL:         "https://example.test/v1",
+		Tests:           []string{"compat"},
+		RequestedModels: []string{"missing-model"},
+	}}
+	ApplyTarget(&r, p, "openai-a", "openai")
+	if !ApplyGloballyUnmatchedRequestedScope(&r, "openai-a", "openai", true) {
+		t.Fatal("global no-match guard was not applied")
+	}
+	if got := r.Summary.Assessment; got.Verdict != "inconclusive" || got.VerdictReason != "core_evidence_incomplete" || got.Comparison.Rankable || got.Core.Skip != 1 {
+		t.Fatalf("no-match changed canonical verdict incorrectly: %+v", got)
+	}
+	if len(r.Requirements) != 1 || r.Requirements[0].Subject.Kind != "provider" || r.Requirements[0].ID != "selection.requested_models" || r.Requirements[0].FailureKind != "no_evaluated_requested_scope" {
+		t.Fatalf("no-match requirement=%+v", r.Requirements)
+	}
+	if got := r.Requirements[0].Evidence[0]; got.Status != result.StatusSkip || got.Summary == "" || got.Signals[0].Code != "execution.requested_models.no_match" {
+		t.Fatalf("no-match evidence=%+v", got)
+	}
+}
+
+func TestGloballyUnmatchedRequestedScopeDoesNotPenalizePartialTargetMatch(t *testing.T) {
+	r := result.Report{Config: result.PublicConfig{
+		BaseURL:         "https://example.test/v1",
+		RequestedModels: []string{"shared-model"},
+	}}
+	if ApplyGloballyUnmatchedRequestedScope(&r, "target-without-model", "openai", false) {
+		t.Fatal("a target-local miss was treated as a global no-match")
+	}
+	if len(r.Requirements) != 0 || r.Summary.Assessment != nil {
+		t.Fatalf("partial target miss mutated assessment: %+v", r)
+	}
+}
+
+func TestGloballyUnmatchedRequestedScopeKeepsCoreFailureAuthoritative(t *testing.T) {
+	p := profile.Profile{}
+	r := result.Report{Config: result.PublicConfig{
+		BaseURL:         "https://example.test/v1",
+		RequestedModels: []string{"missing-model"},
+	}, Discovery: result.Discovery{Tests: []result.TestResult{{ID: "provider.required", Required: true, Status: result.StatusFail}}}}
+	ApplyTarget(&r, p, "one", "openai")
+	ApplyGloballyUnmatchedRequestedScope(&r, "one", "openai", true)
+	if got := r.Summary.Assessment; got.Verdict != "fail" || got.VerdictReason != "core_failure" || got.Comparison.Rankable {
+		t.Fatalf("core failure was not preserved above no-match: %+v", got)
+	}
+}
+
+func TestAnthropicModelParameterIsLocalImplementationGap(t *testing.T) {
+	p, err := profile.LoadFile("anthropic-compat-2026-09.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := result.Report{Config: result.PublicConfig{BaseURL: "https://example.test", Tests: []string{"model-param"}}, Models: []result.ModelReport{{ID: "claude-fixture"}}}
+	ApplyTarget(&r, p, "anthropic", "anthropic")
+	if got := r.Summary.Assessment; got.Verdict != "pass-with-gaps" || got.Optional.Unsupported != 0 || got.Optional.Skip != 1 {
+		t.Fatalf("implementation gap became provider support verdict: %+v", got)
+	}
+	if len(r.Requirements) != 1 {
+		t.Fatalf("requirements=%+v", r.Requirements)
+	}
+	got := r.Requirements[0]
+	if got.ID != "aiqa.model_param.implementation" || got.Status != result.RequirementSkip || got.FailureKind != "not_implemented_by_aiqa" || got.Module != "model-param" {
+		t.Fatalf("unexpected local implementation gate: %+v", got)
+	}
+	if len(got.Evidence) != 1 || got.Evidence[0].Kind != "aiqa" || got.Evidence[0].Status != result.StatusSkip || got.Evidence[0].HTTPStatus != 0 {
+		t.Fatalf("implementation gate claimed provider evidence: %+v", got.Evidence)
+	}
+}
+
+func TestAnthropicModelParameterGapDoesNotInvalidateCompatibilityPass(t *testing.T) {
+	p, err := profile.LoadFile("anthropic-compat-2026-09.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// This case isolates compatibility evidence from provider-discovery coverage;
+	// the latter belongs to the runner integration test.
+	p.Modules = nil
+	r := result.Report{Config: result.PublicConfig{BaseURL: "https://example.test", Tests: []string{"compat", "model-param"}}, Models: []result.ModelReport{{
+		ID:            "claude-fixture",
+		Compatibility: []result.TestResult{{ID: "anthropic.messages.basic", Required: true, Status: result.StatusPass}},
+	}}}
+	ApplyTarget(&r, p, "anthropic", "anthropic")
+	if got := r.Summary.Assessment; got.Verdict != "pass-with-gaps" || got.Core.Fail != 0 || got.Optional.Skip != 1 {
+		t.Fatalf("model-param gap altered unrelated compatibility evidence: %+v", got)
+	}
+}
+
+func TestAnthropicModelParameterImplementationGateYieldsToActualRunnerEvidence(t *testing.T) {
+	p, err := profile.LoadFile("anthropic-compat-2026-09.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := result.Report{Config: result.PublicConfig{BaseURL: "https://example.test", Tests: []string{"model-param"}}, Models: []result.ModelReport{{
+		ID:         "claude-fixture",
+		Parameters: []result.ParameterResult{{Name: "temperature", Status: result.StatusPass}},
+	}}}
+	ApplyTarget(&r, p, "anthropic", "anthropic")
+	for _, requirement := range r.Requirements {
+		if requirement.ID == "aiqa.model_param.implementation" {
+			t.Fatalf("local stub hid actual runner evidence: %+v", r.Requirements)
+		}
+	}
+}

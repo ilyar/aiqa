@@ -1,10 +1,56 @@
 package schema
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestReportV3ExecutionSummaryIsOptionalAndStrict(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "example", "good-report.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var report map[string]any
+	if err := json.Unmarshal(data, &report); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "report.json")
+	write := func() {
+		body, err := json.Marshal(report)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write()
+	schemaPath := filepath.Join(root, "schema", "report-v3.schema.json")
+	if err := ValidateFile(schemaPath, path); err != nil {
+		t.Fatalf("report without optional execution failed: %v", err)
+	}
+	report["execution"] = map[string]any{
+		"schema_version": "aiqa.execution-summary.v1", "phase": "completed", "elapsed_ms": 12,
+		"global_request_capacity": 3, "observed_peak_inflight": 2, "planned_jobs": 4,
+		"finished_jobs": 4, "cancelled_jobs": 0, "pacing_group_count": 2,
+		"scheduler_policy": "fair-target-admission/v1", "estimate_method": "remaining-work-simulation/v1",
+	}
+	write()
+	if err := ValidateFile(schemaPath, path); err != nil {
+		t.Fatalf("valid execution summary failed: %v", err)
+	}
+	report["execution"].(map[string]any)["unexpected"] = true
+	write()
+	if err := ValidateFile(schemaPath, path); err == nil {
+		t.Fatal("execution summary accepted an unknown field")
+	}
+}
 
 func TestParseFileRejectsTrailingData(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "bad.json")

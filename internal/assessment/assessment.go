@@ -30,6 +30,63 @@ func ApplyTarget(r *result.Report, p profile.Profile, targetID, protocol string)
 	apply(r, p, targetID, protocol)
 }
 
+// ApplyGloballyUnmatchedRequestedScope records an explicit local coverage gap
+// after the coordinator has established that no requested model matched any
+// target inventory. A missing model on one target is not enough: --model is a
+// cross-target filter, so another target may have evaluated that same scope.
+//
+// The guard deliberately adds no synthetic model ID and makes no provider
+// claim. It records the missing AIQA execution scope as incomplete core
+// evidence, which keeps an existing core failure authoritative while making
+// the result non-rankable.
+func ApplyGloballyUnmatchedRequestedScope(r *result.Report, targetID, protocol string, globallyUnmatched bool) bool {
+	if !globallyUnmatched || len(r.Config.RequestedModels) == 0 || len(r.Models) != 0 {
+		return false
+	}
+	provider := result.SubjectRef{TargetID: targetID, Protocol: protocol, Kind: "provider", ID: normalizedEndpoint(r.Config.BaseURL)}
+	for _, requirement := range r.Requirements {
+		if requirement.Subject == provider && requirement.ID == "selection.requested_models" {
+			return false
+		}
+	}
+	requirement := result.RequirementAssessment{
+		ID:            "selection.requested_models",
+		Name:          "Requested model selection",
+		Description:   "At least one requested model must match an inventory before model conformance can be assessed",
+		Level:         result.RequirementCore,
+		Subject:       provider,
+		Module:        "selection",
+		Applicability: result.ApplicabilityApplicable,
+		Status:        result.RequirementSkip,
+		FailureKind:   "no_evaluated_requested_scope",
+		Evidence: []result.EvidenceRef{{
+			ID:      evidenceID("coverage", provider, "requested-models-no-match"),
+			Kind:    "coverage",
+			ProbeID: "aiqa.local.selection.requested_models",
+			Status:  result.StatusSkip,
+			Summary: "NO_MATCH: no requested model matched any target inventory; no model route was evaluated",
+			Signals: []result.EvidenceSignal{{Code: "execution.requested_models.no_match", RootCause: "no-evaluated-requested-scope"}},
+		}},
+	}
+	r.Requirements = append(r.Requirements, requirement)
+	sort.Slice(r.Requirements, func(i, j int) bool {
+		a, b := r.Requirements[i], r.Requirements[j]
+		if a.Subject.Kind != b.Subject.Kind {
+			return a.Subject.Kind < b.Subject.Kind
+		}
+		if a.Subject.ID != b.Subject.ID {
+			return a.Subject.ID < b.Subject.ID
+		}
+		return a.ID < b.ID
+	})
+	refreshAssessment(r, targetID != "")
+	// No evaluated requested scope makes comparison invalid even when a separate
+	// provider core failure remains the primary verdict.
+	r.Summary.Assessment.Comparison.Rankable = false
+	r.Summary.Assessment.Comparison.VerdictRank = nil
+	return true
+}
+
 func apply(r *result.Report, p profile.Profile, targetID, protocol string) {
 	ensureSignals(r)
 	items := map[requirementKey]*result.RequirementAssessment{}
@@ -55,6 +112,9 @@ func apply(r *result.Report, p profile.Profile, targetID, protocol string) {
 		}
 		if nativeCoverageSelected(r.Config.Tests) {
 			materializeModuleCoverage(items, subject, model.Modules, p, r.Config.Tests)
+		}
+		if protocol == "anthropic" && containsString(r.Config.Tests, "model-param") && len(model.Parameters) == 0 && model.Context == nil {
+			materializeModelParameterImplementationGap(items, subject)
 		}
 	}
 	for runIndex := range r.Extensions {
@@ -87,13 +147,17 @@ func apply(r *result.Report, p profile.Profile, targetID, protocol string) {
 		return a.ID < b.ID
 	})
 	r.Requirements = requirements
-	assessment := summarize(requirements)
+	refreshAssessment(r, targetID != "")
+}
+
+func refreshAssessment(r *result.Report, target bool) {
+	assessment := summarize(r.Requirements)
 	assessment.Coverage = coverageForModels(r.Models)
-	applyCoverageLevels(&assessment, requirements)
+	applyCoverageLevels(&assessment, r.Requirements)
 	applyCoverageVerdict(&assessment)
 	r.Summary.Assessment = &assessment
-	if targetID != "" {
-		applyModelAssessments(r, requirements)
+	if target {
+		applyModelAssessments(r, r.Requirements)
 		// Assessment is the canonical target verdict. Raw summaries remain on
 		// individual models, where not-evaluated is still meaningful.
 		r.Summary.Status = assessment.Verdict
@@ -304,6 +368,27 @@ func addContext(items map[requirementKey]*result.RequirementAssessment, subject 
 		Status:  contextResult.Status,
 		Summary: contextResult.Summary,
 		Signals: []result.EvidenceSignal{{Code: genericSignalCode(id, contextResult.Status)}},
+	})
+}
+
+// materializeModelParameterImplementationGap is local AIQA coverage evidence,
+// not a statement about the provider. Anthropic model-parameter probing has no
+// runner yet, so a selected model-param suite must not silently look complete
+// or turn into provider UNSUPPORTED evidence.
+func materializeModelParameterImplementationGap(items map[requirementKey]*result.RequirementAssessment, subject result.SubjectRef) {
+	const id = "aiqa.model_param.implementation"
+	item := get(items, subject, id, "AIQA model-parameter implementation", "AIQA has no Anthropic model-parameter runner for this selected suite", result.RequirementOptional, "model-param")
+	if len(item.Evidence) != 0 {
+		return
+	}
+	item.FailureKind = "not_implemented_by_aiqa"
+	item.Evidence = append(item.Evidence, result.EvidenceRef{
+		ID:      evidenceID("aiqa", subject, id),
+		Kind:    "aiqa",
+		ProbeID: "aiqa.local.model_param.implementation",
+		Status:  result.StatusSkip,
+		Summary: "not implemented by AIQA: Anthropic model-parameter analysis made no provider calls",
+		Signals: []result.EvidenceSignal{{Code: "aiqa.model_param.not_implemented", RootCause: "aiqa-implementation-gap"}},
 	})
 }
 

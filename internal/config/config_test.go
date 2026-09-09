@@ -8,6 +8,83 @@ import (
 	"time"
 )
 
+func TestParseExecutionControlDefaultsAndOverrides(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "http://127.0.0.1:8080/v1")
+	t.Setenv("OPENAI_API_KEY", "key")
+	cfg, err := Parse([]string{
+		"test=compat", "--target-concurrency=auto", "--pacing-group=openai=shared-gateway",
+		"--progress=plain", "--color=never", "--unicode=always", "--stdout=json", "--format=json",
+		"--queue-timeout=15s", "--run-timeout=2m", "--request-memory-budget=128MiB", "--quiet",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TargetConcurrency != 0 || cfg.Progress != "plain" || cfg.Color != "never" || cfg.Unicode != "always" || cfg.Stdout != "json" || !cfg.Quiet {
+		t.Fatalf("unexpected execution controls: %+v", cfg)
+	}
+	if got, want := cfg.QueueTimeout, 15*time.Second; got != want {
+		t.Fatalf("queue timeout = %s, want %s", got, want)
+	}
+	if got, want := cfg.RunTimeout, 2*time.Minute; got != want {
+		t.Fatalf("run timeout = %s, want %s", got, want)
+	}
+	if got, want := cfg.RequestMemoryBudget, int64(128*1024*1024); got != want {
+		t.Fatalf("request memory budget = %d, want %d", got, want)
+	}
+	if got := strings.Join(cfg.PacingGroups, ","); got != "openai=shared-gateway" {
+		t.Fatalf("pacing groups = %q", got)
+	}
+}
+
+func TestParseExecutionControlDefaults(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "http://127.0.0.1:8080/v1")
+	t.Setenv("OPENAI_API_KEY", "key")
+	cfg, err := Parse([]string{"test=compat"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TargetConcurrency != 0 || cfg.Progress != "auto" || cfg.Color != "auto" || cfg.Unicode != "auto" || cfg.Stdout != "" || cfg.QueueTimeout != 0 || cfg.RunTimeout != 0 || cfg.RequestMemoryBudget != 128*1024*1024 {
+		t.Fatalf("unexpected execution defaults: %+v", cfg)
+	}
+}
+
+func TestParseExecutionControlsRejectInvalidOrAmbiguousValues(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "http://127.0.0.1:8080/v1")
+	t.Setenv("OPENAI_API_KEY", "key")
+	for _, args := range [][]string{
+		{"test=compat", "--target-concurrency=0"},
+		{"test=compat", "--pacing-group=openai="},
+		{"test=compat", "--pacing-group=unknown=group"},
+		{"test=compat", "--pacing-group=openai=one", "--pacing-group=openai=two"},
+		{"test=compat", "--progress=animated"},
+		{"test=compat", "--progress=tty", "--no-progress"},
+		{"test=compat", "--color=rainbow"},
+		{"test=compat", "--unicode=maybe"},
+		{"test=compat", "--stdout=yaml"},
+		{"test=compat", "--stdout=json", "--format=markdown"},
+		{"test=compat", "--queue-timeout=-1s"},
+		{"test=compat", "--run-timeout=bad"},
+		{"test=compat", "--request-memory-budget=0"},
+		{"test=compat", "--request-memory-budget=128XB"},
+	} {
+		if _, err := Parse(args); err == nil {
+			t.Fatalf("invalid execution controls accepted: %v", args)
+		}
+	}
+}
+
+func TestParseNoProgressAliasesOff(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "http://127.0.0.1:8080/v1")
+	t.Setenv("OPENAI_API_KEY", "key")
+	cfg, err := Parse([]string{"test=compat", "--no-progress"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Progress != "off" || !cfg.NoProgress {
+		t.Fatalf("--no-progress did not select off: %+v", cfg)
+	}
+}
+
 func TestParseVerboseLevels(t *testing.T) {
 	t.Setenv("OPENAI_BASE_URL", "https://example.test/v1")
 	t.Setenv("OPENAI_API_KEY", "secret")

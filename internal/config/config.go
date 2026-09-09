@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"math"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -38,37 +39,50 @@ type TargetConfig struct {
 }
 
 type Config struct {
-	Targets                      []TargetConfig
-	BaseURL                      string
-	APIKey                       string
-	Tests                        []string
-	Models                       []string
-	Timeout                      time.Duration
-	RequestInterval              time.Duration
-	Formats                      []string
-	Name                         string
-	Concurrency                  int
-	ExtSuites                    []string
-	ExtSuitePaths                []string
-	Modules                      []string
-	ModelCapabilities            []string
-	CapabilityFile               string
-	UnknownModel                 string
-	AllowBillableArtifacts       bool
-	MaxArtifactsPerModel         int
-	FailOn                       string
-	Guidance                     string
-	GuidancePack                 string
-	GuidanceLocale               string
-	AllowHTTP                    bool
-	OTelPropagationTo            []string
-	Verbosity                    int
-	Samples                      int
-	ContextMaxTokens             int64
-	ContextPrecision             int64
-	ContextBudget                int64
-	ContextStartBytes            int
-	ContextMaxBytes              int
+	Targets                []TargetConfig
+	BaseURL                string
+	APIKey                 string
+	Tests                  []string
+	Models                 []string
+	Timeout                time.Duration
+	RequestInterval        time.Duration
+	Formats                []string
+	Name                   string
+	Concurrency            int
+	ExtSuites              []string
+	ExtSuitePaths          []string
+	Modules                []string
+	ModelCapabilities      []string
+	CapabilityFile         string
+	UnknownModel           string
+	AllowBillableArtifacts bool
+	MaxArtifactsPerModel   int
+	FailOn                 string
+	Guidance               string
+	GuidancePack           string
+	GuidanceLocale         string
+	AllowHTTP              bool
+	OTelPropagationTo      []string
+	Verbosity              int
+	Samples                int
+	ContextMaxTokens       int64
+	ContextPrecision       int64
+	ContextBudget          int64
+	ContextStartBytes      int
+	ContextMaxBytes        int
+	// TargetConcurrency is zero for the default "auto" mode. A positive value
+	// limits active target workflows without changing the global HTTP capacity.
+	TargetConcurrency            int
+	PacingGroups                 []string
+	Progress                     string
+	NoProgress                   bool
+	Quiet                        bool
+	Color                        string
+	Unicode                      string
+	Stdout                       string
+	QueueTimeout                 time.Duration
+	RunTimeout                   time.Duration
+	RequestMemoryBudget          int64
 	VersionOnly                  bool
 	HelpOnly                     bool
 	TargetSelection              string
@@ -98,6 +112,109 @@ func (v durationValue) String() string {
 		return ""
 	}
 	return v.d.String()
+}
+
+// optionalDurationValue accepts zero for controls whose documented zero value
+// means "unlimited". It deliberately does not reuse durationValue, which is
+// the positive per-attempt timeout parser.
+type optionalDurationValue struct{ d *time.Duration }
+
+func (v optionalDurationValue) String() string {
+	if v.d == nil {
+		return ""
+	}
+	return v.d.String()
+}
+
+func (v optionalDurationValue) Set(s string) error {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return errors.New("duration must not be empty")
+	}
+	if n, err := strconv.Atoi(s); err == nil {
+		if n < 0 {
+			return errors.New("duration must not be negative")
+		}
+		*v.d = time.Duration(n) * time.Second
+		return nil
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return fmt.Errorf("parse duration %q: use seconds (120) or a Go duration (2m): %w", s, err)
+	}
+	if d < 0 {
+		return errors.New("duration must not be negative")
+	}
+	*v.d = d
+	return nil
+}
+
+type bytesValue struct{ value *int64 }
+
+func (v bytesValue) String() string {
+	if v.value == nil {
+		return ""
+	}
+	return strconv.FormatInt(*v.value, 10)
+}
+
+type targetConcurrencyValue struct{ value *int }
+
+func (v targetConcurrencyValue) String() string {
+	if v.value == nil || *v.value == 0 {
+		return "auto"
+	}
+	return strconv.Itoa(*v.value)
+}
+
+func (v targetConcurrencyValue) Set(s string) error {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "auto" {
+		*v.value = 0
+		return nil
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 1 {
+		return fmt.Errorf("invalid target concurrency %q: use auto or a positive integer", s)
+	}
+	*v.value = n
+	return nil
+}
+
+func (v bytesValue) Set(s string) error {
+	n, err := parseBytes(s)
+	if err != nil {
+		return err
+	}
+	if n <= 0 {
+		return errors.New("size must be positive")
+	}
+	*v.value = n
+	return nil
+}
+
+func parseBytes(raw string) (int64, error) {
+	s := strings.ToLower(strings.TrimSpace(raw))
+	if s == "" {
+		return 0, errors.New("empty size")
+	}
+	multipliers := map[string]int64{
+		"b": 1, "kib": 1 << 10, "mib": 1 << 20, "gib": 1 << 30,
+		"kb": 1_000, "mb": 1_000_000, "gb": 1_000_000_000,
+	}
+	multiplier := int64(1)
+	for _, suffix := range []string{"kib", "mib", "gib", "kb", "mb", "gb", "b"} {
+		if strings.HasSuffix(s, suffix) {
+			multiplier = multipliers[suffix]
+			s = strings.TrimSpace(strings.TrimSuffix(s, suffix))
+			break
+		}
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || n < 0 || (n > 0 && n > (math.MaxInt64/multiplier)) {
+		return 0, fmt.Errorf("invalid byte size %q", raw)
+	}
+	return n * multiplier, nil
 }
 
 func (v durationValue) Set(s string) error {
@@ -213,6 +330,11 @@ func Parse(args []string) (Config, error) {
 		ContextBudget:           8_000_000,
 		ContextStartBytes:       1024,
 		ContextMaxBytes:         32 * 1024 * 1024,
+		TargetConcurrency:       0,
+		Progress:                "auto",
+		Color:                   "auto",
+		Unicode:                 "auto",
+		RequestMemoryBudget:     128 * 1024 * 1024,
 		TargetSelection:         "auto",
 		OpenAIProfile:           "openai-compat-2026-09.json",
 		AnthropicProfile:        "anthropic-compat-2026-09.json",
@@ -239,6 +361,7 @@ func Parse(args []string) (Config, error) {
 	var openAIModelCapabilities, anthropicModelCapabilities, googleGenAIModelCapabilities string
 	extSuitePaths := multiValue{values: append([]string(nil), cfg.ExtSuitePaths...)}
 	extSuiteValues := multiValue{}
+	pacingGroups := multiValue{}
 	tests = strings.Join(cfg.Tests, ",")
 	formats = strings.Join(cfg.Formats, ",")
 	modules = strings.Join(cfg.Modules, ",")
@@ -256,6 +379,17 @@ func Parse(args []string) (Config, error) {
 	fs.StringVar(&formats, "format", formats, "comma-separated report formats: markdown,json")
 	fs.StringVar(&cfg.Name, "name", cfg.Name, "output basename without extension")
 	fs.IntVar(&cfg.Concurrency, "concurrency", cfg.Concurrency, "global ceiling for concurrent native and extension probe work")
+	fs.Var(targetConcurrencyValue{&cfg.TargetConcurrency}, "target-concurrency", "active target workflow limit: auto or a positive integer")
+	fs.Var(&pacingGroups, "pacing-group", "target=pacing-group override; repeatable")
+	fs.StringVar(&cfg.Progress, "progress", cfg.Progress, "progress output: auto,tty,plain,off")
+	fs.BoolVar(&cfg.NoProgress, "no-progress", false, "alias for --progress=off")
+	fs.BoolVar(&cfg.Quiet, "quiet", false, "suppress normal human progress and summary output")
+	fs.StringVar(&cfg.Color, "color", cfg.Color, "color mode: auto,always,never")
+	fs.StringVar(&cfg.Unicode, "unicode", cfg.Unicode, "Unicode glyph mode: auto,always,never")
+	fs.StringVar(&cfg.Stdout, "stdout", "", "write exactly one report to stdout: json or markdown")
+	fs.Var(optionalDurationValue{&cfg.QueueTimeout}, "queue-timeout", "admission queue wait limit; 0 is unlimited")
+	fs.Var(optionalDurationValue{&cfg.RunTimeout}, "run-timeout", "whole run time limit; 0 is unlimited")
+	fs.Var(bytesValue{&cfg.RequestMemoryBudget}, "request-memory-budget", "in-memory request budget, e.g. 128MiB")
 	fs.Var(&extSuiteValues, "ext-suite", "extension IDs to run; repeatable or comma-separated; official-sdk selects configured SDKs; default: all applicable extensions")
 	fs.Var(&extSuitePaths, "ext-suite-path", "absolute extension executable path; may be repeated")
 	fs.BoolVar(&cfg.AllowHighTokenProbes, "allow-high-token-probes", false, "allow opt-in high-token probes")
@@ -311,6 +445,7 @@ func Parse(args []string) (Config, error) {
 	cfg.Formats = normalizeFormats(splitUnique(formats))
 	cfg.Modules = splitUnique(modules)
 	cfg.ExtSuites = splitUnique(strings.Join(extSuiteValues.values, ","))
+	cfg.PacingGroups = append([]string(nil), pacingGroups.values...)
 	if duplicate := duplicateCleanPath(extSuitePaths.values); duplicate != "" {
 		return Config{}, fmt.Errorf("extension path %q is configured more than once", duplicate)
 	}
@@ -324,6 +459,16 @@ func Parse(args []string) (Config, error) {
 	cfg.Guidance = strings.ToLower(strings.TrimSpace(cfg.Guidance))
 	cfg.GuidancePack = strings.ToLower(strings.TrimSpace(cfg.GuidancePack))
 	cfg.GuidanceLocale = strings.ToLower(strings.TrimSpace(cfg.GuidanceLocale))
+	cfg.Progress = strings.ToLower(strings.TrimSpace(cfg.Progress))
+	cfg.Color = strings.ToLower(strings.TrimSpace(cfg.Color))
+	cfg.Unicode = strings.ToLower(strings.TrimSpace(cfg.Unicode))
+	cfg.Stdout = strings.ToLower(strings.TrimSpace(cfg.Stdout))
+	if cfg.NoProgress {
+		if flagProvided(args, "progress") && cfg.Progress != "off" {
+			return Config{}, errors.New("--no-progress conflicts with --progress other than off")
+		}
+		cfg.Progress = "off"
+	}
 	cfg.UnknownModel = strings.ToLower(strings.TrimSpace(cfg.UnknownModel))
 	cfg.AnthropicUnknownModel = strings.ToLower(strings.TrimSpace(cfg.AnthropicUnknownModel))
 	cfg.CapabilityFile = strings.TrimSpace(cfg.CapabilityFile)
@@ -608,6 +753,55 @@ func (c Config) Validate() error {
 	}
 	if c.Concurrency < 1 || c.Concurrency > 32 {
 		return errors.New("--concurrency must be between 1 and 32")
+	}
+	if c.TargetConcurrency < 0 {
+		return errors.New("--target-concurrency must be auto or a positive integer")
+	}
+	if c.QueueTimeout < 0 || c.RunTimeout < 0 {
+		return errors.New("--queue-timeout and --run-timeout must not be negative")
+	}
+	if c.RequestMemoryBudget <= 0 {
+		return errors.New("--request-memory-budget must be positive")
+	}
+	switch c.Progress {
+	case "auto", "tty", "plain", "off":
+	default:
+		return fmt.Errorf("unknown --progress mode %q; supported: auto,tty,plain,off", c.Progress)
+	}
+	switch c.Color {
+	case "auto", "always", "never":
+	default:
+		return fmt.Errorf("unknown --color mode %q; supported: auto,always,never", c.Color)
+	}
+	switch c.Unicode {
+	case "auto", "always", "never":
+	default:
+		return fmt.Errorf("unknown --unicode mode %q; supported: auto,always,never", c.Unicode)
+	}
+	if c.Stdout != "" && c.Stdout != "json" && c.Stdout != "markdown" {
+		return fmt.Errorf("unknown --stdout format %q; supported: json,markdown", c.Stdout)
+	}
+	if c.Stdout != "" && !contains(c.Formats, c.Stdout) {
+		return fmt.Errorf("--stdout=%s requires --format to include %s", c.Stdout, c.Stdout)
+	}
+	configuredTargets := make(map[string]bool, len(c.Targets))
+	for _, target := range c.Targets {
+		configuredTargets[target.ID] = true
+	}
+	seenPacingTargets := make(map[string]bool, len(c.PacingGroups))
+	for _, override := range c.PacingGroups {
+		parts := strings.SplitN(override, "=", 2)
+		target, group := "", ""
+		if len(parts) == 2 {
+			target, group = strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+		}
+		if !configuredTargets[target] || !validStableID(group) {
+			return fmt.Errorf("invalid --pacing-group %q; use a configured target ID and stable group ID", override)
+		}
+		if seenPacingTargets[target] {
+			return fmt.Errorf("--pacing-group configures target %q more than once", target)
+		}
+		seenPacingTargets[target] = true
 	}
 	if c.Samples < 2 || c.Samples > 30 {
 		return errors.New("--samples must be between 2 and 30")
