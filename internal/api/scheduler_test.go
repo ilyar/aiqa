@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -84,7 +86,11 @@ func TestSchedulerGroupsDefaultOriginAndIsolation(t *testing.T) {
 	if _, err := defaultClient.DoJSON(context.Background(), http.MethodGet, "models", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := b.Snapshot().Groups[normalizedOrigin(defaultClient.baseURL)]; !ok {
+	defaultGroup := normalizedOrigin(defaultClient.baseURL)
+	if strings.Contains(defaultGroup, defaultClient.baseURL.Host) || strings.Contains(defaultGroup, "://") {
+		t.Fatalf("default group leaks origin: %q", defaultGroup)
+	}
+	if _, ok := b.Snapshot().Groups[defaultGroup]; !ok {
 		t.Fatalf("missing normalized origin group: %#v", b.Snapshot().Groups)
 	}
 	if err := b.ApplyCooldown("blocked", time.Now().Add(time.Hour), scheduler.WaitRetryAfter); err != nil {
@@ -154,5 +160,121 @@ func TestSchedulerConfigRejectsUnsafeTarget(t *testing.T) {
 	}
 	if err := c.SetScheduler(SchedulerConfig{Broker: newAdmissionBroker(t, 1), Target: "https://provider.example"}); err == nil {
 		t.Fatal("URL target accepted")
+	}
+}
+
+// A04: an explicit Retry-After becomes a group-local broker cooldown. This
+// covers native raw, SDK RoundTripper, and SSE stream attempts. The test uses
+// loopback synchronization and cancellation rather than sleeping for the
+// advertised (deliberately long) cooldown.
+func TestSchedulerSharesRetryAfterOnlyWithinAliasAcrossTransportPaths(t *testing.T) {
+	tests := []struct {
+		name   string
+		invoke func(context.Context, *Client, string) error
+	}{
+		{
+			name: "raw",
+			invoke: func(ctx context.Context, c *Client, path string) error {
+				_, err := c.DoJSON(ctx, http.MethodGet, path, nil)
+				return err
+			},
+		},
+		{
+			name: "sdk",
+			invoke: func(ctx context.Context, c *Client, path string) error {
+				req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL()+path, nil)
+				if err != nil {
+					return err
+				}
+				resp, err := c.PacedHTTPClient("model").Do(req)
+				if resp != nil && resp.Body != nil {
+					_ = resp.Body.Close()
+				}
+				return err
+			},
+		},
+		{
+			name: "stream",
+			invoke: func(ctx context.Context, c *Client, path string) error {
+				_, err := c.StreamJSONForModel(ctx, path, map[string]any{"model": "model"}, "model")
+				return err
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				if r.URL.Path == "/ready" {
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = io.WriteString(w, `{}`)
+					return
+				}
+				w.Header().Set("Retry-After", "60")
+				w.WriteHeader(http.StatusTooManyRequests)
+				_, _ = io.WriteString(w, `{}`)
+			}))
+			defer server.Close()
+
+			broker := newAdmissionBroker(t, 2)
+			primary, _ := NewClient(server.URL, "", "test", time.Nanosecond)
+			shared, _ := NewClient(server.URL, "", "test", time.Nanosecond)
+			ready, _ := NewClient(server.URL, "", "test", time.Nanosecond)
+			configureAdmission(t, primary, broker, "primary", "provider-a")
+			configureAdmission(t, shared, broker, "shared", "provider-a")
+			configureAdmission(t, ready, broker, "ready", "provider-b")
+
+			primaryCtx, stopPrimary := context.WithCancel(context.Background())
+			primaryDone := make(chan error, 1)
+			go func() { primaryDone <- test.invoke(primaryCtx, primary, "/cooldown") }()
+			waitForSchedulerCondition(t, func() bool {
+				group, ok := broker.Snapshot().Groups["provider-a"]
+				return ok && !group.Cooldown.IsZero()
+			})
+
+			// A different alias remains immediately admissible.
+			if err := test.invoke(context.Background(), ready, "/ready"); err != nil {
+				t.Fatalf("independent alias was delayed: %v", err)
+			}
+
+			sharedCtx, stopShared := context.WithCancel(context.Background())
+			sharedDone := make(chan error, 1)
+			go func() { sharedDone <- test.invoke(sharedCtx, shared, "/blocked") }()
+			waitForSchedulerCondition(t, func() bool {
+				for _, wait := range broker.Snapshot().Waiting {
+					if wait.Target == "shared" && wait.Group == "provider-a" && wait.Reason == scheduler.WaitRetryAfter {
+						return true
+					}
+				}
+				return false
+			})
+			if got := calls.Load(); got != 2 {
+				t.Fatalf("shared cooldown dispatched a request: calls=%d, want 2", got)
+			}
+
+			stopShared()
+			stopPrimary()
+			if err := <-sharedDone; !errors.Is(err, context.Canceled) {
+				t.Fatalf("shared request error=%v, want context cancellation", err)
+			}
+			if err := <-primaryDone; err == nil {
+				t.Fatal("primary 429 request unexpectedly succeeded")
+			}
+		})
+	}
+}
+
+func waitForSchedulerCondition(t *testing.T, condition func() bool) {
+	t.Helper()
+	timeout := time.NewTimer(time.Second)
+	defer timeout.Stop()
+	for !condition() {
+		select {
+		case <-timeout.C:
+			t.Fatal("scheduler condition did not become true")
+		default:
+			runtime.Gosched()
+		}
 	}
 }

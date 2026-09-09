@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -239,7 +241,12 @@ func normalizedOrigin(u *url.URL) string {
 	if port := u.Port(); port != "" {
 		host += ":" + port
 	}
-	return strings.ToLower(u.Scheme) + "://" + host
+	// Scheduler groups can reach live execution snapshots, so the default must
+	// preserve origin equivalence without retaining the provider origin itself.
+	// An explicit group is already a validated local alias.
+	origin := strings.ToLower(u.Scheme) + "://" + host
+	sum := sha256.Sum256([]byte(origin))
+	return "origin-" + hex.EncodeToString(sum[:])
 }
 
 // safeSchedulerID accepts non-secret local labels (including target/model
@@ -271,6 +278,28 @@ func (c *Client) acquireScheduler(ctx context.Context, bodyBytes int64) (*schedu
 		memory = bodyBytes
 	}
 	return admission.broker.Acquire(ctx, scheduler.Request{Target: admission.target, Group: admission.group, MemoryBytes: memory, ArtifactKey: admission.key, Artifacts: admission.items})
+}
+
+// applySchedulerRetryAfter shares an explicit provider Retry-After signal with
+// every client bound to this run's pacing group. It deliberately receives only
+// a parsed header duration: neither a URL nor any response/request content is
+// retained by the scheduler. A missing, malformed, expired, or zero delay is
+// not a cooldown signal.
+func (c *Client) applySchedulerRetryAfter(header http.Header) {
+	delay := retryAfter(header)
+	if delay <= 0 {
+		return
+	}
+	c.logMu.RLock()
+	admission := c.scheduler
+	c.logMu.RUnlock()
+	if admission.broker == nil {
+		return
+	}
+	// SetScheduler validates group as an operator-safe alias. ApplyCooldown is
+	// monotonic, so concurrent 429 responses can only extend this group-local
+	// deadline and never affect another alias.
+	_ = admission.broker.ApplyCooldown(admission.group, time.Now().Add(delay), scheduler.WaitRetryAfter)
 }
 
 func (c *Client) waitForPacing(ctx context.Context, model string) error {
@@ -489,8 +518,11 @@ func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 			attemptOp.End(outcome, attemptFields)
 		}
 		retry := err != nil || response != nil && (response.StatusCode == http.StatusRequestTimeout || response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500)
-		if attempt == 2 && response != nil && response.StatusCode == http.StatusTooManyRequests {
-			r.client.pacer.limited(r.model, retryAfter(response.Header))
+		if response != nil && response.StatusCode == http.StatusTooManyRequests {
+			r.client.applySchedulerRetryAfter(response.Header)
+			if attempt == 2 {
+				r.client.pacer.limited(r.model, retryAfter(response.Header))
+			}
 		}
 		if !retry || attempt == 2 {
 			if err == nil && response != nil && response.StatusCode >= 200 && response.StatusCode < 300 {
@@ -742,6 +774,7 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 		c.pacer.release(model)
 		delay := retryDelay(resp, attempt)
 		if resp.StatusCode == http.StatusTooManyRequests {
+			c.applySchedulerRetryAfter(http.Header(resp.Header))
 			c.pacer.limited(model, delay)
 		}
 		if attempt == 2 {
@@ -1008,6 +1041,9 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 		delay := retryAfter(httpResp.Header)
 		if delay <= 0 {
 			delay = time.Duration(1<<attempt) * 100 * time.Millisecond
+		}
+		if httpResp.StatusCode == http.StatusTooManyRequests {
+			c.applySchedulerRetryAfter(httpResp.Header)
 		}
 		if attempt == 2 {
 			finalAttemptCancel = cancelAttempt
