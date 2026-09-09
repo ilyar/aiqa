@@ -376,19 +376,30 @@ make qa
 combines formatting, schemas/profiles, unit and integration tests, the
 deterministic example-generator contract, security and SBOM checks, race tests,
 a reproducible local build/version check, `git diff --check`, and the coverage
-and mutation-score ratchet in `.qa-gate.json`. It uses only local fixtures and
-does not call real model providers. The mutation gate requires
-[`gremlins`](https://github.com/go-gremlins/gremlins) on `PATH`; install it with:
+and the coverage/mutation quality ratchets in `.qa-gate.json`. It uses only
+local fixtures and does not call real model providers. The mutation gate pins
+[`gremlins`](https://github.com/go-gremlins/gremlins) `v0.6.0`; install it with:
 
 ```bash
-go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
+make qa-install-gremlins
 ```
 
-After intentionally improving the two measured metrics, run
-`make qa-update-gate` and review the two-space-indented baseline change before
+`make qa` uses the stable full scope: one Gremlins worker, one Go-test CPU, and
+a timeout coefficient of five. It retains coverage, mutation JSON, stdout and
+metadata in ignored `build/qa-gate/run-*` directories, including failed runs.
+The gate requires a minimum number of assessed mutants and limits the timeout
+ratio; a run that cannot satisfy those validity criteria is inconclusive rather
+than a lower mutation score.
+
+For a changed branch use `make qa-gate-diff BASE=origin/main`. Its score policy
+is separate from the full-run ratchet: an empty or non-production-Go diff is
+reported as skipped, while untracked production Go files are rejected so they
+cannot be silently omitted. Full mutation checks remain the release/nightly
+scope. After three valid full measurements within one percentage point, run
+`make qa-update-gate` and review the two-space-indented full baseline before
 committing it. `make example` remains an explicit integration maintenance
-command because it needs a local model-provider and Docker, and its reports
-include live timing, timestamps, and provider request IDs.
+command because it needs a local model-provider and Docker; its reports include
+live timing, timestamps, and provider request IDs.
 
 Integration tests run a deterministic mock endpoint and check:
 

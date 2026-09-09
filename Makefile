@@ -6,9 +6,10 @@ DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 GOVULNCHECK_VERSION := v1.7.0
 CYCLONEDX_GOMOD_VERSION := v1.12.0
+GREMLINS_VERSION := v0.6.0
 EXAMPLE_SOURCES := ./script/example.go ./script/example_good.go ./script/example_bad.go
 
-.PHONY: all build test race vet fmt-check profiles-check schemas-check dependency-check vuln-check sbom-check security-check profile-upstream-check check example-check diff-check version-check qa qa-gate qa-update-gate install example clean dist http-client.private.env.json
+.PHONY: all build test race vet fmt-check profiles-check schemas-check dependency-check vuln-check sbom-check security-check profile-upstream-check check example-check diff-check version-check qa qa-gate qa-gate-full qa-gate-diff qa-update-gate qa-install-gremlins install example clean dist http-client.private.env.json
 
 all: check build
 
@@ -89,10 +90,19 @@ check: fmt-check profiles-check schemas-check dependency-check vet test
 qa: check example-check security-check race build version-check diff-check qa-gate
 
 qa-gate:
-	./scripts/qa-gate check
+	PATH="$(CURDIR)/bin:$$PATH" go run ./script/qa-gate.go check --scope=full
+
+qa-gate-full: qa-gate
+
+qa-gate-diff:
+	@test -n "$(BASE)" || { echo 'BASE is required, for example BASE=origin/main'; exit 2; }
+	PATH="$(CURDIR)/bin:$$PATH" go run ./script/qa-gate.go check --scope=diff --base="$(BASE)"
 
 qa-update-gate:
-	./scripts/qa-gate update
+	PATH="$(CURDIR)/bin:$$PATH" go run ./script/qa-gate.go update --scope=full
+
+qa-install-gremlins:
+	GOBIN="$(CURDIR)/bin" go install github.com/go-gremlins/gremlins/cmd/gremlins@$(GREMLINS_VERSION)
 
 # Deterministic generator contract check. The real `make example` additionally
 # requires a local model-provider and Docker; its reports include live timing,

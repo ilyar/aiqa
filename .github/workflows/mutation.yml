@@ -1,0 +1,51 @@
+name: mutation
+
+on:
+  pull_request:
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diff:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27'
+          cache: true
+      - run: make qa-install-gremlins
+      - run: make qa-gate-diff BASE="origin/${{ github.base_ref }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutation-diff-artifacts
+          path: build/qa-gate/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  full:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27'
+          cache: true
+      - run: make qa-install-gremlins
+      - run: make qa-gate-full
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutation-full-artifacts
+          path: build/qa-gate/
+          if-no-files-found: ignore
+          retention-days: 14

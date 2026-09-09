@@ -1,4 +1,15 @@
 {
-  "min_coverage_pct": 55.2,
-  "min_mutation_score_pct": 91.794872
+  "version": 2,
+  "full": {
+    "min_coverage_pct": 55.2,
+    "min_mutation_score_pct": 100,
+    "min_assessed_mutants": 100,
+    "max_timeout_pct": 10
+  },
+  "diff": {
+    "min_coverage_pct": 55.2,
+    "min_mutation_score_pct": 70,
+    "min_assessed_mutants": 1,
+    "max_timeout_pct": 10
+  }
 }
