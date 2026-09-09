@@ -393,8 +393,8 @@ func (p *executionProgress) apply(event func(execution.Base) execution.Event) {
 
 func (p *executionProgress) applyAt(offset time.Duration, event func(execution.Base) execution.Event) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	if p.err != nil {
+		p.mu.Unlock()
 		return
 	}
 	if offset < p.lastOffset {
@@ -404,17 +404,24 @@ func (p *executionProgress) applyAt(offset time.Duration, event func(execution.B
 	base := execution.Base{Meta: execution.Meta{RunID: p.runID, Seq: p.sequence, Offset: offset}}
 	if err := p.reducer.Apply(event(base)); err != nil {
 		p.err = err
+		p.mu.Unlock()
 		return
 	}
 	p.lastOffset = offset
 	// The public aggregate is derived from the same live reducer snapshots as
 	// the UI.  Recording only the final snapshot loses intervals in which a
 	// waiter existed, so it would under-report real scheduler delay.
-	if err := p.builder.Observe(p.reducer.Snapshot()); err != nil {
+	snapshot := p.reducer.Snapshot()
+	if err := p.builder.Observe(snapshot); err != nil {
 		p.err = err
 	}
-	if observer, ok := p.sink.(executionSnapshotObserver); ok && p.err == nil {
-		observer.ObserveExecutionSnapshot(p.reducer.Snapshot())
+	observer, publish := p.sink.(executionSnapshotObserver)
+	publish = publish && p.err == nil
+	p.mu.Unlock()
+	// Terminal writes can block. Never hold execution state while a renderer
+	// redraws; the next frame is derived from a later immutable snapshot.
+	if publish {
+		observer.ObserveExecutionSnapshot(snapshot)
 	}
 }
 
