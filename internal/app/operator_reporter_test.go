@@ -142,6 +142,23 @@ func TestOperatorETAUsesSchedulerCooldownAsLowerBound(t *testing.T) {
 	}
 }
 
+func TestOperatorETAExtrapolatesObservedJobThroughput(t *testing.T) {
+	snapshot := execution.Snapshot{
+		Run:    execution.RunSnapshot{Phase: execution.PhaseRunning, Offset: 10 * time.Second},
+		Groups: []execution.GroupSnapshot{{ID: "quota", Capacity: 1}},
+		Jobs: []execution.JobSnapshot{
+			{ID: "done-a", State: execution.JobTerminal},
+			{ID: "done-b", State: execution.JobTerminal},
+			{ID: "left-a", State: execution.JobRunning},
+			{ID: "left-b", State: execution.JobPlanned},
+		},
+		PlannedJobs: 4, FinishedJobs: 2,
+	}
+	if got, want := etaText(snapshot, 1), "~ 10s"; got != want {
+		t.Fatalf("ETA=%q, want %q", got, want)
+	}
+}
+
 func TestTerminalTargetStateKeepsRuntimeOutcomesDistinct(t *testing.T) {
 	for phase, want := range map[execution.Phase]string{
 		execution.PhaseCompleted:   "finished",

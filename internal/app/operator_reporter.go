@@ -262,6 +262,17 @@ func etaText(snapshot execution.Snapshot, capacity int) string {
 	if err != nil || result.RangeLow == nil {
 		return "estimating"
 	}
+	// The scheduler model deliberately refuses to invent a service duration for
+	// opaque probes. Once jobs have completed, however, the run itself supplies
+	// an observable end-to-end throughput sample (including real pacing and
+	// provider latency). It is a forecast, not a measured service-time claim,
+	// so retain the lower bound and label the extrapolation as approximate.
+	if forecast, ok := throughputForecast(snapshot); ok {
+		if forecast < *result.RangeLow {
+			forecast = *result.RangeLow
+		}
+		return "~ " + eta.RoundDisplay(forecast).String()
+	}
 	if result.State == eta.LowerBound {
 		return ">= " + eta.RoundDisplay(*result.RangeLow).String()
 	}
@@ -269,6 +280,19 @@ func etaText(snapshot execution.Snapshot, capacity int) string {
 		return eta.RoundDisplay(*result.Estimate).String()
 	}
 	return "estimating"
+}
+
+func throughputForecast(snapshot execution.Snapshot) (time.Duration, bool) {
+	completed := snapshot.FinishedJobs - snapshot.CancelledJobs
+	remaining := snapshot.PlannedJobs - snapshot.FinishedJobs
+	if completed < 2 || remaining <= 0 || snapshot.Run.Offset <= 0 {
+		return 0, false
+	}
+	perJob := snapshot.Run.Offset / time.Duration(completed)
+	if perJob <= 0 {
+		return 0, false
+	}
+	return perJob * time.Duration(remaining), true
 }
 
 func (r *operatorReporter) draw(frame terminal.Frame) {
