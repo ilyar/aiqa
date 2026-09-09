@@ -99,7 +99,7 @@ func Render(s Snapshot, width, height int, options Options) Frame {
 		return Frame{Lines: lines}
 	}
 	if width >= 110 {
-		lines = append(lines, fit(fmt.Sprintf("AIQA Run %s", clean(s.RunID)), limit, options.ASCII))
+		lines = append(lines, fit(runLabel(s.RunID), limit, options.ASCII))
 		lines = append(lines, fit(fmt.Sprintf("%s Elapsed %s Jobs %d/%d (%d%%)", phase, value(s.Elapsed, "--:--"), s.JobsDone, s.JobsTotal, percent(s.JobsDone, s.JobsTotal)), limit, options.ASCII))
 		lines = append(lines, fit(fmt.Sprintf("ETA %s HTTP %d/%d In-flight %d/%d", value(s.ETA, "unknown"), s.HTTPDone, s.HTTPTotal, s.Inflight, s.Concurrency), limit, options.ASCII))
 		lines = append(lines, "")
@@ -170,6 +170,23 @@ func value(got, fallback string) string {
 		return fallback
 	}
 	return clean(got)
+}
+
+// runLabel makes a run identifier useful outside this terminal session. The
+// execution layer stores its opaque IDs as run-<suffix>; the operator-facing
+// form carries the producing tool namespace without discarding that suffix.
+func runLabel(id string) string {
+	id = clean(id)
+	if strings.HasPrefix(id, "run-") {
+		id = strings.TrimPrefix(id, "run-")
+	}
+	if strings.HasPrefix(id, "aiqa-") {
+		return id
+	}
+	if id == "" {
+		return "aiqa"
+	}
+	return "aiqa-" + id
 }
 func percent(done, total int) int {
 	if total <= 0 {

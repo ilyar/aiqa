@@ -78,6 +78,18 @@ func TestTerminalOutcomesStayDistinct(t *testing.T) {
 	}
 }
 
+func TestRunLabelNamespacesOpaqueRunID(t *testing.T) {
+	for input, want := range map[string]string{
+		"run-fd37a7f229c990d5f80035ed0b9dbf15": "aiqa-fd37a7f229c990d5f80035ed0b9dbf15",
+		"aiqa-existing":                        "aiqa-existing",
+		"":                                     "aiqa",
+	} {
+		if got := runLabel(input); got != want {
+			t.Fatalf("runLabel(%q)=%q, want %q", input, got, want)
+		}
+	}
+}
+
 func TestModeSelection(t *testing.T) {
 	cases := []struct {
 		name      string
