@@ -43,3 +43,15 @@ func TestOperatorETAUsesSchedulerCooldownAsLowerBound(t *testing.T) {
 		t.Fatalf("ETA=%q, want %q", got, want)
 	}
 }
+
+func TestTerminalTargetStateKeepsRuntimeOutcomesDistinct(t *testing.T) {
+	for phase, want := range map[execution.Phase]string{
+		execution.PhaseCompleted:   "finished",
+		execution.PhaseFailed:      "failed",
+		execution.PhaseInterrupted: "interrupted",
+	} {
+		if got := terminalTargetState(phase); got != want {
+			t.Fatalf("phase %q renders as %q, want %q", phase, got, want)
+		}
+	}
+}

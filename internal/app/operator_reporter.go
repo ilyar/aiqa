@@ -64,7 +64,7 @@ func (r *operatorReporter) ObserveExecutionSnapshot(snapshot execution.Snapshot)
 				done++
 			}
 		}
-		rows = append(rows, terminal.Target{ID: target.ID, State: string(target.Phase), JobsDone: done, JobsTotal: total})
+		rows = append(rows, terminal.Target{ID: target.ID, State: terminalTargetState(target.Phase), JobsDone: done, JobsTotal: total})
 	}
 	frame := terminal.Render(terminal.Snapshot{
 		RunID: snapshot.Run.ID, Phase: string(snapshot.Run.Phase), Elapsed: snapshot.Run.Offset.Round(1e9).String(),
@@ -73,6 +73,21 @@ func (r *operatorReporter) ObserveExecutionSnapshot(snapshot execution.Snapshot)
 		TargetsDone: terminalTargetsDone(snapshot), TargetsTotal: len(snapshot.Targets), Rows: rows,
 	}, width, 0, terminal.Options{})
 	r.draw(frame)
+}
+
+func terminalTargetState(phase execution.Phase) string {
+	switch phase {
+	case execution.PhaseCompleted:
+		return "finished"
+	case execution.PhaseFailed:
+		return "failed"
+	case execution.PhaseInterrupted:
+		return "interrupted"
+	case execution.PhaseRunning:
+		return "running"
+	default:
+		return "preparing"
+	}
 }
 
 func etaText(snapshot execution.Snapshot, capacity int) string {
