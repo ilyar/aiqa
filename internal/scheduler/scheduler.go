@@ -119,15 +119,16 @@ type Broker struct {
 	mu  sync.Mutex
 	cfg Config
 
-	inFlight  int
-	memory    int64
-	groups    map[string]*groupState
-	artifacts map[string]int
-	committed map[string]int
-	queue     []*pending
-	events    []Event
-	nextID    uint64
-	rrTarget  string
+	inFlight    int
+	memory      int64
+	groups      map[string]*groupState
+	artifacts   map[string]int
+	committed   map[string]int
+	queue       []*pending
+	memoryQueue []*memoryPending
+	events      []Event
+	nextID      uint64
+	rrTarget    string
 	// changed is closed and replaced whenever queue eligibility or capacity
 	// changes. Waiters select on it so a request that was previously waiting
 	// only for capacity re-reads a newly installed cooldown deadline.
@@ -151,6 +152,16 @@ type pending struct {
 }
 type acquireResult struct {
 	lease *Lease
+	err   error
+}
+
+type memoryPending struct {
+	bytes  int64
+	result chan memoryResult
+}
+
+type memoryResult struct {
+	lease *MemoryLease
 	err   error
 }
 
@@ -252,6 +263,59 @@ func (b *Broker) Acquire(ctx context.Context, req Request) (*Lease, error) {
 	}
 }
 
+// ReserveMemory reserves bytes before a caller allocates or serializes a
+// request body. It deliberately consumes only MemoryBudget: global and group
+// capacity, pacing, and artifact admission do not participate. The returned
+// lease must be released when the buffer is no longer retained.
+func (b *Broker) ReserveMemory(ctx context.Context, bytes int64) (*MemoryLease, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if bytes < 0 {
+		return nil, ErrInvalidRequest
+	}
+	b.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		b.mu.Unlock()
+		return nil, err
+	}
+	if b.cfg.MemoryBudget > 0 && bytes > b.cfg.MemoryBudget {
+		b.mu.Unlock()
+		return nil, ErrTooLarge
+	}
+	p := &memoryPending{bytes: bytes, result: make(chan memoryResult, 1)}
+	b.memoryQueue = append(b.memoryQueue, p)
+	b.scheduleLocked()
+	b.signalChangedLocked()
+	b.mu.Unlock()
+
+	for {
+		b.mu.Lock()
+		changed := b.changed
+		b.mu.Unlock()
+		select {
+		case result := <-p.result:
+			return result.lease, result.err
+		case <-ctx.Done():
+			b.mu.Lock()
+			removed := b.removeMemoryLocked(p)
+			if removed {
+				b.scheduleLocked()
+				b.signalChangedLocked()
+			}
+			b.mu.Unlock()
+			if removed {
+				return nil, ctx.Err()
+			}
+			result := <-p.result
+			return result.lease, result.err
+		case <-changed:
+			// A physical or memory lease may have released bytes. Re-evaluate
+			// under the broker lock rather than reserving unrelated resources.
+		}
+	}
+}
+
 func normalise(r Request) Request {
 	if r.Weight == 0 {
 		r.Weight = 1
@@ -313,11 +377,31 @@ func (b *Broker) signalChangedLocked() {
 func (b *Broker) scheduleLocked() {
 	for {
 		p := b.pickLocked()
-		if p == nil {
+		if p != nil {
+			b.grantLocked(p)
+			continue
+		}
+		pMemory := b.pickMemoryLocked()
+		if pMemory == nil {
 			return
 		}
-		b.grantLocked(p)
+		b.grantMemoryLocked(pMemory)
 	}
+}
+
+func (b *Broker) pickMemoryLocked() *memoryPending {
+	for _, p := range b.memoryQueue {
+		if b.cfg.MemoryBudget == 0 || b.memory+p.bytes <= b.cfg.MemoryBudget {
+			return p
+		}
+	}
+	return nil
+}
+
+func (b *Broker) grantMemoryLocked(p *memoryPending) {
+	b.memory += p.bytes
+	b.removeMemoryLocked(p)
+	p.result <- memoryResult{lease: &MemoryLease{broker: b, bytes: p.bytes}}
 }
 
 func (b *Broker) pickLocked() *pending {
@@ -429,6 +513,16 @@ func (b *Broker) removeLocked(p *pending) bool {
 	return false
 }
 
+func (b *Broker) removeMemoryLocked(p *memoryPending) bool {
+	for i, q := range b.memoryQueue {
+		if q == p {
+			b.memoryQueue = append(b.memoryQueue[:i], b.memoryQueue[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
 func (b *Broker) waitForLocked(p *pending) (time.Time, bool) {
 	for _, q := range b.queue {
 		if q == p {
@@ -443,6 +537,24 @@ type Lease struct {
 	broker *Broker
 	req    Request
 	once   sync.Once
+}
+
+// MemoryLease holds only a MemoryBudget reservation. Release is idempotent.
+type MemoryLease struct {
+	broker *Broker
+	bytes  int64
+	once   sync.Once
+}
+
+func (l *MemoryLease) Release() {
+	l.once.Do(func() {
+		b := l.broker
+		b.mu.Lock()
+		b.memory -= l.bytes
+		b.scheduleLocked()
+		b.signalChangedLocked()
+		b.mu.Unlock()
+	})
 }
 
 // Release is idempotent and must be called after body EOF/Close or cancellation.

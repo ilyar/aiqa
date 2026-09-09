@@ -74,6 +74,12 @@ func acquireAsync(b *Broker, ctx context.Context, r Request) <-chan acquireResul
 	return ch
 }
 
+func reserveMemoryAsync(b *Broker, ctx context.Context, bytes int64) <-chan memoryResult {
+	ch := make(chan memoryResult, 1)
+	go func() { lease, err := b.ReserveMemory(ctx, bytes); ch <- memoryResult{lease, err} }()
+	return ch
+}
+
 func TestAtomicWeightedLeaseAndCancellation(t *testing.T) {
 	b := broker(t, Config{Capacity: 2})
 	first, err := b.Acquire(context.Background(), Request{Target: "a", Group: "g", Weight: 2})
@@ -269,5 +275,66 @@ func TestMemoryBudgetAllowsSmallUsefulWorkAndLeaseReleaseIsExactlyOnce(t *testin
 	s := b.Snapshot()
 	if s.InFlight != 0 || s.MemoryReserved != 0 {
 		t.Fatalf("double release leaked state: %+v", s)
+	}
+}
+
+func TestReserveMemoryConsumesOnlyMemoryBudget(t *testing.T) {
+	clock := newFakeClock()
+	b := broker(t, Config{
+		Capacity:       1,
+		MemoryBudget:   10,
+		ArtifactBudget: 0,
+		Clock:          clock,
+		Groups:         map[string]Group{"paced": {Capacity: 1, Interval: time.Hour}},
+	})
+	hold, err := b.Acquire(context.Background(), Request{Target: "target", Group: "paced"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.ApplyCooldown("paced", clock.Now().Add(time.Hour), WaitRetryAfter); err != nil {
+		t.Fatal(err)
+	}
+	reserved, err := b.ReserveMemory(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("memory reservation incorrectly used request admission: %v", err)
+	}
+	s := b.Snapshot()
+	if s.InFlight != 1 || s.MemoryReserved != 10 || len(s.Artifacts) != 0 {
+		t.Fatalf("memory reservation changed unrelated resources: %+v", s)
+	}
+
+	if _, err := b.ReserveMemory(context.Background(), 11); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("oversized memory reservation=%v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	waiting := reserveMemoryAsync(b, ctx, 1)
+	eventually(t, func() bool {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		return len(b.memoryQueue) == 1
+	})
+	cancel()
+	if got := <-waiting; !errors.Is(got.err, context.Canceled) {
+		t.Fatalf("memory cancellation=%v", got.err)
+	}
+
+	next := reserveMemoryAsync(b, context.Background(), 10)
+	eventually(t, func() bool {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		return len(b.memoryQueue) == 1
+	})
+	reserved.Release()
+	reserved.Release()
+	got := <-next
+	if got.err != nil {
+		t.Fatalf("memory waiter was not released: %v", got.err)
+	}
+	got.lease.Release()
+	got.lease.Release()
+	hold.Release()
+	s = b.Snapshot()
+	if s.InFlight != 0 || s.MemoryReserved != 0 {
+		t.Fatalf("memory release was not exactly once: %+v", s)
 	}
 }

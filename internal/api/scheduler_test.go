@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -318,6 +319,48 @@ func TestOpaqueLeaseUsesSharedAdmissionCapacity(t *testing.T) {
 	lease.Release()
 	if err := <-blocked; err != nil {
 		t.Fatalf("shared opaque admission=%v", err)
+	}
+}
+
+func TestJSONBufferMemoryReservationSurvivesPhysicalAttempt(t *testing.T) {
+	body := map[string]any{"model": "fixture", "payload": strings.Repeat("x", 96)}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		close(entered)
+		<-release
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{}`)
+	}))
+	defer server.Close()
+	broker, err := scheduler.New(scheduler.Config{Capacity: 1, MemoryBudget: int64(len(raw) + 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := NewClient(server.URL, "", "test", time.Nanosecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configureAdmission(t, client, broker, "target-a", "provider-a")
+	done := make(chan error, 1)
+	go func() {
+		_, err := client.DoJSON(context.Background(), http.MethodPost, "chat/completions", body)
+		done <- err
+	}()
+	<-entered
+	if got := broker.Snapshot(); got.InFlight != 1 || got.MemoryReserved != int64(len(raw)+1) {
+		t.Fatalf("buffer and attempt accounting=%+v", got)
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if got := broker.Snapshot().MemoryReserved; got != 0 {
+		t.Fatalf("buffer reservation leaked: %d", got)
 	}
 }
 

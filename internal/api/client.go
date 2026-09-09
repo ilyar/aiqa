@@ -338,6 +338,71 @@ func (c *Client) acquireScheduler(ctx context.Context, bodyBytes int64) (*schedu
 	return admission.broker.Acquire(admissionCtx, scheduler.Request{Target: admission.target, Group: admission.group, MemoryBytes: memory, ArtifactKey: admission.key, Artifacts: admission.items})
 }
 
+func (c *Client) reserveMemory(ctx context.Context, bytes int64) (*scheduler.MemoryLease, error) {
+	if bytes == 0 {
+		return nil, nil
+	}
+	c.logMu.RLock()
+	admission := c.scheduler
+	c.logMu.RUnlock()
+	if admission.broker == nil {
+		return nil, nil
+	}
+	if admission.memory > 0 {
+		bytes = admission.memory
+	}
+	admissionCtx := ctx
+	var cancel context.CancelFunc
+	if admission.queueTimeout > 0 {
+		admissionCtx, cancel = context.WithTimeout(ctx, admission.queueTimeout)
+		defer cancel()
+	}
+	return admission.broker.ReserveMemory(admissionCtx, bytes)
+}
+
+type jsonSizeCounter struct{ n int64 }
+
+func (w *jsonSizeCounter) Write(data []byte) (int, error) {
+	if int64(len(data)) > int64(^uint64(0)>>1)-w.n {
+		return 0, errors.New("JSON request is too large")
+	}
+	w.n += int64(len(data))
+	return len(data), nil
+}
+
+// marshalJSONReserved makes one immutable replay buffer after reserving its
+// request-owned memory. The sizing pass retains no payload bytes; Encoder's
+// trailing newline is an intentional one-byte conservative overestimate.
+// Native payloads are plain JSON values, so their deterministic size pass is
+// safe to repeat for the final Marshal operation.
+func (c *Client) marshalJSONReserved(ctx context.Context, body any) ([]byte, *scheduler.MemoryLease, error) {
+	if body == nil {
+		return nil, nil, nil
+	}
+	var counter jsonSizeCounter
+	if err := json.NewEncoder(&counter).Encode(body); err != nil {
+		return nil, nil, fmt.Errorf("size JSON request: %w", err)
+	}
+	lease, err := c.reserveMemory(ctx, counter.n)
+	if err != nil {
+		return nil, nil, err
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		if lease != nil {
+			lease.Release()
+		}
+		return nil, nil, fmt.Errorf("marshal request: %w", err)
+	}
+	if int64(len(raw)) > counter.n {
+		if lease != nil {
+			lease.Release()
+		}
+		return nil, nil, errors.New("JSON request exceeded its reserved size")
+	}
+	return raw, lease, nil
+}
+
 // ReserveArtifact obtains one shared (target, model) creation reservation.
 // It is deliberately separate from ordinary HTTP admission: retries and
 // response reads must not create another billable-artifact reservation. Call
@@ -750,7 +815,7 @@ func (c *Client) ListModels(ctx context.Context) ([]Model, Response, error) {
 
 func (c *Client) RetrieveModel(ctx context.Context, model string) (Response, error) {
 	endpoint := strings.TrimRight(c.baseURL.String(), "/") + "/models/" + url.PathEscape(model)
-	return c.doRawURL(ctx, http.MethodGet, endpoint, nil, "application/json", model)
+	return c.doRawURL(ctx, http.MethodGet, endpoint, nil, "application/json", model, nil)
 }
 
 func (c *Client) Chat(ctx context.Context, body map[string]any) (Response, error) {
@@ -778,23 +843,19 @@ func (c *Client) DoJSON(ctx context.Context, method, path string, body any) (Res
 // Google GenAI, use this method so adaptive pacing and per-model telemetry are
 // attributed to the right model.
 func (c *Client) DoJSONForModel(ctx context.Context, method, path string, body any, model string) (Response, error) {
-	var raw []byte
-	var err error
-	if body != nil {
-		raw, err = json.Marshal(body)
-		if err != nil {
-			return Response{}, fmt.Errorf("marshal request: %w", err)
-		}
+	raw, memory, err := c.marshalJSONReserved(ctx, body)
+	if err != nil {
+		return Response{}, err
 	}
-	return c.doRaw(ctx, method, path, raw, "application/json", model)
+	return c.doRawWithMemory(ctx, method, path, raw, "application/json", model, memory)
 }
 
 func (c *Client) doJSON(ctx context.Context, method, path string, body any, model string) (Response, error) {
-	raw, err := json.Marshal(body)
+	raw, memory, err := c.marshalJSONReserved(ctx, body)
 	if err != nil {
-		return Response{}, fmt.Errorf("marshal request: %w", err)
+		return Response{}, err
 	}
-	return c.doRaw(ctx, method, path, raw, "application/json", model)
+	return c.doRawWithMemory(ctx, method, path, raw, "application/json", model, memory)
 }
 
 func (c *Client) DoRaw(ctx context.Context, method, path string, body []byte, contentType string) (Response, error) {
@@ -809,18 +870,28 @@ func (c *Client) DoRawForModel(ctx context.Context, method, path string, body []
 }
 
 func (c *Client) doRaw(ctx context.Context, method, path string, body []byte, contentType, model string) (Response, error) {
+	return c.doRawWithMemory(ctx, method, path, body, contentType, model, nil)
+}
+
+func (c *Client) doRawWithMemory(ctx context.Context, method, path string, body []byte, contentType, model string, memory *scheduler.MemoryLease) (Response, error) {
 	u := *c.baseURL
 	rel, err := url.Parse(path)
 	if err != nil {
+		if memory != nil {
+			memory.Release()
+		}
 		return Response{}, fmt.Errorf("parse request path: %w", err)
 	}
 	u.Path = joinURLPath(c.baseURL.Path, rel.Path)
 	u.RawPath = joinURLPath(c.baseURL.EscapedPath(), rel.EscapedPath())
 	u.RawQuery = rel.RawQuery
-	return c.doRawURL(ctx, method, u.String(), body, contentType, model)
+	return c.doRawURL(ctx, method, u.String(), body, contentType, model, memory)
 }
 
-func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []byte, contentType, model string) (response Response, err error) {
+func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []byte, contentType, model string, memory *scheduler.MemoryLease) (response Response, err error) {
+	if memory != nil {
+		defer memory.Release()
+	}
 	ctx = c.transportContext(ctx, model)
 	path := safeEndpointPath(endpoint)
 	if _, hasSuite := logging.FieldsFromContext(ctx)["suite"]; !hasSuite {
@@ -872,7 +943,11 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 			return response, err
 		}
 		c.trace(ctx, logging.Trace, "pacing.wait.end", logging.Fields{"method": method, "path": path, "attempt": attempt + 1, "wait_ms": time.Since(waitStarted).Milliseconds()})
-		lease, err := c.acquireScheduler(ctx, int64(len(body)))
+		memoryBytes := int64(len(body))
+		if memory != nil {
+			memoryBytes = 0
+		}
+		lease, err := c.acquireScheduler(ctx, memoryBytes)
 		if err != nil {
 			c.pacer.release(model)
 			c.trace(ctx, logging.Debug, "scheduler.acquire.cancelled", logging.Fields{"method": method, "path": path, "attempt": attempt + 1, "reason": errorClass(err)})
@@ -1030,9 +1105,12 @@ func (c *Client) StreamJSON(ctx context.Context, path string, body map[string]an
 // StreamJSONForModel is the model-scoped variant of StreamJSON for protocols
 // that put the model in the request path rather than in the body.
 func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[string]any, model string) (result StreamResponse, err error) {
-	raw, err := json.Marshal(body)
+	raw, memory, err := c.marshalJSONReserved(ctx, body)
 	if err != nil {
-		return StreamResponse{}, fmt.Errorf("marshal stream request: %w", err)
+		return StreamResponse{}, err
+	}
+	if memory != nil {
+		defer memory.Release()
 	}
 	c.pacer.logical(model)
 	ctx = c.transportContext(ctx, model)
@@ -1095,7 +1173,11 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 			return result, err
 		}
 		c.trace(ctx, logging.Trace, "pacing.wait.end", logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true, "wait_ms": time.Since(waitStarted).Milliseconds()})
-		lease, err := c.acquireScheduler(ctx, int64(len(raw)))
+		memoryBytes := int64(len(raw))
+		if memory != nil {
+			memoryBytes = 0
+		}
+		lease, err := c.acquireScheduler(ctx, memoryBytes)
 		if err != nil {
 			c.pacer.release(model)
 			result := StreamResponse{TraceID: traceID}
