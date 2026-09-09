@@ -79,6 +79,25 @@ func TestRegistryProvidesPreparedDispatch(t *testing.T) {
 	}
 }
 
+func TestPreparedTargetRejectsFrozenPlanDriftBeforeExecution(t *testing.T) {
+	called := false
+	prepared := PreparedTarget{
+		Target: config.TargetConfig{ID: "target-a"},
+		Jobs:   []Job{{ID: "native:target-a::inventory", Target: "target-a"}},
+		Execute: func(context.Context, progress.Sink) (RunResult, error) {
+			called = true
+			return RunResult{}, nil
+		},
+	}
+	_, err := prepared.ExecutePlan(context.Background(), &frozenRecorder{}, TargetExecutionPlan{
+		TargetID: "target-a", Binding: TargetBinding{TargetID: "target-a"},
+		Jobs: []JobSpec{{ID: "different", TargetID: "target-a"}},
+	})
+	if err == nil || called {
+		t.Fatalf("plan drift err=%v called=%t", err, called)
+	}
+}
+
 func TestConfigureClientSchedulerUsesOnlyLocalTargetAndAlias(t *testing.T) {
 	broker, err := scheduler.New(scheduler.Config{Capacity: 1})
 	if err != nil {
