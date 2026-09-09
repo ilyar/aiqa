@@ -1,7 +1,9 @@
 package app
 
 import (
+	"bytes"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -9,7 +11,27 @@ import (
 	"github.com/ilyar/aiqa/internal/execution"
 	"github.com/ilyar/aiqa/internal/progress"
 	"github.com/ilyar/aiqa/internal/scheduler"
+	"github.com/ilyar/aiqa/internal/telemetry"
 )
+
+func TestExecutionProgressDoesNotTreatTraceOperationAsFrozenJob(t *testing.T) {
+	var output bytes.Buffer
+	sink := progress.New(progress.Options{Writer: &output})
+	p, err := newExecutionProgress("run-lifecycle", 1, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.RunStarted(1)
+	p.Freeze([]progress.Job{{ID: "frozen-job", Target: "target"}})
+	p.ObserveLifecycle(telemetry.LifecycleEvent{Name: "probe", Phase: "start", OperationID: "trace-operation"})
+	p.ObserveLifecycle(telemetry.LifecycleEvent{Name: "probe", Phase: "end", OperationID: "trace-operation", Outcome: "completed"})
+	if strings.Contains(output.String(), "unknown job") {
+		t.Fatalf("trace operation was forwarded as a frozen job: %q", output.String())
+	}
+	if snapshot := p.reducer.Snapshot(); snapshot.FinishedJobs != 0 {
+		t.Fatalf("trace operation changed frozen job state: %#v", snapshot)
+	}
+}
 
 func TestExecutionProgressBuildsSummaryFromFrozenTerminalDelivery(t *testing.T) {
 	sink := progress.New(progress.Options{Writer: io.Discard})

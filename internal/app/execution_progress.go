@@ -134,10 +134,14 @@ func (p *executionProgress) TerminalOutcomes() []protocol.TerminalOutcome {
 	return append([]protocol.TerminalOutcome(nil), p.outcomes...)
 }
 
-// Lifecycle operation IDs are not frozen job IDs. Keep legacy rendering, but
-// do not turn those trace spans into unproven reducer terminal outcomes.
+// Lifecycle operation IDs are trace identities, not frozen job IDs.  A
+// telemetry span may cover discovery, a retry or an implementation detail and
+// therefore must never be forwarded to the legacy progress sink, which treats
+// OperationID as a job ID. Frozen runners publish Start/Complete themselves.
+// Keeping these namespaces separate prevents a verbose trace from producing
+// spurious unknown-job diagnostics or changing the fixed denominator.
 func (p *executionProgress) ObserveLifecycle(event telemetry.LifecycleEvent) {
-	p.sink.ObserveLifecycle(event)
+	_ = event
 }
 
 // RegisterPreparation binds a pre-freeze API owner to the execution reducer.
