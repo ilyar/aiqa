@@ -13,12 +13,19 @@ import (
 )
 
 var (
-	version = "1.0.0-alpha.9"
+	version = "1.0.0-alpha.10"
 	commit  = "unknown"
 	date    = "unknown"
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "log" {
+		if err := runLog(os.Args[2:], os.Stdin, os.Stdout, os.Stderr, "."); err != nil {
+			fmt.Fprintln(os.Stderr, "aiqa log:", err)
+			os.Exit(2)
+		}
+		return
+	}
 	cfg, err := config.Parse(os.Args[1:])
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "aiqa: [FATAL]", err)
@@ -47,6 +54,7 @@ func main() {
 
 func printUsage(w io.Writer) {
 	fmt.Fprintln(w, `usage:
+	  aiqa log [FILE|-] [log options]
   aiqa test=compat [options]
   aiqa test=model-param [options]
   aiqa test=sdk [options]
