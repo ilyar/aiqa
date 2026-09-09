@@ -6,23 +6,16 @@ run is observable without `--verbose`.
 
 ## Terminal behaviour
 
-When `stderr` is a TTY, AIQA first renders one indeterminate `Planning` line.
-During that phase it discovers every target inventory, selects each target's
-models, and freezes one global logical-job plan. It then renders one ASCII
-progress line for the whole run. The line identifies the current target and
-model/probe when available, completed and planned logical units, percentage,
-measured rate, ETA, and provider pacing waits. The line is terminated before a
-run finishes or is interrupted.
+When `stderr` is a TTY, AIQA renders an indeterminate `Planning` state while
+it discovers every target inventory, selects models, and freezes one global
+logical-job plan. Display labels may be shortened, but job identifiers are
+never shortened for state lookup. It has no dependency on a third-party TTY
+framework.
 
-The interactive renderer is `github.com/schollz/progressbar/v3`; it owns the
-single terminal line. AIQA owns planning and logical-job accounting, rather
-than letting terminal redraws determine execution state.
-
-When `stderr` is redirected or CI is non-interactive, AIQA emits durable plain
-text milestones instead: planning start, target discovery, frozen global plan,
-10-percent checkpoints, a 30-second heartbeat, pacing waits, target end, and
-final report paths. It emits neither ANSI escapes nor carriage-return redraws
-in this mode.
+When `stderr` is redirected, `TERM=dumb`, or CI is non-interactive, AIQA emits
+plain durable milestones and no terminal control sequences. Progress remains
+on `stderr`; `--stdout=json|markdown` emits only the selected final public
+report on stdout.
 
 Progress is deliberately written to `stderr`; `stdout` is not used for
 progress, diagnostics, or report serialization. Markdown and JSON reports are
@@ -43,10 +36,10 @@ Adaptive model-parameter work is one composite unit, and opaque executable
 extension activity is one host-owned unit per declared suite; neither is guessed
 from external HTTP activity.
 
-Rate and ETA use completed lifecycle units. ETA is `estimating` until enough
-terminal events exist, and remains `unknown` rather than inventing a value when
-there is no valid estimate. Pacing state is shown separately, so a provider
-cooldown is not indistinguishable from a hung process.
+Rate and ETA use completed lifecycle units. ETA is a remaining-work simulation
+and remains `unknown` rather than inventing a value when there is no valid
+estimate. Pacing state is separate from HTTP in-flight accounting: a queued
+cooldown does not occupy a global request slot.
 
 ## Diagnostics and privacy
 
@@ -65,12 +58,14 @@ or media.
 
 ## Implementation boundaries
 
-Progress is driven by a two-phase `Prepare(all targets) → Freeze(plan) →
+Progress is driven by a two-phase `Prepare(all targets) → Freeze(RunPlan) →
 Execute(plan)` contract. Preparation performs target inventory and model
-selection; execution reuses that evidence and does not repeat model discovery.
-A terminal renderer consumes frozen host-owned jobs; raw telemetry spans remain
-diagnostic evidence and do not themselves increment the operator counter. This
-does not change provider requests, scheduling policy, retry policy, rate-limit
-classification, public report schemas, compatibility verdicts, or exit-code
-policy. Extension executables retain their own execution boundary: AIQA tracks
-declared host suite units but does not infer their HTTP attempts.
+selection exactly once; execution consumes that frozen binding. A run-owned
+admission broker limits physical attempts across native and SDK transports;
+leases are held through body/stream close and are not held while pacing waits.
+The optional `execution` block in `aiqa.report.v3` contains only safe aggregate
+counters and durations, so existing report readers remain compatible.
+
+`aiqa log [FILE|-]` reads private JSONL locally, supports safe filters and
+follow mode, and never contacts providers. The current release plan is
+[`tasks/next.md`](../tasks/next.md); the former backlog has been retired.
