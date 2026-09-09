@@ -92,6 +92,23 @@ func ConfigureClientScheduler(client *api.Client, options RunOptions) error {
 	})
 }
 
+// ConfigureClientObservability installs the target-owned diagnostic and trace
+// scope before any network activity. Preparers must call it before inventory so
+// the first provider request belongs to the same target lifecycle as execution.
+func ConfigureClientObservability(client *api.Client, options RunOptions) error {
+	if client == nil {
+		return fmt.Errorf("nil API client")
+	}
+	if err := ConfigureClientScheduler(client, options); err != nil {
+		return err
+	}
+	client.SetLogger(options.Logger)
+	client.SetLogFields(logging.Fields{"target": options.Target.ID, "protocol": string(options.Target.Protocol)})
+	client.SetTelemetry(options.Telemetry)
+	client.SetOTelPropagationAllowlist(options.Config.OTelPropagationTo)
+	return nil
+}
+
 // Inventory is the transport observation obtained during preparation.
 type Inventory struct {
 	Models   []api.Model

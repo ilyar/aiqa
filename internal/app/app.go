@@ -314,6 +314,22 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 	preparedTargets := make([]protocolpkg.PreparedTarget, len(targets))
 	allJobs := make([]progress.Job, 0)
 	prepareErrs := make([]error, len(targets))
+	// A target owns both discovery and execution. Starting these lifecycles
+	// before the parallel Prepare phase makes the first inventory request a
+	// descendant of target rather than an unowned setup request. Each operation
+	// is ended only below: once on the prepare-error path or once after the
+	// target's native and extension work.
+	targetContexts := make([]context.Context, len(targets))
+	targetOps := make([]*telemetry.Operation, len(targets))
+	for index, target := range targets {
+		targetCtx := logging.Scope(ctx, target.ID, "", "", "", "")
+		targetContexts[index], targetOps[index] = tracing.Start(targetCtx, "target", logging.Fields{"target": target.ID, "protocol": string(target.Protocol)})
+		targetOps[index].Event(logging.Trace, "plan", logging.Fields{
+			"target": target.ID, "protocol": string(target.Protocol),
+			"native_selected": cfg.HasTest("compat") || cfg.HasTest("model-param"),
+			"sdk_selected":    cfg.HasTest("sdk"), "extension_selected": cfg.HasTest("ext-suite"),
+		})
+	}
 	parallelTargets(targetWorkflowLimit(cfg, len(targets)), len(targets), func(index int) {
 		target := targets[index]
 		reporter.Planning("Discovering " + target.ID)
@@ -326,7 +342,7 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 			prepareErr = fmt.Errorf("unsupported target protocol %s", target.Protocol)
 		}
 		if prepareErr == nil {
-			preparedTargets[index], prepareErr = preparer(logging.Scope(ctx, target.ID, "", "", "", ""), protocolpkg.RunOptions{Target: target, Config: cfg, Profile: p, UserAgent: "aiqa/" + build.Version, Logf: runnerLogf, Logger: logger, Telemetry: tracing, Scheduler: admission, PacingGroup: pacingGroups[target.ID]})
+			preparedTargets[index], prepareErr = preparer(targetContexts[index], protocolpkg.RunOptions{Target: target, Config: cfg, Profile: p, UserAgent: "aiqa/" + build.Version, Logf: runnerLogf, Logger: logger, Telemetry: tracing, Scheduler: admission, PacingGroup: pacingGroups[target.ID]})
 		}
 		prepareErrs[index] = prepareErr
 	})
@@ -334,6 +350,15 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 	// target has either produced its immutable discovery result or failed.
 	for index, prepareErr := range prepareErrs {
 		if prepareErr != nil {
+			for targetIndex, targetOp := range targetOps {
+				outcome := "completed"
+				fields := logging.Fields{"status": outcome}
+				if prepareErrs[targetIndex] != nil {
+					outcome = "error"
+					fields = logging.Fields{"status": outcome, "error_present": true, "error_kind": "prepare"}
+				}
+				targetOp.End(outcome, fields)
+			}
 			return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("prepare %s target: %w", targets[index].ID, prepareErr))
 		}
 	}
@@ -365,13 +390,7 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 	parallelTargets(targetWorkflowLimit(cfg, len(preparedTargets)), len(preparedTargets), func(index int) {
 		prepared := preparedTargets[index]
 		target, p := prepared.Target, prepared.Profile
-		targetCtx := logging.Scope(ctx, target.ID, "", "", "", "")
-		targetCtx, targetOp := tracing.Start(targetCtx, "target", logging.Fields{"target": target.ID, "protocol": string(target.Protocol)})
-		targetOp.Event(logging.Trace, "plan", logging.Fields{
-			"target": target.ID, "protocol": string(target.Protocol),
-			"native_selected": cfg.HasTest("compat") || cfg.HasTest("model-param"),
-			"sdk_selected":    cfg.HasTest("sdk"), "extension_selected": cfg.HasTest("ext-suite"),
-		})
+		targetCtx, targetOp := targetContexts[index], targetOps[index]
 		native, executionErr := prepared.Execute(targetCtx, reporter)
 		if native.Target.ID == "" {
 			if executionErr == nil {

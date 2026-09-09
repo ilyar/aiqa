@@ -216,6 +216,8 @@ func assertExecutionTraceGraph(t *testing.T, data []byte) {
 	type span struct {
 		name   string
 		parent string
+		target string
+		path   string
 		start  int
 		end    int
 	}
@@ -245,7 +247,9 @@ func assertExecutionTraceGraph(t *testing.T, data []byte) {
 			t.Fatalf("span %s has more than one start", spanID)
 		}
 		parent, _ := event["parent_span_id"].(string)
-		spans[spanID] = &span{name: strings.TrimSuffix(name, ".start"), parent: parent, start: lineNo}
+		target, _ := event["target"].(string)
+		path, _ := event["path"].(string)
+		spans[spanID] = &span{name: strings.TrimSuffix(name, ".start"), parent: parent, target: target, path: path, start: lineNo}
 	}
 	for lineNo, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
 		var event map[string]any
@@ -297,12 +301,39 @@ func assertExecutionTraceGraph(t *testing.T, data []byte) {
 		}
 		return false
 	}
+	hasExecutionChain := false
 	for id, item := range spans {
 		if item.name == "run" && hasChain(id, 0) {
-			return
+			hasExecutionChain = true
+			break
 		}
 	}
-	t.Fatalf("no complete execution chain run→%s; spans=%d", strings.Join(chain, "→"), len(spans))
+	if !hasExecutionChain {
+		t.Fatalf("no complete execution chain run→%s; spans=%d", strings.Join(chain, "→"), len(spans))
+	}
+	// The inventory calls happen in Prepare, before execution starts. Assert
+	// their real transport attempts still have the complete target ancestry and
+	// are not duplicated when the prepared inventory is consumed later.
+	inventoryAttempts := map[string]int{}
+	for _, item := range spans {
+		if item.name != "http.attempt" || !strings.HasSuffix(item.path, "/models") {
+			continue
+		}
+		inventoryAttempts[item.target]++
+		ancestor := item.parent
+		for _, want := range []string{"http.logical_request", "probe", "suite", "provider", "target"} {
+			parent, ok := spans[ancestor]
+			if !ok || parent.name != want {
+				t.Fatalf("inventory attempt for target %q has ancestry gap at %q: %+v", item.target, want, item)
+			}
+			ancestor = parent.parent
+		}
+	}
+	for _, target := range []string{"openai", "anthropic"} {
+		if inventoryAttempts[target] != 1 {
+			t.Fatalf("inventory attempts for %s=%d, want exactly one", target, inventoryAttempts[target])
+		}
+	}
 }
 
 func TestGlobalModelRunsSameIDIndependentlyAcrossTargets(t *testing.T) {

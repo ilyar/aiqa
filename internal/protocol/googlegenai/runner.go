@@ -97,12 +97,29 @@ func PrepareTarget(ctx context.Context, options protocolpkg.RunOptions) (protoco
 		return protocolpkg.PreparedTarget{}, err
 	}
 	client.SetConcurrency(options.Config.Concurrency)
-	if err := protocolpkg.ConfigureClientScheduler(client.TransportClient(), options); err != nil {
+	if err := protocolpkg.ConfigureClientObservability(client.TransportClient(), options); err != nil {
 		return protocolpkg.PreparedTarget{}, err
 	}
-	listCtx, cancel := api.WithRequestTimeout(ctx, options.Config.Timeout)
+	discoveryCtx := ctx
+	var discoveryProvider, discoverySuite, discoveryProbe interface{ End(string, logging.Fields) }
+	if options.Telemetry != nil {
+		var providerCtx, suiteCtx context.Context
+		providerCtx, discoveryProvider = options.Telemetry.Start(logging.Scope(ctx, options.Target.ID, "", "", "", ""), "provider", logging.Fields{"target": options.Target.ID})
+		suiteCtx, discoverySuite = options.Telemetry.Start(logging.Scope(providerCtx, options.Target.ID, "", "discovery", "", ""), "suite", logging.Fields{"suite": "discovery"})
+		discoveryCtx, discoveryProbe = options.Telemetry.Start(logging.Scope(suiteCtx, options.Target.ID, "", "discovery", "google.models.list.http", ""), "probe", logging.Fields{"probe": "aiqa.native.google.models.list.http"})
+	}
+	listCtx, cancel := api.WithRequestTimeout(discoveryCtx, options.Config.Timeout)
 	models, response, _, listErr := discoverAll(listCtx, client)
 	cancel()
+	if discoveryProbe != nil {
+		outcome := "completed"
+		if listErr != nil || !response.Is2xx() {
+			outcome = "blocked"
+		}
+		discoveryProbe.End(outcome, logging.Fields{"status": outcome})
+		discoverySuite.End(outcome, logging.Fields{"status": outcome})
+		discoveryProvider.End(outcome, logging.Fields{"status": outcome})
+	}
 	selected, metadata := selectModels(requestedModels(options.Config, options.Target), models)
 	candidates := make([]result.ModelReport, 0, len(selected))
 	overrides, err := capability.LoadOverrideFile(options.Target.CapabilityFile)
@@ -194,7 +211,7 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 
 	discoveryCtx := ctx
 	var discoveryProvider, discoverySuite, discoveryProbe interface{ End(string, logging.Fields) }
-	if options.Telemetry != nil {
+	if options.Inventory == nil && options.Telemetry != nil {
 		var providerCtx, suiteCtx context.Context
 		providerCtx, discoveryProvider = options.Telemetry.Start(logging.Scope(ctx, target.ID, "", "", "", ""), "provider", logging.Fields{"target": target.ID})
 		suiteCtx, discoverySuite = options.Telemetry.Start(logging.Scope(providerCtx, target.ID, "", "discovery", "", ""), "suite", logging.Fields{"suite": "discovery"})
