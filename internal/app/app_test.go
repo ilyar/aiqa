@@ -53,6 +53,25 @@ func TestRunShowsPlainProgressWithoutVerboseLog(t *testing.T) {
 	}
 }
 
+func TestRunNoProgressSuppressesOperatorOutput(t *testing.T) {
+	server := newMockOpenAI(t)
+	defer server.Close()
+	withTempWorkingDirectory(t)
+	var output bytes.Buffer
+	oldWriter, oldTTY := progressWriter, progressTTY
+	progressWriter, progressTTY = &output, func() bool { return false }
+	t.Cleanup(func() { progressWriter, progressTTY = oldWriter, oldTTY })
+	cfg := testConfig(server.URL+"/v1", []string{"compat"})
+	cfg.Formats = nil
+	cfg.NoProgress = true
+	if out, err := Run(context.Background(), cfg, BuildInfo{Version: "test"}); err != nil || out.ExitCode != 0 {
+		t.Fatalf("run: exit=%d err=%v", out.ExitCode, err)
+	}
+	if output.Len() != 0 {
+		t.Fatalf("--no-progress wrote stderr: %q", output.String())
+	}
+}
+
 func TestProgressTTYDisablesRedrawForDumbTerminalAndCI(t *testing.T) {
 	for _, environment := range []struct {
 		name  string

@@ -92,7 +92,7 @@ func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, er
 
 func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (out RunResult, runErr error) {
 	logger := logging.New(cfg.Verbosity)
-	operatorReporter := progress.New(progress.Options{Writer: progressWriter, TTY: progressTTY()})
+	operatorReporter := newOperatorReporter(cfg)
 	defer operatorReporter.Close()
 	var reporter progress.FrozenSink = operatorReporter
 	// The sidecar is deliberately opened before emitting the first lifecycle
@@ -470,6 +470,20 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 		return fatal(out, errors.Join(runErrors...))
 	}
 	return out, nil
+}
+
+func newOperatorReporter(cfg config.Config) *progress.Reporter {
+	if cfg.NoProgress || cfg.Progress == "off" {
+		return progress.New(progress.Options{Writer: io.Discard})
+	}
+	tty := progressTTY()
+	switch cfg.Progress {
+	case "tty":
+		tty = true
+	case "plain":
+		tty = false
+	}
+	return progress.New(progress.Options{Writer: progressWriter, TTY: tty})
 }
 
 func newForensicRunID() (string, error) {
