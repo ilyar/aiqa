@@ -186,8 +186,28 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 					return
 				}
 				publicReport.ForensicTrace = &result.ForensicTrace{VerdictPath: verdictPath, Status: string(finalVerdict.Status)}
-				if _, writeErr := reportpkg.WriteV3(*publicReport, cfg); writeErr != nil {
-					runErr = errors.Join(runErr, fmt.Errorf("update report with forensic trace verdict: %w", writeErr))
+				// Re-finalize exactly once after every private artifact is closed.
+				// The rewritten files and opt-in stdout therefore share the same
+				// final forensic attachment; no pending snapshot can escape.
+				final, finalizeErr := reportpkg.FinalizeV3(*publicReport, cfg)
+				if finalizeErr == nil {
+					var paths []string
+					paths, finalizeErr = final.Commit(cfg.Name)
+					if finalizeErr == nil {
+						out.Paths = append(out.Paths[:0], paths...)
+						if sidecarPath != "" {
+							out.Paths = append(out.Paths, sidecarPath)
+						}
+						if verdictPath != "" {
+							out.Paths = append(out.Paths, verdictPath)
+						}
+						if cfg.Stdout != "" {
+							out.Stdout, finalizeErr = final.Bytes(cfg.Stdout)
+						}
+					}
+				}
+				if finalizeErr != nil {
+					runErr = errors.Join(runErr, fmt.Errorf("finalize report with forensic trace verdict: %w", finalizeErr))
 					out.ExitCode = 2
 				}
 			}
