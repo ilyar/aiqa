@@ -390,6 +390,9 @@ func TestRunFreezesParallelPreparationBeforeParallelTargetExecution(t *testing.T
 	withTempWorkingDirectory(t)
 	cfg := testConfig(server.URL+"/v1", []string{"compat"})
 	cfg.Formats = nil
+	// This test asserts target-workflow overlap. Physical HTTP admission is
+	// intentionally global, so grant both discovery requests a real C=2 slot.
+	cfg.Concurrency = 2
 	cfg.TargetConcurrency = 2
 	cfg.Targets = []config.TargetConfig{
 		{ID: "zeta", Protocol: config.ProtocolOpenAI, BaseURL: server.URL + "/v1", APIKey: "test-key", ProfileFile: profile.DefaultFile, Modules: []string{"auto"}, UnknownModel: "inventory", RequestInterval: time.Millisecond},

@@ -33,6 +33,7 @@ import (
 	protocolopenai "github.com/ilyar/aiqa/internal/protocol/openai"
 	reportpkg "github.com/ilyar/aiqa/internal/report"
 	"github.com/ilyar/aiqa/internal/result"
+	"github.com/ilyar/aiqa/internal/scheduler"
 	"github.com/ilyar/aiqa/internal/telemetry"
 	"github.com/ilyar/aiqa/internal/traceverify"
 )
@@ -46,6 +47,9 @@ type BuildInfo struct {
 type RunResult struct {
 	ReportV3 *result.ReportV3
 	Paths    []string
+	// Stdout is an explicitly requested public report payload.  It is produced
+	// from the same finalized snapshot that is committed to disk.
+	Stdout   []byte
 	ExitCode int
 }
 
@@ -261,6 +265,11 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 		}
 	}
 	var runErrors []error
+	admission, err := newRunScheduler(cfg)
+	if err != nil {
+		return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("configure request admission: %w", err))
+	}
+	pacingGroups := configuredPacingGroups(cfg)
 	reporter.RunStarted(len(cfg.Targets))
 	runOp.Event(logging.Info, "plan", logging.Fields{"suite_count": len(cfg.Tests), "target": "all"})
 	runnerLogf := func(level logging.Level, format string, args ...any) { logf(level, format, args...) }
@@ -281,7 +290,7 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 			prepareErr = fmt.Errorf("unsupported target protocol %s", target.Protocol)
 		}
 		if prepareErr == nil {
-			preparedTargets[index], prepareErr = preparer(logging.Scope(ctx, target.ID, "", "", "", ""), protocolpkg.RunOptions{Target: target, Config: cfg, Profile: p, UserAgent: "aiqa/" + build.Version, Logf: runnerLogf, Logger: logger, Telemetry: tracing})
+			preparedTargets[index], prepareErr = preparer(logging.Scope(ctx, target.ID, "", "", "", ""), protocolpkg.RunOptions{Target: target, Config: cfg, Profile: p, UserAgent: "aiqa/" + build.Version, Logf: runnerLogf, Logger: logger, Telemetry: tracing, Scheduler: admission, PacingGroup: pacingGroups[target.ID]})
 		}
 		prepareErrs[index] = prepareErr
 	})
@@ -369,13 +378,24 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 		}
 	}
 	r.Summary = summarizeRun(r.Targets)
-	paths, err := reportpkg.WriteV3(r, cfg)
+	finalReport, err := reportpkg.FinalizeV3(r, cfg)
+	if err != nil {
+		return fatal(RunResult{ReportV3: &r, ExitCode: 2}, err)
+	}
+	paths, err := finalReport.Commit(cfg.Name)
 	if err != nil {
 		return fatal(RunResult{ReportV3: &r, Paths: paths, ExitCode: 2}, err)
 	}
 	reportsWritten = true
 	runOp.Event(logging.Info, "report_serialized", logging.Fields{"status": "completed"})
-	out = RunResult{ReportV3: &r, Paths: paths, ExitCode: multiExitCode(cfg, r.Summary)}
+	var stdout []byte
+	if cfg.Stdout != "" {
+		stdout, err = finalReport.Bytes(cfg.Stdout)
+		if err != nil {
+			return fatal(RunResult{ReportV3: &r, Paths: paths, ExitCode: 2}, err)
+		}
+	}
+	out = RunResult{ReportV3: &r, Paths: paths, Stdout: stdout, ExitCode: multiExitCode(cfg, r.Summary)}
 	reporter.Message("completed; reports: " + strings.Join(paths, ", "))
 	addSidecarPath(&out)
 	if len(runErrors) > 0 {
@@ -395,15 +415,17 @@ func newForensicRunID() (string, error) {
 
 // targetWorkflowLimit controls application-level target orchestration only.
 // It deliberately does not claim to be a process-wide HTTP admission limit:
-// transport integration owns that invariant. Auto mode shares the existing
-// request concurrency value as a conservative number of active workflows.
+// transport integration owns that invariant. Auto mode activates every
+// selected target workflow; physical attempts remain broker-governed.
 func targetWorkflowLimit(cfg config.Config, targets int) int {
 	if targets < 1 {
 		return 1
 	}
 	limit := cfg.TargetConcurrency
 	if limit == 0 {
-		limit = cfg.Concurrency
+		// Auto means every selected target may make progress; only the shared
+		// transport broker governs physical HTTP concurrency.
+		limit = targets
 	}
 	if limit < 1 {
 		limit = 1
@@ -412,6 +434,28 @@ func targetWorkflowLimit(cfg config.Config, targets int) int {
 		return targets
 	}
 	return limit
+}
+
+// newRunScheduler is the sole owner of request capacity for a run.  Target
+// workflow parallelism deliberately does not reserve a request slot; clients
+// acquire one only immediately before a physical HTTP attempt.
+func newRunScheduler(cfg config.Config) (*scheduler.Broker, error) {
+	return scheduler.New(scheduler.Config{
+		Capacity:       cfg.Concurrency,
+		MemoryBudget:   cfg.RequestMemoryBudget,
+		ArtifactBudget: cfg.MaxArtifactsPerModel,
+	})
+}
+
+func configuredPacingGroups(cfg config.Config) map[string]string {
+	groups := make(map[string]string, len(cfg.PacingGroups))
+	for _, override := range cfg.PacingGroups {
+		parts := strings.SplitN(override, "=", 2)
+		if len(parts) == 2 {
+			groups[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+		}
+	}
+	return groups
 }
 
 // parallelTargets runs independent target-local work under one bounded pool.

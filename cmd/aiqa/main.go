@@ -43,6 +43,12 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	out, runErr := app.Run(ctx, cfg, app.BuildInfo{Version: version, Commit: commit, Date: date})
+	if len(out.Stdout) > 0 {
+		if _, err := os.Stdout.Write(out.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "aiqa: [FATAL] write stdout:", err)
+			os.Exit(2)
+		}
+	}
 	if runErr != nil {
 		fmt.Fprintln(os.Stderr, "aiqa: [FATAL]", runErr)
 		if out.ExitCode == 0 {

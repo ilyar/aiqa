@@ -23,20 +23,23 @@ import (
 	protocolpkg "github.com/ilyar/aiqa/internal/protocol"
 	reportpkg "github.com/ilyar/aiqa/internal/report"
 	"github.com/ilyar/aiqa/internal/result"
+	"github.com/ilyar/aiqa/internal/scheduler"
 	"github.com/ilyar/aiqa/internal/telemetry"
 )
 
 type RunOptions struct {
-	Target    config.TargetConfig
-	Config    config.Config
-	Profile   profile.Profile
-	UserAgent string
-	Logf      func(logging.Level, string, ...any)
-	Logger    *logging.Logger
-	Telemetry *telemetry.Provider
-	Progress  progress.Sink
-	Runtime   *Runtime
-	Inventory *protocolpkg.Inventory
+	Target      config.TargetConfig
+	Config      config.Config
+	Profile     profile.Profile
+	UserAgent   string
+	Logf        func(logging.Level, string, ...any)
+	Logger      *logging.Logger
+	Telemetry   *telemetry.Provider
+	Progress    progress.Sink
+	Runtime     *Runtime
+	Inventory   *protocolpkg.Inventory
+	Scheduler   *scheduler.Broker
+	PacingGroup string
 }
 
 type Runtime struct {
@@ -77,7 +80,7 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 	runtime := &Runtime{}
 	target, err := Run(ctx, RunOptions{
 		Target: options.Target, Config: options.Config, Profile: options.Profile,
-		UserAgent: options.UserAgent, Logf: options.Logf, Logger: options.Logger, Telemetry: options.Telemetry, Progress: options.Progress, Runtime: runtime, Inventory: options.Inventory,
+		UserAgent: options.UserAgent, Logf: options.Logf, Logger: options.Logger, Telemetry: options.Telemetry, Progress: options.Progress, Runtime: runtime, Inventory: options.Inventory, Scheduler: options.Scheduler, PacingGroup: options.PacingGroup,
 	})
 	target.Notes = []string{"Google Gen AI Go SDK v1.71.0 does not expose public Interactions API methods; no SDK Interactions suite is claimed."}
 	return protocolpkg.RunResult{
@@ -94,6 +97,9 @@ func PrepareTarget(ctx context.Context, options protocolpkg.RunOptions) (protoco
 		return protocolpkg.PreparedTarget{}, err
 	}
 	client.SetConcurrency(options.Config.Concurrency)
+	if err := protocolpkg.ConfigureClientScheduler(client.TransportClient(), options); err != nil {
+		return protocolpkg.PreparedTarget{}, err
+	}
 	listCtx, cancel := api.WithRequestTimeout(ctx, options.Config.Timeout)
 	models, response, _, listErr := discoverAll(listCtx, client)
 	cancel()
@@ -163,6 +169,9 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 		return result.TargetReport{}, err
 	}
 	client.SetConcurrency(cfg.Concurrency)
+	if err := protocolpkg.ConfigureClientScheduler(client.TransportClient(), protocolpkg.RunOptions{Target: target, Scheduler: options.Scheduler, PacingGroup: options.PacingGroup}); err != nil {
+		return result.TargetReport{}, err
+	}
 	client.TransportClient().SetLogger(options.Logger)
 	client.TransportClient().SetLogFields(logging.Fields{"target": target.ID, "protocol": string(target.Protocol)})
 	executor := probe.NewExecutor(cfg.Concurrency)

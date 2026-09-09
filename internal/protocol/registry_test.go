@@ -5,9 +5,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ilyar/aiqa/internal/api"
 	"github.com/ilyar/aiqa/internal/config"
 	"github.com/ilyar/aiqa/internal/progress"
 	"github.com/ilyar/aiqa/internal/result"
+	"github.com/ilyar/aiqa/internal/scheduler"
 	"github.com/ilyar/aiqa/internal/telemetry"
 )
 
@@ -71,5 +73,33 @@ func TestRegistryProvidesPreparedDispatch(t *testing.T) {
 	}
 	if err := r.RegisterPreparer(config.ProtocolGoogleGenAI, preparer); err == nil {
 		t.Fatal("duplicate protocol preparer was accepted")
+	}
+}
+
+func TestConfigureClientSchedulerUsesOnlyLocalTargetAndAlias(t *testing.T) {
+	broker, err := scheduler.New(scheduler.Config{Capacity: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := api.NewClient("https://provider.example/v1", "key", "test", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ConfigureClientScheduler(client, RunOptions{
+		Target:      config.TargetConfig{ID: "target_a"},
+		Scheduler:   broker,
+		PacingGroup: "shared-quota",
+	}); err != nil {
+		t.Fatalf("configure scheduler: %v", err)
+	}
+	if err := ConfigureClientScheduler(client, RunOptions{
+		Target:      config.TargetConfig{ID: "https://provider.example"},
+		Scheduler:   broker,
+		PacingGroup: "shared-quota",
+	}); err == nil {
+		t.Fatal("unsafe target ID was accepted")
+	}
+	if err := ConfigureClientScheduler(client, RunOptions{PacingGroup: "shared-quota"}); err == nil {
+		t.Fatal("pacing alias without run broker was accepted")
 	}
 }

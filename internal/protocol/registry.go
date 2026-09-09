@@ -17,6 +17,7 @@ import (
 	"github.com/ilyar/aiqa/internal/profile"
 	"github.com/ilyar/aiqa/internal/progress"
 	"github.com/ilyar/aiqa/internal/result"
+	"github.com/ilyar/aiqa/internal/scheduler"
 	"github.com/ilyar/aiqa/internal/telemetry"
 )
 
@@ -61,6 +62,33 @@ type RunOptions struct {
 	// Inventory is set only by a Preparer. Native execution consumes it rather
 	// than issuing another model-list request.
 	Inventory *Inventory
+	// Scheduler is the run-owned physical-attempt admission broker. It is
+	// deliberately optional so direct protocol callers retain their historical
+	// transport behavior. The application supplies one shared broker for a run.
+	Scheduler *scheduler.Broker
+	// PacingGroup optionally aliases several target origins that consume one
+	// provider quota. It is a safe local label, never a URL or credential.
+	PacingGroup string
+}
+
+// ConfigureClientScheduler binds a target-owned API client to the optional
+// run broker. Target identity comes exclusively from the configured target ID;
+// api.Client validates both it and an explicitly supplied pacing alias.
+func ConfigureClientScheduler(client *api.Client, options RunOptions) error {
+	if client == nil {
+		return fmt.Errorf("nil API client")
+	}
+	if options.Scheduler == nil {
+		if options.PacingGroup != "" {
+			return fmt.Errorf("pacing group requires a scheduler")
+		}
+		return nil
+	}
+	return client.SetScheduler(api.SchedulerConfig{
+		Broker: options.Scheduler,
+		Target: options.Target.ID,
+		Group:  options.PacingGroup,
+	})
 }
 
 // Inventory is the transport observation obtained during preparation.

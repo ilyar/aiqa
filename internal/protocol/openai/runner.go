@@ -32,6 +32,9 @@ func PrepareTarget(ctx context.Context, options protocolpkg.RunOptions) (protoco
 		return protocolpkg.PreparedTarget{}, err
 	}
 	client.SetConcurrency(options.Config.Concurrency)
+	if err := protocolpkg.ConfigureClientScheduler(client, options); err != nil {
+		return protocolpkg.PreparedTarget{}, err
+	}
 	listCtx, cancel := api.WithRequestTimeout(ctx, options.Config.Timeout)
 	models, response, listErr := client.ListModels(listCtx)
 	cancel()
@@ -112,6 +115,9 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 		}
 	}
 	client.SetConcurrency(cfg.Concurrency)
+	if err := protocolpkg.ConfigureClientScheduler(client, options); err != nil {
+		return protocolpkg.RunResult{}, err
+	}
 	client.SetLogger(options.Logger)
 	client.SetLogFields(logging.Fields{"target": target.ID, "protocol": string(target.Protocol)})
 	executor := probe.NewExecutor(cfg.Concurrency)

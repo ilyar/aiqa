@@ -25,6 +25,7 @@ import (
 	protocolpkg "github.com/ilyar/aiqa/internal/protocol"
 	reportpkg "github.com/ilyar/aiqa/internal/report"
 	"github.com/ilyar/aiqa/internal/result"
+	"github.com/ilyar/aiqa/internal/scheduler"
 	"github.com/ilyar/aiqa/internal/telemetry"
 )
 
@@ -38,9 +39,11 @@ type RunOptions struct {
 	Telemetry *telemetry.Provider
 	// Progress receives the post-discovery native-probe plan. It is optional so
 	// package callers that do not render operator progress remain compatible.
-	Progress  progress.Sink
-	Runtime   *Runtime
-	Inventory *protocolpkg.Inventory
+	Progress    progress.Sink
+	Runtime     *Runtime
+	Inventory   *protocolpkg.Inventory
+	Scheduler   *scheduler.Broker
+	PacingGroup string
 }
 
 // Runtime exposes the target-owned transport and executor to the extension
@@ -82,7 +85,7 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 	runtime := &Runtime{}
 	target, err := Run(ctx, RunOptions{
 		Target: options.Target, Config: options.Config, Profile: options.Profile,
-		UserAgent: options.UserAgent, Logf: options.Logf, Logger: options.Logger, Telemetry: options.Telemetry, Progress: options.Progress, Runtime: runtime, Inventory: options.Inventory,
+		UserAgent: options.UserAgent, Logf: options.Logf, Logger: options.Logger, Telemetry: options.Telemetry, Progress: options.Progress, Runtime: runtime, Inventory: options.Inventory, Scheduler: options.Scheduler, PacingGroup: options.PacingGroup,
 	})
 	return protocolpkg.RunResult{
 		Target:  target,
@@ -99,6 +102,9 @@ func PrepareTarget(ctx context.Context, options protocolpkg.RunOptions) (protoco
 		return protocolpkg.PreparedTarget{}, err
 	}
 	client.SetConcurrency(options.Config.Concurrency)
+	if err := protocolpkg.ConfigureClientScheduler(client.TransportClient(), options); err != nil {
+		return protocolpkg.PreparedTarget{}, err
+	}
 	listCtx, cancel := api.WithRequestTimeout(ctx, options.Config.Timeout)
 	models, response, listErr := client.ListModels(listCtx)
 	cancel()
@@ -175,6 +181,9 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 		return result.TargetReport{}, err
 	}
 	client.SetConcurrency(cfg.Concurrency)
+	if err := protocolpkg.ConfigureClientScheduler(client.TransportClient(), protocolpkg.RunOptions{Target: target, Scheduler: options.Scheduler, PacingGroup: options.PacingGroup}); err != nil {
+		return result.TargetReport{}, err
+	}
 	client.TransportClient().SetLogger(options.Logger)
 	client.TransportClient().SetLogFields(logging.Fields{"target": target.ID, "protocol": string(target.Protocol)})
 	probeExecutor := probe.NewExecutor(cfg.Concurrency)
