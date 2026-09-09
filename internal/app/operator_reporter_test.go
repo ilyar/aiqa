@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ilyar/aiqa/internal/execution"
+	"github.com/ilyar/aiqa/internal/terminal"
 	"github.com/rivo/uniseg"
 )
 
@@ -50,6 +51,19 @@ func TestOperatorReporterHonorsCurrentTerminalWidth(t *testing.T) {
 		if uniseg.StringWidth(line) > 47 {
 			t.Fatalf("line width=%d > 47: %q", uniseg.StringWidth(line), line)
 		}
+	}
+}
+
+func TestOperatorReporterClearsRowsRemovedByShorterFrame(t *testing.T) {
+	var output bytes.Buffer
+	r := newAppOperatorReporter(&output, true, false, 1)
+	r.draw(terminal.Frame{Lines: []string{"header", "target-a", "target-b"}})
+	r.draw(terminal.Frame{Lines: []string{"header"}})
+	got := output.String()
+	// The second frame moves back over all old rows and clears both rows that
+	// are no longer part of the frame; plain output never uses this path.
+	if !strings.Contains(got, "\x1b[3A") || strings.Count(got, "\x1b[2K") < 6 {
+		t.Fatalf("shorter frame did not clear stale rows: %q", got)
 	}
 }
 
