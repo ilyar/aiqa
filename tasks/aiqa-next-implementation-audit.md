@@ -6,6 +6,29 @@
 **Повторная проверка main:** тот же SHA.  
 **Область:** соответствие реализации monitoring/concurrency/CLI требованиям [tasks/next.md](https://github.com/ilyar/aiqa/blob/6b92b97cb09f7840a41d0e8aa66922f8787ca2ba/tasks/next.md), а не повторный аудит OpenAI/Anthropic/Google API profiles.
 
+## Дополнение после аудита (2026-09-09)
+
+Исходный вердикт выше относится только к историческому HEAD `6b92b97c`.
+После него локальный `main` получил следующие проверенные исправления:
+
+- F01: broker перепроверяет очередь по change channel; fake-clock regression
+  покрывает переход capacity → cooldown.
+- F02: spent artifact budget возвращает terminal error; ambiguous image creation
+  не получает автоматического повторного dispatch.
+- F03: opaque executable резервирует shared broker, а unsafe executable
+  сериализуется run-owned registry scope.
+- F04: adaptive capacity, interval, cooldown и revision стали состоянием broker
+  group; raw/SDK/SSE передают success/429 feedback до release.
+- F08–F10: `log --follow` получает cancellation, forensic finalization идёт до
+  единственного public commit, discovery запускается внутри target trace scope.
+- F11: JSON buffer резервирует memory до финального `json.Marshal`.
+
+На HEAD `babcf7e` прошли `make scheduler-check`, `make monitoring-check` и
+`make qa` (coverage 62.5%, mutation 100%, assessed 3731/3731, timed out 0%).
+Это не меняет итоговый вердикт на PASS: F05–F07 и runtime-интеграция ETA/
+terminal всё ещё требуют отдельного сквозного доказательства и не должны
+считаться закрытыми только по quality gate.
+
 ## 1. Основание и сила доказательств
 
 Локальная копия спецификации сравнивалась не по имени файла: Git blob `2823bae45d7387e641055c609e85d8358cae63f5`, размер 114257 байт, совпадает с `tasks/next.md` в проверенном HEAD. Таким образом, проверена именно текущая спецификация, а не пересказ прошлого обсуждения.
