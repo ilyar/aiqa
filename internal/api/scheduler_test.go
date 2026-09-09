@@ -163,6 +163,118 @@ func TestSchedulerConfigRejectsUnsafeTarget(t *testing.T) {
 	}
 }
 
+// A09: artifact creation is reserved in the same target/model bucket across
+// native and SDK clients. Commit frees the short admission lease but retains
+// the consumed artifact slot, so a possibly-dispatched timeout cannot obtain a
+// free retry. Cancellation before dispatch is the only refund path.
+func TestReserveArtifactSharesTargetModelBucketAndCommits(t *testing.T) {
+	broker, err := scheduler.New(scheduler.Config{Capacity: 2, ArtifactBudget: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	native, err := NewClient("https://provider.example", "", "test", time.Nanosecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sdk, err := NewClient("https://provider.example", "", "test", time.Nanosecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configureAdmission(t, native, broker, "target-a", "provider-a")
+	configureAdmission(t, sdk, broker, "target-a", "provider-a")
+
+	first, err := native.ReserveArtifact(context.Background(), "image-model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := broker.Snapshot(); got.InFlight != 1 || got.Artifacts["target-a/image-model"] != 1 {
+		t.Fatalf("first reservation snapshot=%+v", got)
+	}
+	// This is the pre-dispatch boundary. A response timeout after this point is
+	// intentionally not allowed to refund the artifact.
+	first.Commit()
+	if got := broker.Snapshot(); got.InFlight != 0 || got.Artifacts["target-a/image-model"] != 1 {
+		t.Fatalf("committed reservation snapshot=%+v", got)
+	}
+	first.Commit()
+	first.CancelBeforeDispatch()
+	if got := broker.Snapshot().Artifacts["target-a/image-model"]; got != 1 {
+		t.Fatalf("post-commit cancellation refunded possible creation: %d", got)
+	}
+
+	second, err := sdk.ReserveArtifact(context.Background(), "image-model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second.Commit()
+	if got := broker.Snapshot().Artifacts["target-a/image-model"]; got != 2 {
+		t.Fatalf("shared native/SDK reservations=%d, want 2", got)
+	}
+
+	blockedCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	blocked := make(chan error, 1)
+	go func() {
+		_, err := native.ReserveArtifact(blockedCtx, "image-model")
+		blocked <- err
+	}()
+	waitForSchedulerCondition(t, func() bool {
+		for _, wait := range broker.Snapshot().Waiting {
+			if wait.Target == "target-a" && wait.Reason == scheduler.WaitQuotaCapacity {
+				return true
+			}
+		}
+		return false
+	})
+	cancel()
+	if err := <-blocked; !errors.Is(err, context.Canceled) {
+		t.Fatalf("third reservation error=%v, want context cancellation", err)
+	}
+	if got := broker.Snapshot().Artifacts["target-a/image-model"]; got != 2 {
+		t.Fatalf("cancelled retry refunded possible creation: %d", got)
+	}
+}
+
+func TestReserveArtifactRefundsOnlyBeforeDispatchAndIsNoopWithoutScheduler(t *testing.T) {
+	broker, err := scheduler.New(scheduler.Config{Capacity: 1, ArtifactBudget: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := NewClient("https://provider.example", "", "test", time.Nanosecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configureAdmission(t, client, broker, "target-a", "provider-a")
+	reservation, err := client.ReserveArtifact(context.Background(), "image-model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reservation.CancelBeforeDispatch()
+	reservation.CancelBeforeDispatch()
+	if got := broker.Snapshot(); got.InFlight != 0 || len(got.Artifacts) != 0 {
+		t.Fatalf("pre-dispatch cancellation leaked reservation: %+v", got)
+	}
+	again, err := client.ReserveArtifact(context.Background(), "image-model")
+	if err != nil {
+		t.Fatalf("refunded reservation was not reusable: %v", err)
+	}
+	again.CancelBeforeDispatch()
+
+	plain, err := NewClient("https://provider.example", "", "test", time.Nanosecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	noScheduler, err := plain.ReserveArtifact(context.Background(), "image-model")
+	if err != nil {
+		t.Fatalf("unscheduled reservation=%v", err)
+	}
+	noScheduler.Commit()
+	noScheduler.CancelBeforeDispatch()
+	if _, err := plain.ReserveArtifact(context.Background(), "https://unsafe.example"); err == nil {
+		t.Fatal("unsafe artifact model identifier accepted")
+	}
+}
+
 // A04: an explicit Retry-After becomes a group-local broker cooldown. This
 // covers native raw, SDK RoundTripper, and SSE stream attempts. The test uses
 // loopback synchronization and cancellation rather than sleeping for the

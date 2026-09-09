@@ -73,6 +73,46 @@ type schedulerConfig struct {
 	queueTimeout time.Duration
 }
 
+// ArtifactReservation is a short-lived local admission for a billable remote
+// artifact.  The caller must either Commit it immediately before the request
+// can reach the provider, or CancelBeforeDispatch when no request was sent.
+// Commit frees the transient admission capacity but deliberately keeps the
+// artifact bucket consumed: a timeout after dispatch is not a free retry.
+// Both terminal methods are idempotent.
+//
+// A reservation returned while scheduling is disabled is a no-op. This keeps
+// direct API users backwards compatible while allowing runners to use one
+// uniform pre-dispatch hook for native and SDK requests.
+type ArtifactReservation struct {
+	lease *scheduler.Lease
+	once  sync.Once
+}
+
+// Commit marks the point after which remote creation may have happened.
+func (r *ArtifactReservation) Commit() {
+	if r == nil {
+		return
+	}
+	r.once.Do(func() {
+		if r.lease != nil {
+			r.lease.Release()
+		}
+	})
+}
+
+// CancelBeforeDispatch refunds the artifact bucket only when the caller has
+// established that it did not dispatch a remote creation request.
+func (r *ArtifactReservation) CancelBeforeDispatch() {
+	if r == nil {
+		return
+	}
+	r.once.Do(func() {
+		if r.lease != nil {
+			r.lease.CancelBeforeDispatch()
+		}
+	})
+}
+
 // PacingObserver reports an actual client-side pacing wait. target is the
 // caller-established, safe target identifier from SetLogFields; it is never a
 // provider URL. A false event is the terminal state of the preceding wait.
@@ -288,6 +328,42 @@ func (c *Client) acquireScheduler(ctx context.Context, bodyBytes int64) (*schedu
 		defer cancel()
 	}
 	return admission.broker.Acquire(admissionCtx, scheduler.Request{Target: admission.target, Group: admission.group, MemoryBytes: memory, ArtifactKey: admission.key, Artifacts: admission.items})
+}
+
+// ReserveArtifact obtains one shared (target, model) creation reservation.
+// It is deliberately separate from ordinary HTTP admission: retries and
+// response reads must not create another billable-artifact reservation. Call
+// Commit immediately before native or SDK dispatch; call
+// CancelBeforeDispatch only if dispatch was definitely not attempted.
+func (c *Client) ReserveArtifact(ctx context.Context, modelID string) (*ArtifactReservation, error) {
+	// Model identifiers are selected local inventory values. They must still be
+	// bounded, operator-safe labels because scheduler snapshots are observable
+	// execution metadata and must never become a URL or request-derived value.
+	if !safeSchedulerTarget(modelID) {
+		return nil, errors.New("invalid artifact model identifier")
+	}
+	c.logMu.RLock()
+	admission := c.scheduler
+	c.logMu.RUnlock()
+	if admission.broker == nil {
+		return &ArtifactReservation{}, nil
+	}
+	admissionCtx := ctx
+	var cancel context.CancelFunc
+	if admission.queueTimeout > 0 {
+		admissionCtx, cancel = context.WithTimeout(ctx, admission.queueTimeout)
+		defer cancel()
+	}
+	lease, err := admission.broker.Acquire(admissionCtx, scheduler.Request{
+		Target:      admission.target,
+		Group:       admission.group,
+		ArtifactKey: admission.target + "/" + modelID,
+		Artifacts:   1,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &ArtifactReservation{lease: lease}, nil
 }
 
 // applySchedulerRetryAfter shares an explicit provider Retry-After signal with
