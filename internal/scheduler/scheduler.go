@@ -48,11 +48,25 @@ var (
 	ErrArtifactBudgetExhausted = errors.New("scheduler: artifact budget exhausted")
 )
 
+// AdaptiveGroup enables an opt-in, shared additive-increase/multiplicative-
+// decrease policy for a group.  It starts with one in-flight request and the
+// supplied minimum interval.  MaxCapacity zero inherits Group.Capacity.
+//
+// It is deliberately separate from Group.Interval so existing static groups
+// keep their established capacity and pacing behaviour.
+type AdaptiveGroup struct {
+	InitialInterval time.Duration
+	MaxCapacity     int
+}
+
 // Group configures shared pacing and a learned/conservative in-flight limit.
 // A zero Capacity inherits the broker capacity; a zero Interval has no pacing.
+// Adaptive, when present, replaces those static admission values with its
+// learned state.
 type Group struct {
 	Capacity int
 	Interval time.Duration
+	Adaptive *AdaptiveGroup
 }
 
 // Config is immutable after New.  Group names are safe aliases, never origins.
@@ -109,10 +123,14 @@ type Snapshot struct {
 }
 
 type GroupSnapshot struct {
-	InFlight int
-	Capacity int
-	NextAt   time.Time
-	Cooldown time.Time
+	InFlight        int
+	Capacity        int // configured ceiling; retained for static callers
+	LearnedCapacity int
+	InitialInterval time.Duration
+	Interval        time.Duration
+	NextAt          time.Time
+	Cooldown        time.Time
+	Revision        uint64
 }
 
 type Broker struct {
@@ -140,6 +158,11 @@ type groupState struct {
 	inFlight         int
 	nextAt, cooldown time.Time
 	cooldownReason   WaitReason
+	learnedCapacity  int
+	initialInterval  time.Duration
+	revision         uint64
+	successStreak    int
+	quietWindows     int
 }
 type pending struct {
 	id         uint64
@@ -184,7 +207,25 @@ func New(cfg Config) (*Broker, error) {
 		if group.Capacity == 0 {
 			group.Capacity = cfg.Capacity
 		}
-		b.groups[name] = &groupState{Group: group}
+		state := groupState{Group: group, learnedCapacity: group.Capacity}
+		if group.Adaptive != nil {
+			adaptive := *group.Adaptive
+			if adaptive.InitialInterval <= 0 || adaptive.MaxCapacity < 0 {
+				return nil, fmt.Errorf("%w: adaptive group %q", ErrInvalidRequest, name)
+			}
+			if adaptive.MaxCapacity == 0 {
+				adaptive.MaxCapacity = group.Capacity
+			}
+			if adaptive.MaxCapacity > group.Capacity {
+				return nil, fmt.Errorf("%w: adaptive group %q capacity", ErrInvalidRequest, name)
+			}
+			group.Adaptive = &adaptive
+			state.Group = group
+			state.learnedCapacity = 1
+			state.initialInterval = adaptive.InitialInterval
+			state.Interval = adaptive.InitialInterval
+		}
+		b.groups[name] = &state
 	}
 	return b, nil
 }
@@ -347,9 +388,78 @@ func (b *Broker) groupLocked(name string) *groupState {
 	if g := b.groups[name]; g != nil {
 		return g
 	}
-	g := &groupState{Group: Group{Capacity: b.cfg.Capacity}}
+	g := &groupState{Group: Group{Capacity: b.cfg.Capacity}, learnedCapacity: b.cfg.Capacity}
 	b.groups[name] = g
 	return g
+}
+
+func (g *groupState) admissionCapacity() int {
+	if g.Adaptive != nil {
+		return g.learnedCapacity
+	}
+	return g.Capacity
+}
+
+func (g *groupState) maxAdaptiveCapacity() int {
+	if g.Adaptive == nil || g.Adaptive.MaxCapacity == 0 {
+		return g.Capacity
+	}
+	return g.Adaptive.MaxCapacity
+}
+
+func (b *Broker) succeededLocked(g *groupState) {
+	if g.Adaptive == nil {
+		return
+	}
+	g.successStreak++
+	if g.successStreak < 5 {
+		return
+	}
+	g.successStreak = 0
+	g.quietWindows++
+	if g.Interval > 200*time.Millisecond {
+		g.Interval -= 100 * time.Millisecond
+		if g.Interval < 200*time.Millisecond {
+			g.Interval = 200 * time.Millisecond
+		}
+	}
+	if g.quietWindows >= 2 && g.learnedCapacity < g.maxAdaptiveCapacity() {
+		g.learnedCapacity++
+		g.quietWindows = 0
+	}
+	g.revision++
+}
+
+func (b *Broker) rateLimitedLocked(g *groupState, retryAfter time.Duration) time.Duration {
+	if g.Adaptive == nil {
+		if retryAfter > 0 {
+			b.applyCooldownLocked(g, b.cfg.Clock.Now().Add(retryAfter), WaitRetryAfter)
+		}
+		return retryAfter
+	}
+	g.successStreak, g.quietWindows, g.learnedCapacity = 0, 0, 1
+	if g.Interval > 15*time.Second {
+		g.Interval = 30 * time.Second
+	} else {
+		g.Interval *= 2
+	}
+	source := WaitRetryAfter
+	if retryAfter <= 0 {
+		retryAfter = g.Interval
+		source = WaitAdaptivePacing
+	}
+	b.applyCooldownLocked(g, b.cfg.Clock.Now().Add(retryAfter), source)
+	g.revision++
+	return retryAfter
+}
+
+func (b *Broker) applyCooldownLocked(g *groupState, until time.Time, source WaitReason) {
+	if until.After(g.cooldown) {
+		g.cooldown, g.cooldownReason = until, source
+	}
+	if until.After(g.nextAt) {
+		g.nextAt = until
+	}
 }
 
 // ApplyCooldown prevents new starts in one pacing group only. source must be
@@ -363,6 +473,7 @@ func (b *Broker) ApplyCooldown(group string, until time.Time, source WaitReason)
 	g := b.groupLocked(group)
 	if until.After(g.cooldown) {
 		g.cooldown, g.cooldownReason = until, source
+		g.revision++
 	}
 	b.scheduleLocked()
 	b.signalChangedLocked()
@@ -458,7 +569,7 @@ func (b *Broker) admissibleLocked(p *pending, now time.Time) (WaitReason, time.T
 	if b.inFlight+p.req.Weight > b.cfg.Capacity {
 		return WaitGlobalCapacity, time.Time{}, false
 	}
-	if g.inFlight+p.req.Weight > g.Capacity {
+	if g.inFlight+p.req.Weight > g.admissionCapacity() {
 		return WaitQuotaCapacity, time.Time{}, false
 	}
 	if b.cfg.MemoryBudget > 0 && b.memory+p.req.MemoryBytes > b.cfg.MemoryBudget {
@@ -492,6 +603,7 @@ func (b *Broker) grantLocked(p *pending) {
 	g.inFlight += p.req.Weight
 	if g.Interval > 0 {
 		g.nextAt = b.cfg.Clock.Now().Add(g.Interval)
+		g.revision++
 	}
 	if p.req.Artifacts > 0 {
 		b.artifacts[p.req.ArtifactKey] += p.req.Artifacts
@@ -534,9 +646,10 @@ func (b *Broker) waitForLocked(p *pending) (time.Time, bool) {
 
 // Lease holds all resources granted to one physical attempt.
 type Lease struct {
-	broker *Broker
-	req    Request
-	once   sync.Once
+	broker       *Broker
+	req          Request
+	once         sync.Once
+	feedbackOnce sync.Once
 }
 
 // MemoryLease holds only a MemoryBudget reservation. Release is idempotent.
@@ -561,6 +674,38 @@ func (l *MemoryLease) Release() {
 // An artifact-bearing lease is thereafter treated as committed: only
 // CancelBeforeDispatch can prove that no remote creation was attempted.
 func (l *Lease) Release() { l.release(false) }
+
+// Succeeded reports a quiet successful attempt before Release.  For an
+// adaptive group, five successes tighten the interval and every second quiet
+// window raises its learned in-flight limit by one, up to its configured cap.
+// Calling it for a static group is harmless.
+func (l *Lease) Succeeded() {
+	l.feedbackOnce.Do(func() {
+		b := l.broker
+		b.mu.Lock()
+		b.succeededLocked(b.groupLocked(l.req.Group))
+		b.scheduleLocked()
+		b.signalChangedLocked()
+		b.mu.Unlock()
+	})
+}
+
+// RateLimited reports a 429 before Release, atomically revising the shared
+// group's learned limit, pacing interval and cooldown.  A non-positive
+// retryAfter uses the newly increased interval as a deterministic cooldown.
+// It returns the applied cooldown duration for transport telemetry.
+func (l *Lease) RateLimited(retryAfter time.Duration) time.Duration {
+	var applied time.Duration
+	l.feedbackOnce.Do(func() {
+		b := l.broker
+		b.mu.Lock()
+		applied = b.rateLimitedLocked(b.groupLocked(l.req.Group), retryAfter)
+		b.scheduleLocked()
+		b.signalChangedLocked()
+		b.mu.Unlock()
+	})
+	return applied
+}
 
 // CancelBeforeDispatch releases the lease and refunds an artifact reservation.
 // It is only valid before a remote creation could have been initiated.
@@ -595,7 +740,7 @@ func (b *Broker) Snapshot() Snapshot {
 		s.Artifacts[k] = v
 	}
 	for k, g := range b.groups {
-		s.Groups[k] = GroupSnapshot{InFlight: g.inFlight, Capacity: g.Capacity, NextAt: g.nextAt, Cooldown: g.cooldown}
+		s.Groups[k] = GroupSnapshot{InFlight: g.inFlight, Capacity: g.Capacity, LearnedCapacity: g.admissionCapacity(), InitialInterval: g.initialInterval, Interval: g.Interval, NextAt: g.nextAt, Cooldown: g.cooldown, Revision: g.revision}
 	}
 	for _, p := range b.queue {
 		s.Waiting = append(s.Waiting, Wait{Target: p.req.Target, Group: p.req.Group, Reason: p.waitReason, StartedAt: p.started, EligibleAt: p.eligibleAt})

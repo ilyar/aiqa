@@ -149,6 +149,66 @@ func TestPacingAndCooldownDoNotBlockOtherGroups(t *testing.T) {
 	got.lease.Release()
 }
 
+func TestAdaptiveGroupSharesLearnedCapacityAndInterval(t *testing.T) {
+	clock := newFakeClock()
+	b := broker(t, Config{Capacity: 4, Clock: clock, Groups: map[string]Group{
+		"shared": {Capacity: 3, Adaptive: &AdaptiveGroup{InitialInterval: 200 * time.Millisecond}},
+	}})
+	for i := 0; i < 10; i++ {
+		lease, err := b.Acquire(context.Background(), Request{Target: "target", Group: "shared"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		lease.Succeeded()
+		lease.Release()
+		if i != 9 {
+			clock.Advance(200 * time.Millisecond)
+		}
+	}
+	s := b.Snapshot().Groups["shared"]
+	if s.Capacity != 3 || s.LearnedCapacity != 2 {
+		t.Fatalf("capacity snapshot=%+v, want configured=3 learned=2", s)
+	}
+	if s.InitialInterval != 200*time.Millisecond || s.Interval != 200*time.Millisecond || s.Revision == 0 {
+		t.Fatalf("adaptive state snapshot=%+v", s)
+	}
+}
+
+func TestAdaptiveRateLimitRevisesGroupBeforeLeaseRelease(t *testing.T) {
+	clock := newFakeClock()
+	b := broker(t, Config{Capacity: 2, Clock: clock, Groups: map[string]Group{
+		"shared": {Capacity: 2, Adaptive: &AdaptiveGroup{InitialInterval: 200 * time.Millisecond}},
+	}})
+	first, err := b.Acquire(context.Background(), Request{Target: "one", Group: "shared"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock.Advance(200 * time.Millisecond) // clear the initial start interval
+	waiting := acquireAsync(b, context.Background(), Request{Target: "two", Group: "shared"})
+	eventually(t, func() bool {
+		s := b.Snapshot()
+		return len(s.Waiting) == 1 && s.Waiting[0].Reason == WaitQuotaCapacity
+	})
+	if got := first.RateLimited(0); got != 400*time.Millisecond {
+		t.Fatalf("no-header cooldown=%s, want 400ms", got)
+	}
+	beforeRelease := b.Snapshot().Groups["shared"]
+	if beforeRelease.LearnedCapacity != 1 || beforeRelease.Interval != 400*time.Millisecond || beforeRelease.Cooldown != clock.Now().Add(400*time.Millisecond) || beforeRelease.Revision == 0 {
+		t.Fatalf("feedback was not recorded before release: %+v", beforeRelease)
+	}
+	first.Release()
+	eventually(t, func() bool {
+		s := b.Snapshot()
+		return len(s.Waiting) == 1 && s.Waiting[0].Reason == WaitAdaptivePacing && s.Waiting[0].EligibleAt == clock.Now().Add(400*time.Millisecond)
+	})
+	clock.Advance(400 * time.Millisecond)
+	got := <-waiting
+	if got.err != nil {
+		t.Fatal(got.err)
+	}
+	got.lease.Release()
+}
+
 // A request can initially be blocked only by global capacity, so it has no
 // timer.  If a Retry-After cooldown arrives before that capacity is released,
 // releasing the slot must wake it to observe the cooldown and install its own
