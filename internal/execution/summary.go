@@ -12,8 +12,6 @@ import (
 // provider fields: those are not public execution metadata.
 type SummaryOptions struct {
 	GlobalRequestCapacity int
-	SchedulerPolicy       string
-	EstimateMethod        string
 }
 
 const (
@@ -43,16 +41,11 @@ type SummaryBuilder struct {
 }
 
 // NewSummaryBuilder rejects incomplete report metadata before any report is
-// emitted. Empty policy/method use the versioned defaults.
+// emitted. Policy/method are fixed protocol identifiers rather than caller
+// strings, so this bridge cannot become a path for configuration secrets.
 func NewSummaryBuilder(options SummaryOptions) (*SummaryBuilder, error) {
 	if options.GlobalRequestCapacity < 1 {
 		return nil, fmt.Errorf("execution summary: global request capacity must be positive")
-	}
-	if options.SchedulerPolicy == "" {
-		options.SchedulerPolicy = DefaultSchedulerPolicy
-	}
-	if options.EstimateMethod == "" {
-		options.EstimateMethod = DefaultEstimateMethod
 	}
 	return &SummaryBuilder{options: options}, nil
 }
@@ -93,8 +86,8 @@ func (b *SummaryBuilder) Build(snapshot Snapshot) (*result.ExecutionSummary, err
 		FinishedJobs:          finished,
 		CancelledJobs:         snapshot.CancelledJobs,
 		PacingGroupCount:      len(snapshot.Groups),
-		SchedulerPolicy:       b.options.SchedulerPolicy,
-		EstimateMethod:        b.options.EstimateMethod,
+		SchedulerPolicy:       DefaultSchedulerPolicy,
+		EstimateMethod:        DefaultEstimateMethod,
 		SumRequestWaitMS:      b.waitMS,
 		WallTimeWithWaitersMS: b.wallMS,
 	}, nil
