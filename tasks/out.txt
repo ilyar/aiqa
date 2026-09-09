@@ -1,0 +1,259 @@
+aiqa --verbose 4 --concurrency 16 --timeout=60 test=compat,sdk --format=markdown,json --name=compat-report
+aiqa: [##------------------] 3/27 11%  Google GenAI compatibility
+aiqa: progress diagnostic: unknown job start
+aiqa: [##------------------] 3/27 11%  OpenAI endpoint compatibility
+aiqa: progress diagnostic: unknown job start
+aiqa: [##------------------] 3/27 11%  OpenAI endpoint compatibility
+aiqa: progress diagnostic: unknown job start
+aiqa: [##------------------] 3/27 11%  OpenAI endpoint compatibility
+aiqa: progress diagnostic: unknown job start
+aiqa: [##------------------] 3/27 11%  OpenAI endpoint compatibility
+aiqa: progress diagnostic: unknown job start
+aiqa: [##------------------] 3/27 11%  OpenAI endpoint compatibility
+aiqa: progress diagnostic: unknown job start
+aiqa: [##------------------] 3/27 11%  OpenAI endpoint compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [##------------------] 3/27 11%  OpenAI endpoint compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [##------------------] 3/27 11%  OpenAI endpoint compatibility
+aiqa: progress diagnostic: unknown job start
+aiqa: [##------------------] 3/27 11%  OpenAI endpoint compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [##------------------] 4/27 14%  official-sdk.google-genai.models.list
+aiqa: progress diagnostic: unknown job start
+aiqa: [##------------------] 4/27 14%  official-sdk.google-genai.models.list
+aiqa: progress diagnostic: unknown job completion
+aiqa: [##------------------] 4/27 14%  official-sdk.google-genai.models.list
+aiqa: progress diagnostic: unknown job completion
+aiqa: [##------------------] 4/27 14%  official-sdk.google-genai.models.list
+aiqa: progress diagnostic: unknown job start
+aiqa: [##------------------] 4/27 14%  official-sdk.google-genai.models.list
+aiqa: progress diagnostic: unknown job start
+aiqa: [##------------------] 4/27 14%  official-sdk.google-genai.models.list
+aiqa: progress diagnostic: unknown job start
+aiqa: [##------------------] 4/27 14%  official-sdk.google-genai.models.list
+aiqa: progress diagnostic: unknown job start
+aiqa: [##------------------] 4/27 14%  official-sdk.google-genai.models.list
+aiqa: progress diagnostic: unknown job start
+aiqa: [##------------------] 4/27 14%  official-sdk.google-genai.models.list
+aiqa: progress diagnostic: unknown job start
+aiqa: [##------------------] 4/27 14%  official-sdk.google-genai.models.list
+aiqa: progress diagnostic: unknown job start
+aiqa: [##------------------] 4/27 14%  official-sdk.google-genai.models.list
+aiqa: progress diagnostic: unknown job start
+aiqa: [##------------------] 4/27 14%  official-sdk.google-genai.models.list
+aiqa: progress diagnostic: unknown job start
+aiqa: [##------------------] 4/27 14%  official-sdk.google-genai.models.list
+aiqa: progress diagnostic: unknown job start
+aiqa: [##------------------] 4/27 14%  official-sdk.google-genai.models.list
+aiqa: progress diagnostic: unknown job start
+aiqa: [##------------------] 4/27 14%  official-sdk.google-genai.models.list
+aiqa: progress diagnostic: unknown job start
+aiqa: [##------------------] 4/27 14%  official-sdk.google-genai.models.list
+aiqa: progress diagnostic: unknown job start
+aiqa: [##------------------] 4/27 14%  official-sdk.google-genai.models.list
+aiqa: progress diagnostic: unknown job start
+aiqa: [###-----------------] 5/27 18%  official-sdk.google-genai.models.list
+aiqa: progress diagnostic: unknown job completion
+aiqa: [###-----------------] 5/27 18%  official-sdk.google-genai.models.list
+aiqa: google-genai: completed — completed
+aiqa: [###-----------------] 5/27 18%  official-sdk.google-genai.models.list
+aiqa: progress diagnostic: unknown job completion
+aiqa: [###-----------------] 5/27 18%  official-sdk.google-genai.models.list
+aiqa: progress diagnostic: unknown job completion
+aiqa: [###-----------------] 5/27 18%  official-sdk.google-genai.models.list
+aiqa: progress diagnostic: unknown job completion
+aiqa: [###-----------------] 5/27 18%  official-sdk.google-genai.models.list
+aiqa: progress diagnostic: unknown job completion
+aiqa: [###-----------------] 5/27 18%  official-sdk.google-genai.models.list
+aiqa: progress diagnostic: unknown job start
+aiqa: [###-----------------] 5/27 18%  official-sdk.google-genai.models.list
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibilitygenai.models.list
+aiqa: progress diagnostic: unknown job start
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job start
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job start
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job start
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job start
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job start
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job start
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job start
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job start
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job start
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job start
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job start
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job start
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job start
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job start
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job start
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job start
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job start
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job start
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job start
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility^A
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job start
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####----------------] 6/27 22%  OpenAI compatibility
+aiqa: progress diagnostic: unknown job completion
+aiqa: [#####---------------] 7/27 25%  official-sdk.anthropic.error.responses
+aiqa: progress diagnostic: unknown job start
+aiqa: [#####---------------] 7/27 25%  official-sdk.anthropic.structured-outputrn
+aiqa: progress diagnostic: unknown job start
+aiqa: [#####---------------] 7/27 25%  official-sdk.anthropic.structured-output
+aiqa: progress diagnostic: unknown job start
+aiqa: [#####---------------] 7/27 25%  official-sdk.anthropic.structured-output
+aiqa: progress diagnostic: unknown job start
+aiqa: [#####---------------] 7/27 25%  official-sdk.anthropic.structured-output
+aiqa: progress diagnostic: unknown job start
+aiqa: [#####---------------] 7/27 25%  official-sdk.anthropic.structured-output
+aiqa: progress diagnostic: unknown job start
+aiqa: [#####---------------] 7/27 25%  official-sdk.anthropic.structured-output
+aiqa: progress diagnostic: unknown job start
+aiqa: [#####---------------] 7/27 25%  official-sdk.anthropic.structured-output
+aiqa: progress diagnostic: unknown job start
+aiqa: [#####---------------] 7/27 25%  official-sdk.anthropic.structured-output
+aiqa: progress diagnostic: unknown job start
+aiqa: [#####---------------] 8/27 29%  official-sdk.anthropic.structured-output
+aiqa: progress diagnostic: unknown job completion
+aiqa: [#####---------------] 8/27 29%  official-sdk.anthropic.structured-output
+aiqa: progress diagnostic: unknown job completion
+aiqa: [######--------------] 9/27 33%  official-sdk.openai.chat.jsonletionstput
+aiqa: progress diagnostic: unknown job start
+aiqa: [######--------------] 9/27 33%  official-sdk.openai.models.getonsesam
+aiqa: progress diagnostic: unknown job start
+aiqa: [######--------------] 9/27 33%  official-sdk.openai.models.get
+aiqa: progress diagnostic: unknown job start
+aiqa: [######--------------] 9/27 33%  official-sdk.openai.models.get
+aiqa: progress diagnostic: unknown job start
+aiqa: [######--------------] 9/27 33%  official-sdk.openai.models.get
+aiqa: progress diagnostic: unknown job start
+aiqa: [######--------------] 9/27 33%  official-sdk.openai.models.get
+aiqa: progress diagnostic: unknown job start
+aiqa: [######--------------] 9/27 33%  official-sdk.openai.models.get
+aiqa: progress diagnostic: unknown job start
+aiqa: [######--------------] 9/27 33%  official-sdk.openai.models.get
+aiqa: progress diagnostic: unknown job start
+aiqa: [######--------------] 9/27 33%  official-sdk.openai.models.get
+aiqa: progress diagnostic: unknown job start
+aiqa: [######--------------] 9/27 33%  official-sdk.openai.models.get
+aiqa: progress diagnostic: unknown job start
+aiqa: [#######-------------] 10/27 37%  official-sdk.openai.models.get
+aiqa: progress diagnostic: unknown job completion
+aiqa: [########------------] 11/27 40%  official-sdk.openai.models.get
+aiqa: progress diagnostic: unknown job completion
+aiqa: [########------------] 12/27 44%  official-sdk.openai.models.get
+aiqa: progress diagnostic: unknown job completion
+aiqa: [#########-----------] 13/27 48%  official-sdk.openai.models.get
+aiqa: progress diagnostic: unknown job completion
+aiqa: [##########----------] 14/27 51%  official-sdk.openai.models.get
+aiqa: progress diagnostic: unknown job completion
+aiqa: [###########---------] 15/27 55%  official-sdk.openai.models.get
+aiqa: progress diagnostic: unknown job completion
+aiqa: [###########---------] 16/27 59%  official-sdk.openai.models.get
+aiqa: progress diagnostic: unknown job completion
+aiqa: [############--------] 17/27 62%  official-sdk.openai.models.get
+aiqa: progress diagnostic: unknown job completion
+aiqa: [#############-------] 18/27 66%  official-sdk.openai.models.get
+aiqa: progress diagnostic: unknown job completion
+aiqa: [##############------] 19/27 70%  official-sdk.openai.models.get
+aiqa: progress diagnostic: unknown job completion
+aiqa: [##############------] 20/27 74%  official-sdk.openai.models.get
+aiqa: progress diagnostic: unknown job completion
+aiqa: [###############-----] 21/27 77%  official-sdk.openai.models.get
+aiqa: progress diagnostic: unknown job completion
+aiqa: [################----] 22/27 81%  official-sdk.openai.models.get
+aiqa: progress diagnostic: unknown job completion
+aiqa: [#################---] 23/27 85%  official-sdk.openai.models.get
+aiqa: progress diagnostic: unknown job completion
+aiqa: [#################---] 24/27 88%  official-sdk.openai.models.get
+aiqa: progress diagnostic: unknown job completion
+aiqa: [#################---] 24/27 88%  official-sdk.openai.models.get
+aiqa: anthropic: completed — completed
+aiqa: [##################--] 25/27 92%  official-sdk.openai.models.get
+aiqa: progress diagnostic: unknown job completion
+aiqa: [###################-] 26/27 96%  official-sdk.openai.models.get
+aiqa: progress diagnostic: unknown job completion
+aiqa: [####################] 27/27 100%  official-sdk.openai.models.get
+aiqa: progress diagnostic: unknown job completion
+aiqa: openai: completed — completed
+aiqa: completed; reports: compat-report.json, compat-report.md
