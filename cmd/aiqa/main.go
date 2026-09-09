@@ -155,6 +155,20 @@ selection and output:
   --format markdown,json   report formats (default both)
   --name report            output basename (default report)
   --concurrency 1          global native and extension request ceiling (default 1)
+  --target-concurrency auto|N
+                            concurrent target workflows; auto activates selected targets
+  --pacing-group TARGET=ALIAS
+                            share a safe provider-quota alias between targets; repeatable
+  --request-memory-budget 128MiB
+                            run-owned request buffer admission budget
+  --queue-timeout DURATION  bound scheduler queue wait (0 disables)
+  --run-timeout DURATION    bound the whole run (0 disables)
+  --progress auto|tty|plain|off
+                            stderr progress rendering mode (default auto)
+  --no-progress             suppress progress rendering
+  --color auto|always|never terminal color policy (default auto)
+  --unicode auto|always|never terminal glyph policy (default auto)
+  --stdout json|markdown    additionally write exactly one final report to stdout
 
 compatibility:
   --module MODULE[,MODULE]
