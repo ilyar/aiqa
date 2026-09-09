@@ -2,10 +2,15 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"strings"
+	"syscall"
 	"testing"
+
+	"github.com/ilyar/aiqa/internal/app"
+	"github.com/ilyar/aiqa/internal/config"
 )
 
 func traceLine(t *testing.T, values map[string]any) string {
@@ -75,5 +80,61 @@ func TestLogHelpDoesNotOpenInput(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "usage: aiqa log") {
 		t.Fatalf("help=%q", out.String())
+	}
+}
+
+func TestRunApplicationFirstInterruptCancelsAndReturnsPartial(t *testing.T) {
+	signals := make(chan os.Signal, 1)
+	started := make(chan struct{})
+	go func() {
+		<-started
+		signals <- os.Interrupt
+	}()
+	out, err, code, interrupted := runApplication(context.Background(), config.Config{}, signals, func(ctx context.Context, _ config.Config, _ app.BuildInfo) (app.RunResult, error) {
+		close(started)
+		<-ctx.Done()
+		return app.RunResult{ExitCode: 2, Stdout: []byte("partial\n")}, ctx.Err()
+	})
+	if !interrupted || code != 130 || err != context.Canceled || string(out.Stdout) != "partial\n" {
+		t.Fatalf("out=%+v err=%v code=%d interrupted=%v", out, err, code, interrupted)
+	}
+}
+
+func TestRunApplicationSecondInterruptStopsWaiting(t *testing.T) {
+	signals := make(chan os.Signal, 2)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	defer close(release)
+	go func() {
+		<-started
+		signals <- os.Interrupt
+		signals <- syscall.SIGTERM
+	}()
+	_, err, code, interrupted := runApplication(context.Background(), config.Config{}, signals, func(context.Context, config.Config, app.BuildInfo) (app.RunResult, error) {
+		close(started)
+		<-release
+		return app.RunResult{}, nil
+	})
+	if err != nil || !interrupted || code != 143 {
+		t.Fatalf("err=%v code=%d interrupted=%v", err, code, interrupted)
+	}
+}
+
+func TestRunApplicationNaturalCompletionKeepsVerdictExit(t *testing.T) {
+	out, err, code, interrupted := runApplication(context.Background(), config.Config{}, make(chan os.Signal), func(context.Context, config.Config, app.BuildInfo) (app.RunResult, error) {
+		return app.RunResult{ExitCode: 1}, nil
+	})
+	if err != nil || interrupted || code != 0 || out.ExitCode != 1 {
+		t.Fatalf("out=%+v err=%v code=%d interrupted=%v", out, err, code, interrupted)
+	}
+}
+
+func TestRunCLIRuntimeFailureIsExitTwo(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := runCLI([]string{"--base-url=http://127.0.0.1:8080/v1", "--api-key=test", "--allow-http"}, strings.NewReader(""), &stdout, &stderr, nil, func(context.Context, config.Config, app.BuildInfo) (app.RunResult, error) {
+		return app.RunResult{ExitCode: 0}, os.ErrClosed
+	})
+	if code != 2 || !strings.Contains(stderr.String(), "[FATAL]") {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
 }

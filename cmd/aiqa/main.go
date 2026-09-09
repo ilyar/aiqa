@@ -19,43 +19,104 @@ var (
 )
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "log" {
-		if err := runLog(os.Args[2:], os.Stdin, os.Stdout, os.Stderr, "."); err != nil {
-			fmt.Fprintln(os.Stderr, "aiqa log:", err)
-			os.Exit(2)
+	// Keep signal ownership at the CLI boundary.  The application receives a
+	// cancellable context and remains responsible for writing a partial report.
+	// A second signal is intentionally handled by runCLI as the operator's
+	// request to stop waiting for that bounded cleanup.
+	signals := make(chan os.Signal, 2)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	code := runCLI(os.Args[1:], os.Stdin, os.Stdout, os.Stderr, signals, app.Run)
+	signal.Stop(signals)
+	os.Exit(code)
+}
+
+type applicationRunner func(context.Context, config.Config, app.BuildInfo) (app.RunResult, error)
+
+type applicationResult struct {
+	out app.RunResult
+	err error
+}
+
+// runCLI is deliberately separate from main so signal behaviour is testable
+// without delivering process signals to the Go test binary.
+func runCLI(args []string, stdin io.Reader, stdout, stderr io.Writer, signals <-chan os.Signal, runner applicationRunner) int {
+	if len(args) > 0 && args[0] == "log" {
+		if err := runLog(args[1:], stdin, stdout, stderr, "."); err != nil {
+			fmt.Fprintln(stderr, "aiqa log:", err)
+			return 2
 		}
-		return
+		return 0
 	}
-	cfg, err := config.Parse(os.Args[1:])
+	cfg, err := config.Parse(args)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "aiqa: [FATAL]", err)
-		printUsage(os.Stderr)
-		os.Exit(2)
+		fmt.Fprintln(stderr, "aiqa: [FATAL]", err)
+		printUsage(stderr)
+		return 2
 	}
 	if cfg.HelpOnly {
-		printUsage(os.Stdout)
-		return
+		printUsage(stdout)
+		return 0
 	}
 	if cfg.VersionOnly {
-		fmt.Printf("aiqa %s (commit %s, built %s)\n", version, commit, date)
-		return
+		fmt.Fprintf(stdout, "aiqa %s (commit %s, built %s)\n", version, commit, date)
+		return 0
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	out, runErr := app.Run(ctx, cfg, app.BuildInfo{Version: version, Commit: commit, Date: date})
+	out, runErr, exitCode, interrupted := runApplication(context.Background(), cfg, signals, runner)
 	if len(out.Stdout) > 0 {
-		if _, err := os.Stdout.Write(out.Stdout); err != nil {
-			fmt.Fprintln(os.Stderr, "aiqa: [FATAL] write stdout:", err)
-			os.Exit(2)
+		if _, err := stdout.Write(out.Stdout); err != nil {
+			fmt.Fprintln(stderr, "aiqa: [FATAL] write stdout:", err)
+			return 2
 		}
 	}
-	if runErr != nil {
-		fmt.Fprintln(os.Stderr, "aiqa: [FATAL]", runErr)
-		if out.ExitCode == 0 {
-			out.ExitCode = 1
+	if runErr != nil && !interrupted {
+		fmt.Fprintln(stderr, "aiqa: [FATAL]", runErr)
+		// An error returned by app.Run is an operational failure, never a
+		// compatibility verdict.  In particular --fail-on=never must not turn
+		// an aborted or failed finalization into success.
+		out.ExitCode = 2
+	}
+	if interrupted {
+		return exitCode
+	}
+	return out.ExitCode
+}
+
+// runApplication maps the first cancellation signal to the documented CLI
+// exit status while still allowing app.Run to finish its cancellation-aware
+// finalization.  A second signal stops that wait; main then exits, which is
+// the only portable hard termination available to this process.
+func runApplication(parent context.Context, cfg config.Config, signals <-chan os.Signal, runner applicationRunner) (app.RunResult, error, int, bool) {
+	ctx, cancel := context.WithCancel(parent)
+	defer cancel()
+	done := make(chan applicationResult, 1)
+	go func() {
+		out, err := runner(ctx, cfg, app.BuildInfo{Version: version, Commit: commit, Date: date})
+		done <- applicationResult{out: out, err: err}
+	}()
+	if signals == nil {
+		result := <-done
+		return result.out, result.err, 0, false
+	}
+	select {
+	case result := <-done:
+		return result.out, result.err, 0, false
+	case first := <-signals:
+		code := signalExitCode(first)
+		cancel()
+		select {
+		case result := <-done:
+			return result.out, result.err, code, true
+		case second := <-signals:
+			return app.RunResult{}, nil, signalExitCode(second), true
 		}
 	}
-	os.Exit(out.ExitCode)
+}
+
+func signalExitCode(sig os.Signal) int {
+	if sig == syscall.SIGTERM {
+		return 143
+	}
+	return 130
 }
 
 func printUsage(w io.Writer) {
