@@ -205,11 +205,19 @@ func (p *executionProgress) ObserveSchedulerFact(fact scheduler.Fact, owner api.
 		p.applyAt(offset, func(base execution.Base) execution.Event {
 			base = executionBaseForOwner(base, owner, fact.Group)
 			base.AttemptID = fact.RequestID
+			// applyAt serializes concurrent producers and can advance the
+			// reducer offset after this scheduler fact was read. A wait cannot
+			// become eligible before its own accepted event, so clamp against
+			// the authoritative base offset at construction time as well.
+			eligibleAt := eligible
+			if eligibleAt < base.Meta.Offset {
+				eligibleAt = base.Meta.Offset
+			}
 			switch fact.Kind {
 			case scheduler.FactWaitStarted:
-				return execution.WaitStarted{Base: base, WaitID: fact.WaitID, Reason: executionWaitReason(fact.Reason), Source: executionWaitSource(fact.Reason), EligibleAt: eligible, ScheduleRevision: fact.Revision}
+				return execution.WaitStarted{Base: base, WaitID: fact.WaitID, Reason: executionWaitReason(fact.Reason), Source: executionWaitSource(fact.Reason), EligibleAt: eligibleAt, ScheduleRevision: fact.Revision}
 			case scheduler.FactWaitUpdated:
-				return execution.WaitUpdated{Base: base, WaitID: fact.WaitID, Reason: executionWaitReason(fact.Reason), Source: executionWaitSource(fact.Reason), EligibleAt: eligible, ScheduleRevision: fact.Revision}
+				return execution.WaitUpdated{Base: base, WaitID: fact.WaitID, Reason: executionWaitReason(fact.Reason), Source: executionWaitSource(fact.Reason), EligibleAt: eligibleAt, ScheduleRevision: fact.Revision}
 			default:
 				return execution.WaitEnded{Base: base, WaitID: fact.WaitID}
 			}
