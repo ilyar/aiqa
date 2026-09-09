@@ -41,9 +41,15 @@ type applicationResult struct {
 // without delivering process signals to the Go test binary.
 func runCLI(args []string, stdin io.Reader, stdout, stderr io.Writer, signals <-chan os.Signal, runner applicationRunner) int {
 	if len(args) > 0 && args[0] == "log" {
-		if err := runLog(args[1:], stdin, stdout, stderr, "."); err != nil {
+		err, exitCode, interrupted := runLogApplication(context.Background(), signals, func(ctx context.Context) error {
+			return runLogContext(ctx, args[1:], stdin, stdout, stderr, ".")
+		})
+		if err != nil && !interrupted {
 			fmt.Fprintln(stderr, "aiqa log:", err)
 			return 2
+		}
+		if interrupted {
+			return exitCode
 		}
 		return 0
 	}
@@ -79,6 +85,31 @@ func runCLI(args []string, stdin io.Reader, stdout, stderr io.Writer, signals <-
 		return exitCode
 	}
 	return out.ExitCode
+}
+
+// runLogApplication gives the long-lived --follow mode the same signal
+// contract as a test run: the first signal cancels polling and returns the
+// documented status; the second avoids waiting for cleanup indefinitely.
+func runLogApplication(parent context.Context, signals <-chan os.Signal, run func(context.Context) error) (error, int, bool) {
+	ctx, cancel := context.WithCancel(parent)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- run(ctx) }()
+	if signals == nil {
+		return <-done, 0, false
+	}
+	select {
+	case err := <-done:
+		return err, 0, false
+	case first := <-signals:
+		cancel()
+		select {
+		case <-done:
+			return nil, signalExitCode(first), true
+		case second := <-signals:
+			return nil, signalExitCode(second), true
+		}
+	}
 }
 
 // runApplication maps the first cancellation signal to the documented CLI

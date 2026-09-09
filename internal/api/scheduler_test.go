@@ -211,24 +211,8 @@ func TestReserveArtifactSharesTargetModelBucketAndCommits(t *testing.T) {
 		t.Fatalf("shared native/SDK reservations=%d, want 2", got)
 	}
 
-	blockedCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	blocked := make(chan error, 1)
-	go func() {
-		_, err := native.ReserveArtifact(blockedCtx, "image-model")
-		blocked <- err
-	}()
-	waitForSchedulerCondition(t, func() bool {
-		for _, wait := range broker.Snapshot().Waiting {
-			if wait.Target == "target-a" && wait.Reason == scheduler.WaitQuotaCapacity {
-				return true
-			}
-		}
-		return false
-	})
-	cancel()
-	if err := <-blocked; !errors.Is(err, context.Canceled) {
-		t.Fatalf("third reservation error=%v, want context cancellation", err)
+	if _, err := native.ReserveArtifact(context.Background(), "image-model"); !errors.Is(err, scheduler.ErrArtifactBudgetExhausted) {
+		t.Fatalf("third reservation error=%v, want terminal artifact budget error", err)
 	}
 	if got := artifactTotal(broker.Snapshot().Artifacts); got != 2 {
 		t.Fatalf("cancelled retry refunded possible creation: %d", got)

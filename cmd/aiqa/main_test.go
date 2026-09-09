@@ -120,6 +120,23 @@ func TestRunApplicationSecondInterruptStopsWaiting(t *testing.T) {
 	}
 }
 
+func TestRunLogApplicationConsumesInterrupt(t *testing.T) {
+	signals := make(chan os.Signal, 1)
+	started := make(chan struct{})
+	go func() {
+		<-started
+		signals <- os.Interrupt
+	}()
+	err, code, interrupted := runLogApplication(context.Background(), signals, func(ctx context.Context) error {
+		close(started)
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	if err != nil || !interrupted || code != 130 {
+		t.Fatalf("err=%v code=%d interrupted=%v", err, code, interrupted)
+	}
+}
+
 func TestRunApplicationNaturalCompletionKeepsVerdictExit(t *testing.T) {
 	out, err, code, interrupted := runApplication(context.Background(), config.Config{}, make(chan os.Signal), func(context.Context, config.Config, app.BuildInfo) (app.RunResult, error) {
 		return app.RunResult{ExitCode: 1}, nil

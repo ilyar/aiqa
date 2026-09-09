@@ -546,7 +546,14 @@ func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 	}
 	r.client.pacer.logical(r.model)
 	r.client.trace(ctx, logging.Trace, "sdk.logical_request.begin", logging.Fields{"method": request.Method, "path": path})
-	for attempt := 0; attempt < 3; attempt++ {
+	maxAttempts := 3
+	if isArtifactCreationPath(path) {
+		// A response loss after an image creation dispatch is ambiguous. The
+		// reservation accounts for one possible creation, never for an
+		// automatic second provider-side creation.
+		maxAttempts = 1
+	}
+	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if attempt > 0 && request.GetBody == nil {
 			r.client.trace(ctx, logging.Error, "sdk.retry.unavailable", logging.Fields{"method": request.Method, "path": path, "attempt": attempt + 1, "reason": "non_replayable_body"})
 			err := errors.New("cannot retry SDK request with a non-replayable body")
@@ -607,17 +614,17 @@ func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 		retry := err != nil || response != nil && (response.StatusCode == http.StatusRequestTimeout || response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500)
 		if response != nil && response.StatusCode == http.StatusTooManyRequests {
 			r.client.applySchedulerRetryAfter(response.Header)
-			if attempt == 2 {
+			if attempt == maxAttempts-1 {
 				r.client.pacer.limited(r.model, retryAfter(response.Header))
 			}
 		}
-		if !retry || attempt == 2 {
+		if !retry || attempt == maxAttempts-1 {
 			if err == nil && response != nil && response.StatusCode >= 200 && response.StatusCode < 300 {
 				r.client.pacer.success(r.model, time.Since(started))
 				if attempt > 0 {
 					r.client.pacer.recovered(r.model)
 				}
-			} else if attempt == 2 && retry {
+			} else if attempt == maxAttempts-1 && retry {
 				r.client.pacer.exhausted(r.model)
 			}
 			r.client.pacer.release(r.model)
@@ -815,7 +822,14 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 	}
 	c.pacer.logical(model)
 	c.trace(ctx, logging.Trace, "http.logical_request.begin", logging.Fields{"method": method, "path": path})
-	for attempt := 0; attempt < 3; attempt++ {
+	maxAttempts := 3
+	if isArtifactCreationPath(path) {
+		// See the SDK transport equivalent above: this logical request can
+		// create a billable artifact, so its sole reserved creation must map
+		// to one physical provider attempt.
+		maxAttempts = 1
+	}
+	for attempt := 0; attempt < maxAttempts; attempt++ {
 		waitStarted := time.Now()
 		c.trace(ctx, logging.Trace, "pacing.wait.begin", logging.Fields{"method": method, "path": path, "attempt": attempt + 1})
 		if err := c.waitForPacing(ctx, model); err != nil {
@@ -864,7 +878,7 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 			c.applySchedulerRetryAfter(http.Header(resp.Header))
 			c.pacer.limited(model, delay)
 		}
-		if attempt == 2 {
+		if attempt == maxAttempts-1 {
 			c.pacer.exhausted(model)
 			c.trace(ctx, logging.Warn, "http.retry.exhausted", logging.Fields{"method": method, "path": path, "attempt": attempt + 1, "reason": retryReasonResponse(resp, err), "status": resp.StatusCode})
 			c.trace(ctx, logging.Debug, "http.logical_request.result", rawResponseFields(method, path, attempt+1, resp, err))
@@ -886,6 +900,10 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 		}
 	}
 	panic("unreachable")
+}
+
+func isArtifactCreationPath(path string) bool {
+	return strings.Trim(path, "/") == "images/generations"
 }
 
 func (c *Client) doRawURLOnce(ctx context.Context, method, endpoint string, body []byte, contentType string, attemptNumber int) (resp Response, err error) {

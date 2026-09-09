@@ -93,6 +93,54 @@ func TestPacingObserverReportsOnlyActualWaitsAcrossTransportPaths(t *testing.T) 
 	}
 }
 
+func TestArtifactCreationEndpointsDoNotRetryAfterDispatch(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		run  func(*Client) error
+	}{
+		{
+			name: "native",
+			run: func(client *Client) error {
+				_, err := client.ImagesGenerate(context.Background(), map[string]any{"model": "image-model", "prompt": "fixture"})
+				return err
+			},
+		},
+		{
+			name: "sdk",
+			run: func(client *Client) error {
+				request, err := http.NewRequestWithContext(context.Background(), http.MethodPost, client.BaseURL()+"/images/generations", strings.NewReader(`{"model":"image-model"}`))
+				if err != nil {
+					return err
+				}
+				response, err := client.PacedHTTPClient("image-model").Do(request)
+				if response != nil && response.Body != nil {
+					_ = response.Body.Close()
+				}
+				return err
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				calls.Add(1)
+				w.WriteHeader(http.StatusServiceUnavailable)
+			}))
+			defer server.Close()
+			client, err := NewClient(server.URL, "secret", "aiqa-test", time.Nanosecond)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := test.run(client); err != nil {
+				t.Fatal(err)
+			}
+			if got := calls.Load(); got != 1 {
+				t.Fatalf("provider attempts=%d, want 1", got)
+			}
+		})
+	}
+}
+
 func TestPacingObserverClosesCancelledWait(t *testing.T) {
 	client, err := NewClient("https://example.test", "secret", "aiqa-test", time.Second)
 	if err != nil {

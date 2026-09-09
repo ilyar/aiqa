@@ -43,6 +43,9 @@ const (
 var (
 	ErrInvalidRequest = errors.New("scheduler: invalid request")
 	ErrTooLarge       = errors.New("scheduler: reservation exceeds broker capacity")
+	// ErrArtifactBudgetExhausted is terminal: previously committed creations
+	// cannot be refunded, so waiting cannot make this request admissible.
+	ErrArtifactBudgetExhausted = errors.New("scheduler: artifact budget exhausted")
 )
 
 // Group configures shared pacing and a learned/conservative in-flight limit.
@@ -120,10 +123,15 @@ type Broker struct {
 	memory    int64
 	groups    map[string]*groupState
 	artifacts map[string]int
+	committed map[string]int
 	queue     []*pending
 	events    []Event
 	nextID    uint64
 	rrTarget  string
+	// changed is closed and replaced whenever queue eligibility or capacity
+	// changes. Waiters select on it so a request that was previously waiting
+	// only for capacity re-reads a newly installed cooldown deadline.
+	changed chan struct{}
 }
 
 type groupState struct {
@@ -157,7 +165,7 @@ func New(cfg Config) (*Broker, error) {
 	if cfg.Clock == nil {
 		cfg.Clock = RealClock{}
 	}
-	b := &Broker{cfg: cfg, groups: make(map[string]*groupState), artifacts: make(map[string]int)}
+	b := &Broker{cfg: cfg, groups: make(map[string]*groupState), artifacts: make(map[string]int), committed: make(map[string]int), changed: make(chan struct{})}
 	for name, group := range cfg.Groups {
 		if name == "" || group.Capacity < 0 || group.Interval < 0 {
 			return nil, fmt.Errorf("%w: group %q", ErrInvalidRequest, name)
@@ -190,11 +198,13 @@ func (b *Broker) Acquire(ctx context.Context, req Request) (*Lease, error) {
 	b.nextID++
 	b.queue = append(b.queue, p)
 	b.scheduleLocked()
+	b.signalChangedLocked()
 	b.mu.Unlock()
 
 	for {
 		b.mu.Lock()
 		wait, hasWait := b.waitForLocked(p)
+		changed := b.changed
 		b.mu.Unlock()
 		if !hasWait { // Result may have been delivered concurrently.
 			select {
@@ -222,6 +232,7 @@ func (b *Broker) Acquire(ctx context.Context, req Request) (*Lease, error) {
 					b.events = append(b.events, Event{Kind: "wait_ended", Target: p.req.Target, Group: p.req.Group, Reason: p.waitReason, At: b.cfg.Clock.Now()})
 				}
 				b.scheduleLocked()
+				b.signalChangedLocked()
 			}
 			b.mu.Unlock()
 			if removed {
@@ -232,7 +243,11 @@ func (b *Broker) Acquire(ctx context.Context, req Request) (*Lease, error) {
 		case <-timer:
 			b.mu.Lock()
 			b.scheduleLocked()
+			b.signalChangedLocked()
 			b.mu.Unlock()
+		case <-changed:
+			// A release, cooldown or queue mutation may have changed the next
+			// eligible deadline while this waiter had no timer. Re-evaluate it.
 		}
 	}
 }
@@ -257,6 +272,9 @@ func (b *Broker) validateLocked(r Request) error {
 	}
 	if r.Weight > groupCapacity {
 		return ErrTooLarge
+	}
+	if r.Artifacts > 0 && b.committed[r.ArtifactKey]+r.Artifacts > b.cfg.ArtifactBudget {
+		return ErrArtifactBudgetExhausted
 	}
 	return nil
 }
@@ -283,7 +301,13 @@ func (b *Broker) ApplyCooldown(group string, until time.Time, source WaitReason)
 		g.cooldown, g.cooldownReason = until, source
 	}
 	b.scheduleLocked()
+	b.signalChangedLocked()
 	return nil
+}
+
+func (b *Broker) signalChangedLocked() {
+	close(b.changed)
+	b.changed = make(chan struct{})
 }
 
 func (b *Broker) scheduleLocked() {
@@ -422,6 +446,8 @@ type Lease struct {
 }
 
 // Release is idempotent and must be called after body EOF/Close or cancellation.
+// An artifact-bearing lease is thereafter treated as committed: only
+// CancelBeforeDispatch can prove that no remote creation was attempted.
 func (l *Lease) Release() { l.release(false) }
 
 // CancelBeforeDispatch releases the lease and refunds an artifact reservation.
@@ -439,8 +465,11 @@ func (l *Lease) release(refundArtifacts bool) {
 			if b.artifacts[l.req.ArtifactKey] == 0 {
 				delete(b.artifacts, l.req.ArtifactKey)
 			}
+		} else if l.req.Artifacts > 0 {
+			b.committed[l.req.ArtifactKey] += l.req.Artifacts
 		}
 		b.scheduleLocked()
+		b.signalChangedLocked()
 		b.mu.Unlock()
 	})
 }

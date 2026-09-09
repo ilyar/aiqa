@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -20,6 +21,10 @@ import (
 // runLog is deliberately independent from the runner configuration parser.
 // Log flags are validated before resolveLogSource opens a file.
 func runLog(args []string, stdin io.Reader, stdout, stderr io.Writer, cwd string) error {
+	return runLogContext(context.Background(), args, stdin, stdout, stderr, cwd)
+}
+
+func runLogContext(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, cwd string) error {
 	// The documented form places FILE before flags. flag.FlagSet stops at that
 	// positional argument, so lift it out first while still accepting a trailing
 	// FILE for shell-friendly flag-first invocations.
@@ -80,7 +85,7 @@ func runLog(args []string, stdin io.Reader, stdout, stderr io.Writer, cwd string
 		return renderLog(source, stdout, stderr, filter, format)
 	}
 	if follow {
-		return followLogFile(label, stdout, stderr, filter, format)
+		return followLogFileContext(ctx, label, stdout, stderr, filter, format)
 	}
 	return renderLog(source, stdout, stderr, filter, format)
 }
@@ -97,6 +102,10 @@ func printLogUsage(w io.Writer) {
 // decoder owns all line-boundary, truncate and rotation semantics; this layer
 // only supplies checked snapshots at the documented 200ms cadence.
 func followLogFile(path string, stdout, stderr io.Writer, filter logview.Filter, format string) error {
+	return followLogFileContext(context.Background(), path, stdout, stderr, filter, format)
+}
+
+func followLogFileContext(ctx context.Context, path string, stdout, stderr io.Writer, filter logview.Filter, format string) error {
 	follow := logview.NewFollower()
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
@@ -128,7 +137,11 @@ func followLogFile(path string, stdout, stderr io.Writer, filter logview.Filter,
 			return pollErr
 		}
 		_, header = writeLogItems(stdout, stderr, items, filter, format, header)
-		<-ticker.C
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
 	}
 }
 

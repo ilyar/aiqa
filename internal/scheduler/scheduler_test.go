@@ -143,6 +143,38 @@ func TestPacingAndCooldownDoNotBlockOtherGroups(t *testing.T) {
 	got.lease.Release()
 }
 
+// A request can initially be blocked only by global capacity, so it has no
+// timer.  If a Retry-After cooldown arrives before that capacity is released,
+// releasing the slot must wake it to observe the cooldown and install its own
+// timer.  Otherwise it remains asleep forever after the fake clock advances.
+func TestCapacityWaiterRechecksNewCooldown(t *testing.T) {
+	clock := newFakeClock()
+	b := broker(t, Config{Capacity: 1, Clock: clock})
+	hold, err := b.Acquire(context.Background(), Request{Target: "a", Group: "shared"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waiting := acquireAsync(b, context.Background(), Request{Target: "b", Group: "shared"})
+	eventually(t, func() bool {
+		s := b.Snapshot()
+		return len(s.Waiting) == 1 && s.Waiting[0].Reason == WaitGlobalCapacity && s.Waiting[0].EligibleAt.IsZero()
+	})
+	if err := b.ApplyCooldown("shared", clock.Now().Add(time.Minute), WaitRetryAfter); err != nil {
+		t.Fatal(err)
+	}
+	hold.Release()
+	eventually(t, func() bool {
+		s := b.Snapshot()
+		return len(s.Waiting) == 1 && s.Waiting[0].Reason == WaitRetryAfter && !s.Waiting[0].EligibleAt.IsZero()
+	})
+	clock.Advance(time.Minute)
+	got := <-waiting
+	if got.err != nil {
+		t.Fatal(got.err)
+	}
+	got.lease.Release()
+}
+
 func TestFairTargetsAndNoSlotWhileWaiting(t *testing.T) {
 	b := broker(t, Config{Capacity: 1})
 	hold, err := b.Acquire(context.Background(), Request{Target: "a", Group: "g"})
@@ -196,12 +228,8 @@ func TestArtifactBudgetKeepsAmbiguousCreationAndRefundsPreDispatch(t *testing.T)
 		t.Fatal(err)
 	}
 	one.Release() // a timeout after dispatch must not create a free retry.
-	blockedCtx, cancel := context.WithCancel(context.Background())
-	blocked := acquireAsync(b, blockedCtx, Request{Target: "t", Group: "g", ArtifactKey: "t/model", Artifacts: 1})
-	eventually(t, func() bool { return len(b.Snapshot().Waiting) == 1 })
-	cancel()
-	if got := <-blocked; !errors.Is(got.err, context.Canceled) {
-		t.Fatalf("artifact wait=%v", got.err)
+	if _, err := b.Acquire(context.Background(), Request{Target: "t", Group: "g", ArtifactKey: "t/model", Artifacts: 1}); !errors.Is(err, ErrArtifactBudgetExhausted) {
+		t.Fatalf("spent artifact budget error=%v", err)
 	}
 
 	b2 := broker(t, Config{Capacity: 2, ArtifactBudget: 2})
