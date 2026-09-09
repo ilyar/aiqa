@@ -30,6 +30,7 @@ type executionProgress struct {
 	err         error
 	frozen      bool
 	known       map[string]struct{}
+	jobTargets  map[string]string
 	outcomes    []protocol.TerminalOutcome
 	seenFacts   map[uint64]struct{}
 	unavailable bool
@@ -54,7 +55,7 @@ func newExecutionProgress(runID string, capacity int, sink progress.Sink) (*exec
 	if err != nil {
 		return nil, err
 	}
-	return &executionProgress{sink: sink, reducer: reducer, builder: builder, runID: runID, started: time.Now(), known: make(map[string]struct{}), seenFacts: make(map[uint64]struct{})}, nil
+	return &executionProgress{sink: sink, reducer: reducer, builder: builder, runID: runID, started: time.Now(), known: make(map[string]struct{}), jobTargets: make(map[string]string), seenFacts: make(map[uint64]struct{})}, nil
 }
 
 func (p *executionProgress) RunStarted(targets int) {
@@ -99,6 +100,7 @@ func (p *executionProgress) Freeze(jobs []progress.Job) {
 	for _, job := range jobs {
 		specs = append(specs, execution.JobSpec{ID: job.ID, TargetID: job.Target})
 		p.known[job.ID] = struct{}{}
+		p.jobTargets[job.ID] = job.Target
 	}
 	p.apply(func(base execution.Base) execution.Event {
 		return execution.PlanFrozen{Base: base, Revision: 1, Jobs: specs}
@@ -113,6 +115,12 @@ func (p *executionProgress) Start(id string) {
 		return
 	}
 	p.frozenSink().Start(id)
+	if target := p.targetForJob(id); target != "" {
+		p.apply(func(base execution.Base) execution.Event {
+			base.TargetID = target
+			return execution.TargetPhaseChanged{Base: base, Phase: execution.PhaseRunning}
+		})
+	}
 	p.apply(func(base execution.Base) execution.Event { return execution.JobStarted{Base: withJob(base, id)} })
 	p.apply(func(base execution.Base) execution.Event {
 		return execution.RunPhaseChanged{Base: base, Phase: execution.PhaseRunning}
@@ -130,6 +138,12 @@ func (p *executionProgress) Complete(id, outcome string) {
 	p.apply(func(base execution.Base) execution.Event {
 		return execution.JobFinished{Base: withJob(base, id), Outcome: executionOutcome(outcome)}
 	})
+	if target := p.targetForJob(id); target != "" && p.targetComplete(target) {
+		p.apply(func(base execution.Base) execution.Event {
+			base.TargetID = target
+			return execution.TargetPhaseChanged{Base: base, Phase: execution.PhaseCompleted}
+		})
+	}
 }
 
 func (p *executionProgress) TerminalOutcomes() []protocol.TerminalOutcome {
@@ -346,6 +360,27 @@ func (p *executionProgress) isFrozen() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.frozen
+}
+
+func (p *executionProgress) targetForJob(id string) string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.jobTargets[id]
+}
+
+func (p *executionProgress) targetComplete(target string) bool {
+	snapshot := p.reducer.Snapshot()
+	seen := false
+	for _, job := range snapshot.Jobs {
+		if job.TargetID != target {
+			continue
+		}
+		seen = true
+		if job.State != execution.JobTerminal {
+			return false
+		}
+	}
+	return seen
 }
 
 func (p *executionProgress) frozenSink() progress.FrozenSink {

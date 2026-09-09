@@ -43,6 +43,9 @@ func TestExecutionProgressBuildsSummaryFromFrozenTerminalDelivery(t *testing.T) 
 	p.Freeze([]progress.Job{{ID: "job-1", Target: "target-1"}})
 	p.Start("job-1")
 	p.Complete("job-1", "completed")
+	if got := p.reducer.Snapshot().Targets[0].Phase; got != execution.PhaseCompleted {
+		t.Fatalf("target phase=%q, want completed", got)
+	}
 	if err := p.Finalize(); err != nil {
 		t.Fatal(err)
 	}
