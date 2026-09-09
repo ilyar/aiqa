@@ -16,6 +16,20 @@ import (
 
 const durablePacingNotice = 5 * time.Second
 
+const defaultHeartbeatInterval = 30 * time.Second
+
+// HeartbeatTicker is the small clock boundary used by the plain renderer.
+// It deliberately mirrors only the part of time.Ticker needed here so tests
+// can drive thirty-second heartbeats without sleeping.
+type HeartbeatTicker interface {
+	Chan() <-chan time.Time
+	Stop()
+}
+
+type realHeartbeatTicker struct{ *time.Ticker }
+
+func (t realHeartbeatTicker) Chan() <-chan time.Time { return t.C }
+
 // Job is one report-visible logical probe outcome. It remains one job even if
 // its implementation makes multiple HTTP requests. A conditional probe is
 // reserved here and is completed with outcome "skipped" when inapplicable.
@@ -71,6 +85,13 @@ type Options struct {
 	// renderer deliberately has no timer or background goroutine: state
 	// transitions, rather than wall clock time, own every redraw.
 	SpinnerInterval time.Duration
+	// HeartbeatInterval controls durable non-TTY liveness lines. Zero selects
+	// the documented 30-second interval; a negative value disables them.
+	HeartbeatInterval time.Duration
+	// Now and NewHeartbeatTicker are test seams. Production callers normally
+	// leave both unset. The ticker is stopped at Freeze/Close boundaries.
+	Now                func() time.Time
+	NewHeartbeatTicker func(time.Duration) HeartbeatTicker
 }
 
 // Reporter serializes all calls, so workers can complete jobs concurrently.
@@ -95,6 +116,15 @@ type Reporter struct {
 	total, done int
 	current     string
 	pacing      map[string]pacingState
+
+	now                 func() time.Time
+	heartbeatInterval   time.Duration
+	newHeartbeatTicker  func(time.Duration) HeartbeatTicker
+	runStartedAt        time.Time
+	heartbeatPhase      string
+	heartbeatTicker     HeartbeatTicker
+	heartbeatStop       chan struct{}
+	heartbeatGeneration uint64
 }
 
 type pacingState struct {
@@ -108,15 +138,36 @@ func New(options Options) *Reporter {
 	if options.Writer == nil {
 		options.Writer = io.Discard
 	}
+	now := options.Now
+	if now == nil {
+		now = time.Now
+	}
+	newTicker := options.NewHeartbeatTicker
+	if newTicker == nil {
+		newTicker = func(interval time.Duration) HeartbeatTicker {
+			return realHeartbeatTicker{time.NewTicker(interval)}
+		}
+	}
+	interval := options.HeartbeatInterval
+	if interval == 0 {
+		interval = defaultHeartbeatInterval
+	}
 	r := &Reporter{
 		writer: options.Writer, tty: options.TTY,
 		jobs: map[string]Job{}, completed: map[string]string{},
 		legacyPlans: map[string]int{}, pacing: map[string]pacingState{},
+		now: now, heartbeatInterval: interval, newHeartbeatTicker: newTicker,
 	}
 	return r
 }
 
 func (r *Reporter) RunStarted(targets int) {
+	r.mu.Lock()
+	if !r.closed && r.runStartedAt.IsZero() {
+		r.runStartedAt = r.now()
+		r.startHeartbeatLocked("preparing")
+	}
+	r.mu.Unlock()
 	r.Planning(fmt.Sprintf("Planning %d target(s)", max(0, targets)))
 }
 
@@ -198,6 +249,13 @@ func (r *Reporter) Freeze(jobs []Job) {
 		r.jobs[job.ID] = job
 	}
 	r.frozen, r.total = true, len(r.jobs)
+	if r.runStartedAt.IsZero() {
+		r.runStartedAt = r.now()
+	}
+	// Planning and running have separate ticker lifetimes. In particular a
+	// stale planning tick cannot print after the immutable job total exists.
+	r.stopHeartbeatLocked()
+	r.startHeartbeatLocked("running")
 	if !r.tty {
 		r.durableLocked(fmt.Sprintf("aiqa: Planned %d logical probe(s)", r.total))
 		return
@@ -303,6 +361,7 @@ func (r *Reporter) RunFinished() {
 	if r.closed {
 		return
 	}
+	r.stopHeartbeatLocked()
 	r.finishBarLocked()
 }
 
@@ -345,7 +404,71 @@ func (r *Reporter) Close() {
 		return
 	}
 	r.closed = true
+	r.stopHeartbeatLocked()
 	r.finishBarLocked()
+}
+
+func (r *Reporter) startHeartbeatLocked(phase string) {
+	if r.tty || r.heartbeatInterval < 0 || r.heartbeatTicker != nil {
+		return
+	}
+	ticker := r.newHeartbeatTicker(r.heartbeatInterval)
+	if ticker == nil {
+		return
+	}
+	stop := make(chan struct{})
+	r.heartbeatGeneration++
+	generation := r.heartbeatGeneration
+	r.heartbeatTicker, r.heartbeatStop, r.heartbeatPhase = ticker, stop, phase
+	go r.heartbeatLoop(ticker, stop, generation)
+}
+
+func (r *Reporter) stopHeartbeatLocked() {
+	if r.heartbeatTicker == nil {
+		return
+	}
+	r.heartbeatTicker.Stop()
+	close(r.heartbeatStop)
+	r.heartbeatTicker, r.heartbeatStop = nil, nil
+	// A ticker may already have a buffered tick when Stop returns. Advancing
+	// the generation makes that old goroutine harmless even if select chooses
+	// its tick over the closed stop channel.
+	r.heartbeatGeneration++
+}
+
+func (r *Reporter) heartbeatLoop(ticker HeartbeatTicker, stop <-chan struct{}, generation uint64) {
+	for {
+		select {
+		case <-stop:
+			return
+		case at, ok := <-ticker.Chan():
+			if !ok {
+				return
+			}
+			r.heartbeat(generation, at)
+		}
+	}
+}
+
+func (r *Reporter) heartbeat(generation uint64, at time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed || r.tty || r.heartbeatTicker == nil || generation != r.heartbeatGeneration {
+		return
+	}
+	elapsed := time.Duration(0)
+	if !r.runStartedAt.IsZero() && at.After(r.runStartedAt) {
+		elapsed = at.Sub(r.runStartedAt).Round(time.Second)
+	}
+	phase := r.heartbeatPhase
+	if phase == "" {
+		phase = "preparing"
+	}
+	if r.frozen {
+		r.durableLocked(fmt.Sprintf("aiqa: heartbeat phase=%s jobs=%d/%d percent=%d elapsed=%s", phase, r.done, r.total, percentOf(r.done, r.total), elapsed))
+		return
+	}
+	r.durableLocked(fmt.Sprintf("aiqa: heartbeat phase=%s elapsed=%s", phase, elapsed))
 }
 
 func (r *Reporter) renderLocked() {

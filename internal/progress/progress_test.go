@@ -3,10 +3,69 @@ package progress
 import (
 	"bytes"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
 )
+
+type manualHeartbeatTicker struct {
+	ch      chan time.Time
+	mu      sync.Mutex
+	stopped int
+}
+
+func newManualHeartbeatTicker() *manualHeartbeatTicker {
+	return &manualHeartbeatTicker{ch: make(chan time.Time, 2)}
+}
+
+func (t *manualHeartbeatTicker) Chan() <-chan time.Time { return t.ch }
+
+func (t *manualHeartbeatTicker) Stop() {
+	t.mu.Lock()
+	t.stopped++
+	t.mu.Unlock()
+}
+
+func (t *manualHeartbeatTicker) stopCount() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.stopped
+}
+
+type heartbeatWriter struct {
+	mu     sync.Mutex
+	buffer bytes.Buffer
+	writes chan struct{}
+}
+
+func newHeartbeatWriter() *heartbeatWriter {
+	return &heartbeatWriter{writes: make(chan struct{}, 32)}
+}
+
+func (w *heartbeatWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	n, err := w.buffer.Write(p)
+	w.mu.Unlock()
+	w.writes <- struct{}{}
+	return n, err
+}
+
+func (w *heartbeatWriter) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buffer.String()
+}
+
+func (w *heartbeatWriter) drain() {
+	for {
+		select {
+		case <-w.writes:
+		default:
+			return
+		}
+	}
+}
 
 func plan() []Job {
 	return []Job{
@@ -236,5 +295,65 @@ func TestPacingDoesNotCreatePlanOrDuplicateRoutineDurableMessages(t *testing.T) 
 	r.Pacing("openai", true, 8*time.Second)
 	if got := out.String(); strings.Count(got, "waiting for provider pacing (8s)") != 1 {
 		t.Fatalf("long pacing notice = %q", got)
+	}
+}
+
+func TestNonTTYHeartbeatUsesFakeTickerWithoutCompletions(t *testing.T) {
+	writer := newHeartbeatWriter()
+	var tickers []*manualHeartbeatTicker
+	started := time.Date(2026, time.September, 9, 12, 0, 0, 0, time.UTC)
+	r := New(Options{
+		Writer:            writer,
+		HeartbeatInterval: 30 * time.Second,
+		Now:               func() time.Time { return started },
+		NewHeartbeatTicker: func(time.Duration) HeartbeatTicker {
+			ticker := newManualHeartbeatTicker()
+			tickers = append(tickers, ticker)
+			return ticker
+		},
+	})
+	t.Cleanup(r.Close)
+
+	r.RunStarted(1)
+	r.Freeze([]Job{{ID: "job", Target: "target", Label: "job"}})
+	writer.drain()
+	if len(tickers) != 2 {
+		t.Fatalf("ticker count = %d, want planning and running tickers", len(tickers))
+	}
+	if got := tickers[0].stopCount(); got != 1 {
+		t.Fatalf("Freeze did not stop planning ticker: stops=%d", got)
+	}
+
+	// No lifecycle completion occurs: only the fake thirty-second tick can
+	// produce this line.
+	tickers[1].ch <- started.Add(30 * time.Second)
+	<-writer.writes
+	got := writer.String()
+	if !strings.Contains(got, "aiqa: heartbeat phase=running jobs=0/1 percent=0 elapsed=30s") {
+		t.Fatalf("missing deterministic no-completion heartbeat: %q", got)
+	}
+}
+
+func TestHeartbeatStopsAtFreezeAndCloseIsIdempotent(t *testing.T) {
+	writer := newHeartbeatWriter()
+	var tickers []*manualHeartbeatTicker
+	r := New(Options{
+		Writer: writer,
+		Now:    func() time.Time { return time.Unix(0, 0) },
+		NewHeartbeatTicker: func(time.Duration) HeartbeatTicker {
+			ticker := newManualHeartbeatTicker()
+			tickers = append(tickers, ticker)
+			return ticker
+		},
+	})
+	r.RunStarted(1)
+	r.Freeze([]Job{{ID: "job"}})
+	if got := tickers[0].stopCount(); got != 1 {
+		t.Fatalf("planning ticker stops = %d, want 1", got)
+	}
+	r.Close()
+	r.Close()
+	if got := tickers[1].stopCount(); got != 1 {
+		t.Fatalf("running ticker stops after idempotent close = %d, want 1", got)
 	}
 }
