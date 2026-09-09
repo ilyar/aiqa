@@ -130,7 +130,7 @@ func TestExecutionAttemptIDsDoNotCollideAcrossClientClones(t *testing.T) {
 	}
 }
 
-func TestSchedulerFactObserverDecodesOpaqueOwnerForPhysicalAttempt(t *testing.T) {
+func TestSchedulerFactObserverDecodesOpaqueOwnerForWait(t *testing.T) {
 	broker, err := scheduler.New(scheduler.Config{Capacity: 1})
 	if err != nil {
 		t.Fatal(err)
@@ -142,21 +142,20 @@ func TestSchedulerFactObserverDecodesOpaqueOwnerForPhysicalAttempt(t *testing.T)
 	if err := client.SetScheduler(SchedulerConfig{Broker: broker, Target: "target-a", Group: "group-a"}); err != nil {
 		t.Fatal(err)
 	}
-	var events []ExecutionEvent
-	client.SetExecutionObserver(func(event ExecutionEvent) { events = append(events, event) })
-	broker.SetFactObserver(client.SchedulerFactObserver())
+	var got []struct {
+		fact  scheduler.Fact
+		owner ExecutionOwner
+	}
+	client.SetSchedulerExecutionObserver(func(fact scheduler.Fact, owner ExecutionOwner) {
+		got = append(got, struct {
+			fact  scheduler.Fact
+			owner ExecutionOwner
+		}{fact, owner})
+	})
 	owner := ExecutionOwner{TargetID: "target-a", JobID: "native:target-a:model:compat"}
-	lease, err := client.acquireScheduler(WithExecutionOwner(context.Background(), owner), 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	lease.Release()
-	if len(events) != 2 || events[0].Kind != ExecutionRequestAdmitted || events[1].Kind != ExecutionRequestTerminal {
-		t.Fatalf("scheduler bridge events=%#v", events)
-	}
-	for _, event := range events {
-		if event.TargetID != owner.TargetID || event.JobID != owner.JobID || event.PreparationID != "" {
-			t.Fatalf("opaque owner did not decode: %#v", events)
-		}
+	key := client.schedulerOwner(WithExecutionOwner(context.Background(), owner), owner.TargetID)
+	client.SchedulerFactObserver()(scheduler.Fact{Kind: scheduler.FactWaitStarted, Owner: key, WaitID: "wait-1", Group: "group-a"})
+	if len(got) != 1 || got[0].owner != owner || got[0].fact.WaitID != "wait-1" {
+		t.Fatalf("scheduler wait bridge=%#v", got)
 	}
 }

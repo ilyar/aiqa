@@ -42,6 +42,7 @@ type Client struct {
 	logFields         logging.Fields
 	pacingObserver    PacingObserver
 	executionObserver ExecutionObserver
+	schedulerObserver SchedulerExecutionObserver
 	scheduler         schedulerConfig
 	schedulerOwners   map[string]ExecutionOwner
 	identity          uint64
@@ -77,6 +78,22 @@ type schedulerConfig struct {
 	key          string
 	items        int
 	queueTimeout time.Duration
+	facts        *schedulerFactBinding
+}
+
+type schedulerFactBinding struct {
+	active      atomic.Bool
+	unsubscribe func()
+}
+
+func (b *schedulerFactBinding) close() {
+	if b == nil {
+		return
+	}
+	b.active.Store(false)
+	if b.unsubscribe != nil {
+		b.unsubscribe()
+	}
 }
 
 // ArtifactReservation is a short-lived local admission for a billable remote
@@ -166,6 +183,10 @@ type ExecutionEvent struct {
 // and scheduler locks. It must return promptly and must not call Client.
 type ExecutionObserver func(ExecutionEvent)
 
+// SchedulerExecutionObserver receives scheduler-owned waits only. Transport
+// attempts stay owned by ExecutionObserver, preventing double accounting.
+type SchedulerExecutionObserver func(scheduler.Fact, ExecutionOwner)
+
 func NewClient(baseURL, apiKey, userAgent string, initialInterval time.Duration) (*Client, error) {
 	return newClient(baseURL, apiKey, userAgent, initialInterval, nil)
 }
@@ -205,16 +226,22 @@ func newClient(baseURL, apiKey, userAgent string, initialInterval time.Duration,
 
 func (c *Client) CloneWithKey(apiKey string) *Client {
 	c.logMu.RLock()
-	logger, provider, fields, propagate, pacingObserver, executionObserver, admission, owners := c.logger, c.telemetry, cloneLogFields(c.logFields), cloneOrigins(c.propagate), c.pacingObserver, c.executionObserver, c.scheduler, cloneExecutionOwners(c.schedulerOwners)
+	logger, provider, fields, propagate, pacingObserver, executionObserver, schedulerObserver, admission, owners := c.logger, c.telemetry, cloneLogFields(c.logFields), cloneOrigins(c.propagate), c.pacingObserver, c.executionObserver, c.schedulerObserver, c.scheduler, cloneExecutionOwners(c.schedulerOwners)
 	c.logMu.RUnlock()
-	return &Client{baseURL: c.baseURL, apiKey: apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: c.headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields, pacingObserver: pacingObserver, executionObserver: executionObserver, scheduler: admission, schedulerOwners: owners, identity: nextClientIdentity.Add(1)}
+	admission.facts = nil
+	clone := &Client{baseURL: c.baseURL, apiKey: apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: c.headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields, pacingObserver: pacingObserver, executionObserver: executionObserver, schedulerObserver: schedulerObserver, scheduler: admission, schedulerOwners: owners, identity: nextClientIdentity.Add(1)}
+	clone.bindSchedulerFacts()
+	return clone
 }
 
 func (c *Client) CloneWithHeaders(headers http.Header) *Client {
 	c.logMu.RLock()
-	logger, provider, fields, propagate, pacingObserver, executionObserver, admission, owners := c.logger, c.telemetry, cloneLogFields(c.logFields), cloneOrigins(c.propagate), c.pacingObserver, c.executionObserver, c.scheduler, cloneExecutionOwners(c.schedulerOwners)
+	logger, provider, fields, propagate, pacingObserver, executionObserver, schedulerObserver, admission, owners := c.logger, c.telemetry, cloneLogFields(c.logFields), cloneOrigins(c.propagate), c.pacingObserver, c.executionObserver, c.schedulerObserver, c.scheduler, cloneExecutionOwners(c.schedulerOwners)
 	c.logMu.RUnlock()
-	return &Client{baseURL: c.baseURL, apiKey: c.apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields, pacingObserver: pacingObserver, executionObserver: executionObserver, scheduler: admission, schedulerOwners: owners, identity: nextClientIdentity.Add(1)}
+	admission.facts = nil
+	clone := &Client{baseURL: c.baseURL, apiKey: c.apiKey, http: c.http, userAgent: c.userAgent, pacer: c.pacer, headers: headers.Clone(), logger: logger, telemetry: provider, propagate: propagate, logFields: fields, pacingObserver: pacingObserver, executionObserver: executionObserver, schedulerObserver: schedulerObserver, scheduler: admission, schedulerOwners: owners, identity: nextClientIdentity.Add(1)}
+	clone.bindSchedulerFacts()
+	return clone
 }
 
 func cloneOrigins(origins map[string]struct{}) map[string]struct{} {
@@ -315,25 +342,38 @@ func (c *Client) SetExecutionObserver(observer ExecutionObserver) {
 	c.logMu.Unlock()
 }
 
+// SetSchedulerExecutionObserver enables scheduler wait observations for this
+// client and its future clones. It intentionally never publishes request
+// admission/release facts, which are already emitted by the transport path.
+func (c *Client) SetSchedulerExecutionObserver(observer SchedulerExecutionObserver) {
+	c.logMu.Lock()
+	old := c.scheduler.facts
+	c.scheduler.facts = nil
+	c.schedulerObserver = observer
+	c.logMu.Unlock()
+	old.close()
+	c.bindSchedulerFacts()
+}
+
 // SchedulerFactObserver returns a bridge suitable for Broker.SetFactObserver.
 // It translates only scheduler-owned safe fields; callers with a shared broker
 // should install one composed observer rather than allowing clients to replace
 // each other's subscription.
 func (c *Client) SchedulerFactObserver() scheduler.FactObserver {
 	return func(fact scheduler.Fact) {
-		if fact.Kind != scheduler.FactRequestAdmitted && fact.Kind != scheduler.FactRequestReleased {
+		if fact.Kind != scheduler.FactWaitStarted && fact.Kind != scheduler.FactWaitUpdated && fact.Kind != scheduler.FactWaitEnded {
 			return
 		}
 		owner, ok := c.schedulerOwnerForKey(fact.Owner)
 		if !ok {
 			return
 		}
-		kind := ExecutionRequestAdmitted
-		outcome := ""
-		if fact.Kind == scheduler.FactRequestReleased {
-			kind, outcome = ExecutionRequestTerminal, "released"
+		c.logMu.RLock()
+		observer := c.schedulerObserver
+		c.logMu.RUnlock()
+		if observer != nil {
+			observer(fact, owner)
 		}
-		c.emitExecution(ExecutionEvent{Kind: kind, TargetID: owner.TargetID, JobID: owner.JobID, PreparationID: owner.PreparationID, AttemptID: fact.RequestID, GroupID: fact.Group, Outcome: outcome})
 	}
 }
 
@@ -356,7 +396,7 @@ func (c *Client) schedulerOwner(ctx context.Context, target string) string {
 	if owner.PreparationID != "" {
 		kind, id = "preparation", owner.PreparationID
 	}
-	sum := sha256.Sum256([]byte(kind + "\x00" + owner.TargetID + "\x00" + id))
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%d\x00%s\x00%s\x00%s", c.identity, kind, owner.TargetID, id)))
 	key := "owner-" + hex.EncodeToString(sum[:])
 	c.logMu.Lock()
 	if c.schedulerOwners == nil {
@@ -437,8 +477,10 @@ func (c *Client) SetScheduler(cfg SchedulerConfig) error {
 			return errors.New("scheduler configuration requires a broker")
 		}
 		c.logMu.Lock()
+		old := c.scheduler.facts
 		c.scheduler = schedulerConfig{}
 		c.logMu.Unlock()
+		old.close()
 		return nil
 	}
 	if !safeSchedulerTarget(cfg.Target) || cfg.MemoryBytes < 0 || cfg.Artifacts < 0 || cfg.QueueTimeout < 0 || (cfg.Artifacts > 0 && cfg.ArtifactKey == "") || (cfg.ArtifactKey != "" && !safeSchedulerID(cfg.ArtifactKey)) {
@@ -456,9 +498,37 @@ func (c *Client) SetScheduler(cfg SchedulerConfig) error {
 		return fmt.Errorf("configure adaptive scheduler group: %w", err)
 	}
 	c.logMu.Lock()
+	old := c.scheduler.facts
 	c.scheduler = schedulerConfig{broker: cfg.Broker, target: cfg.Target, group: group, memory: cfg.MemoryBytes, key: cfg.ArtifactKey, items: cfg.Artifacts, queueTimeout: cfg.QueueTimeout}
 	c.logMu.Unlock()
+	old.close()
+	c.bindSchedulerFacts()
 	return nil
+}
+
+func (c *Client) bindSchedulerFacts() {
+	c.logMu.RLock()
+	admission, observer := c.scheduler, c.schedulerObserver
+	c.logMu.RUnlock()
+	if admission.broker == nil || observer == nil || admission.facts != nil {
+		return
+	}
+	binding := &schedulerFactBinding{}
+	binding.active.Store(true)
+	facts := c.SchedulerFactObserver()
+	binding.unsubscribe = admission.broker.SubscribeFacts(func(fact scheduler.Fact) {
+		if binding.active.Load() {
+			facts(fact)
+		}
+	})
+	c.logMu.Lock()
+	if c.scheduler.broker == admission.broker && c.scheduler.facts == nil {
+		c.scheduler.facts = binding
+		c.logMu.Unlock()
+		return
+	}
+	c.logMu.Unlock()
+	binding.close()
 }
 
 func normalizedOrigin(u *url.URL) string {

@@ -29,6 +29,7 @@ type executionProgress struct {
 	err         error
 	frozen      bool
 	known       map[string]struct{}
+	seenFacts   map[uint64]struct{}
 	unavailable bool
 }
 
@@ -47,7 +48,7 @@ func newExecutionProgress(runID string, capacity int, sink progress.Sink) (*exec
 	if err != nil {
 		return nil, err
 	}
-	return &executionProgress{sink: sink, reducer: reducer, builder: builder, runID: runID, started: time.Now(), known: make(map[string]struct{})}, nil
+	return &executionProgress{sink: sink, reducer: reducer, builder: builder, runID: runID, started: time.Now(), known: make(map[string]struct{}), seenFacts: make(map[uint64]struct{})}, nil
 }
 
 func (p *executionProgress) RunStarted(targets int) {
@@ -138,7 +139,23 @@ func (p *executionProgress) RegisterPreparation(owner api.ExecutionOwner, kind e
 // In particular, opaque/artifact/memory reservations never inflate HTTP
 // request counts.
 func (p *executionProgress) ObserveSchedulerFact(fact scheduler.Fact, owner api.ExecutionOwner) {
+	if fact.Sequence != 0 {
+		p.mu.Lock()
+		if _, seen := p.seenFacts[fact.Sequence]; seen {
+			p.mu.Unlock()
+			return
+		}
+		p.seenFacts[fact.Sequence] = struct{}{}
+		p.mu.Unlock()
+	}
 	offset := p.schedulerOffset(fact.At)
+	eligible := p.schedulerOffset(fact.EligibleAt)
+	if eligible < offset {
+		// A broker may report an already-eligible waiter after a capacity
+		// change. The reducer timeline is monotonic, so preserve the wait at
+		// its observation boundary instead of inventing negative time.
+		eligible = offset
+	}
 	switch fact.Kind {
 	case scheduler.FactGroupUpdated:
 		p.applyAt(offset, func(base execution.Base) execution.Event {
@@ -159,11 +176,12 @@ func (p *executionProgress) ObserveSchedulerFact(fact scheduler.Fact, owner api.
 		}
 		p.applyAt(offset, func(base execution.Base) execution.Event {
 			base = executionBaseForOwner(base, owner, fact.Group)
+			base.AttemptID = fact.RequestID
 			switch fact.Kind {
 			case scheduler.FactWaitStarted:
-				return execution.WaitStarted{Base: base, WaitID: fact.WaitID, Reason: executionWaitReason(fact.Reason), Source: executionWaitSource(fact.Reason), EligibleAt: p.schedulerOffset(fact.EligibleAt), ScheduleRevision: fact.Revision}
+				return execution.WaitStarted{Base: base, WaitID: fact.WaitID, Reason: executionWaitReason(fact.Reason), Source: executionWaitSource(fact.Reason), EligibleAt: eligible, ScheduleRevision: fact.Revision}
 			case scheduler.FactWaitUpdated:
-				return execution.WaitUpdated{Base: base, WaitID: fact.WaitID, Reason: executionWaitReason(fact.Reason), Source: executionWaitSource(fact.Reason), EligibleAt: p.schedulerOffset(fact.EligibleAt), ScheduleRevision: fact.Revision}
+				return execution.WaitUpdated{Base: base, WaitID: fact.WaitID, Reason: executionWaitReason(fact.Reason), Source: executionWaitSource(fact.Reason), EligibleAt: eligible, ScheduleRevision: fact.Revision}
 			default:
 				return execution.WaitEnded{Base: base, WaitID: fact.WaitID}
 			}

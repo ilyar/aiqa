@@ -748,6 +748,12 @@ func (r *Reducer) waitStart(v WaitStarted, m Meta) error {
 	if err := r.ownerForRequest(m); err != nil {
 		return fmt.Errorf("%w: wait: %v", ErrInvalidEvent, err)
 	}
+	// Scheduler facts may arrive after another concurrent fact advanced the
+	// reducer clock. An already-eligible waiter is still real; represent it at
+	// the observation boundary rather than rejecting an otherwise valid run.
+	if v.EligibleAt < m.Offset {
+		v.EligibleAt = m.Offset
+	}
 	if err := validateWait(v.WaitID, v.Reason, v.Source, v.EligibleAt, m.Offset); err != nil {
 		return err
 	}
@@ -914,7 +920,7 @@ func validateWait(id string, reason WaitReason, source WaitSource, eligible, off
 		return err
 	}
 	if !validWaitReason(reason) || !validWaitSource(source) || eligible < offset {
-		return bad("wait")
+		return fmt.Errorf("%w: wait reason=%q source=%q eligible=%s offset=%s", ErrInvalidEvent, reason, source, eligible, offset)
 	}
 	return nil
 }

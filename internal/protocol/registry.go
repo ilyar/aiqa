@@ -80,6 +80,7 @@ type RunOptions struct {
 // a registered PreparationID, never a runtime JobID.
 type ExecutionHooks struct {
 	Observe          api.ExecutionObserver
+	ObserveScheduler api.SchedulerExecutionObserver
 	PreparationOwner api.ExecutionOwner
 }
 
@@ -117,6 +118,7 @@ func ConfigureClientScheduler(client *api.Client, options RunOptions) error {
 		}
 		return nil
 	}
+	client.SetSchedulerExecutionObserver(options.ExecutionHooks.ObserveScheduler)
 	return client.SetScheduler(api.SchedulerConfig{
 		Broker:       options.Scheduler,
 		Target:       options.Target.ID,
