@@ -195,6 +195,25 @@ type PreparedTarget struct {
 	Execute func(context.Context, progress.Sink) (RunResult, error)
 }
 
+// ExecutePlan is the mandatory application boundary between a frozen RunPlan
+// and a captured preparation closure. It rejects target/job drift before any
+// execution can start; protocol-specific bindings remain private to Prepare.
+func (p PreparedTarget) ExecutePlan(ctx context.Context, sink progress.Sink, plan TargetExecutionPlan) (RunResult, error) {
+	if p.Execute == nil || plan.TargetID != p.Target.ID || plan.Binding.TargetID != p.Target.ID {
+		return RunResult{}, fmt.Errorf("prepared target does not match frozen execution plan")
+	}
+	seen := make(map[string]struct{}, len(plan.Jobs))
+	for _, job := range plan.Jobs {
+		seen[job.ID] = struct{}{}
+	}
+	for _, job := range p.Jobs {
+		if _, ok := seen[job.ID]; !ok {
+			return RunResult{}, fmt.Errorf("prepared job %q is absent from frozen execution plan", job.ID)
+		}
+	}
+	return p.Execute(ctx, sink)
+}
+
 // Preparer performs only inventory, selection and planning. Implementations
 // must retain the discovered inventory for Execute and must not list models a
 // second time.

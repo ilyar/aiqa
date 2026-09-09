@@ -399,7 +399,12 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 		prepared := preparedTargets[index]
 		target, p := prepared.Target, prepared.Profile
 		targetCtx, targetOp := targetContexts[index], targetOps[index]
-		native, executionErr := prepared.Execute(targetCtx, reporter)
+		targetPlan, ok := plan.TargetExecution(target.ID)
+		if !ok {
+			executions[index] = targetExecution{runErr: fmt.Errorf("frozen plan has no target %s", target.ID), emptyReport: true}
+			return
+		}
+		native, executionErr := prepared.ExecutePlan(targetCtx, reporter, targetPlan)
 		if native.Target.ID == "" {
 			if executionErr == nil {
 				executionErr = errors.New("native runner returned no target report")
