@@ -5,9 +5,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ilyar/aiqa/internal/api"
 	"github.com/ilyar/aiqa/internal/execution"
 	"github.com/ilyar/aiqa/internal/progress"
 	"github.com/ilyar/aiqa/internal/result"
+	"github.com/ilyar/aiqa/internal/scheduler"
 	"github.com/ilyar/aiqa/internal/telemetry"
 )
 
@@ -23,6 +25,7 @@ type executionProgress struct {
 
 	mu          sync.Mutex
 	sequence    uint64
+	lastOffset  time.Duration
 	err         error
 	frozen      bool
 	known       map[string]struct{}
@@ -112,6 +115,130 @@ func (p *executionProgress) ObserveLifecycle(event telemetry.LifecycleEvent) {
 	p.sink.ObserveLifecycle(event)
 }
 
+// RegisterPreparation binds a pre-freeze API owner to the execution reducer.
+// Discovery therefore remains observable without being invented as a frozen
+// progress job. Callers must register it before Freeze.
+func (p *executionProgress) RegisterPreparation(owner api.ExecutionOwner, kind execution.PreparationKind) {
+	if owner.TargetID == "" || owner.PreparationID == "" || owner.JobID != "" {
+		p.markUnavailable()
+		return
+	}
+	p.apply(func(base execution.Base) execution.Event {
+		base.TargetID = owner.TargetID
+		return execution.PreparationRegistered{Base: base, Owner: execution.PreparationOwner{ID: owner.PreparationID, TargetID: owner.TargetID, Kind: kind}}
+	})
+}
+
+// ObserveSchedulerFact maps broker state into execution facts. The owner is
+// explicit because scheduler facts deliberately contain no job/preparation ID;
+// guessing one would turn scheduler accounting into false report evidence.
+// API AttemptIDs and scheduler RequestIDs are intentionally different, so API
+// is the sole HTTP-request producer until a future explicit correlation key is
+// added. Scheduler still contributes its authoritative waits and group facts.
+// In particular, opaque/artifact/memory reservations never inflate HTTP
+// request counts.
+func (p *executionProgress) ObserveSchedulerFact(fact scheduler.Fact, owner api.ExecutionOwner) {
+	offset := p.schedulerOffset(fact.At)
+	switch fact.Kind {
+	case scheduler.FactGroupUpdated:
+		p.applyAt(offset, func(base execution.Base) execution.Event {
+			base.GroupID = fact.Group
+			return execution.GroupLimitsChanged{Base: base, Capacity: fact.Capacity, Interval: fact.Interval}
+		})
+		if !fact.Cooldown.IsZero() {
+			p.applyAt(offset, func(base execution.Base) execution.Event {
+				base.GroupID = fact.Group
+				return execution.GroupCooldownChanged{Base: base, Until: p.schedulerOffset(fact.Cooldown), Reason: executionWaitReason(fact.Reason)}
+			})
+		}
+		return
+	case scheduler.FactWaitStarted, scheduler.FactWaitUpdated, scheduler.FactWaitEnded:
+		if !p.validOwner(owner) || fact.WaitID == "" || fact.Group == "" {
+			p.markUnavailable()
+			return
+		}
+		p.applyAt(offset, func(base execution.Base) execution.Event {
+			base = executionBaseForOwner(base, owner, fact.Group)
+			switch fact.Kind {
+			case scheduler.FactWaitStarted:
+				return execution.WaitStarted{Base: base, WaitID: fact.WaitID, Reason: executionWaitReason(fact.Reason), Source: executionWaitSource(fact.Reason), EligibleAt: p.schedulerOffset(fact.EligibleAt), ScheduleRevision: fact.Revision}
+			case scheduler.FactWaitUpdated:
+				return execution.WaitUpdated{Base: base, WaitID: fact.WaitID, Reason: executionWaitReason(fact.Reason), Source: executionWaitSource(fact.Reason), EligibleAt: p.schedulerOffset(fact.EligibleAt), ScheduleRevision: fact.Revision}
+			default:
+				return execution.WaitEnded{Base: base, WaitID: fact.WaitID}
+			}
+		})
+		return
+	}
+}
+
+// ObserveAPIExecution maps transport-owned lifecycle facts. An admitted event
+// bootstraps its reducer request with queued first because API observes the
+// physical admission boundary, not the broker queue insertion.
+func (p *executionProgress) ObserveAPIExecution(event api.ExecutionEvent) {
+	owner := api.ExecutionOwner{TargetID: event.TargetID, JobID: event.JobID, PreparationID: event.PreparationID}
+	if !p.validOwner(owner) || event.AttemptID == "" || event.GroupID == "" {
+		p.markUnavailable()
+		return
+	}
+	base := func(base execution.Base) execution.Base {
+		base = executionBaseForOwner(base, owner, event.GroupID)
+		base.AttemptID = event.AttemptID
+		return base
+	}
+	switch event.Kind {
+	case api.ExecutionRequestAdmitted:
+		p.apply(func(current execution.Base) execution.Event { return execution.RequestQueued{Base: base(current)} })
+		p.apply(func(current execution.Base) execution.Event { return execution.RequestAdmitted{Base: base(current)} })
+	case api.ExecutionRequestHeaders:
+		p.apply(func(current execution.Base) execution.Event { return execution.RequestHeaders{Base: base(current)} })
+	case api.ExecutionRequestTerminal:
+		outcome := executionOutcome(event.Outcome)
+		p.apply(func(current execution.Base) execution.Event {
+			return execution.RequestCompleted{Base: base(current), Outcome: outcome}
+		})
+	}
+}
+
+func (p *executionProgress) schedulerOffset(at time.Time) time.Duration {
+	if at.IsZero() || at.Before(p.started) {
+		return 0
+	}
+	return at.Sub(p.started)
+}
+
+func (p *executionProgress) validOwner(owner api.ExecutionOwner) bool {
+	return owner.TargetID != "" && ((owner.JobID != "") != (owner.PreparationID != ""))
+}
+
+func (p *executionProgress) markUnavailable() {
+	p.mu.Lock()
+	p.unavailable = true
+	p.mu.Unlock()
+}
+
+func executionBaseForOwner(base execution.Base, owner api.ExecutionOwner, group string) execution.Base {
+	base.TargetID, base.JobID, base.PreparationID, base.GroupID = owner.TargetID, owner.JobID, owner.PreparationID, group
+	return base
+}
+
+func executionWaitReason(reason scheduler.WaitReason) execution.WaitReason {
+	return execution.WaitReason(reason)
+}
+
+func executionWaitSource(reason scheduler.WaitReason) execution.WaitSource {
+	switch reason {
+	case scheduler.WaitRetryAfter:
+		return execution.SourceRetryAfterSecs
+	case scheduler.WaitRetryBackoff:
+		return execution.SourceRetryBackoff
+	case scheduler.WaitAdaptivePacing:
+		return execution.SourceAdaptivePacing
+	default:
+		return execution.SourceInitialPacing
+	}
+}
+
 func (p *executionProgress) Finalize() error {
 	p.apply(func(base execution.Base) execution.Event {
 		return execution.RunPhaseChanged{Base: base, Phase: execution.PhaseFinalizing}
@@ -152,17 +279,25 @@ func (p *executionProgress) frozenSink() progress.FrozenSink {
 }
 
 func (p *executionProgress) apply(event func(execution.Base) execution.Event) {
+	p.applyAt(time.Since(p.started), event)
+}
+
+func (p *executionProgress) applyAt(offset time.Duration, event func(execution.Base) execution.Event) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.err != nil {
 		return
 	}
+	if offset < p.lastOffset {
+		offset = p.lastOffset
+	}
 	p.sequence++
-	base := execution.Base{Meta: execution.Meta{RunID: p.runID, Seq: p.sequence, Offset: time.Since(p.started)}}
+	base := execution.Base{Meta: execution.Meta{RunID: p.runID, Seq: p.sequence, Offset: offset}}
 	if err := p.reducer.Apply(event(base)); err != nil {
 		p.err = err
 		return
 	}
+	p.lastOffset = offset
 	// The public aggregate is derived from the same live reducer snapshots as
 	// the UI.  Recording only the final snapshot loses intervals in which a
 	// waiter existed, so it would under-report real scheduler delay.
