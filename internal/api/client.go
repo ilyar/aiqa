@@ -823,12 +823,15 @@ func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 			return nil, err
 		}
 		r.client.admitted(lease, r.model)
+		attemptEvent := r.client.newExecutionAttempt(ctx)
+		attemptEvent.admitted()
 		current := request
 		attemptCtx, cancelAttempt := attemptContext(ctx)
 		if attempt > 0 {
 			body, err := request.GetBody()
 			if err != nil {
 				cancelAttempt()
+				attemptEvent.terminal("cancelled")
 				if lease != nil {
 					lease.CancelBeforeDispatch()
 				}
@@ -849,6 +852,9 @@ func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 		r.client.trace(attemptCtx, logging.Trace, "sdk.attempt.begin", logging.Fields{"method": request.Method, "path": path, "attempt": attempt + 1})
 		started := time.Now()
 		response, err := r.client.http.Transport.RoundTrip(current)
+		if response != nil {
+			attemptEvent.headers()
+		}
 		attemptFields := responseFields(request.Method, path, attempt+1, response, err, time.Since(started))
 		r.client.trace(attemptCtx, logging.Trace, "sdk.attempt.result", attemptFields)
 		if attemptOp != nil {
@@ -876,20 +882,19 @@ func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 			endFields := responseFields(request.Method, path, attempt+1, response, err, time.Since(started))
 			if response != nil && response.Body != nil {
 				handedOff = true
-				var admissionDone chan struct{}
-				if lease != nil {
-					admissionDone = make(chan struct{})
-					go releaseLeaseOnCancel(attemptCtx, admissionDone, lease)
-				}
+				admissionDone := make(chan struct{})
+				go releaseLeaseOnCancel(attemptCtx, admissionDone, lease, attemptEvent)
 				response.Body = &operationReadCloser{ReadCloser: response.Body, operation: logical, parent: sdkProbe, fields: endFields, outcome: "response_closed", cancel: cancelAttempt, onClose: func() {
+					attemptEvent.terminal(executionHTTPOutcome(response, err))
+					close(admissionDone)
 					if lease != nil {
-						close(admissionDone)
 						lease.Release()
 					}
 					r.client.trace(ctx, logging.Debug, "sdk.logical_request.result", endFields)
 				}}
 			} else {
 				cancelAttempt()
+				attemptEvent.terminal(executionHTTPOutcome(response, err))
 				if lease != nil {
 					lease.Release()
 				}
@@ -899,6 +904,7 @@ func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 			return response, err
 		}
 		cancelAttempt()
+		attemptEvent.terminal(executionHTTPOutcome(response, err))
 		if lease != nil {
 			lease.Release()
 		}
@@ -926,10 +932,13 @@ func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 	panic("unreachable")
 }
 
-func releaseLeaseOnCancel(ctx context.Context, done <-chan struct{}, lease *scheduler.Lease) {
+func releaseLeaseOnCancel(ctx context.Context, done <-chan struct{}, lease *scheduler.Lease, attempt *executionAttempt) {
 	select {
 	case <-ctx.Done():
-		lease.Release()
+		attempt.terminal("cancelled")
+		if lease != nil {
+			lease.Release()
+		}
 	case <-done:
 	}
 }
@@ -1181,6 +1190,16 @@ func executionOutcome(response Response, err error) string {
 	return "failed"
 }
 
+func executionHTTPOutcome(response *http.Response, err error) string {
+	if err != nil {
+		return "error"
+	}
+	if response != nil && response.StatusCode >= 200 && response.StatusCode < 300 {
+		return "succeeded"
+	}
+	return "failed"
+}
+
 func (c *Client) doRawURLOnce(ctx context.Context, method, endpoint string, body []byte, contentType string, attemptNumber int, executionEvent *executionAttempt) (resp Response, err error) {
 	path := safeEndpointPath(endpoint)
 	ctx, attempt := c.startOperation(ctx, "http.attempt", logging.Fields{"method": method, "path": path, "attempt": attemptNumber})
@@ -1329,6 +1348,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 	var started time.Time
 	var finalAttemptCancel context.CancelFunc
 	var finalLease *scheduler.Lease
+	var finalExecutionAttempt *executionAttempt
 	attempts := 0
 	for attempt := 0; attempt < 3; attempt++ {
 		requestPath := safeRequestPath(&u)
@@ -1355,12 +1375,15 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 			return result, err
 		}
 		c.admitted(lease, model)
+		attemptEvent := c.newExecutionAttempt(ctx)
+		attemptEvent.admitted()
 		attemptCtx, cancelAttempt := attemptContext(ctx)
 		attemptCtx, attemptOp := c.startOperation(attemptCtx, "http.stream_attempt", logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true})
 		started = time.Now()
 		req, err := http.NewRequestWithContext(attemptCtx, http.MethodPost, u.String(), bytes.NewReader(raw))
 		if err != nil {
 			cancelAttempt()
+			attemptEvent.terminal("cancelled")
 			if lease != nil {
 				lease.CancelBeforeDispatch()
 			}
@@ -1385,6 +1408,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 		httpResp, err = c.http.Do(req)
 		if err != nil {
 			cancelAttempt()
+			attemptEvent.terminal("error")
 			if lease != nil {
 				lease.Release()
 			}
@@ -1417,6 +1441,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 			}
 			continue
 		}
+		attemptEvent.headers()
 		attemptFields := responseFields(http.MethodPost, requestPath, attempt+1, httpResp, nil, time.Since(started))
 		c.trace(attemptCtx, logging.Trace, "http.stream_attempt.result", attemptFields)
 		if attemptOp != nil {
@@ -1425,6 +1450,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 		if !shouldRetryStatus(httpResp.StatusCode, httpResp.Header) {
 			finalAttemptCancel = cancelAttempt
 			finalLease = lease
+			finalExecutionAttempt = attemptEvent
 			break
 		}
 		var rateLimitDelay time.Duration
@@ -1441,6 +1467,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 		if attempt == 2 {
 			finalAttemptCancel = cancelAttempt
 			finalLease = lease
+			finalExecutionAttempt = attemptEvent
 			c.pacer.exhausted(model)
 			c.trace(ctx, logging.Warn, "http.stream_retry.exhausted", logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "status": httpResp.StatusCode, "reason": "retryable_status"})
 			break
@@ -1448,6 +1475,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 		_, _ = io.Copy(io.Discard, io.LimitReader(httpResp.Body, 32<<10))
 		httpResp.Body.Close()
 		cancelAttempt()
+		attemptEvent.terminal(executionHTTPOutcome(httpResp, nil))
 		if lease != nil {
 			lease.Release()
 		}
@@ -1471,6 +1499,11 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 	}
 	if finalLease != nil {
 		defer finalLease.Release()
+	}
+	if finalExecutionAttempt != nil {
+		// Registered after the lease defer, so terminal delivery precedes lease
+		// release while the HTTP body is still owned by this function.
+		defer func() { finalExecutionAttempt.terminal(executionHTTPOutcome(httpResp, err)) }()
 	}
 	defer c.releasePacing(model)
 	defer httpResp.Body.Close()
