@@ -23,6 +23,7 @@ type JobSpec struct {
 	ID             string
 	TargetID       string
 	ModelID        string
+	Label          string
 	Suite          string
 	Kind           string
 	RequirementIDs []string

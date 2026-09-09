@@ -379,7 +379,7 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 	if err := protocolpkg.ValidatePlan(plan); err != nil {
 		return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("validate execution plan: %w", err))
 	}
-	reporter.Freeze(allJobs)
+	reporter.Freeze(progressJobsFromRunPlan(plan))
 	for _, prepared := range preparedTargets {
 		target := prepared.Target
 		r.Config.Targets = append(r.Config.Targets, result.TargetPublicConfig{ID: target.ID, Protocol: string(target.Protocol), BaseURL: target.BaseURL, BaseURLNormalized: target.BaseURLNormalized, APIVersion: target.APIVersion})
@@ -651,10 +651,22 @@ func runPlanFromPrepared(id string, prepared []protocolpkg.PreparedTarget, jobs 
 	}
 	for _, job := range jobs {
 		input.Jobs = append(input.Jobs, protocolpkg.JobSpec{
-			ID: job.ID, TargetID: job.Target, ModelID: job.Model, Suite: "planned", Kind: "workflow",
+			ID: job.ID, TargetID: job.Target, ModelID: job.Model, Label: job.Label, Suite: "planned", Kind: "workflow",
 		})
 	}
 	return protocolpkg.NewRunPlan(input)
+}
+
+func progressJobsFromRunPlan(plan *protocolpkg.RunPlan) []progress.Job {
+	if plan == nil {
+		return nil
+	}
+	specs := plan.Jobs()
+	jobs := make([]progress.Job, 0, len(specs))
+	for _, spec := range specs {
+		jobs = append(jobs, progress.Job{ID: spec.ID, Target: spec.TargetID, Model: spec.ModelID, Label: spec.Label})
+	}
+	return jobs
 }
 
 func newProtocolRegistry() (*protocolpkg.Registry, error) {
