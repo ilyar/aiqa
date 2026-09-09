@@ -6,10 +6,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/ilyar/aiqa/internal/api"
 	"github.com/ilyar/aiqa/internal/capability"
 	"github.com/ilyar/aiqa/internal/config"
 	"github.com/ilyar/aiqa/internal/profile"
@@ -27,6 +29,50 @@ func TestRepresentativeModelSkipsEarlierInapplicableModels(t *testing.T) {
 	}
 	if got := representativeModel(models, plans, "chat-completions"); got != "ccc-chat" {
 		t.Fatalf("representative model=%q, want ccc-chat", got)
+	}
+}
+
+func TestRunTargetDiscoveryUsesFrozenInventoryJobOwner(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/models" {
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"opaque","object":"model","created":1}]}`))
+	}))
+	defer server.Close()
+	p, err := profile.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	capabilityFile := filepath.Join(t.TempDir(), "capabilities.json")
+	if err := os.WriteFile(capabilityFile, []byte(`{"models":{"opaque":["chat.completions.text"]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var events []api.ExecutionEvent
+	options := protocolpkg.RunOptions{
+		Target: config.TargetConfig{ID: "fixture", Protocol: config.ProtocolOpenAI, BaseURL: server.URL, Models: []string{"opaque"}, CapabilityFile: capabilityFile},
+		Config: config.Config{Concurrency: 1, Timeout: time.Second}, Profile: p,
+		ExecutionHooks: protocolpkg.ExecutionHooks{Observe: func(event api.ExecutionEvent) {
+			mu.Lock()
+			events = append(events, event)
+			mu.Unlock()
+		}},
+	}
+	if _, err := RunTarget(context.Background(), options); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(events) != 3 {
+		t.Fatalf("events=%#v", events)
+	}
+	want := protocolpkg.JobID("fixture", "", "inventory")
+	for _, event := range events {
+		if event.JobID != want || event.PreparationID != "" {
+			t.Fatalf("discovery did not retain frozen inventory owner: %#v", events)
+		}
 	}
 }
 

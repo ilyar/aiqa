@@ -144,6 +144,10 @@ func runTarget(ctx context.Context, options protocolpkg.RunOptions, frozen *froz
 	executor.SetLogger(options.Logger)
 	executor.SetLogFields(logging.Fields{"target": target.ID, "protocol": string(target.Protocol)})
 	client.SetTelemetry(options.Telemetry)
+	// Direct RunTarget callers do not pass through Prepare's client setup.
+	// Attach the optional transport observer here too; runtime owners are added
+	// only at the exact frozen-job boundaries below.
+	client.SetExecutionObserver(options.ExecutionHooks.Observe)
 	if options.Progress != nil {
 		client.SetPacingObserver(func(target string, waiting bool, duration time.Duration) {
 			options.Progress.Pacing(target, waiting, duration)
@@ -189,7 +193,7 @@ func runTarget(ctx context.Context, options protocolpkg.RunOptions, frozen *froz
 			suiteCtx, discoverySuite = options.Telemetry.Start(logging.Scope(providerCtx, target.ID, "", "discovery", "", ""), "suite", logging.Fields{"suite": "discovery"})
 			discoveryCtx, discoveryProbe = options.Telemetry.Start(logging.Scope(suiteCtx, target.ID, "", "discovery", "models.list.http", ""), "probe", logging.Fields{"probe": "aiqa.native.models.list.http"})
 		}
-		listCtx, cancel := api.WithRequestTimeout(discoveryCtx, cfg.Timeout)
+		listCtx, cancel := api.WithRequestTimeout(openAIJobContext(discoveryCtx, target.ID, "", "inventory"), cfg.Timeout)
 		models, listResp, listErr = client.ListModels(listCtx)
 		cancel()
 	}
@@ -271,7 +275,8 @@ func runTarget(ctx context.Context, options protocolpkg.RunOptions, frozen *froz
 	if cfg.HasTest("compat") {
 		endpointDone := protocolpkg.StartJob(options.Progress, target.ID, "", "endpoint-compat")
 		if chatRepresentative != "" {
-			tmp.Discovery.Compatibility = append(tmp.Discovery.Compatibility, suites.RunEndpointCompat(ctx, env, chatRepresentative)...)
+			endpointCtx := openAIJobContext(ctx, target.ID, "", "endpoint-compat")
+			tmp.Discovery.Compatibility = append(tmp.Discovery.Compatibility, suites.RunEndpointCompat(endpointCtx, env, chatRepresentative)...)
 		} else {
 			// Endpoint-level chat error probes are provider-scoped, but there is
 			// no valid text route from which to execute them for an image-only or
@@ -331,10 +336,12 @@ func runTarget(ctx context.Context, options protocolpkg.RunOptions, frozen *froz
 				if cfg.HasTest("compat") && preflightTests[index] != nil && routeBlocked[index] {
 					mr.Compatibility = append(mr.Compatibility, *preflightTests[index])
 				} else if cfg.HasTest("compat") && chatModule != nil && chatModule.Execution == result.ExecutionExecuted {
-					mr.Compatibility = suites.RunModelCompatWithPreflight(modelCtx, env, model, preflights[index], preflightErrors[index])
+					compatCtx := openAIJobContext(modelCtx, target.ID, model, "compat")
+					mr.Compatibility = suites.RunModelCompatWithPreflight(compatCtx, env, model, preflights[index], preflightErrors[index])
 				}
 				if cfg.HasTest("compat") && imageModule != nil && imageModule.Execution == result.ExecutionExecuted {
-					mr.Compatibility = append(mr.Compatibility, suites.RunImageCompat(modelCtx, env, model)...)
+					compatCtx := openAIJobContext(modelCtx, target.ID, model, "compat")
+					mr.Compatibility = append(mr.Compatibility, suites.RunImageCompat(compatCtx, env, model)...)
 				}
 				if cfg.HasTest("compat") {
 					if len(mr.Compatibility) == 0 {
@@ -354,7 +361,8 @@ func runTarget(ctx context.Context, options protocolpkg.RunOptions, frozen *froz
 					paramDone = protocolpkg.StartJob(options.Progress, target.ID, model, "model-param")
 				}
 				if cfg.HasTest("model-param") && chatModule != nil && chatModule.Execution == result.ExecutionExecuted {
-					mr.Parameters, mr.Context = suites.RunModelParameters(modelCtx, env, model, metadata[model])
+					paramCtx := openAIJobContext(modelCtx, target.ID, model, "model-param")
+					mr.Parameters, mr.Context = suites.RunModelParameters(paramCtx, env, model, metadata[model])
 					paramDone("completed")
 				} else if cfg.HasTest("model-param") {
 					paramDone("skipped")
@@ -381,6 +389,10 @@ func runTarget(ctx context.Context, options protocolpkg.RunOptions, frozen *froz
 	tmp.RateLimit = *protocolpkg.RateLimitStats(client.PacingStats())
 	finish(&tmp, p, target)
 	return protocolpkg.RunResult{Target: toTarget(target, tmp), Runtime: runtime}, nil
+}
+
+func openAIJobContext(ctx context.Context, target, model, kind string) context.Context {
+	return api.WithExecutionOwner(ctx, api.ExecutionOwner{TargetID: target, JobID: protocolpkg.JobID(target, model, kind)})
 }
 
 // progressPlan serializes revisions from concurrently executing models. A
