@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func plan() []Job {
@@ -88,6 +89,83 @@ func TestFreezeDeduplicatesUnusableJobs(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Planned 2 logical probe(s)") {
 		t.Fatalf("plan output = %q", out.String())
+	}
+}
+
+func TestFreezeKeepsLongOpaqueIDsDistinctWhileTruncatingOnlyDisplayLabels(t *testing.T) {
+	var out bytes.Buffer
+	r := New(Options{Writer: &out})
+	t.Cleanup(r.Close)
+
+	prefix := strings.Repeat("x", 128)
+	ids := []string{
+		strings.Repeat("a", 97),
+		strings.Repeat("b", 128),
+		strings.Repeat("c", 512),
+		prefix + "-one",
+		prefix + "-two",
+		"модель/" + strings.Repeat("界", 40) + "/one",
+		"модель/" + strings.Repeat("界", 40) + "/two",
+	}
+	jobs := make([]Job, 0, len(ids))
+	for _, id := range ids {
+		jobs = append(jobs, Job{ID: id, Target: "target", Label: strings.Repeat("界", 40)})
+	}
+	r.Freeze(jobs)
+	for _, id := range ids {
+		r.Start(id)
+		r.Complete(id, "pass")
+	}
+
+	r.mu.Lock()
+	total, done := r.total, r.done
+	for _, id := range ids {
+		if _, ok := r.jobs[id]; !ok {
+			r.mu.Unlock()
+			t.Fatalf("raw job ID was altered or truncated: %q", id)
+		}
+	}
+	label := r.jobs[ids[0]].Label
+	r.mu.Unlock()
+	if total != len(ids) || done != len(ids) {
+		t.Fatalf("opaque long IDs plan = %d/%d, want %d/%d", done, total, len(ids), len(ids))
+	}
+	if len(label) > 96 || !utf8.ValidString(label) {
+		t.Fatalf("display label = %q: want valid UTF-8 at most 96 bytes", label)
+	}
+}
+
+func TestUnknownAndConflictingTerminalEventsDoNotMutateFrozenPlan(t *testing.T) {
+	var out bytes.Buffer
+	r := New(Options{Writer: &out})
+	t.Cleanup(r.Close)
+	r.Freeze([]Job{{ID: "job"}, {ID: "requirement"}})
+
+	r.Start("unknown")
+	r.Complete("unknown", "pass")
+	r.Complete("job", "pass")
+	r.Complete("job", "pass") // same terminal outcome is idempotent
+	r.Complete("job", "fail") // conflict must not overwrite the original
+	r.Complete("requirement", "skipped")
+
+	r.mu.Lock()
+	total, done := r.total, r.done
+	jobOutcome, requirementOutcome := r.completed["job"], r.completed["requirement"]
+	r.mu.Unlock()
+	if total != 2 || done != 2 {
+		t.Fatalf("invalid lifecycle events mutated plan = %d/%d, want 2/2", done, total)
+	}
+	if jobOutcome != "pass" || requirementOutcome != "skipped" {
+		t.Fatalf("terminal outcomes = job:%q requirement:%q", jobOutcome, requirementOutcome)
+	}
+	for _, want := range []string{
+		"progress diagnostic: unknown job start",
+		"progress diagnostic: unknown job completion",
+		"progress diagnostic: conflicting job completion (pass != fail)",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("missing diagnostic %q in %q", want, out.String())
+		}
 	}
 }
 

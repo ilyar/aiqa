@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	progressbar "github.com/schollz/progressbar/v3"
 
@@ -86,11 +87,14 @@ type Reporter struct {
 	bar           *progressbar.ProgressBar
 	barTerminated bool
 	jobs          map[string]Job
-	completed     map[string]struct{}
-	legacyPlans   map[string]int
-	total, done   int
-	current       string
-	pacing        map[string]pacingState
+	// completed records the first terminal outcome by the immutable raw job ID.
+	// Keeping the outcome lets us distinguish a harmless duplicate notification
+	// from an orchestration bug that tries to close a job differently.
+	completed   map[string]string
+	legacyPlans map[string]int
+	total, done int
+	current     string
+	pacing      map[string]pacingState
 }
 
 type pacingState struct {
@@ -106,7 +110,7 @@ func New(options Options) *Reporter {
 	}
 	r := &Reporter{
 		writer: options.Writer, tty: options.TTY,
-		jobs: map[string]Job{}, completed: map[string]struct{}{},
+		jobs: map[string]Job{}, completed: map[string]string{},
 		legacyPlans: map[string]int{}, pacing: map[string]pacingState{},
 	}
 	if r.tty {
@@ -204,8 +208,13 @@ func (r *Reporter) AddPlan(target string, delta int) {
 	r.legacyPlans[key] += delta
 }
 
-// Freeze publishes the global plan once. Invalid or duplicate IDs are omitted:
-// a job cannot be completed reliably without a unique identity.
+// Freeze publishes the global plan once. Job.ID is deliberately not normalized:
+// it is an opaque, immutable execution key, not operator-facing text.  In
+// particular, two long or unicode IDs with the same rendered prefix must still
+// reserve distinct jobs. Display fields are normalized separately.
+//
+// Invalid or duplicate IDs are omitted: a job cannot be completed reliably
+// without a unique identity.
 func (r *Reporter) Freeze(jobs []Job) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -213,8 +222,9 @@ func (r *Reporter) Freeze(jobs []Job) {
 		return
 	}
 	for _, job := range jobs {
-		job.ID, job.Target, job.Model, job.Label = safe(job.ID), safeTarget(job.Target), safe(job.Model), safe(job.Label)
+		job.Target, job.Model, job.Label = safeTarget(job.Target), safe(job.Model), safe(job.Label)
 		if job.ID == "" {
+			r.diagnosticLocked("empty job ID omitted from plan")
 			continue
 		}
 		if job.Label == "" {
@@ -248,7 +258,8 @@ func (r *Reporter) Freeze(jobs []Job) {
 	_ = r.bar.RenderBlank()
 }
 
-// Start updates the current label for a reserved job. Unknown IDs are ignored.
+// Start updates the current label for a reserved job. Unknown IDs are
+// diagnosed, but never create work or alter the fixed total.
 func (r *Reporter) Start(id string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -257,14 +268,17 @@ func (r *Reporter) Start(id string) {
 	}
 	job, ok := r.jobs[id]
 	if !ok {
+		r.diagnosticLocked("unknown job start")
 		return
 	}
 	r.current = job.Label
 	r.renderLocked()
 }
 
-// Complete closes a reserved job exactly once. outcome is intentionally not
-// displayed: pass/fail/skipped belongs to report assessment, not the progress.
+// Complete closes a reserved job exactly once. A repeated same terminal
+// outcome is idempotent. A conflicting outcome is diagnosed and leaves the
+// original completion intact. outcome is intentionally not displayed in normal
+// progress: pass/fail/skipped belongs to report assessment, not this renderer.
 func (r *Reporter) Complete(id, outcome string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -272,12 +286,16 @@ func (r *Reporter) Complete(id, outcome string) {
 		return
 	}
 	if _, exists := r.jobs[id]; !exists {
+		r.diagnosticLocked("unknown job completion")
 		return
 	}
-	if _, seen := r.completed[id]; seen {
+	if previous, seen := r.completed[id]; seen {
+		if previous != outcome {
+			r.diagnosticLocked(fmt.Sprintf("conflicting job completion (%s != %s)", safe(previous), safe(outcome)))
+		}
 		return
 	}
-	r.completed[id] = struct{}{}
+	r.completed[id] = outcome
 	if r.done >= r.total {
 		return
 	}
@@ -433,6 +451,15 @@ func (r *Reporter) durableCheckpointLocked() {
 
 func (r *Reporter) durableLocked(text string) { fmt.Fprintln(r.writer, text) }
 
+// diagnosticLocked makes invalid lifecycle calls observable without allowing
+// them to mutate the frozen plan. It uses the same single writer as normal
+// progress, so it remains safe under concurrent workers and TTY/plain output.
+func (r *Reporter) diagnosticLocked(text string) {
+	r.clearBarLocked()
+	r.durableLocked("aiqa: progress diagnostic: " + safe(text))
+	r.renderLocked()
+}
+
 func safeTarget(value string) string {
 	if value = safe(value); value != "" {
 		return value
@@ -447,10 +474,20 @@ func safe(value string) string {
 		}
 		return r
 	}, strings.TrimSpace(value))
-	if len(value) > 96 {
-		return value[:96]
+	return truncateDisplay(value, 96)
+}
+
+// truncateDisplay truncates only rendered text, never identifiers used for
+// execution lookup. It never splits a UTF-8 rune.
+func truncateDisplay(value string, limit int) string {
+	if limit <= 0 || len(value) <= limit {
+		return value
 	}
-	return value
+	end := limit
+	for end > 0 && !utf8.RuneStart(value[end]) {
+		end--
+	}
+	return value[:end]
 }
 
 func progressLabel(model, probe string) string {
