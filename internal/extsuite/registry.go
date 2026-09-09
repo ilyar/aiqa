@@ -3,14 +3,19 @@ package extsuite
 import (
 	"fmt"
 	"sort"
+	"sync"
 )
 
 type Registry struct {
-	byID map[string]Extension
+	byID        map[string]Extension
+	unsafeLocks *unsafeInvocationLocks
 }
 
 func NewRegistry(extensions ...Extension) (*Registry, error) {
-	r := &Registry{byID: map[string]Extension{}}
+	// A registry is constructed once for an application run.  Keep unsafe
+	// executable serialization here, rather than in a target invocation, so
+	// separately frozen targets in the same run share the same lock scope.
+	r := &Registry{byID: map[string]Extension{}, unsafeLocks: &unsafeInvocationLocks{byExecutable: map[string]*sync.Mutex{}}}
 	for _, extension := range extensions {
 		if err := r.Register(extension); err != nil {
 			return nil, err

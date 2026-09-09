@@ -63,13 +63,44 @@ type invocation struct {
 // selected extension, subject, or suite list after preparation.
 type FrozenInvocations struct {
 	invocations []invocation
+	unsafeLocks *unsafeInvocationLocks
+}
+
+// unsafeInvocationLocks is deliberately owned by the per-run Registry and
+// carried by each frozen target plan. Executable extensions which do not
+// declare their own concurrency may not run concurrently, even when their
+// target executions are parallel. It does not replace broker admission: the
+// process still acquires its opaque capacity lease after it owns this lock.
+type unsafeInvocationLocks struct {
+	mu           sync.Mutex
+	byExecutable map[string]*sync.Mutex
+}
+
+func (locks *unsafeInvocationLocks) lockFor(planned invocation) *sync.Mutex {
+	if locks == nil {
+		return nil
+	}
+	provenance := planned.extension.Provenance()
+	key := provenance.Path
+	if key == "" {
+		key = provenance.ID
+	}
+	locks.mu.Lock()
+	defer locks.mu.Unlock()
+	if locks.byExecutable == nil {
+		locks.byExecutable = map[string]*sync.Mutex{}
+	}
+	if locks.byExecutable[key] == nil {
+		locks.byExecutable[key] = &sync.Mutex{}
+	}
+	return locks.byExecutable[key]
 }
 
 // FreezeTarget resolves the target-local extension selection exactly once.
 // ExecuteFrozenTargetWithTelemetryAndProgress consumes this result instead of
 // consulting configuration, profile bindings, or model capabilities again.
 func FreezeTarget(registry *Registry, cfg config.Config, target config.TargetConfig, p profile.Profile, models []result.ModelReport) FrozenInvocations {
-	return FrozenInvocations{invocations: cloneInvocations(planTarget(registry, cfg, target, p, models))}
+	return FrozenInvocations{invocations: cloneInvocations(planTarget(registry, cfg, target, p, models)), unsafeLocks: registry.unsafeLocks}
 }
 
 // PlannedJobs returns the fixed host-owned logical units an extension phase
@@ -227,15 +258,15 @@ func ExecuteTargetWithTelemetryAndProgress(ctx context.Context, registry *Regist
 // post-freeze change to configuration, profile, or model capability data
 // cannot alter the extension suites that run.
 func ExecuteFrozenTargetWithTelemetryAndProgress(ctx context.Context, cfg config.Config, target config.TargetConfig, p profile.Profile, frozen FrozenInvocations, client *api.Client, executor *probe.Executor, logger DiagnosticLogger, provider *telemetry.Provider, sink progress.Sink) []result.ExtensionRun {
-	return executeInvocations(ctx, cfg, target, p, frozen.invocations, client, executor, logger, provider, sink)
+	return executeInvocations(ctx, cfg, target, p, frozen.invocations, frozen.unsafeLocks, client, executor, logger, provider, sink)
 }
 
 func executeTarget(ctx context.Context, registry *Registry, cfg config.Config, target config.TargetConfig, p profile.Profile, models []result.ModelReport, client *api.Client, executor *probe.Executor, logger DiagnosticLogger, provider *telemetry.Provider, sink progress.Sink) []result.ExtensionRun {
-	invocations := planTarget(registry, cfg, target, p, models)
-	return executeInvocations(ctx, cfg, target, p, invocations, client, executor, logger, provider, sink)
+	frozen := FreezeTarget(registry, cfg, target, p, models)
+	return executeInvocations(ctx, cfg, target, p, frozen.invocations, frozen.unsafeLocks, client, executor, logger, provider, sink)
 }
 
-func executeInvocations(ctx context.Context, cfg config.Config, target config.TargetConfig, p profile.Profile, invocations []invocation, client *api.Client, executor *probe.Executor, logger DiagnosticLogger, provider *telemetry.Provider, sink progress.Sink) []result.ExtensionRun {
+func executeInvocations(ctx context.Context, cfg config.Config, target config.TargetConfig, p profile.Profile, invocations []invocation, unsafeLocks *unsafeInvocationLocks, client *api.Client, executor *probe.Executor, logger DiagnosticLogger, provider *telemetry.Provider, sink progress.Sink) []result.ExtensionRun {
 	if len(invocations) == 0 {
 		return nil
 	}
@@ -255,14 +286,6 @@ func executeInvocations(ctx context.Context, cfg config.Config, target config.Ta
 	}
 	runs := make([]result.ExtensionRun, len(invocations))
 	var wg sync.WaitGroup
-	unsafeLocks := map[string]*sync.Mutex{}
-	for _, planned := range invocations {
-		if planned.extension.Provenance().Source == "executable" && hasUnsafeConcurrency(planned.manifest, planned.suiteIDs) {
-			if unsafeLocks[planned.manifest.Extension.ID] == nil {
-				unsafeLocks[planned.manifest.Extension.ID] = &sync.Mutex{}
-			}
-		}
-	}
 	for index, planned := range invocations {
 		index, planned := index, planned
 		wg.Add(1)
@@ -373,9 +396,12 @@ func executeInvocations(ctx context.Context, cfg config.Config, target config.Ta
 			var runErr error
 			if planned.extension.Provenance().Source == "executable" {
 				slots := declaredSlots(planned.manifest, planned.suiteIDs, cfg.Concurrency)
-				if lock := unsafeLocks[planned.manifest.Extension.ID]; lock != nil {
-					lock.Lock()
-					defer lock.Unlock()
+				if hasUnsafeConcurrency(planned.manifest, planned.suiteIDs) {
+					lock := unsafeLocks.lockFor(planned)
+					if lock != nil {
+						lock.Lock()
+						defer lock.Unlock()
+					}
 				}
 				// An executable is opaque to the host: reserve its declared
 				// capacity for the full process lifetime rather than pretending

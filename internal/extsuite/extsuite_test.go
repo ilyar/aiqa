@@ -785,6 +785,85 @@ func TestFrozenInvocationExecutionDoesNotReplanAfterFreeze(t *testing.T) {
 	}
 }
 
+func TestFrozenUnsafeExecutableSerializesAcrossParallelTargets(t *testing.T) {
+	manifest := testManifest("fixture.unsafe", "openai", SuiteDescriptor{ID: "provider", Subject: "provider", Cost: "text", InternalConcurrency: 0})
+	entered := make(chan string, 2)
+	release := make(chan struct{})
+	extension := &testExtension{source: "executable", manifest: manifest}
+	extension.run = func(_ context.Context, request RunRequest, sink EventSink) (RunnerTelemetry, error) {
+		trace, ok := sink.(TraceEventSink)
+		if !ok {
+			return RunnerTelemetry{}, fmt.Errorf("trace sink unavailable")
+		}
+		if err := trace.EmitTrace(TraceEvent{SchemaVersion: ProtocolVersion, Type: "trace_event", RunID: request.RunID, ExtensionID: manifest.Extension.ID, SuiteID: "provider", EventID: "suite", Operation: "suite", Phase: "start"}); err != nil {
+			return RunnerTelemetry{}, err
+		}
+		entered <- request.Target.ID
+		<-release
+		if err := trace.EmitTrace(TraceEvent{SchemaVersion: ProtocolVersion, Type: "trace_event", RunID: request.RunID, ExtensionID: manifest.Extension.ID, SuiteID: "provider", EventID: "suite", Operation: "suite", Phase: "end"}); err != nil {
+			return RunnerTelemetry{}, err
+		}
+		return RunnerTelemetry{}, sink.Emit(SuiteEvent{SchemaVersion: ProtocolVersion, Type: "suite_result", RunID: request.RunID, ExtensionID: manifest.Extension.ID, SuiteID: "provider", Subject: request.Subject, Outcome: result.ExtensionOutcomePass, DurationMS: 1, Summary: "ok"})
+	}
+	registry, err := NewRegistry(extension)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := profile.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker, err := scheduler.New(scheduler.Config{Capacity: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	newClient := func(target string) *api.Client {
+		client, err := api.NewClient("https://example.test/v1", "secret", "test", time.Millisecond)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := client.SetScheduler(api.SchedulerConfig{Broker: broker, Target: target, Group: "shared"}); err != nil {
+			t.Fatal(err)
+		}
+		return client
+	}
+	cfg := config.Config{Tests: []string{"ext-suite"}, ExtSuites: []string{"fixture.unsafe"}, Timeout: time.Second, Concurrency: 2}
+	targetA := config.TargetConfig{ID: "target-a", Protocol: config.ProtocolOpenAI, BaseURL: "https://example.test/v1", APIKey: "secret"}
+	targetB := config.TargetConfig{ID: "target-b", Protocol: config.ProtocolOpenAI, BaseURL: "https://example.test/v1", APIKey: "secret"}
+	frozenA := FreezeTarget(registry, cfg, targetA, p, nil)
+	frozenB := FreezeTarget(registry, cfg, targetB, p, nil)
+
+	var wg sync.WaitGroup
+	run := func(target config.TargetConfig, frozen FrozenInvocations, client *api.Client) {
+		defer wg.Done()
+		runs := ExecuteFrozenTargetWithTelemetryAndProgress(context.Background(), cfg, target, p, frozen, client, probe.NewExecutor(2), nil, nil, nil)
+		if len(runs) != 1 || runs[0].Runner.Status != result.StatusPass {
+			t.Errorf("runs for %s = %+v", target.ID, runs)
+		}
+	}
+	wg.Add(2)
+	go run(targetA, frozenA, newClient(targetA.ID))
+	go run(targetB, frozenB, newClient(targetB.ID))
+
+	<-entered
+	if snapshot := broker.Snapshot(); snapshot.InFlight != 1 {
+		t.Fatalf("unsafe executable should hold one opaque broker lease, snapshot=%+v", snapshot)
+	}
+	select {
+	case second := <-entered:
+		t.Fatalf("unsafe executable overlapped across targets; second runner %s entered before first completed", second)
+	default:
+	}
+	close(release)
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("parallel frozen unsafe executions did not complete")
+	}
+}
+
 func TestValidateExecutableSelectionRejectsBuiltin(t *testing.T) {
 	builtin := &testExtension{source: "builtin", manifest: testManifest("official-sdk.openai", "openai", SuiteDescriptor{ID: "chat", Subject: "model", Cost: "text", InternalConcurrency: 1})}
 	registry, err := NewRegistry(builtin)
