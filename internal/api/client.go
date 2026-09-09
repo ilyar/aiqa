@@ -336,10 +336,10 @@ func (c *Client) acquireScheduler(ctx context.Context, bodyBytes int64) (*schedu
 // Commit immediately before native or SDK dispatch; call
 // CancelBeforeDispatch only if dispatch was definitely not attempted.
 func (c *Client) ReserveArtifact(ctx context.Context, modelID string) (*ArtifactReservation, error) {
-	// Model identifiers are selected local inventory values. They must still be
-	// bounded, operator-safe labels because scheduler snapshots are observable
-	// execution metadata and must never become a URL or request-derived value.
-	if !safeSchedulerTarget(modelID) {
+	// Model identifiers can legitimately contain provider punctuation such as
+	// `vendor/model`. They are never placed in scheduler metadata: hash the
+	// target/model pair into an opaque bucket key instead.
+	if modelID == "" || len(modelID) > 1024 || strings.Contains(modelID, "://") || strings.ContainsAny(modelID, "\r\n\t") {
 		return nil, errors.New("invalid artifact model identifier")
 	}
 	c.logMu.RLock()
@@ -354,10 +354,11 @@ func (c *Client) ReserveArtifact(ctx context.Context, modelID string) (*Artifact
 		admissionCtx, cancel = context.WithTimeout(ctx, admission.queueTimeout)
 		defer cancel()
 	}
+	keySum := sha256.Sum256([]byte(admission.target + "\x00" + modelID))
 	lease, err := admission.broker.Acquire(admissionCtx, scheduler.Request{
 		Target:      admission.target,
 		Group:       admission.group,
-		ArtifactKey: admission.target + "/" + modelID,
+		ArtifactKey: "artifact-" + hex.EncodeToString(keySum[:]),
 		Artifacts:   1,
 	})
 	if err != nil {

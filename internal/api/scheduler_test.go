@@ -187,18 +187,18 @@ func TestReserveArtifactSharesTargetModelBucketAndCommits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := broker.Snapshot(); got.InFlight != 1 || got.Artifacts["target-a/image-model"] != 1 {
+	if got := broker.Snapshot(); got.InFlight != 1 || artifactTotal(got.Artifacts) != 1 {
 		t.Fatalf("first reservation snapshot=%+v", got)
 	}
 	// This is the pre-dispatch boundary. A response timeout after this point is
 	// intentionally not allowed to refund the artifact.
 	first.Commit()
-	if got := broker.Snapshot(); got.InFlight != 0 || got.Artifacts["target-a/image-model"] != 1 {
+	if got := broker.Snapshot(); got.InFlight != 0 || artifactTotal(got.Artifacts) != 1 {
 		t.Fatalf("committed reservation snapshot=%+v", got)
 	}
 	first.Commit()
 	first.CancelBeforeDispatch()
-	if got := broker.Snapshot().Artifacts["target-a/image-model"]; got != 1 {
+	if got := artifactTotal(broker.Snapshot().Artifacts); got != 1 {
 		t.Fatalf("post-commit cancellation refunded possible creation: %d", got)
 	}
 
@@ -207,7 +207,7 @@ func TestReserveArtifactSharesTargetModelBucketAndCommits(t *testing.T) {
 		t.Fatal(err)
 	}
 	second.Commit()
-	if got := broker.Snapshot().Artifacts["target-a/image-model"]; got != 2 {
+	if got := artifactTotal(broker.Snapshot().Artifacts); got != 2 {
 		t.Fatalf("shared native/SDK reservations=%d, want 2", got)
 	}
 
@@ -230,9 +230,17 @@ func TestReserveArtifactSharesTargetModelBucketAndCommits(t *testing.T) {
 	if err := <-blocked; !errors.Is(err, context.Canceled) {
 		t.Fatalf("third reservation error=%v, want context cancellation", err)
 	}
-	if got := broker.Snapshot().Artifacts["target-a/image-model"]; got != 2 {
+	if got := artifactTotal(broker.Snapshot().Artifacts); got != 2 {
 		t.Fatalf("cancelled retry refunded possible creation: %d", got)
 	}
+}
+
+func artifactTotal(items map[string]int) int {
+	total := 0
+	for _, item := range items {
+		total += item
+	}
+	return total
 }
 
 func TestReserveArtifactRefundsOnlyBeforeDispatchAndIsNoopWithoutScheduler(t *testing.T) {

@@ -56,10 +56,17 @@ func RunImageCompat(parent context.Context, env Environment, model string) []res
 
 func probeImageGeneration(parent context.Context, env Environment, model string) []result.TestResult {
 	ctx, cancel := env.probeContext(parent)
-	resp, err := env.Client.ImagesGenerate(ctx, map[string]any{
-		"model":  model,
-		"prompt": "A single blue square centered on a plain white background.",
-	})
+	reservation, err := env.Client.ReserveArtifact(ctx, model)
+	resp := api.Response{}
+	if err == nil {
+		// From this point a provider creation may occur. The shared bucket stays
+		// consumed even if a timeout leaves creation ambiguous.
+		reservation.Commit()
+		resp, err = env.Client.ImagesGenerate(ctx, map[string]any{
+			"model":  model,
+			"prompt": "A single blue square centered on a plain white background.",
+		})
+	}
 	cancel()
 	basic := testBase(env.Profile, "images.generate.basic", "compat")
 	basic.DurationMS = resp.Duration.Milliseconds()
