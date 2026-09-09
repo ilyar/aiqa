@@ -92,8 +92,9 @@ func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, er
 
 func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (out RunResult, runErr error) {
 	logger := logging.New(cfg.Verbosity)
-	reporter := progress.New(progress.Options{Writer: progressWriter, TTY: progressTTY()})
-	defer reporter.Close()
+	operatorReporter := progress.New(progress.Options{Writer: progressWriter, TTY: progressTTY()})
+	defer operatorReporter.Close()
+	var reporter progress.FrozenSink = operatorReporter
 	// The sidecar is deliberately opened before emitting the first lifecycle
 	// event. O_EXCL prevents a pre-existing path (including a symlink) from
 	// receiving private diagnostics; callers must explicitly rotate an old log.
@@ -213,12 +214,17 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 			}
 		}()
 	}
-	tracing := telemetry.New(logger, reporter)
-	defer tracing.Shutdown(context.Background())
 	forensicRunID, err := newForensicRunID()
 	if err != nil {
 		return RunResult{ExitCode: 2}, fmt.Errorf("generate forensic trace run id: %w", err)
 	}
+	executionProgress, err := newExecutionProgress(forensicRunID, cfg.Concurrency, operatorReporter)
+	if err != nil {
+		return RunResult{ExitCode: 2}, fmt.Errorf("initialize execution accounting: %w", err)
+	}
+	reporter = executionProgress
+	tracing := telemetry.New(logger, reporter)
+	defer tracing.Shutdown(context.Background())
 	ctx = logging.WithLogger(ctx, logger)
 	ctx, runOp := tracing.Start(ctx, "run", logging.Fields{"run_id": forensicRunID, "suite_count": len(cfg.Tests), "target": "all"})
 	runOutcome := "completed"
@@ -255,6 +261,11 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 		}
 	}
 	fatal := func(out RunResult, cause error) (RunResult, error) {
+		// A fatal path has not reached a trustworthy final execution state.
+		// Never expose a partial aggregate as if it described a completed run.
+		if publicReport != nil {
+			publicReport.Execution = nil
+		}
 		// Runtime failures are emitted through the same filtered logger as every
 		// other application message. This keeps stderr and the verbose sidecar in
 		// sync, and intentionally leaves parse/configuration failures to main.
@@ -419,6 +430,18 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 				r.Targets[index].Requirements = internal.Requirements
 				r.Targets[index].Summary = internal.Summary
 			}
+		}
+	}
+	// Build the optional aggregate only after every target completed without a
+	// runtime error. Counters are mirrored from the frozen plan's actual
+	// Start/Complete delivery; unfinished jobs are never synthesized here.
+	if len(runErrors) == 0 {
+		if summaryErr := executionProgress.Finalize(); summaryErr != nil {
+			return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("finalize execution accounting: %w", summaryErr))
+		}
+		r.Execution, err = executionProgress.Summary()
+		if err != nil {
+			return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("build execution summary: %w", err))
 		}
 	}
 	r.Summary = summarizeRun(r.Targets)
