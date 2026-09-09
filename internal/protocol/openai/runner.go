@@ -351,7 +351,10 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 				}
 				chatModule := capability.Module(mr.Modules, capability.ModuleChat)
 				imageModule := capability.Module(mr.Modules, capability.ModuleImages)
-				compatDone := protocolpkg.StartJob(options.Progress, target.ID, model, "compat")
+				compatDone := func(string) {}
+				if cfg.HasTest("compat") {
+					compatDone = protocolpkg.StartJob(options.Progress, target.ID, model, "compat")
+				}
 				if cfg.HasTest("compat") && preflightTests[index] != nil && routeBlocked[index] {
 					mr.Compatibility = append(mr.Compatibility, *preflightTests[index])
 				} else if cfg.HasTest("compat") && chatModule != nil && chatModule.Execution == result.ExecutionExecuted {
@@ -373,7 +376,10 @@ func RunTarget(ctx context.Context, options protocolpkg.RunOptions) (protocolpkg
 				} else if routeBlocked[index] {
 					protocolpkg.LogTestResults(logf, target.ID, model, mr.Compatibility)
 				}
-				paramDone := protocolpkg.StartJob(options.Progress, target.ID, model, "model-param")
+				paramDone := func(string) {}
+				if cfg.HasTest("model-param") {
+					paramDone = protocolpkg.StartJob(options.Progress, target.ID, model, "model-param")
+				}
 				if cfg.HasTest("model-param") && chatModule != nil && chatModule.Execution == result.ExecutionExecuted {
 					mr.Parameters, mr.Context = suites.RunModelParameters(modelCtx, env, model, metadata[model])
 					paramDone("completed")

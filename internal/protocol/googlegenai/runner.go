@@ -364,7 +364,10 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 			for _, evidence := range classification.Capabilities {
 				mr.Capabilities = append(mr.Capabilities, result.CapabilityAssessment{ID: evidence.Capability, Source: evidence.Source, Rule: evidence.Rule, Confidence: evidence.Confidence, Reason: evidence.Reason})
 			}
-			compatDone := protocolpkg.StartJob(options.Progress, target.ID, model, "compat")
+			compatDone := func(string) {}
+			if cfg.HasTest("compat") {
+				compatDone = protocolpkg.StartJob(options.Progress, target.ID, model, "compat")
+			}
 			if cfg.HasTest("compat") && preflightTests[index] != nil && routeBlocked[index] {
 				mr.Compatibility = append(mr.Compatibility, *preflightTests[index])
 			} else if cfg.HasTest("compat") {
@@ -377,7 +380,10 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 					compatDone("completed")
 				}
 			}
-			paramDone := protocolpkg.StartJob(options.Progress, target.ID, model, "model-param")
+			paramDone := func(string) {}
+			if cfg.HasTest("model-param") {
+				paramDone = protocolpkg.StartJob(options.Progress, target.ID, model, "model-param")
+			}
 			if cfg.HasTest("model-param") && hasAnyGenerationModule(modules, strings.Contains(p.ID, "generate-content")) {
 				mr.Compatibility = append(mr.Compatibility, runGoogleModelParamNotice(p)...)
 				paramDone("completed")

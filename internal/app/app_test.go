@@ -128,6 +128,9 @@ func TestRunCompatibilityWritesReports(t *testing.T) {
 	if len(decoded.Targets) != 1 || len(decoded.Targets[0].Models) != 1 || decoded.Targets[0].Models[0].ID != "vendor/model-a" {
 		t.Fatalf("unexpected targets/models: %#v", decoded.Targets)
 	}
+	if decoded.Execution == nil || decoded.Execution.SchemaVersion != "aiqa.execution-summary.v1" || decoded.Execution.PlannedJobs == 0 || decoded.Execution.FinishedJobs != decoded.Execution.PlannedJobs || decoded.Execution.CancelledJobs != 0 {
+		t.Fatalf("completed run lacks truthful execution summary: %+v", decoded.Execution)
+	}
 	target := decoded.Targets[0]
 	if target.Summary.RequiredFail != 0 {
 		t.Fatalf("core tests failed: %+v", target.Summary)
