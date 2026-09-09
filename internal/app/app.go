@@ -476,6 +476,9 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 	// runtime error. Counters are mirrored from the frozen plan's actual
 	// Start/Complete delivery; unfinished jobs are never synthesized here.
 	if len(runErrors) == 0 {
+		if err := plan.ValidateTerminalOutcomes(executionProgress.TerminalOutcomes()); err != nil {
+			return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("reconcile frozen execution outcomes: %w", err))
+		}
 		if summaryErr := executionProgress.Finalize(); summaryErr != nil {
 			return fatal(RunResult{ReportV3: &r, ExitCode: 2}, fmt.Errorf("finalize execution accounting: %w", summaryErr))
 		}

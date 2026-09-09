@@ -8,6 +8,7 @@ import (
 	"github.com/ilyar/aiqa/internal/api"
 	"github.com/ilyar/aiqa/internal/execution"
 	"github.com/ilyar/aiqa/internal/progress"
+	"github.com/ilyar/aiqa/internal/protocol"
 	"github.com/ilyar/aiqa/internal/result"
 	"github.com/ilyar/aiqa/internal/scheduler"
 	"github.com/ilyar/aiqa/internal/telemetry"
@@ -29,6 +30,7 @@ type executionProgress struct {
 	err         error
 	frozen      bool
 	known       map[string]struct{}
+	outcomes    []protocol.TerminalOutcome
 	seenFacts   map[uint64]struct{}
 	unavailable bool
 }
@@ -118,9 +120,18 @@ func (p *executionProgress) Complete(id, outcome string) {
 		return
 	}
 	p.frozenSink().Complete(id, outcome)
+	p.mu.Lock()
+	p.outcomes = append(p.outcomes, protocol.TerminalOutcome{JobID: id, Outcome: outcome})
+	p.mu.Unlock()
 	p.apply(func(base execution.Base) execution.Event {
 		return execution.JobFinished{Base: withJob(base, id), Outcome: executionOutcome(outcome)}
 	})
+}
+
+func (p *executionProgress) TerminalOutcomes() []protocol.TerminalOutcome {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]protocol.TerminalOutcome(nil), p.outcomes...)
 }
 
 // Lifecycle operation IDs are not frozen job IDs. Keep legacy rendering, but
