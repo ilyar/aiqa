@@ -375,6 +375,9 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 		}
 		frozenExtensions[index] = extsuite.FreezeTarget(extRegistry, extensionCfg, prepared.Target, prepared.Profile, prepared.Candidates)
 		allJobs = append(allJobs, extsuite.PlannedJobsForFrozen(prepared.Target, frozenExtensions[index])...)
+		for _, invocation := range extsuite.InvocationBindingsForFrozen(prepared.Target, frozenExtensions[index]) {
+			preparedTargets[index].Binding.SDKInvocations = append(preparedTargets[index].Binding.SDKInvocations, protocolpkg.SDKInvocation{JobID: invocation.JobID, SuiteID: invocation.SuiteID, ModelID: invocation.ModelID})
+		}
 	}
 	plan, err := runPlanFromPrepared(forensicRunID, preparedTargets, allJobs)
 	if err != nil {
@@ -639,6 +642,7 @@ func parallelTargets(limit, targets int, work func(int)) {
 // inventory, so Execute cannot recalculate selection or discover a second time.
 func runPlanFromPrepared(id string, prepared []protocolpkg.PreparedTarget, jobs []progress.Job) (*protocolpkg.RunPlan, error) {
 	input := protocolpkg.PlanInput{ID: id, Revision: 1}
+	sdkInvocations := make(map[string]protocolpkg.SDKInvocation)
 	for _, target := range prepared {
 		input.Targets = append(input.Targets, target.Target.ID)
 		binding := target.Binding
@@ -652,6 +656,9 @@ func runPlanFromPrepared(id string, prepared []protocolpkg.PreparedTarget, jobs 
 			}
 		}
 		input.Bindings = append(input.Bindings, binding)
+		for _, invocation := range binding.SDKInvocations {
+			sdkInvocations[invocation.JobID] = invocation
+		}
 		for _, probe := range target.Profile.Probes {
 			input.Requirements = append(input.Requirements, protocolpkg.RequirementSpec{
 				ID: target.Target.ID + ":" + probe.ID, Required: probe.Required,
@@ -659,8 +666,12 @@ func runPlanFromPrepared(id string, prepared []protocolpkg.PreparedTarget, jobs 
 		}
 	}
 	for _, job := range jobs {
+		suite, kind, model := "planned", "workflow", job.Model
+		if invocation, ok := sdkInvocations[job.ID]; ok {
+			suite, kind, model = invocation.SuiteID, "sdk", invocation.ModelID
+		}
 		input.Jobs = append(input.Jobs, protocolpkg.JobSpec{
-			ID: job.ID, TargetID: job.Target, ModelID: job.Model, Label: job.Label, Suite: "planned", Kind: "workflow",
+			ID: job.ID, TargetID: job.Target, ModelID: model, Label: job.Label, Suite: suite, Kind: kind,
 		})
 	}
 	return protocolpkg.NewRunPlan(input)

@@ -332,8 +332,10 @@ func ValidatePlan(p *RunPlan) error {
 			if err := validateFrozenID("SDK invocation suite id", invocation.SuiteID); err != nil {
 				return fmt.Errorf("binding %q: %w", binding.TargetID, err)
 			}
-			if err := validateFrozenID("SDK invocation model id", invocation.ModelID); err != nil {
-				return fmt.Errorf("binding %q: %w", binding.TargetID, err)
+			if invocation.ModelID != "" {
+				if err := validateFrozenID("SDK invocation model id", invocation.ModelID); err != nil {
+					return fmt.Errorf("binding %q: %w", binding.TargetID, err)
+				}
 			}
 			job, exists := jobs[invocation.JobID]
 			if !exists {
@@ -345,8 +347,10 @@ func ValidatePlan(p *RunPlan) error {
 			if job.Suite != invocation.SuiteID || job.ModelID != invocation.ModelID {
 				return fmt.Errorf("binding %q invocation for job %q disagrees with frozen suite/model", binding.TargetID, invocation.JobID)
 			}
-			if _, selected := selectedModels[invocation.ModelID]; !selected {
-				return fmt.Errorf("binding %q invokes unselected model %q", binding.TargetID, invocation.ModelID)
+			if invocation.ModelID != "" {
+				if _, selected := selectedModels[invocation.ModelID]; !selected {
+					return fmt.Errorf("binding %q invokes unselected model %q", binding.TargetID, invocation.ModelID)
+				}
 			}
 			if _, duplicate := bound[invocation.JobID]; duplicate {
 				return fmt.Errorf("job %q has duplicate execution binding", invocation.JobID)

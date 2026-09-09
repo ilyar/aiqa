@@ -66,6 +66,27 @@ type FrozenInvocations struct {
 	unsafeLocks *unsafeInvocationLocks
 }
 
+// FrozenInvocationBinding is the public, immutable identity of one suite
+// selected during FreezeTarget. It deliberately contains no executable path,
+// endpoint, credential, or invocation payload.
+type FrozenInvocationBinding struct {
+	JobID   string
+	SuiteID string
+	ModelID string
+}
+
+// InvocationBindingsForFrozen exposes the exact frozen suite identities for
+// the run plan fingerprint without exposing the private invocation structs.
+func InvocationBindingsForFrozen(target config.TargetConfig, frozen FrozenInvocations) []FrozenInvocationBinding {
+	var bindings []FrozenInvocationBinding
+	for _, planned := range frozen.invocations {
+		for _, suiteID := range planned.suiteIDs {
+			bindings = append(bindings, FrozenInvocationBinding{JobID: extensionJobID(target.ID, planned, suiteID), SuiteID: suiteID, ModelID: subjectModel(planned.subject)})
+		}
+	}
+	return bindings
+}
+
 // unsafeInvocationLocks is deliberately owned by the per-run Registry and
 // carried by each frozen target plan. Executable extensions which do not
 // declare their own concurrency may not run concurrently, even when their
