@@ -418,17 +418,53 @@ func printResult(c float64, r mutationReport, s mutationStats, t thresholds, cp,
 		}
 		return "[FAIL]"
 	}
-	fmt.Printf("%-10s | %-10s | %-12s | %s\n", "Metric", "Current", "Required", "Status")
-	fmt.Printf("%-10s | %-10.4g%% | >= %-9.4g%% | %s\n", "Coverage", c, t.MinCoverage, st(cp))
+	rows := [][]string{{"Coverage", fmt.Sprintf("%.4g%%", c), fmt.Sprintf(">= %.4g%%", t.MinCoverage), st(cp)}}
 	if skip {
-		fmt.Printf("%-10s | %-10s | %-12s | %s\n", "Mutation", "skipped", "n/a", "[PASS]")
-		return
+		rows = append(rows, []string{"Mutation", "skipped", "n/a", "[PASS]"})
+	} else {
+		mutationStatus := st(mp)
+		if !assessed || !timedOut {
+			mutationStatus = "[INCONCLUSIVE]"
+		}
+		rows = append(rows,
+			[]string{"Mutation", fmt.Sprintf("%.4g%%", r.Score), fmt.Sprintf(">= %.4g%%", t.MinMutation), mutationStatus},
+			[]string{"Assessed", fmt.Sprintf("%d/%d", s.Killed+s.Lived, s.Killed+s.Lived+s.TimedOut), fmt.Sprintf(">= %d", t.MinAssessed), st(assessed)},
+			[]string{"Timed out", fmt.Sprintf("%.4g%%", timeoutPct(s)), fmt.Sprintf("<= %.4g%%", t.MaxTimeout), st(timedOut)},
+		)
 	}
-	mutationStatus := st(mp)
-	if !assessed || !timedOut {
-		mutationStatus = "[INCONCLUSIVE]"
+	printTable([]string{"Metric", "Current", "Required", "Status"}, rows)
+}
+
+func printTable(header []string, rows [][]string) {
+	widths := make([]int, len(header))
+	for i, cell := range header {
+		widths[i] = len(cell)
 	}
-	fmt.Printf("%-10s | %-10.4g%% | >= %-9.4g%% | %s\n", "Mutation", r.Score, t.MinMutation, mutationStatus)
-	fmt.Printf("%-10s | %d/%d      | >= %-9d | %s\n", "Assessed", s.Killed+s.Lived, s.Killed+s.Lived+s.TimedOut, t.MinAssessed, st(assessed))
-	fmt.Printf("%-10s | %-10.4g%% | <= %-9.4g%% | %s\n", "Timed out", timeoutPct(s), t.MaxTimeout, st(timedOut))
+	for _, row := range rows {
+		for i, cell := range row {
+			if len(cell) > widths[i] {
+				widths[i] = len(cell)
+			}
+		}
+	}
+	printRow := func(row []string) {
+		for i, cell := range row {
+			if i > 0 {
+				fmt.Print(" | ")
+			}
+			fmt.Printf("%-*s", widths[i], cell)
+		}
+		fmt.Println()
+	}
+	printRow(header)
+	for i, width := range widths {
+		if i > 0 {
+			fmt.Print("-+-")
+		}
+		fmt.Print(strings.Repeat("-", width))
+	}
+	fmt.Println()
+	for _, row := range rows {
+		printRow(row)
+	}
 }

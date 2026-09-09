@@ -41,24 +41,7 @@ profiles-check:
 	@test -f profile/google-genai-generate-content-compat-2026-09.json
 
 schemas-check:
-	python3 -m json.tool schema/report-v3.schema.json >/dev/null
-	python3 -m json.tool schema/profile-v3.schema.json >/dev/null
-	python3 -m json.tool schema/ext-v2.schema.json >/dev/null
-	python3 -m json.tool schema/trace-v1.schema.json >/dev/null
-	python3 -m json.tool schema/trace-verdict-v1.schema.json >/dev/null
-	python3 -m json.tool profile/openai-compat-2026-09.json >/dev/null
-	python3 -m json.tool profile/anthropic-compat-2026-09.json >/dev/null
-	python3 -m json.tool profile/google-genai-compat-2026-09.json >/dev/null
-	python3 -m json.tool profile/google-genai-generate-content-compat-2026-09.json >/dev/null
-	python3 -c 'import json; from jsonschema import Draft202012Validator, FormatChecker; schema=json.load(open("schema/profile-v3.schema.json")); Draft202012Validator.check_schema(schema); validator=Draft202012Validator(schema, format_checker=FormatChecker()); [validator.validate(json.load(open(path))) for path in ("profile/openai-compat-2026-09.json", "profile/anthropic-compat-2026-09.json", "profile/google-genai-compat-2026-09.json", "profile/google-genai-generate-content-compat-2026-09.json")]'
-	python3 -c 'import json; from jsonschema import Draft202012Validator; Draft202012Validator.check_schema(json.load(open("schema/report-v3.schema.json")))'
-	python3 -c 'import json; from jsonschema import Draft202012Validator; Draft202012Validator.check_schema(json.load(open("schema/ext-v2.schema.json")))'
-	python3 -c 'import json; from jsonschema import Draft202012Validator; Draft202012Validator.check_schema(json.load(open("schema/trace-v1.schema.json"))); Draft202012Validator.check_schema(json.load(open("schema/trace-verdict-v1.schema.json")))'
-	python3 -c 'import glob,json; from jsonschema import Draft202012Validator, FormatChecker; schema=json.load(open("schema/report-v3.schema.json")); validator=Draft202012Validator(schema, format_checker=FormatChecker()); paths=glob.glob("example/*.json"); assert paths, "no example report found"; [validator.validate(json.load(open(path))) for path in paths]'
-	python3 -m json.tool test/wiremock/mappings/openai-models.json >/dev/null
-	python3 -m json.tool test/wiremock/mappings/anthropic-models.json >/dev/null
-	python3 -m json.tool test/wiremock/mappings/google-genai-models.json >/dev/null
-	python3 -m json.tool test/wiremock/mappings/unavailable-api.json >/dev/null
+	go run ./cmd/qa-check schemas
 
 dependency-check:
 	go mod verify
@@ -73,7 +56,7 @@ sbom-check:
 	@bom="$$(mktemp "$${TMPDIR:-/tmp}/aiqa-bom.XXXXXX")"; \
 	trap 'rm -f "$$bom"' EXIT; \
 	go run github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@$(CYCLONEDX_GOMOD_VERSION) mod -licenses -json -output "$$bom"; \
-	python3 -c 'import json,sys; components=json.load(open(sys.argv[1]))["components"]; versions={item["name"]:item["version"] for item in components}; assert versions["github.com/openai/openai-go/v3"] == "v3.54.0"; assert versions["github.com/anthropics/anthropic-sdk-go"] == "v1.68.0"; assert versions["google.golang.org/genai"] == "v1.71.0"' "$$bom"
+	go run ./cmd/qa-check sbom "$$bom"
 
 security-check: dependency-check vuln-check sbom-check
 

@@ -24,7 +24,7 @@ command is a candidate until verified. Never invent a passing test result.
 
 | Scope | Command | Source | Observed result |
 | --- | --- | --- | --- |
-| Full local check | `make check` | `.github/workflows/ci.yml` | executed in this task; repeat on final integrated HEAD |
+| Full local check | `make check` | `.github/workflows/ci.yml` | executed in this task; uses the Go-only Draft 2020-12 checker; repeat on final integrated HEAD |
 | Race suite | `make race` | `.github/workflows/ci.yml` | executed in this task; repeat on final integrated HEAD |
 | Security gate | `make security-check` | `.github/workflows/ci.yml` | executed in this task; repeat on final integrated HEAD |
 | Build | `make build VERSION=ci COMMIT=... DATE=ci` then `./bin/aiqa --version` | `.github/workflows/ci.yml` | CI-defined; pending final integrated HEAD |

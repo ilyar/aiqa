@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -19,6 +18,7 @@ import (
 	"github.com/ilyar/aiqa/internal/config"
 	"github.com/ilyar/aiqa/internal/profile"
 	"github.com/ilyar/aiqa/internal/result"
+	"github.com/ilyar/aiqa/internal/schema"
 	"github.com/ilyar/aiqa/internal/traceverify"
 )
 
@@ -27,7 +27,7 @@ func TestDualTargetCommandWritesIndependentV3Report(t *testing.T) {
 	defer openAI.Close()
 	anthropic := newMockAnthropic(t)
 	defer anthropic.Close()
-	schemaPath, err := filepath.Abs(filepath.Join("..", "..", "schema", "report-v3.schema.json"))
+	reportSchemaPath, err := filepath.Abs(filepath.Join("..", "..", "schema", "report-v3.schema.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,11 +99,8 @@ func TestDualTargetCommandWritesIndependentV3Report(t *testing.T) {
 	if offline := traceverify.Verify(bytes.NewReader(trace)); !reflect.DeepEqual(offline, traceVerdict) {
 		t.Fatalf("offline verdict differs from run verdict:\noffline=%+v\nrun=%+v", offline, traceVerdict)
 	}
-	verdictProgram := `import json,sys
-from jsonschema import Draft202012Validator
-Draft202012Validator(json.load(open(sys.argv[1]))).validate(json.load(open(sys.argv[2])))`
-	if output, err := exec.Command("python3", "-c", verdictProgram, traceSchemaPath, "dual.trace-verdict.json").CombinedOutput(); err != nil {
-		t.Fatalf("trace verdict schema validation failed: %v\n%s", err, output)
+	if err := schema.ValidateFile(traceSchemaPath, "dual.trace-verdict.json"); err != nil {
+		t.Fatalf("trace verdict schema validation failed: %v", err)
 	}
 	data, err := os.ReadFile("dual.json")
 	if err != nil {
@@ -196,12 +193,8 @@ Draft202012Validator(json.load(open(sys.argv[1]))).validate(json.load(open(sys.a
 	if strings.Contains(string(data), "test-key") || strings.Contains(string(data), "anthropic-test-key") {
 		t.Fatal("API key leaked into report")
 	}
-	program := `import json,sys
-from jsonschema import Draft202012Validator,FormatChecker
-schema=json.load(open(sys.argv[1])); Draft202012Validator.check_schema(schema)
-Draft202012Validator(schema,format_checker=FormatChecker()).validate(json.load(open(sys.argv[2])))`
-	if output, err := exec.Command("python3", "-c", program, schemaPath, "dual.json").CombinedOutput(); err != nil {
-		t.Fatalf("v3 schema validation failed: %v\n%s", err, output)
+	if err := schema.ValidateFile(reportSchemaPath, "dual.json"); err != nil {
+		t.Fatalf("v3 schema validation failed: %v", err)
 	}
 	markdown, err := os.ReadFile("dual.md")
 	if err != nil {
@@ -459,7 +452,7 @@ func TestBuiltInOfficialSDKExtensionsRunWithoutDocker(t *testing.T) {
 	defer openAI.Close()
 	anthropic := newMockAnthropic(t)
 	defer anthropic.Close()
-	schemaPath, err := filepath.Abs(filepath.Join("..", "..", "schema", "report-v3.schema.json"))
+	reportSchemaPath, err := filepath.Abs(filepath.Join("..", "..", "schema", "report-v3.schema.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -509,12 +502,8 @@ func TestBuiltInOfficialSDKExtensionsRunWithoutDocker(t *testing.T) {
 		t.Fatalf("v3 report contains legacy transport or credential data: %s", data)
 	}
 	t.Setenv("PATH", originalPath)
-	program := `import json,sys
-from jsonschema import Draft202012Validator,FormatChecker
-schema=json.load(open(sys.argv[1])); Draft202012Validator.check_schema(schema)
-Draft202012Validator(schema,format_checker=FormatChecker()).validate(json.load(open(sys.argv[2])))`
-	if output, err := exec.Command("python3", "-c", program, schemaPath, "extensions.json").CombinedOutput(); err != nil {
-		t.Fatalf("v3 extension schema validation failed: %v\n%s", err, output)
+	if err := schema.ValidateFile(reportSchemaPath, "extensions.json"); err != nil {
+		t.Fatalf("v3 extension schema validation failed: %v", err)
 	}
 }
 

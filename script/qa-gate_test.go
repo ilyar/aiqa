@@ -39,7 +39,7 @@ func TestPinnedArgsAndPersistentArtifacts(t *testing.T) {
 func TestTimeoutBoundaryAndInvalidUpdate(t *testing.T) {
 	r, b := repo(t, `{"version":2,"full":{"min_coverage_pct":80,"min_mutation_score_pct":70,"min_assessed_mutants":4,"max_timeout_pct":19}}`)
 	out, e := gate(r, b, "check")
-	if e == nil || !strings.Contains(out, "Timed out") || !strings.Contains(out, "[INCONCLUSIVE]") || !strings.Contains(out, "Assessed   | 4/5") || strings.Count(out, "[PASS]") < 2 {
+	if e == nil || !strings.Contains(out, "Timed out") || !strings.Contains(out, "[INCONCLUSIVE]") || !strings.Contains(out, "Assessed  | 4/5") || !strings.Contains(out, "[FAIL]") || strings.Count(out, "[PASS]") < 2 {
 		t.Fatal(e, out)
 	}
 	before, _ := os.ReadFile(filepath.Join(r, ".qa-gate.json"))
@@ -56,6 +56,44 @@ func TestTimeoutBoundaryAndInvalidUpdate(t *testing.T) {
 	after, _ = os.ReadFile(filepath.Join(r, ".qa-gate.json"))
 	if e == nil || string(before) != string(after) {
 		t.Fatal("invalid report overwrote baseline")
+	}
+}
+
+func TestResultTableLayoutAndUnits(t *testing.T) {
+	r, b := repo(t, `{"version":2,"full":{"min_coverage_pct":80,"min_mutation_score_pct":70,"min_assessed_mutants":4,"max_timeout_pct":25}}`)
+	out, e := gate(r, b, "check")
+	if e != nil {
+		t.Fatal(e, out)
+	}
+	var table []string
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "Metric") || strings.HasPrefix(line, "Coverage") || strings.HasPrefix(line, "Mutation") || strings.HasPrefix(line, "Assessed") || strings.HasPrefix(line, "Timed out") {
+			table = append(table, line)
+		}
+	}
+	if len(table) != 5 {
+		t.Fatalf("table rows = %q", table)
+	}
+	for _, line := range table[1:] {
+		for i, separator := range []int{strings.Index(table[0], "|"), strings.LastIndex(table[0], "|")} {
+			actual := strings.Index(line, "|")
+			if i == 1 {
+				actual = strings.LastIndex(line, "|")
+			}
+			if actual != separator {
+				t.Fatalf("column %d is not aligned: header=%q row=%q", i, table[0], line)
+			}
+		}
+	}
+	for _, value := range []string{"85.4%", ">= 80%", "75%", ">= 70%", "20%", "<= 25%", "4/5", "[PASS]"} {
+		if !strings.Contains(out, value) {
+			t.Fatalf("table missing %q: %s", value, out)
+		}
+	}
+	for _, spaced := range []string{"85.4 %", "80 %", "75 %", "70 %", "20 %", "25 %"} {
+		if strings.Contains(out, spaced) {
+			t.Fatalf("percentage unit detached in %q: %s", spaced, out)
+		}
 	}
 }
 func TestDiffSkipAndUntrackedRefusal(t *testing.T) {

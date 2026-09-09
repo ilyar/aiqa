@@ -95,4 +95,4 @@ When adding a protocol or report target:
 
 Suites that execute code, browse the web, persist objects, or create billable assets must be opt-in and clearly marked.
 
-`make schemas-check` validates report v3, profile v3, all embedded current profiles, and the extension protocol with JSON Schema Draft 2020-12. The development environment needs Python 3 and a Draft 2020-12-capable `jsonschema` package in addition to Go. The main module intentionally pins the OpenAI, Anthropic, and Google Gen AI official SDK dependencies.
+`make schemas-check` validates report v3, profile v3, all embedded current profiles, and the extension protocol with JSON Schema Draft 2020-12 through the repository's Go checker. It requires only Go; the main module intentionally pins the OpenAI, Anthropic, and Google Gen AI official SDK dependencies.

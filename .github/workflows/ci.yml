@@ -16,10 +16,6 @@ jobs:
         with:
           go-version: '1.27'
           cache: true
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.x'
-      - run: python3 -m pip install 'jsonschema==4.25.1'
       - run: make check
       - run: make security-check
       - run: make build VERSION=ci COMMIT="${GITHUB_SHA::12}" DATE=ci
