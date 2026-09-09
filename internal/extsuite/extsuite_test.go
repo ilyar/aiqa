@@ -21,6 +21,7 @@ import (
 	"github.com/ilyar/aiqa/internal/probe"
 	"github.com/ilyar/aiqa/internal/profile"
 	"github.com/ilyar/aiqa/internal/result"
+	"github.com/ilyar/aiqa/internal/scheduler"
 	"github.com/ilyar/aiqa/internal/telemetry"
 )
 
@@ -781,6 +782,88 @@ func TestPlanConsumesPerModelArtifactBudgetAcrossSuites(t *testing.T) {
 	combined := planTarget(registry, config.Config{Tests: []string{"compat", "ext-suite"}, AllowBillableArtifacts: true, MaxArtifactsPerModel: 1}, target, p, []result.ModelReport{model})
 	if len(combined) != 0 {
 		t.Fatalf("combined run exceeded the artifact budget: %+v", combined)
+	}
+}
+
+func TestBuiltinArtifactInvocationReservesAndCommitsBeforeDispatch(t *testing.T) {
+	manifest := testManifest("fixture.sdk-artifact", "openai", SuiteDescriptor{ID: "image", Subject: "model", Cost: "billable_artifact", InternalConcurrency: 1})
+	broker, err := scheduler.New(scheduler.Config{Capacity: 1, ArtifactBudget: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := api.NewClient("https://example.test/v1", "secret", "test", time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.SetScheduler(api.SchedulerConfig{Broker: broker, Target: "fixture", Group: "shared"}); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	var dispatchSnapshot scheduler.Snapshot
+	extension := &testExtension{source: "builtin", manifest: manifest}
+	extension.run = func(_ context.Context, request RunRequest, sink EventSink) (RunnerTelemetry, error) {
+		called = true
+		// Commit happens before extension code can issue its first SDK request:
+		// admission capacity is released, while the artifact remains spent.
+		dispatchSnapshot = broker.Snapshot()
+		return RunnerTelemetry{}, sink.Emit(SuiteEvent{SchemaVersion: ProtocolVersion, Type: "suite_result", RunID: request.RunID, ExtensionID: manifest.Extension.ID, SuiteID: "image", Subject: request.Subject, Outcome: result.ExtensionOutcomePass, DurationMS: 1, Summary: "ok"})
+	}
+	registry, err := NewRegistry(extension)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := profile.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	models := []result.ModelReport{{ID: "image-model"}}
+	runs := ExecuteTarget(context.Background(), registry, config.Config{Tests: []string{"sdk"}, AllowBillableArtifacts: true, MaxArtifactsPerModel: 1, Timeout: time.Second, Concurrency: 1}, config.TargetConfig{ID: "fixture", Protocol: config.ProtocolOpenAI, BaseURL: "https://example.test/v1", APIKey: "secret"}, p, models, client, probe.NewExecutor(1))
+	if !called || len(runs) != 1 || runs[0].Runner.Status != result.StatusPass {
+		t.Fatalf("builtin artifact invocation=%+v called=%t", runs, called)
+	}
+	if dispatchSnapshot.InFlight != 0 || len(dispatchSnapshot.Artifacts) != 1 {
+		t.Fatalf("artifact reservation at dispatch=%+v", dispatchSnapshot)
+	}
+}
+
+func TestBuiltinArtifactAdmissionFailureSkipsProviderDispatch(t *testing.T) {
+	manifest := testManifest("fixture.sdk-artifact-blocked", "openai", SuiteDescriptor{ID: "image", Subject: "model", Cost: "billable_artifact", InternalConcurrency: 1})
+	broker, err := scheduler.New(scheduler.Config{Capacity: 1, ArtifactBudget: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := api.NewClient("https://example.test/v1", "secret", "test", time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.SetScheduler(api.SchedulerConfig{Broker: broker, Target: "fixture", Group: "shared"}); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	extension := &testExtension{source: "builtin", manifest: manifest}
+	extension.run = func(context.Context, RunRequest, EventSink) (RunnerTelemetry, error) {
+		called = true
+		return RunnerTelemetry{}, nil
+	}
+	registry, err := NewRegistry(extension)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := profile.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A canceled admission context is deterministic: the already-spent bucket
+	// remains in place, while no wall-clock timeout is needed to prove that the
+	// extension cannot reach its provider-facing dispatch.
+	blockedCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	runs := ExecuteTarget(blockedCtx, registry, config.Config{Tests: []string{"sdk"}, AllowBillableArtifacts: true, MaxArtifactsPerModel: 1, Timeout: time.Second, Concurrency: 1}, config.TargetConfig{ID: "fixture", Protocol: config.ProtocolOpenAI, BaseURL: "https://example.test/v1", APIKey: "secret"}, p, []result.ModelReport{{ID: "image-model"}}, client, probe.NewExecutor(1))
+	if called {
+		t.Fatal("provider-facing built-in extension ran after artifact admission failed")
+	}
+	if len(runs) != 1 || runs[0].Runner.Status != result.StatusError || len(runs[0].Suites) != 1 || runs[0].Suites[0].Status != result.StatusError {
+		t.Fatalf("admission failure must become a local runner error: %+v", runs)
 	}
 }
 

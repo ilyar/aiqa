@@ -344,7 +344,23 @@ func executeTarget(ctx context.Context, registry *Registry, cfg config.Config, t
 				}
 				executor.DoN(slots, func() { telemetry, runErr = planned.extension.Run(runCtx, request, collector) })
 			} else {
-				telemetry, runErr = planned.extension.Run(runCtx, request, collector)
+				// A built-in SDK invocation owns the actual provider dispatch.  Its
+				// declared billable-artifact suites therefore reserve the shared
+				// target/model budget before entering extension code, then commit at
+				// the precise boundary where that code may dispatch.  Do not make
+				// executable extensions participate: their process is opaque and
+				// cannot prove its provider-dispatch boundary to the host.
+				if client != nil && invocationHasBillableArtifact(planned.manifest, planned.suiteIDs) {
+					reservation, reservationErr := client.ReserveArtifact(runCtx, planned.subject.ID)
+					if reservationErr != nil {
+						runErr = fmt.Errorf("artifact admission unavailable: %w", reservationErr)
+					} else {
+						reservation.Commit()
+						telemetry, runErr = planned.extension.Run(runCtx, request, collector)
+					}
+				} else {
+					telemetry, runErr = planned.extension.Run(runCtx, request, collector)
+				}
 			}
 			if runCtx.Err() != nil {
 				runErr = fmt.Errorf("extension deadline exceeded: %w", runCtx.Err())
@@ -361,6 +377,25 @@ func executeTarget(ctx context.Context, registry *Registry, cfg config.Config, t
 	}
 	wg.Wait()
 	return runs
+}
+
+// invocationHasBillableArtifact is evaluated against the frozen invocation,
+// rather than the full manifest: a selected text-only subset must not consume
+// a model's artifact allowance merely because the extension supports one.
+func invocationHasBillableArtifact(manifest Manifest, suiteIDs []string) bool {
+	selected := make(map[string]struct{}, len(suiteIDs))
+	for _, suiteID := range suiteIDs {
+		selected[suiteID] = struct{}{}
+	}
+	for _, suite := range manifest.Suites {
+		if suite.Cost != "billable_artifact" {
+			continue
+		}
+		if _, ok := selected[suite.ID]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func reportSuiteTerminal(sink progress.Sink, frozen progress.FrozenSink, frozenProgress bool, target string, planned invocation, suite result.ExtensionSuiteResult, outcome string, at time.Time) {
