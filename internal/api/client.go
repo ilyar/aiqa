@@ -58,15 +58,19 @@ type SchedulerConfig struct {
 	MemoryBytes int64
 	ArtifactKey string
 	Artifacts   int
+	// QueueTimeout bounds scheduler admission only. It deliberately does not
+	// start the HTTP attempt timeout or consume its budget.
+	QueueTimeout time.Duration
 }
 
 type schedulerConfig struct {
-	broker *scheduler.Broker
-	target string
-	group  string
-	memory int64
-	key    string
-	items  int
+	broker       *scheduler.Broker
+	target       string
+	group        string
+	memory       int64
+	key          string
+	items        int
+	queueTimeout time.Duration
 }
 
 // PacingObserver reports an actual client-side pacing wait. target is the
@@ -209,7 +213,7 @@ func (c *Client) SetPacingObserver(observer PacingObserver) {
 // target/group binding. It is safe to call before concurrent work begins.
 func (c *Client) SetScheduler(cfg SchedulerConfig) error {
 	if cfg.Broker == nil {
-		if cfg.Target != "" || cfg.Group != "" || cfg.MemoryBytes != 0 || cfg.ArtifactKey != "" || cfg.Artifacts != 0 {
+		if cfg.Target != "" || cfg.Group != "" || cfg.MemoryBytes != 0 || cfg.ArtifactKey != "" || cfg.Artifacts != 0 || cfg.QueueTimeout != 0 {
 			return errors.New("scheduler configuration requires a broker")
 		}
 		c.logMu.Lock()
@@ -217,7 +221,7 @@ func (c *Client) SetScheduler(cfg SchedulerConfig) error {
 		c.logMu.Unlock()
 		return nil
 	}
-	if !safeSchedulerTarget(cfg.Target) || cfg.MemoryBytes < 0 || cfg.Artifacts < 0 || (cfg.Artifacts > 0 && cfg.ArtifactKey == "") || (cfg.ArtifactKey != "" && !safeSchedulerID(cfg.ArtifactKey)) {
+	if !safeSchedulerTarget(cfg.Target) || cfg.MemoryBytes < 0 || cfg.Artifacts < 0 || cfg.QueueTimeout < 0 || (cfg.Artifacts > 0 && cfg.ArtifactKey == "") || (cfg.ArtifactKey != "" && !safeSchedulerID(cfg.ArtifactKey)) {
 		return errors.New("invalid scheduler configuration")
 	}
 	group := cfg.Group
@@ -228,7 +232,7 @@ func (c *Client) SetScheduler(cfg SchedulerConfig) error {
 		return errors.New("invalid scheduler group")
 	}
 	c.logMu.Lock()
-	c.scheduler = schedulerConfig{broker: cfg.Broker, target: cfg.Target, group: group, memory: cfg.MemoryBytes, key: cfg.ArtifactKey, items: cfg.Artifacts}
+	c.scheduler = schedulerConfig{broker: cfg.Broker, target: cfg.Target, group: group, memory: cfg.MemoryBytes, key: cfg.ArtifactKey, items: cfg.Artifacts, queueTimeout: cfg.QueueTimeout}
 	c.logMu.Unlock()
 	return nil
 }
@@ -277,7 +281,13 @@ func (c *Client) acquireScheduler(ctx context.Context, bodyBytes int64) (*schedu
 	if memory == 0 && bodyBytes > 0 {
 		memory = bodyBytes
 	}
-	return admission.broker.Acquire(ctx, scheduler.Request{Target: admission.target, Group: admission.group, MemoryBytes: memory, ArtifactKey: admission.key, Artifacts: admission.items})
+	admissionCtx := ctx
+	var cancel context.CancelFunc
+	if admission.queueTimeout > 0 {
+		admissionCtx, cancel = context.WithTimeout(ctx, admission.queueTimeout)
+		defer cancel()
+	}
+	return admission.broker.Acquire(admissionCtx, scheduler.Request{Target: admission.target, Group: admission.group, MemoryBytes: memory, ArtifactKey: admission.key, Artifacts: admission.items})
 }
 
 // applySchedulerRetryAfter shares an explicit provider Retry-After signal with

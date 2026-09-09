@@ -85,9 +85,10 @@ func ConfigureClientScheduler(client *api.Client, options RunOptions) error {
 		return nil
 	}
 	return client.SetScheduler(api.SchedulerConfig{
-		Broker: options.Scheduler,
-		Target: options.Target.ID,
-		Group:  options.PacingGroup,
+		Broker:       options.Scheduler,
+		Target:       options.Target.ID,
+		Group:        options.PacingGroup,
+		QueueTimeout: options.Config.QueueTimeout,
 	})
 }
 
