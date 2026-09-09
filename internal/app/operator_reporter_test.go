@@ -64,8 +64,23 @@ func TestOperatorReporterClearsRowsRemovedByShorterFrame(t *testing.T) {
 	got := output.String()
 	// The second frame moves back over all old rows and clears both rows that
 	// are no longer part of the frame; plain output never uses this path.
-	if !strings.Contains(got, "\x1b[3A") || strings.Count(got, "\x1b[2K") < 6 {
+	if !strings.Contains(got, "\x1b[3A") || !strings.Contains(got, "\x1b[2A") || strings.Count(got, "\x1b[2K") < 6 {
 		t.Fatalf("shorter frame did not clear stale rows: %q", got)
+	}
+	r.draw(terminal.Frame{Lines: []string{"header"}})
+	if !strings.HasSuffix(output.String(), "\x1b[1A\r\x1b[2Kheader\n") {
+		t.Fatalf("next redraw did not return to the new frame origin: %q", output.String())
+	}
+}
+
+func TestTargetWaitsReportsDispatchingAfterEligibility(t *testing.T) {
+	snapshot := execution.Snapshot{
+		Run:   execution.RunSnapshot{Offset: 40 * time.Second},
+		Waits: []execution.WaitSnapshot{{ID: "wait", TargetID: "openai", EligibleAt: 30 * time.Second}},
+	}
+	got := targetWaits(snapshot)["openai"]
+	if got.next != 0 || got.count != 1 {
+		t.Fatalf("target wait=%#v, want expired wait", got)
 	}
 }
 

@@ -157,7 +157,11 @@ func (r *operatorReporter) renderSnapshot(snapshot execution.Snapshot, verdicts 
 		detail := ""
 		if target.Phase == execution.PhaseRunning && waiting.count > 0 {
 			state = "waiting"
-			detail = fmt.Sprintf("waiting %d; next in %s", waiting.count, waiting.next.Round(time.Second))
+			if waiting.next <= 0 {
+				detail = fmt.Sprintf("waiting %d; dispatching", waiting.count)
+			} else {
+				detail = fmt.Sprintf("waiting %d; next in %s", waiting.count, waiting.next.Round(time.Second))
+			}
 		}
 		rows = append(rows, terminal.Target{ID: target.ID, State: state, JobsDone: done, JobsTotal: total, Verdict: verdicts[target.ID], Detail: detail})
 	}
@@ -270,14 +274,22 @@ func etaText(snapshot execution.Snapshot, capacity int) string {
 func (r *operatorReporter) draw(frame terminal.Frame) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.lines > 0 {
-		_, _ = fmt.Fprintf(r.writer, "\x1b[%dA", r.lines)
+	previousLines := r.lines
+	if previousLines > 0 {
+		_, _ = fmt.Fprintf(r.writer, "\x1b[%dA", previousLines)
 	}
 	for _, line := range frame.Lines {
 		_, _ = fmt.Fprintf(r.writer, "\r\x1b[2K%s\n", line)
 	}
-	for i := len(frame.Lines); i < r.lines; i++ {
+	stale := previousLines - len(frame.Lines)
+	for i := 0; i < stale; i++ {
 		_, _ = io.WriteString(r.writer, "\r\x1b[2K\n")
+	}
+	// Clearing rows below a shorter frame moves the cursor. Restore it to the
+	// line immediately after the new frame; otherwise the next redraw begins
+	// too low and leaves stale headers visibly stacked above it.
+	if stale > 0 {
+		_, _ = fmt.Fprintf(r.writer, "\x1b[%dA", stale)
 	}
 	r.lines = len(frame.Lines)
 }
