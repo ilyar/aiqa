@@ -412,3 +412,98 @@ func TestEnsureAdaptiveGroupMergesSharedConservativeBounds(t *testing.T) {
 		t.Fatalf("unexpected merged group: %+v", group)
 	}
 }
+
+func TestFactObserverPublishesStablePhysicalRequestAndWaitFactsAfterUnlock(t *testing.T) {
+	clock := newFakeClock()
+	b := broker(t, Config{Capacity: 1, Clock: clock, Groups: map[string]Group{"shared": {Interval: time.Minute}}})
+	var mu sync.Mutex
+	var facts []Fact
+	b.SetFactObserver(func(f Fact) {
+		// Snapshot takes the scheduler lock. This would deadlock if facts were
+		// delivered under that lock rather than after the mutation.
+		_ = b.Snapshot()
+		mu.Lock()
+		facts = append(facts, f)
+		mu.Unlock()
+	})
+	first, err := b.Acquire(context.Background(), Request{Target: "target", Group: "shared"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := acquireAsync(b, context.Background(), Request{Target: "target", Group: "shared"})
+	eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, f := range facts {
+			if f.Kind == FactWaitStarted {
+				return true
+			}
+		}
+		return false
+	})
+	first.Release()
+	clock.Advance(time.Minute)
+	got := <-second
+	if got.err != nil {
+		t.Fatal(got.err)
+	}
+	got.lease.Release()
+
+	mu.Lock()
+	defer mu.Unlock()
+	var requestID, waitID string
+	seen := map[FactKind]bool{}
+	for index, f := range facts {
+		if f.Sequence != uint64(index+1) {
+			t.Fatalf("fact sequence out of order: %#v", facts)
+		}
+		if f.Kind != FactGroupUpdated && f.Reservation != ReservationPhysical {
+			t.Fatalf("physical request fact has reservation %q: %#v", f.Reservation, f)
+		}
+		seen[f.Kind] = true
+		if f.Kind == FactWaitStarted {
+			requestID, waitID = f.RequestID, f.WaitID
+		}
+		if f.Kind == FactWaitEnded && (f.RequestID != requestID || f.WaitID != waitID) {
+			t.Fatalf("wait identity changed: start=%q/%q end=%q/%q", requestID, waitID, f.RequestID, f.WaitID)
+		}
+	}
+	for _, kind := range []FactKind{FactRequestQueued, FactRequestAdmitted, FactWaitStarted, FactWaitEnded, FactRequestReleased, FactGroupUpdated} {
+		if !seen[kind] {
+			t.Fatalf("missing %s in %#v", kind, facts)
+		}
+	}
+}
+
+func TestFactObserverDistinguishesArtifactAndMemoryReservations(t *testing.T) {
+	b := broker(t, Config{Capacity: 2, MemoryBudget: 64, ArtifactBudget: 1})
+	var facts []Fact
+	b.SetFactObserver(func(f Fact) { facts = append(facts, f) })
+	artifact, err := b.Acquire(context.Background(), Request{Target: "target", Group: "shared", ArtifactKey: "opaque-bucket", Artifacts: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact.Release()
+	memory, err := b.ReserveMemory(context.Background(), 16)
+	if err != nil {
+		t.Fatal(err)
+	}
+	memory.Release()
+
+	seenArtifact, seenCommitted, seenMemoryReserved, seenMemoryReleased := false, false, false, false
+	for _, f := range facts {
+		switch f.Kind {
+		case FactRequestAdmitted:
+			seenArtifact = seenArtifact || f.Reservation == ReservationArtifact
+		case FactArtifactCommitted:
+			seenCommitted = f.Reservation == ReservationArtifact
+		case FactMemoryReserved:
+			seenMemoryReserved = f.Reservation == ReservationMemory && f.RequestID != ""
+		case FactMemoryReleased:
+			seenMemoryReleased = f.Reservation == ReservationMemory && f.RequestID != ""
+		}
+	}
+	if !seenArtifact || !seenCommitted || !seenMemoryReserved || !seenMemoryReleased {
+		t.Fatalf("reservation facts missing or misclassified: %#v", facts)
+	}
+}
