@@ -161,6 +161,13 @@ func (p *executionProgress) apply(event func(execution.Base) execution.Event) {
 	base := execution.Base{Meta: execution.Meta{RunID: p.runID, Seq: p.sequence, Offset: time.Since(p.started)}}
 	if err := p.reducer.Apply(event(base)); err != nil {
 		p.err = err
+		return
+	}
+	// The public aggregate is derived from the same live reducer snapshots as
+	// the UI.  Recording only the final snapshot loses intervals in which a
+	// waiter existed, so it would under-report real scheduler delay.
+	if err := p.builder.Observe(p.reducer.Snapshot()); err != nil {
+		p.err = err
 	}
 }
 
