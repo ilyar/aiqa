@@ -416,6 +416,10 @@ func TestRunFreezesParallelPreparationBeforeParallelTargetExecution(t *testing.T
 	// intentionally global, so grant both discovery requests a real C=2 slot.
 	cfg.Concurrency = 2
 	cfg.TargetConcurrency = 2
+	// This fixture exercises independent target workflows. The same loopback
+	// origin is only a test convenience; production targets would be distinct
+	// origins, so keep their quota groups independent explicitly.
+	cfg.PacingGroups = []string{"alpha=alpha-test", "zeta=zeta-test"}
 	cfg.Targets = []config.TargetConfig{
 		{ID: "zeta", Protocol: config.ProtocolOpenAI, BaseURL: server.URL + "/v1", APIKey: "test-key", ProfileFile: profile.DefaultFile, Modules: []string{"auto"}, UnknownModel: "inventory", RequestInterval: time.Millisecond},
 		{ID: "alpha", Protocol: config.ProtocolOpenAI, BaseURL: server.URL + "/v1", APIKey: "test-key", ProfileFile: profile.DefaultFile, Modules: []string{"auto"}, UnknownModel: "inventory", RequestInterval: time.Millisecond},
