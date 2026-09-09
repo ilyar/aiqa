@@ -100,6 +100,35 @@ FAIL  ShorterFrameMustEraseSuffix
 
 ## 3. Что изменилось после первого аудита
 
+### 3.1. Дополнение после repeat-audit (2026-09-09)
+
+Пункты ниже описывают изменения **после** проверенного в этом документе
+`c66dbd8`; они не меняют исторические основания sections 1–2 и не являются
+заменой PTY acceptance.
+
+- `a652eeb`: lifecycle `operation_id` больше не передаётся legacy progress
+  renderer как frozen `job_id`; regression вызывает реальный
+  `executionProgress.ObserveLifecycle`.
+- `0917f08` и `4f12566`: app передаёт owner-bound wait facts и unowned
+  group-limit/cooldown revisions в reducer. Transport остаётся единственным
+  producer физического HTTP attempt count; concurrent eligible deadline
+  нормализуется к accepted reducer offset.
+- `0f581e6`, `332f249`, `8bd3635`, `bf0cbb9`, `627ddd8`, `db656fa`:
+  interactive stderr path получает reducer snapshots, рендерит
+  `internal/terminal` frames, показывает cooldown только как ETA lower bound,
+  различает FINISHED/FAILED/INTERRUPTED и публикует MAIN COMPLETED только после
+  atomic report commit. Renderer вызывается после освобождения mutex reducer.
+
+Проверено на текущем HEAD `db656fa`: `go test -race ./internal/app`,
+`go test -race ./internal/api ./internal/protocol ./internal/app` и
+`make monitoring-check scheduler-check` завершались успешно. Отдельный
+`qa-gate check --scope=full` записал 63.4% coverage, 100% mutation efficacy
+(3889/3889) и 0% timeout; `.qa-gate.json` не понижался.
+
+Остаётся недоказанным: настоящий PTY/VT acceptance, resize lifecycle,
+coalesced asynchronous writer и ETA service-time samples. Поэтому этот
+документ по-прежнему не даёт оснований объявлять N07–N09 полностью принятыми.
+
 Ниже «изменение подтверждено» означает **чтение нового production-path**, а не свежий полный acceptance PASS. Старые дефекты не следует механически копировать в открытый список без проверки.
 
 | Первый finding | Новый результат | Остаток / приёмка |
