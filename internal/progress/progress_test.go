@@ -169,7 +169,7 @@ func TestUnknownAndConflictingTerminalEventsDoNotMutateFrozenPlan(t *testing.T) 
 	}
 }
 
-func TestTTYSwitchesSpinnerToOneLibraryBarAndFinalizes(t *testing.T) {
+func TestTTYSwitchesPlanningLineToBuiltInBarAndFinalizes(t *testing.T) {
 	var out bytes.Buffer
 	r := New(Options{Writer: &out, TTY: true, SpinnerInterval: time.Hour})
 	r.RunStarted(1)
@@ -184,7 +184,7 @@ func TestTTYSwitchesSpinnerToOneLibraryBarAndFinalizes(t *testing.T) {
 		t.Fatalf("spinner missing planning status: %q", got)
 	}
 	if !strings.Contains(got, "gpt-test:chat.basic") || !strings.Contains(got, "2/2") {
-		t.Fatalf("fixed progressbar missing job/count: %q", got)
+		t.Fatalf("fixed progress bar missing job/count: %q", got)
 	}
 	if !strings.HasSuffix(got, "\n") {
 		t.Fatalf("TTY output was not finalized: %q", got)
@@ -204,19 +204,19 @@ func TestTTYCompletionTerminatesBeforeNextMessage(t *testing.T) {
 	}
 }
 
-func TestTTYFreezeStopsPlanningSpinner(t *testing.T) {
+func TestTTYFreezeDoesNotNeedBackgroundSpinner(t *testing.T) {
 	var out bytes.Buffer
-	r := New(Options{Writer: &out, TTY: true, SpinnerInterval: time.Millisecond})
+	r := New(Options{Writer: &out, TTY: true})
 	t.Cleanup(r.Close)
 	r.RunStarted(1)
-	// progressbar/v3 enables a 100ms internal spinner ticker by default. Wait
-	// past that boundary so this regression catches an accidental re-enable.
-	time.Sleep(125 * time.Millisecond)
+	beforeFreeze := out.Len()
 	r.Freeze([]Job{{ID: "one", Target: "openai", Label: "one"}})
 	afterFreeze := out.Len()
-	time.Sleep(125 * time.Millisecond)
-	if got := out.Len(); got != afterFreeze {
-		t.Fatalf("planning spinner continued after Freeze: bytes %d -> %d", afterFreeze, got)
+	if afterFreeze <= beforeFreeze {
+		t.Fatalf("freeze did not render determinate state: bytes %d -> %d", beforeFreeze, afterFreeze)
+	}
+	if r.ttyRendered != true {
+		t.Fatal("TTY line was not rendered")
 	}
 }
 

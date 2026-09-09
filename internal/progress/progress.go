@@ -11,8 +11,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	progressbar "github.com/schollz/progressbar/v3"
-
 	"github.com/ilyar/aiqa/internal/telemetry"
 )
 
@@ -64,16 +62,20 @@ type FrozenSink interface {
 	Complete(id, outcome string)
 }
 
-// Options makes output deterministic in tests. TTY selects the one-line
-// progressbar/v3 renderer; false emits durable text without terminal controls.
+// Options makes output deterministic in tests. TTY selects a single-line
+// renderer; false emits durable text without terminal controls.
 type Options struct {
-	Writer          io.Writer
-	TTY             bool
+	Writer io.Writer
+	TTY    bool
+	// SpinnerInterval is retained for source compatibility. The built-in
+	// renderer deliberately has no timer or background goroutine: state
+	// transitions, rather than wall clock time, own every redraw.
 	SpinnerInterval time.Duration
 }
 
 // Reporter serializes all calls, so workers can complete jobs concurrently.
-// Exactly one progressbar/v3 determinate bar is created after Freeze.
+// TTY output is rendered directly from this state. There is intentionally no
+// third-party terminal framework, ticker, or goroutine.
 type Reporter struct {
 	writer io.Writer
 	tty    bool
@@ -82,10 +84,8 @@ type Reporter struct {
 
 	closed        bool
 	frozen        bool
-	spinner       *progressbar.ProgressBar
-	spinnerStop   chan struct{}
-	bar           *progressbar.ProgressBar
 	barTerminated bool
+	ttyRendered   bool
 	jobs          map[string]Job
 	// completed records the first terminal outcome by the immutable raw job ID.
 	// Keeping the outcome lets us distinguish a harmless duplicate notification
@@ -113,52 +113,14 @@ func New(options Options) *Reporter {
 		jobs: map[string]Job{}, completed: map[string]string{},
 		legacyPlans: map[string]int{}, pacing: map[string]pacingState{},
 	}
-	if r.tty {
-		interval := options.SpinnerInterval
-		if interval == 0 {
-			interval = 100 * time.Millisecond
-		}
-		r.spinner = progressbar.NewOptions(-1,
-			progressbar.OptionSetWriter(r.writer),
-			progressbar.OptionSetDescription("aiqa: Planning"),
-			progressbar.OptionSpinnerType(14),
-			// progressbar enables its own 100ms spinner ticker by default. It
-			// cannot be stopped with Exit, so disable it in favour of spin.
-			progressbar.OptionSetSpinnerChangeInterval(0),
-			progressbar.OptionUseANSICodes(false),
-		)
-		r.spinnerStop = make(chan struct{})
-		go r.spin(interval, r.spinnerStop)
-	}
 	return r
-}
-
-// spin is deliberately owned by Reporter. progressbar/v3's optional internal
-// spinner ticker has no stop operation: Exit only prevents Add and leaves the
-// goroutine redrawing after Freeze. Owning this ticker prevents a planning
-// spinner from overwriting the determinate bar.
-func (r *Reporter) spin(interval time.Duration, stop <-chan struct{}) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-stop:
-			return
-		case <-ticker.C:
-			r.mu.Lock()
-			if !r.closed && r.spinner != nil {
-				_ = r.spinner.Add(1)
-			}
-			r.mu.Unlock()
-		}
-	}
 }
 
 func (r *Reporter) RunStarted(targets int) {
 	r.Planning(fmt.Sprintf("Planning %d target(s)", max(0, targets)))
 }
 
-// Planning updates the spinner while targets/models/jobs are discovered.
+// Planning updates the current TTY line while targets/models/jobs are discovered.
 func (r *Reporter) Planning(status string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -167,7 +129,7 @@ func (r *Reporter) Planning(status string) {
 	}
 	text := "aiqa: " + safe(status)
 	if r.tty {
-		r.spinner.Describe(text)
+		r.renderLineLocked(text)
 		return
 	}
 	r.durableLocked(text)
@@ -236,26 +198,11 @@ func (r *Reporter) Freeze(jobs []Job) {
 		r.jobs[job.ID] = job
 	}
 	r.frozen, r.total = true, len(r.jobs)
-	r.stopSpinnerLocked()
 	if !r.tty {
 		r.durableLocked(fmt.Sprintf("aiqa: Planned %d logical probe(s)", r.total))
 		return
 	}
-	if r.total == 0 {
-		return
-	}
-	r.bar = progressbar.NewOptions(r.total,
-		progressbar.OptionSetWriter(r.writer),
-		progressbar.OptionSetDescription("aiqa: Running"),
-		progressbar.OptionSetWidth(20),
-		progressbar.OptionSetTheme(progressbar.ThemeASCII),
-		progressbar.OptionShowCount(),
-		progressbar.OptionShowIts(),
-		progressbar.OptionSetPredictTime(true),
-		progressbar.OptionThrottle(100*time.Millisecond),
-		progressbar.OptionUseANSICodes(false),
-	)
-	_ = r.bar.RenderBlank()
+	r.renderLocked()
 }
 
 // Start updates the current label for a reserved job. Unknown IDs are
@@ -300,9 +247,6 @@ func (r *Reporter) Complete(id, outcome string) {
 		return
 	}
 	r.done++
-	if r.bar != nil {
-		_ = r.bar.Add(1)
-	}
 	r.renderLocked()
 	if r.done == r.total {
 		r.finishBarLocked()
@@ -359,7 +303,6 @@ func (r *Reporter) RunFinished() {
 	if r.closed {
 		return
 	}
-	r.stopSpinnerLocked()
 	r.finishBarLocked()
 }
 
@@ -402,45 +345,42 @@ func (r *Reporter) Close() {
 		return
 	}
 	r.closed = true
-	r.stopSpinnerLocked()
 	r.finishBarLocked()
 }
 
 func (r *Reporter) renderLocked() {
-	if r.bar == nil || r.current == "" || r.bar.IsFinished() {
+	if !r.tty || r.barTerminated || !r.frozen {
 		return
 	}
-	r.bar.Describe("aiqa: " + r.current)
-}
-
-func (r *Reporter) stopSpinnerLocked() {
-	if r.spinner == nil {
-		return
+	label := r.current
+	if label == "" {
+		label = "Running"
 	}
-	if r.spinnerStop != nil {
-		close(r.spinnerStop)
-		r.spinnerStop = nil
-	}
-	_ = r.spinner.Exit()
-	_ = r.spinner.Clear()
-	r.spinner = nil
+	r.renderLineLocked(fmt.Sprintf("aiqa: [%s] %d/%d %d%%  %s", bar(r.done, r.total, 20), r.done, r.total, percentOf(r.done, r.total), label))
 }
 
 func (r *Reporter) clearBarLocked() {
-	if r.bar != nil && !r.bar.IsFinished() {
-		_ = r.bar.Clear()
+	if r.tty && r.ttyRendered && !r.barTerminated {
+		fmt.Fprintln(r.writer)
+		r.ttyRendered = false
 	}
 }
 
 func (r *Reporter) finishBarLocked() {
-	if r.bar == nil || r.barTerminated {
+	if !r.tty || r.barTerminated {
 		return
 	}
-	if !r.bar.IsFinished() {
-		_ = r.bar.Exit()
+	if r.frozen && !r.ttyRendered {
+		r.renderLocked()
 	}
 	fmt.Fprintln(r.writer)
 	r.barTerminated = true
+	r.ttyRendered = false
+}
+
+func (r *Reporter) renderLineLocked(text string) {
+	fmt.Fprintf(r.writer, "\r%s", text)
+	r.ttyRendered = true
 }
 
 func (r *Reporter) durableCheckpointLocked() {
@@ -509,6 +449,23 @@ func percentOf(done, total int) int {
 		return 100
 	}
 	return done * 100 / total
+}
+
+func bar(done, total, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	filled := 0
+	if total > 0 {
+		filled = done * width / total
+	}
+	if filled < 0 {
+		filled = 0
+	}
+	if filled > width {
+		filled = width
+	}
+	return strings.Repeat("#", filled) + strings.Repeat("-", width-filled)
 }
 
 func max(a, b int) int {
