@@ -12,7 +12,7 @@ import (
 func sample() Snapshot {
 	return Snapshot{
 		RunID: "run-7f1a", Phase: "running", Elapsed: "09:03", ETA: "~01:18",
-		JobsDone: 27, JobsTotal: 30, Inflight: 1, Concurrency: 16,
+		JobsDone: 27, JobsTotal: 30, Inflight: 1, Concurrency: 16, RPS: 0.1,
 		HTTPDone: 0, HTTPTotal: 16, TargetsDone: 2, TargetsTotal: 3,
 		Rows: []Target{
 			{ID: "anthropic", State: "finished", JobsDone: 10, JobsTotal: 10, Verdict: "pass"},

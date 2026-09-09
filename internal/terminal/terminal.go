@@ -44,6 +44,7 @@ type Snapshot struct {
 	Inflight     int
 	Concurrency  int
 	Waiting      int
+	RPS          float64
 	HTTPDone     int
 	HTTPTotal    int
 	TargetsDone  int
@@ -102,7 +103,7 @@ func Render(s Snapshot, width, height int, options Options) Frame {
 	if width >= 110 {
 		lines = append(lines, fit(runLabel(s.RunID), limit, options.ASCII))
 		lines = append(lines, fit(fmt.Sprintf("%s Elapsed %s Jobs %d/%d (%d%%)", phase, value(s.Elapsed, "--:--"), s.JobsDone, s.JobsTotal, percent(s.JobsDone, s.JobsTotal)), limit, options.ASCII))
-		runtime := fmt.Sprintf("ETA %s HTTP %d/%d In-flight %d/%d", value(s.ETA, "unknown"), s.HTTPDone, s.HTTPTotal, s.Inflight, s.Concurrency)
+		runtime := fmt.Sprintf("In-flight %d/%d RPS %.1f ETA %s", s.Inflight, s.Concurrency, s.RPS, value(s.ETA, "unknown"))
 		if s.Waiting > 0 {
 			runtime += fmt.Sprintf(" Waiting %d", s.Waiting)
 		}
@@ -117,7 +118,7 @@ func Render(s Snapshot, width, height int, options Options) Frame {
 		}
 	} else if width >= 60 {
 		lines = append(lines, fit(fmt.Sprintf("AIQA %s  %d/%d jobs (%d%%)", phase, s.JobsDone, s.JobsTotal, percent(s.JobsDone, s.JobsTotal)), limit, options.ASCII))
-		lines = append(lines, fit(fmt.Sprintf("Elapsed %s | ETA %s | HTTP %d/%d", value(s.Elapsed, "--:--"), value(s.ETA, "unknown"), s.HTTPDone, s.HTTPTotal), limit, options.ASCII))
+		lines = append(lines, fit(fmt.Sprintf("Elapsed %s | In-flight %d/%d | RPS %.1f | ETA %s", value(s.Elapsed, "--:--"), s.Inflight, s.Concurrency, s.RPS, value(s.ETA, "unknown")), limit, options.ASCII))
 		for _, r := range rows(s.Rows) {
 			lines = append(lines, fit(fmt.Sprintf("%-14s %-10s %d/%d  %s", middle(clean(r.ID), 14), safeUpper(r.State), r.JobsDone, r.JobsTotal, targetVerdict(r)), limit, options.ASCII))
 			if r.Detail != "" {
@@ -127,7 +128,7 @@ func Render(s Snapshot, width, height int, options Options) Frame {
 	} else {
 		lines = append(lines, fit(fmt.Sprintf("AIQA %d/%d jobs | %d%%", s.JobsDone, s.JobsTotal, percent(s.JobsDone, s.JobsTotal)), limit, options.ASCII))
 		lines = append(lines, fit(fmt.Sprintf("Elapsed %s | ETA %s", value(s.Elapsed, "--:--"), value(s.ETA, "unknown")), limit, options.ASCII))
-		lines = append(lines, fit(fmt.Sprintf("HTTP %d/%d | targets %d/%d done", s.HTTPDone, s.HTTPTotal, s.TargetsDone, s.TargetsTotal), limit, options.ASCII))
+		lines = append(lines, fit(fmt.Sprintf("In-flight %d/%d | RPS %.1f | targets %d/%d done", s.Inflight, s.Concurrency, s.RPS, s.TargetsDone, s.TargetsTotal), limit, options.ASCII))
 		for _, r := range rows(s.Rows) {
 			if r.State == "THROTTLED" || r.State == "FAILED" || r.State == "INTERRUPTED" || r.Detail != "" {
 				lines = append(lines, fit(middle(clean(r.ID), 20)+" "+safeUpper(r.State), limit, options.ASCII))

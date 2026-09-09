@@ -1,5 +1,5 @@
 AIQA 27/30 jobs | 90%
 Elapsed 09:03 | ETA ~01:18
-HTTP 0/16 | targets 2/3 done
+In-flight 1/16 | RPS 0.1 | targets 2/3 done
 openai THROTTLED
 Retry-After: resumes in 01:01; waited 00:08

@@ -166,7 +166,7 @@ func (r *operatorReporter) renderSnapshot(snapshot execution.Snapshot, verdicts 
 	frame := terminal.Render(terminal.Snapshot{
 		RunID: snapshot.Run.ID, Phase: string(snapshot.Run.Phase), Elapsed: snapshot.Run.Offset.Round(1e9).String(),
 		ETA: etaText(snapshot, r.capacity), JobsDone: snapshot.FinishedJobs, JobsTotal: snapshot.PlannedJobs,
-		Inflight: countInflight(snapshot), Concurrency: r.capacity, Waiting: len(snapshot.Waits), HTTPDone: terminalRequests(snapshot),
+		Inflight: countInflight(snapshot), Concurrency: r.capacity, Waiting: len(snapshot.Waits), RPS: requestRate(snapshot),
 		TargetsDone: terminalTargetsDone(snapshot), TargetsTotal: len(snapshot.Targets), Verdict: runVerdict, Rows: rows,
 	}, width, 0, terminal.Options{})
 	r.draw(frame)
@@ -358,6 +358,16 @@ func terminalRequests(snapshot execution.Snapshot) int {
 		}
 	}
 	return n
+}
+
+// requestRate is the completed physical request rate over this run so far.
+// There is deliberately no HTTP total: retries and SDK work make it unknown
+// until the run has completed.
+func requestRate(snapshot execution.Snapshot) float64 {
+	if snapshot.Run.Offset <= 0 {
+		return 0
+	}
+	return float64(terminalRequests(snapshot)) / snapshot.Run.Offset.Seconds()
 }
 
 func terminalTargetsDone(snapshot execution.Snapshot) int {

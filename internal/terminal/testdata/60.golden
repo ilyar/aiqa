@@ -1,5 +1,5 @@
 AIQA RUNNING  27/30 jobs (90%)
-Elapsed 09:03 | ETA ~01:18 | HTTP 0/16
+Elapsed 09:03 | In-flight 1/16 | RPS 0.1 | ETA ~01:18
 anthropic      FINISHED   10/10  PASS
 google-genai   FINISHED   8/8  PASS-WITH-GAPS
 openai         THROTTLED  9/12  --
