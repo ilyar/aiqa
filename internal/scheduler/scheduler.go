@@ -200,23 +200,24 @@ type Broker struct {
 	mu  sync.Mutex
 	cfg Config
 
-	inFlight     int
-	memory       int64
-	groups       map[string]*groupState
-	artifacts    map[string]int
-	committed    map[string]int
-	queue        []*pending
-	memoryQueue  []*memoryPending
-	events       []Event
-	nextID       uint64
-	factSequence uint64
-	factQueue    []Fact
-	factObserver FactObserver
-	factMu       sync.RWMutex
-	publishMu    sync.Mutex
-	publishCond  *sync.Cond
-	nextPublish  uint64
-	rrTarget     string
+	inFlight      int
+	memory        int64
+	groups        map[string]*groupState
+	artifacts     map[string]int
+	committed     map[string]int
+	queue         []*pending
+	memoryQueue   []*memoryPending
+	events        []Event
+	nextID        uint64
+	factSequence  uint64
+	factQueue     []Fact
+	factObservers map[uint64]FactObserver
+	nextObserver  uint64
+	factMu        sync.RWMutex
+	publishMu     sync.Mutex
+	publishCond   *sync.Cond
+	nextPublish   uint64
+	rrTarget      string
 	// changed is closed and replaced whenever queue eligibility or capacity
 	// changes. Waiters select on it so a request that was previously waiting
 	// only for capacity re-reads a newly installed cooldown deadline.
@@ -493,18 +494,49 @@ func validReservationKind(kind ReservationKind) bool {
 	return false
 }
 
-// SetFactObserver enables or disables the opt-in typed fact stream. Existing
-// state is intentionally not replayed: callers bind before dispatch and use
-// Snapshot for an initial view if needed.
+// SetFactObserver replaces all subscriptions for backwards compatibility.
+// New code that needs to coexist with other consumers should use SubscribeFacts.
+// Existing state is intentionally not replayed: callers bind before dispatch
+// and use Snapshot for an initial view if needed.
 func (b *Broker) SetFactObserver(observer FactObserver) {
 	b.factMu.Lock()
-	b.factObserver = observer
+	b.factObservers = make(map[uint64]FactObserver)
+	if observer != nil {
+		b.nextObserver++
+		b.factObservers[b.nextObserver] = observer
+	}
 	b.factMu.Unlock()
+}
+
+// SubscribeFacts adds one ordered, opt-in fact consumer and returns an
+// idempotent unsubscribe function. A fact fan-out uses a subscription snapshot
+// after the broker lock is released, so an unsubscribe affects later facts but
+// never truncates delivery halfway through one mutation.
+func (b *Broker) SubscribeFacts(observer FactObserver) func() {
+	if observer == nil {
+		return func() {}
+	}
+	b.factMu.Lock()
+	if b.factObservers == nil {
+		b.factObservers = make(map[uint64]FactObserver)
+	}
+	b.nextObserver++
+	id := b.nextObserver
+	b.factObservers[id] = observer
+	b.factMu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			b.factMu.Lock()
+			delete(b.factObservers, id)
+			b.factMu.Unlock()
+		})
+	}
 }
 
 func (b *Broker) recordFactLocked(f Fact) {
 	b.factMu.RLock()
-	enabled := b.factObserver != nil
+	enabled := len(b.factObservers) > 0
 	b.factMu.RUnlock()
 	if !enabled {
 		return
@@ -525,9 +557,17 @@ func (b *Broker) flushFacts() {
 			b.publishCond.Wait()
 		}
 		b.factMu.RLock()
-		observer := b.factObserver
+		ids := make([]uint64, 0, len(b.factObservers))
+		for id := range b.factObservers {
+			ids = append(ids, id)
+		}
+		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+		observers := make([]FactObserver, 0, len(ids))
+		for _, id := range ids {
+			observers = append(observers, b.factObservers[id])
+		}
 		b.factMu.RUnlock()
-		if observer != nil {
+		for _, observer := range observers {
 			observer(fact)
 		}
 		b.nextPublish++

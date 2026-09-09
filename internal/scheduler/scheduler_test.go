@@ -532,3 +532,52 @@ func TestFactObserverPreservesOnlyValidatedPhysicalOwner(t *testing.T) {
 		t.Fatalf("opaque reservation accepted owner: %v", err)
 	}
 }
+
+func TestFactSubscriptionsFanOutInOrderAndUnsubscribeIndependently(t *testing.T) {
+	b := broker(t, Config{Capacity: 1})
+	var first, second []Fact
+	stopFirst := b.SubscribeFacts(func(f Fact) {
+		// Delivery is after unlock, so taking a snapshot is safe.
+		_ = b.Snapshot()
+		first = append(first, f)
+	})
+	stopSecond := b.SubscribeFacts(func(f Fact) { second = append(second, f) })
+	lease, err := b.Acquire(context.Background(), Request{Target: "target", Group: "group"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease.Release()
+	if len(first) == 0 || len(first) != len(second) {
+		t.Fatalf("fan-out first=%#v second=%#v", first, second)
+	}
+	for index := range first {
+		if first[index].Sequence != second[index].Sequence || first[index].Sequence != uint64(index+1) {
+			t.Fatalf("unordered fan-out: first=%#v second=%#v", first, second)
+		}
+	}
+	stopFirst()
+	lease, err = b.Acquire(context.Background(), Request{Target: "target", Group: "group"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease.Release()
+	if len(first) != 3 || len(second) != 6 {
+		t.Fatalf("unsubscribe did not isolate subscribers: first=%#v second=%#v", first, second)
+	}
+	stopSecond()
+}
+
+func TestSetFactObserverReplacesSubscriptions(t *testing.T) {
+	b := broker(t, Config{Capacity: 1})
+	var subscribed, replaced int
+	b.SubscribeFacts(func(Fact) { subscribed++ })
+	b.SetFactObserver(func(Fact) { replaced++ })
+	lease, err := b.Acquire(context.Background(), Request{Target: "target", Group: "group"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease.Release()
+	if subscribed != 0 || replaced != 3 {
+		t.Fatalf("set did not replace subscriptions: subscribed=%d replaced=%d", subscribed, replaced)
+	}
+}

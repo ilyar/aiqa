@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/ilyar/aiqa/internal/scheduler"
 )
 
 func TestExecutionObserverRawAttemptHeadersThenOneTerminal(t *testing.T) {
@@ -110,5 +112,36 @@ func TestExecutionObserverSSETerminatesOnceAfterConsumption(t *testing.T) {
 	}
 	if events[0].AttemptID == "" || events[0].AttemptID != events[1].AttemptID || events[1].AttemptID != events[2].AttemptID {
 		t.Fatalf("SSE attempt identity=%#v", events)
+	}
+}
+
+func TestSchedulerFactObserverDecodesOpaqueOwnerForPhysicalAttempt(t *testing.T) {
+	broker, err := scheduler.New(scheduler.Config{Capacity: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := NewClient("https://provider.example/v1", "", "test", time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.SetScheduler(SchedulerConfig{Broker: broker, Target: "target-a", Group: "group-a"}); err != nil {
+		t.Fatal(err)
+	}
+	var events []ExecutionEvent
+	client.SetExecutionObserver(func(event ExecutionEvent) { events = append(events, event) })
+	broker.SetFactObserver(client.SchedulerFactObserver())
+	owner := ExecutionOwner{TargetID: "target-a", JobID: "native:target-a:model:compat"}
+	lease, err := client.acquireScheduler(WithExecutionOwner(context.Background(), owner), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease.Release()
+	if len(events) != 2 || events[0].Kind != ExecutionRequestAdmitted || events[1].Kind != ExecutionRequestTerminal {
+		t.Fatalf("scheduler bridge events=%#v", events)
+	}
+	for _, event := range events {
+		if event.TargetID != owner.TargetID || event.JobID != owner.JobID || event.PreparationID != "" {
+			t.Fatalf("opaque owner did not decode: %#v", events)
+		}
 	}
 }
