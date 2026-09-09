@@ -57,12 +57,34 @@ type invocation struct {
 	suiteIDs  []string
 }
 
+// FrozenInvocations is the immutable extension selection produced before the
+// application's global progress plan is frozen. Its contents intentionally
+// remain private: callers may retain and pass the value, but cannot alter the
+// selected extension, subject, or suite list after preparation.
+type FrozenInvocations struct {
+	invocations []invocation
+}
+
+// FreezeTarget resolves the target-local extension selection exactly once.
+// ExecuteFrozenTargetWithTelemetryAndProgress consumes this result instead of
+// consulting configuration, profile bindings, or model capabilities again.
+func FreezeTarget(registry *Registry, cfg config.Config, target config.TargetConfig, p profile.Profile, models []result.ModelReport) FrozenInvocations {
+	return FrozenInvocations{invocations: cloneInvocations(planTarget(registry, cfg, target, p, models))}
+}
+
 // PlannedJobs returns the fixed host-owned logical units an extension phase
 // will execute. It is intentionally based on prepared model candidates, so
 // the application can freeze one global progress total before native probes
 // begin. Executable extensions remain opaque: one declared suite is one job.
 func PlannedJobs(registry *Registry, cfg config.Config, target config.TargetConfig, p profile.Profile, models []result.ModelReport) []progress.Job {
-	invocations := planTarget(registry, cfg, target, p, models)
+	return PlannedJobsForFrozen(target, FreezeTarget(registry, cfg, target, p, models))
+}
+
+// PlannedJobsForFrozen returns the exact jobs that a frozen extension
+// invocation list can execute. It is the companion to FreezeTarget for a
+// caller that owns one global progress freeze barrier.
+func PlannedJobsForFrozen(target config.TargetConfig, frozen FrozenInvocations) []progress.Job {
+	invocations := frozen.invocations
 	jobs := make([]progress.Job, 0)
 	for _, planned := range invocations {
 		for _, suiteID := range planned.suiteIDs {
@@ -200,8 +222,20 @@ func ExecuteTargetWithTelemetryAndProgress(ctx context.Context, registry *Regist
 	return executeTarget(ctx, registry, cfg, target, p, models, client, executor, logger, provider, sink)
 }
 
+// ExecuteFrozenTargetWithTelemetryAndProgress executes a selection previously
+// returned by FreezeTarget. It deliberately does not call planTarget, so a
+// post-freeze change to configuration, profile, or model capability data
+// cannot alter the extension suites that run.
+func ExecuteFrozenTargetWithTelemetryAndProgress(ctx context.Context, cfg config.Config, target config.TargetConfig, p profile.Profile, frozen FrozenInvocations, client *api.Client, executor *probe.Executor, logger DiagnosticLogger, provider *telemetry.Provider, sink progress.Sink) []result.ExtensionRun {
+	return executeInvocations(ctx, cfg, target, p, frozen.invocations, client, executor, logger, provider, sink)
+}
+
 func executeTarget(ctx context.Context, registry *Registry, cfg config.Config, target config.TargetConfig, p profile.Profile, models []result.ModelReport, client *api.Client, executor *probe.Executor, logger DiagnosticLogger, provider *telemetry.Provider, sink progress.Sink) []result.ExtensionRun {
 	invocations := planTarget(registry, cfg, target, p, models)
+	return executeInvocations(ctx, cfg, target, p, invocations, client, executor, logger, provider, sink)
+}
+
+func executeInvocations(ctx context.Context, cfg config.Config, target config.TargetConfig, p profile.Profile, invocations []invocation, client *api.Client, executor *probe.Executor, logger DiagnosticLogger, provider *telemetry.Provider, sink progress.Sink) []result.ExtensionRun {
 	if len(invocations) == 0 {
 		return nil
 	}
@@ -487,6 +521,14 @@ func hasUnsafeConcurrency(manifest Manifest, suiteIDs []string) bool {
 		}
 	}
 	return false
+}
+
+func cloneInvocations(in []invocation) []invocation {
+	out := append([]invocation(nil), in...)
+	for index := range out {
+		out[index].suiteIDs = append([]string(nil), out[index].suiteIDs...)
+	}
+	return out
 }
 
 func planTarget(registry *Registry, cfg config.Config, target config.TargetConfig, p profile.Profile, models []result.ModelReport) []invocation {

@@ -752,6 +752,39 @@ func TestPlanSDKSelectsBuiltinsWithoutExtSuitesAndDeduplicatesExplicitSelection(
 	}
 }
 
+func TestFrozenInvocationExecutionDoesNotReplanAfterFreeze(t *testing.T) {
+	manifest := testManifest("fixture.frozen", "openai", SuiteDescriptor{ID: "provider", Subject: "provider", Cost: "text", InternalConcurrency: 1})
+	called := false
+	extension := &testExtension{source: "builtin", manifest: manifest}
+	extension.run = func(_ context.Context, request RunRequest, sink EventSink) (RunnerTelemetry, error) {
+		called = true
+		return RunnerTelemetry{}, sink.Emit(SuiteEvent{SchemaVersion: ProtocolVersion, Type: "suite_result", RunID: request.RunID, ExtensionID: manifest.Extension.ID, SuiteID: "provider", Subject: request.Subject, Outcome: result.ExtensionOutcomePass, DurationMS: 1, Summary: "ok"})
+	}
+	registry, err := NewRegistry(extension)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := profile.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := config.TargetConfig{ID: "fixture", Protocol: config.ProtocolOpenAI, BaseURL: "https://example.test/v1"}
+	frozen := FreezeTarget(registry, config.Config{Tests: []string{"sdk"}, Timeout: time.Second, Concurrency: 1}, target, p, nil)
+	if jobs := PlannedJobsForFrozen(target, frozen); len(jobs) != 1 || jobs[0].Label != "fixture.frozen.provider" {
+		t.Fatalf("frozen jobs = %+v, want fixture provider suite", jobs)
+	}
+
+	// With no selected test, replanning would produce no invocation. Frozen
+	// execution must still run precisely the pre-freeze suite.
+	runs := ExecuteFrozenTargetWithTelemetryAndProgress(context.Background(), config.Config{Timeout: time.Second, Concurrency: 1}, target, p, frozen, nil, probe.NewExecutor(1), nil, nil, nil)
+	if !called {
+		t.Fatal("frozen extension invocation was not executed")
+	}
+	if len(runs) != 1 || len(runs[0].Suites) != 1 || runs[0].Suites[0].SuiteID != "provider" {
+		t.Fatalf("frozen runs = %+v", runs)
+	}
+}
+
 func TestValidateExecutableSelectionRejectsBuiltin(t *testing.T) {
 	builtin := &testExtension{source: "builtin", manifest: testManifest("official-sdk.openai", "openai", SuiteDescriptor{ID: "chat", Subject: "model", Cost: "text", InternalConcurrency: 1})}
 	registry, err := NewRegistry(builtin)
