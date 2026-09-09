@@ -272,6 +272,10 @@ func (c *Client) SetScheduler(cfg SchedulerConfig) error {
 	if !safeSchedulerGroup(group) {
 		return errors.New("invalid scheduler group")
 	}
+	interval, maxCapacity := c.pacer.admissionPolicy()
+	if err := cfg.Broker.EnsureAdaptiveGroup(group, scheduler.AdaptiveGroup{InitialInterval: interval, MaxCapacity: maxCapacity}); err != nil {
+		return fmt.Errorf("configure adaptive scheduler group: %w", err)
+	}
 	c.logMu.Lock()
 	c.scheduler = schedulerConfig{broker: cfg.Broker, target: cfg.Target, group: group, memory: cfg.MemoryBytes, key: cfg.ArtifactKey, items: cfg.Artifacts, queueTimeout: cfg.QueueTimeout}
 	c.logMu.Unlock()
@@ -464,29 +468,20 @@ func (c *Client) AcquireOpaqueLease(ctx context.Context, weight int) (*scheduler
 	return admission.broker.Acquire(admissionCtx, scheduler.Request{Target: admission.target, Group: admission.group, Weight: weight})
 }
 
-// applySchedulerRetryAfter shares an explicit provider Retry-After signal with
-// every client bound to this run's pacing group. It deliberately receives only
-// a parsed header duration: neither a URL nor any response/request content is
-// retained by the scheduler. A missing, malformed, expired, or zero delay is
-// not a cooldown signal.
-func (c *Client) applySchedulerRetryAfter(header http.Header) {
-	delay := retryAfter(header)
-	if delay <= 0 {
-		return
-	}
+func (c *Client) hasScheduler() bool {
 	c.logMu.RLock()
-	admission := c.scheduler
+	bound := c.scheduler.broker != nil
 	c.logMu.RUnlock()
-	if admission.broker == nil {
-		return
-	}
-	// SetScheduler validates group as an operator-safe alias. ApplyCooldown is
-	// monotonic, so concurrent 429 responses can only extend this group-local
-	// deadline and never affect another alias.
-	_ = admission.broker.ApplyCooldown(admission.group, time.Now().Add(delay), scheduler.WaitRetryAfter)
+	return bound
 }
 
 func (c *Client) waitForPacing(ctx context.Context, model string) error {
+	// A bound client delegates both pacing and learned concurrency admission to
+	// the run-owned broker. Its local pacer remains only for unbound backwards
+	// compatibility and transport statistics.
+	if c.hasScheduler() {
+		return nil
+	}
 	return c.pacer.wait(ctx, model, func(waiting bool, duration time.Duration) {
 		c.logMu.RLock()
 		observer := c.pacingObserver
@@ -496,6 +491,33 @@ func (c *Client) waitForPacing(ctx context.Context, model string) error {
 			observer(target, waiting, duration)
 		}
 	})
+}
+
+func (c *Client) releasePacing(model string) {
+	if !c.hasScheduler() {
+		c.pacer.release(model)
+	}
+}
+
+func (c *Client) succeeded(lease *scheduler.Lease, model string, duration time.Duration) {
+	if lease != nil {
+		lease.Succeeded()
+		return
+	}
+	c.pacer.success(model, duration)
+}
+
+func (c *Client) rateLimited(lease *scheduler.Lease, model string, header http.Header) time.Duration {
+	delay := retryAfter(header)
+	if lease != nil {
+		if applied := lease.RateLimited(delay); applied > 0 {
+			return applied
+		}
+		// A static legacy group has no learned no-header cooldown. Preserve a
+		// bounded retry delay while adaptive groups supply their shared interval.
+		return 100 * time.Millisecond
+	}
+	return c.pacer.limited(model, delay)
 }
 
 // LogDiagnostic records a transport-correlated diagnostic emitted by a
@@ -668,7 +690,7 @@ func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 		r.client.trace(ctx, logging.Trace, "pacing.wait.end", logging.Fields{"method": request.Method, "path": path, "attempt": attempt + 1, "wait_ms": time.Since(waitStarted).Milliseconds()})
 		lease, err := r.client.acquireScheduler(ctx, request.ContentLength)
 		if err != nil {
-			r.client.pacer.release(r.model)
+			r.client.releasePacing(r.model)
 			r.client.trace(ctx, logging.Debug, "scheduler.acquire.cancelled", logging.Fields{"method": request.Method, "path": path, "attempt": attempt + 1, "reason": errorClass(err)})
 			endLogical("scheduler_cancelled", nil, err)
 			return nil, err
@@ -682,7 +704,7 @@ func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 				if lease != nil {
 					lease.CancelBeforeDispatch()
 				}
-				r.client.pacer.release(r.model)
+				r.client.releasePacing(r.model)
 				r.client.trace(ctx, logging.Error, "sdk.retry.body_error", logging.Fields{"method": request.Method, "path": path, "attempt": attempt + 1, "reason": errorClass(err)})
 				endLogical("retry_body_error", nil, err)
 				return nil, err
@@ -709,22 +731,20 @@ func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 			attemptOp.End(outcome, attemptFields)
 		}
 		retry := err != nil || response != nil && (response.StatusCode == http.StatusRequestTimeout || response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500)
+		var rateLimitDelay time.Duration
 		if response != nil && response.StatusCode == http.StatusTooManyRequests {
-			r.client.applySchedulerRetryAfter(response.Header)
-			if attempt == maxAttempts-1 {
-				r.client.pacer.limited(r.model, retryAfter(response.Header))
-			}
+			rateLimitDelay = r.client.rateLimited(lease, r.model, response.Header)
 		}
 		if !retry || attempt == maxAttempts-1 {
 			if err == nil && response != nil && response.StatusCode >= 200 && response.StatusCode < 300 {
-				r.client.pacer.success(r.model, time.Since(started))
+				r.client.succeeded(lease, r.model, time.Since(started))
 				if attempt > 0 {
 					r.client.pacer.recovered(r.model)
 				}
 			} else if attempt == maxAttempts-1 && retry {
 				r.client.pacer.exhausted(r.model)
 			}
-			r.client.pacer.release(r.model)
+			r.client.releasePacing(r.model)
 			endFields := responseFields(request.Method, path, attempt+1, response, err, time.Since(started))
 			if response != nil && response.Body != nil {
 				handedOff = true
@@ -754,11 +774,11 @@ func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 		if lease != nil {
 			lease.Release()
 		}
-		r.client.pacer.release(r.model)
+		r.client.releasePacing(r.model)
 		delay := time.Duration(1<<attempt) * 100 * time.Millisecond
 		if response != nil {
 			if response.StatusCode == http.StatusTooManyRequests {
-				delay = r.client.pacer.limited(r.model, retryAfter(response.Header))
+				delay = rateLimitDelay
 			}
 			if response.Body != nil {
 				_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
@@ -949,7 +969,7 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 		}
 		lease, err := c.acquireScheduler(ctx, memoryBytes)
 		if err != nil {
-			c.pacer.release(model)
+			c.releasePacing(model)
 			c.trace(ctx, logging.Debug, "scheduler.acquire.cancelled", logging.Fields{"method": method, "path": path, "attempt": attempt + 1, "reason": errorClass(err)})
 			response := Response{TraceID: traceID}
 			endLogical("scheduler_cancelled", response, err)
@@ -962,6 +982,12 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 		attemptCtx, cancelAttempt := attemptContext(ctx)
 		resp, err := c.doRawURLOnce(attemptCtx, method, endpoint, body, contentType, attempt+1)
 		cancelAttempt()
+		var rateLimitDelay time.Duration
+		if resp.StatusCode == http.StatusTooManyRequests {
+			rateLimitDelay = c.rateLimited(lease, model, http.Header(resp.Header))
+		} else if resp.Is2xx() {
+			c.succeeded(lease, model, resp.Duration)
+		}
 		if lease != nil {
 			lease.Release()
 		}
@@ -969,21 +995,19 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 		c.trace(ctx, logging.Trace, "http.attempt.result", rawResponseFields(method, path, attempt+1, resp, err))
 		if !shouldRetry(resp, err) {
 			if resp.Is2xx() {
-				c.pacer.success(model, resp.Duration)
 				if attempt > 0 {
 					c.pacer.recovered(model)
 				}
 			}
-			c.pacer.release(model)
+			c.releasePacing(model)
 			c.trace(ctx, logging.Debug, "http.logical_request.result", rawResponseFields(method, path, attempt+1, resp, err))
 			endLogical("response", resp, err)
 			return resp, err
 		}
-		c.pacer.release(model)
+		c.releasePacing(model)
 		delay := retryDelay(resp, attempt)
 		if resp.StatusCode == http.StatusTooManyRequests {
-			c.applySchedulerRetryAfter(http.Header(resp.Header))
-			c.pacer.limited(model, delay)
+			delay = rateLimitDelay
 		}
 		if attempt == maxAttempts-1 {
 			c.pacer.exhausted(model)
@@ -1179,7 +1203,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 		}
 		lease, err := c.acquireScheduler(ctx, memoryBytes)
 		if err != nil {
-			c.pacer.release(model)
+			c.releasePacing(model)
 			result := StreamResponse{TraceID: traceID}
 			c.trace(ctx, logging.Debug, "scheduler.acquire.cancelled", logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true, "reason": errorClass(err)})
 			endLogical("scheduler_cancelled", result, err)
@@ -1194,7 +1218,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 			if lease != nil {
 				lease.CancelBeforeDispatch()
 			}
-			c.pacer.release(model)
+			c.releasePacing(model)
 			fields := logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true, "duration_ms": time.Since(started).Milliseconds(), "reason": errorClass(err)}
 			c.trace(attemptCtx, logging.Trace, "http.stream_attempt.result", fields)
 			if attemptOp != nil {
@@ -1218,7 +1242,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 			if lease != nil {
 				lease.Release()
 			}
-			c.pacer.release(model)
+			c.releasePacing(model)
 			fields := logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true, "duration_ms": time.Since(started).Milliseconds(), "reason": errorClass(err)}
 			c.trace(attemptCtx, logging.Trace, "http.stream_attempt.result", fields)
 			if attemptOp != nil {
@@ -1257,19 +1281,20 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 			finalLease = lease
 			break
 		}
-		delay := retryAfter(httpResp.Header)
+		var rateLimitDelay time.Duration
+		if httpResp.StatusCode == http.StatusTooManyRequests {
+			rateLimitDelay = c.rateLimited(lease, model, httpResp.Header)
+		}
+		delay := rateLimitDelay
+		if delay <= 0 {
+			delay = retryAfter(httpResp.Header)
+		}
 		if delay <= 0 {
 			delay = time.Duration(1<<attempt) * 100 * time.Millisecond
-		}
-		if httpResp.StatusCode == http.StatusTooManyRequests {
-			c.applySchedulerRetryAfter(httpResp.Header)
 		}
 		if attempt == 2 {
 			finalAttemptCancel = cancelAttempt
 			finalLease = lease
-			if httpResp.StatusCode == http.StatusTooManyRequests {
-				c.pacer.limited(model, delay)
-			}
 			c.pacer.exhausted(model)
 			c.trace(ctx, logging.Warn, "http.stream_retry.exhausted", logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "status": httpResp.StatusCode, "reason": "retryable_status"})
 			break
@@ -1280,10 +1305,8 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 		if lease != nil {
 			lease.Release()
 		}
-		c.pacer.release(model)
-		if httpResp.StatusCode == http.StatusTooManyRequests {
-			c.pacer.limited(model, delay)
-		} else {
+		c.releasePacing(model)
+		if httpResp.StatusCode != http.StatusTooManyRequests {
 			c.pacer.backoff(model, delay)
 			c.trace(ctx, logging.Debug, "http.stream_retry.scheduled", logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "next_attempt": attempt + 2, "status": httpResp.StatusCode, "reason": "retryable_status", "delay_ms": delay.Milliseconds()})
 			select {
@@ -1303,7 +1326,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 	if finalLease != nil {
 		defer finalLease.Release()
 	}
-	defer c.pacer.release(model)
+	defer c.releasePacing(model)
 	defer httpResp.Body.Close()
 	result = StreamResponse{
 		StatusCode:  httpResp.StatusCode,
@@ -1321,7 +1344,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 		endLogical("http_error", result, err)
 		return result, err
 	}
-	c.pacer.success(model, time.Since(started))
+	c.succeeded(finalLease, model, time.Since(started))
 	if attempts > 0 {
 		c.pacer.recovered(model)
 	}

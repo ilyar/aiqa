@@ -65,6 +65,14 @@ func (p *pacer) setConcurrency(limit int) {
 	p.mu.Unlock()
 }
 
+// admissionPolicy snapshots the conservative initial policy for the shared
+// run-owned scheduler before a client is bound to it.
+func (p *pacer) admissionPolicy() (time.Duration, int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.interval, p.maxLimit
+}
+
 func (p *pacer) wait(ctx context.Context, model string, observers ...func(bool, time.Duration)) error {
 	var observe func(bool, time.Duration)
 	if len(observers) > 0 {

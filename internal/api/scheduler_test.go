@@ -466,6 +466,93 @@ func TestSchedulerSharesRetryAfterOnlyWithinAliasAcrossTransportPaths(t *testing
 	}
 }
 
+// A03/A04: a scheduler-bound client bypasses its target-local pacer, and an
+// adaptive broker group owns no-header 429 feedback for raw, SDK and SSE.
+func TestSchedulerSharesNoHeaderRateLimitAcrossTransportPaths(t *testing.T) {
+	tests := []struct {
+		name   string
+		invoke func(context.Context, *Client, string) error
+	}{
+		{"raw", func(ctx context.Context, c *Client, path string) error {
+			_, err := c.DoJSON(ctx, http.MethodGet, path, nil)
+			return err
+		}},
+		{"sdk", func(ctx context.Context, c *Client, path string) error {
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL()+path, nil)
+			if err != nil {
+				return err
+			}
+			resp, err := c.PacedHTTPClient("model").Do(req)
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+			}
+			return err
+		}},
+		{"stream", func(ctx context.Context, c *Client, path string) error {
+			_, err := c.StreamJSONForModel(ctx, path, map[string]any{"model": "model"}, "model")
+			return err
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/ready" {
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = io.WriteString(w, `{}`)
+					return
+				}
+				w.WriteHeader(http.StatusTooManyRequests)
+				_, _ = io.WriteString(w, `{}`)
+			}))
+			defer server.Close()
+
+			broker, err := scheduler.New(scheduler.Config{Capacity: 2, Groups: map[string]scheduler.Group{
+				"shared": {Adaptive: &scheduler.AdaptiveGroup{InitialInterval: 200 * time.Millisecond}},
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			primary, _ := NewClient(server.URL, "", "test", 200*time.Millisecond)
+			shared, _ := NewClient(server.URL, "", "test", 200*time.Millisecond)
+			ready, _ := NewClient(server.URL, "", "test", 200*time.Millisecond)
+			configureAdmission(t, primary, broker, "primary", "shared")
+			configureAdmission(t, shared, broker, "shared", "shared")
+			configureAdmission(t, ready, broker, "ready", "independent")
+
+			primaryCtx, cancelPrimary := context.WithCancel(context.Background())
+			primaryDone := make(chan error, 1)
+			go func() { primaryDone <- test.invoke(primaryCtx, primary, "/limited") }()
+			waitForSchedulerCondition(t, func() bool {
+				group, ok := broker.Snapshot().Groups["shared"]
+				return ok && group.Interval == 400*time.Millisecond && !group.Cooldown.IsZero()
+			})
+
+			if err := test.invoke(context.Background(), ready, "/ready"); err != nil {
+				t.Fatalf("independent group was delayed: %v", err)
+			}
+			sharedCtx, cancelShared := context.WithCancel(context.Background())
+			sharedDone := make(chan error, 1)
+			go func() { sharedDone <- test.invoke(sharedCtx, shared, "/blocked") }()
+			waitForSchedulerCondition(t, func() bool {
+				for _, wait := range broker.Snapshot().Waiting {
+					if wait.Target == "shared" && wait.Group == "shared" && wait.Reason == scheduler.WaitAdaptivePacing {
+						return true
+					}
+				}
+				return false
+			})
+			cancelShared()
+			cancelPrimary()
+			if err := <-sharedDone; !errors.Is(err, context.Canceled) {
+				t.Fatalf("shared request error=%v, want cancellation", err)
+			}
+			if err := <-primaryDone; err == nil {
+				t.Fatal("rate-limited primary request unexpectedly succeeded")
+			}
+		})
+	}
+}
+
 func waitForSchedulerCondition(t *testing.T, condition func() bool) {
 	t.Helper()
 	timeout := time.NewTimer(time.Second)
