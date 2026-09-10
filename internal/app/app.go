@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -206,7 +208,7 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 		}
 		sidecarSink, sidecarFile = sink, file
 	}
-	forensicRunID, err := newForensicRunID()
+	forensicRunID, err := newForensicRunID(build.Version)
 	if err != nil {
 		return RunResult{ExitCode: 2}, fmt.Errorf("generate forensic trace run id: %w", err)
 	}
@@ -563,12 +565,36 @@ func newOperatorReporter(cfg config.Config) *operatorReporter {
 	return newAppOperatorReporter(progressWriter, tty, false, cfg.Concurrency)
 }
 
-func newForensicRunID() (string, error) {
-	bytes := make([]byte, 16)
-	if _, err := rand.Read(bytes); err != nil {
+func newForensicRunID(version string) (string, error) {
+	return newForensicRunIDAt(version, time.Now(), rand.Reader)
+}
+
+// newForensicRunIDAt creates an RFC 9562 UUIDv8. Its timestamp makes IDs
+// time-sortable, the masked fingerprint binds the producing application and
+// build version, and random bytes keep simultaneous runs distinct.
+func newForensicRunIDAt(version string, now time.Time, entropy io.Reader) (string, error) {
+	var raw [16]byte
+	var timeBytes [8]byte
+	binary.BigEndian.PutUint64(timeBytes[:], uint64(now.UnixMilli()))
+	copy(raw[:6], timeBytes[2:])
+	fingerprint := sha256.Sum256([]byte("aiqa:" + version))
+	copy(raw[6:8], fingerprint[:2])
+	if _, err := io.ReadFull(entropy, raw[8:]); err != nil {
 		return "", err
 	}
-	return "aiqa-" + hex.EncodeToString(bytes), nil
+	raw[6] = (raw[6] & 0x0f) | 0x80 // UUID version 8.
+	raw[8] = (raw[8] & 0x3f) | 0x80 // RFC 9562 variant.
+	var encoded [36]byte
+	hex.Encode(encoded[0:8], raw[0:4])
+	encoded[8] = '-'
+	hex.Encode(encoded[9:13], raw[4:6])
+	encoded[13] = '-'
+	hex.Encode(encoded[14:18], raw[6:8])
+	encoded[18] = '-'
+	hex.Encode(encoded[19:23], raw[8:10])
+	encoded[23] = '-'
+	hex.Encode(encoded[24:36], raw[10:16])
+	return "aiqa-" + string(encoded[:]), nil
 }
 
 // targetWorkflowLimit controls application-level target orchestration only.
