@@ -132,6 +132,7 @@ func apply(r *result.Report, p profile.Profile, targetID, protocol string) {
 		finalizeRequirement(item)
 	}
 	reconcileRelatedEvidence(items)
+	materializeUnmatchedProfileScope(items, r, provider, p)
 	requirements := make([]result.RequirementAssessment, 0, len(items))
 	for _, item := range items {
 		requirements = append(requirements, *item)
@@ -150,11 +151,36 @@ func apply(r *result.Report, p profile.Profile, targetID, protocol string) {
 	refreshAssessment(r, targetID != "")
 }
 
+// A catalog-only success cannot establish model compatibility when every
+// requested route is excluded by the advertised capabilities.
+func materializeUnmatchedProfileScope(items map[requirementKey]*result.RequirementAssessment, r *result.Report, provider result.SubjectRef, p profile.Profile) {
+	coverage := coverageForModels(r.Models)
+	if !nativeCoverageSelected(r.Config.Tests) || coverage.Expected == 0 || coverage.Expected != coverage.Excluded {
+		return
+	}
+	item := get(items, provider, "selection.profile_scope", "Selected profile model coverage", "At least one selected model route must be evaluated to establish model compatibility", result.RequirementCore, "selection")
+	item.Applicability = result.ApplicabilityApplicable
+	item.Status = result.RequirementSkip
+	item.FailureKind = "no_evaluated_profile_scope"
+	item.Evidence = []result.EvidenceRef{{
+		ID: evidenceID("coverage", provider, "profile-scope-no-match"), Kind: "coverage",
+		ProbeID: "aiqa.local.selection.profile_scope", Status: result.StatusSkip,
+		Summary: "No selected model advertises a route covered by the requested profile; catalog discovery alone does not establish model compatibility",
+		Signals: []result.EvidenceSignal{{Code: "execution.profile_scope.no_match", RootCause: "no-evaluated-profile-scope", Parameters: map[string]any{"profile_id": p.ID}}},
+	}}
+}
+
 func refreshAssessment(r *result.Report, target bool) {
 	assessment := summarize(r.Requirements)
 	assessment.Coverage = coverageForModels(r.Models)
 	applyCoverageLevels(&assessment, r.Requirements)
 	applyCoverageVerdict(&assessment)
+	for _, requirement := range r.Requirements {
+		if requirement.FailureKind == "no_evaluated_profile_scope" {
+			assessment.Comparison.Rankable = false
+			assessment.Comparison.VerdictRank = nil
+		}
+	}
 	r.Summary.Assessment = &assessment
 	if target {
 		applyModelAssessments(r, r.Requirements)
@@ -206,6 +232,11 @@ func applyModelAssessments(r *result.Report, requirements []result.RequirementAs
 		}
 	}
 	for index := range r.Models {
+		coverage := coverageForModels([]result.ModelReport{r.Models[index]})
+		if nativeCoverageSelected(r.Config.Tests) && coverage.Expected > 0 && coverage.Expected == coverage.Excluded {
+			r.Models[index].Assessment.Verdict = "not-evaluated"
+			continue
+		}
 		modelRequirements := byModel[r.Models[index].ID]
 		if len(modelRequirements) == 0 {
 			if coverageForModels([]result.ModelReport{r.Models[index]}).Unresolved > 0 {

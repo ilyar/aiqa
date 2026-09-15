@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rivo/uniseg"
 )
@@ -19,6 +20,23 @@ func sample() Snapshot {
 			{ID: "google-genai", State: "finished", JobsDone: 8, JobsTotal: 8, Verdict: "pass-with-gaps"},
 			{ID: "openai", State: "throttled", JobsDone: 9, JobsTotal: 12, Detail: "Retry-After: resumes in 01:01; waited 00:08"},
 		},
+	}
+}
+
+func TestWaitingRuntimeFormat(t *testing.T) {
+	s := sample()
+	s.ETA = "~1m41s"
+	s.Waiting, s.WaitingFor = 2, time.Second
+	if got := Render(s, 120, 24, Options{}).String(); !strings.Contains(got, "ETA ~1m41s Waiting 2/1s") {
+		t.Fatalf("countdown wait format=%q", got)
+	}
+	s.WaitingFor = 0
+	if got := Render(s, 120, 24, Options{}).String(); !strings.Contains(got, "ETA ~1m41s Waiting 2") || strings.Contains(got, "Waiting 2/") {
+		t.Fatalf("deadline-free wait format=%q", got)
+	}
+	s.WaitingFor = 400 * time.Millisecond
+	if got := Render(s, 120, 24, Options{}).String(); !strings.Contains(got, "Waiting 2/1s") {
+		t.Fatalf("positive subsecond wait rendered as zero: %q", got)
 	}
 }
 
@@ -80,9 +98,9 @@ func TestTerminalOutcomesStayDistinct(t *testing.T) {
 
 func TestRunLabelNamespacesOpaqueRunID(t *testing.T) {
 	for input, want := range map[string]string{
-		"run-fd37a7f229c990d5f80035ed0b9dbf15": "aiqa-run-fd37a7f229c990d5f80035ed0b9dbf15",
-		"aiqa-existing":                        "aiqa-existing",
-		"":                                     "aiqa",
+		"019315b7-7c7d-81a4-9df2-51bc191da8b2": "AIQA: 019315b7-7c7d-81a4-9df2-51bc191da8b2",
+		"aiqa-existing":                        "AIQA: aiqa-existing",
+		"":                                     "AIQA",
 	} {
 		if got := runLabel(input); got != want {
 			t.Fatalf("runLabel(%q)=%q, want %q", input, got, want)

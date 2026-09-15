@@ -11,128 +11,156 @@ import (
 	"github.com/ilyar/aiqa/internal/result"
 )
 
+// ModelSchemaDiagnostic preserves a machine-readable model-list schema fault
+// for guidance. ValidateModels remains the compatibility API for callers that
+// need the existing human-readable validator output.
+type ModelSchemaDiagnostic struct {
+	Path     string
+	ModelID  string
+	Issue    string
+	Expected string
+	message  string
+}
+
+func ModelSchemaDiagnostics(root map[string]any) []ModelSchemaDiagnostic {
+	return modelSchemaDiagnostics(root)
+}
+
 func ValidateModels(root map[string]any) []string {
-	var problems []string
+	diagnostics := modelSchemaDiagnostics(root)
+	problems := make([]string, 0, len(diagnostics))
+	for _, diagnostic := range diagnostics {
+		problems = append(problems, diagnostic.message)
+	}
+	return problems
+}
+
+func modelSchemaDiagnostics(root map[string]any) []ModelSchemaDiagnostic {
+	var diagnostics []ModelSchemaDiagnostic
+	add := func(path, modelID, issue, expected, message string) {
+		diagnostics = append(diagnostics, ModelSchemaDiagnostic{Path: path, ModelID: modelID, Issue: issue, Expected: expected, message: message})
+	}
 	data, ok := root["data"].([]any)
 	if !ok {
-		return []string{"data is missing or not an array"}
+		return []ModelSchemaDiagnostic{{Path: "data", Issue: "invalid_type", Expected: "array", message: "data is missing or not an array"}}
 	}
 	seen := map[string]bool{}
 	for i, raw := range data {
+		path := fmt.Sprintf("data[%d]", i)
 		model, ok := raw.(map[string]any)
 		if !ok {
-			problems = append(problems, fmt.Sprintf("data[%d] is not an object", i))
+			add(path, "", "invalid_type", "object", path+" is not an object")
 			continue
 		}
 		id := stringValue(model["id"])
 		if id == "" {
-			problems = append(problems, fmt.Sprintf("data[%d].id is missing", i))
+			add(path+".id", "", "missing", "string", path+".id is missing")
 		} else if seen[id] {
-			problems = append(problems, fmt.Sprintf("data[%d].id is duplicated", i))
+			add(path+".id", id, "duplicate", "unique model id", path+".id is duplicated")
 		}
 		seen[id] = true
 		if stringValue(model["type"]) != "model" {
-			problems = append(problems, fmt.Sprintf("data[%d].type is not model", i))
+			add(path+".type", id, "invalid_value", "model", path+".type is not model")
 		}
 		if stringValue(model["display_name"]) == "" {
-			problems = append(problems, fmt.Sprintf("data[%d].display_name is missing", i))
+			add(path+".display_name", id, "missing", "string", path+".display_name is missing")
 		}
 		created := stringValue(model["created_at"])
 		if _, err := time.Parse(time.RFC3339, created); err != nil {
-			problems = append(problems, fmt.Sprintf("data[%d].created_at is not RFC3339", i))
+			add(path+".created_at", id, "invalid_value", "RFC3339 timestamp", path+".created_at is not RFC3339")
 		}
 		if value, valid := positiveInteger(model["max_input_tokens"]); !valid || value <= 0 {
-			problems = append(problems, fmt.Sprintf("data[%d].max_input_tokens is missing or not positive", i))
+			add(path+".max_input_tokens", id, "invalid_value", "positive integer", path+".max_input_tokens is missing or not positive")
 		}
 		if value, valid := positiveInteger(model["max_tokens"]); !valid || value <= 0 {
-			problems = append(problems, fmt.Sprintf("data[%d].max_tokens is missing or not positive", i))
+			add(path+".max_tokens", id, "invalid_value", "positive integer", path+".max_tokens is missing or not positive")
 		}
 		capabilities, ok := model["capabilities"].(map[string]any)
 		if !ok {
-			problems = append(problems, fmt.Sprintf("data[%d].capabilities is missing or not an object", i))
+			add(path+".capabilities", id, "invalid_type", "object", path+".capabilities is missing or not an object")
 		} else {
-			problems = append(problems, validateModelCapabilities(fmt.Sprintf("data[%d].capabilities", i), capabilities)...)
+			diagnostics = append(diagnostics, validateModelCapabilities(path+".capabilities", id, capabilities)...)
 		}
 	}
 	if value, exists := root["has_more"]; !exists {
-		problems = append(problems, "has_more is missing")
+		add("has_more", "", "missing", "boolean", "has_more is missing")
 	} else if _, ok := value.(bool); !ok {
-		problems = append(problems, "has_more is not boolean")
+		add("has_more", "", "invalid_type", "boolean", "has_more is not boolean")
 	}
 	for _, key := range []string{"first_id", "last_id"} {
 		if value, exists := root[key]; !exists {
-			problems = append(problems, key+" is missing")
+			add(key, "", "missing", "string or null", key+" is missing")
 		} else if value != nil {
 			if _, ok := value.(string); !ok {
-				problems = append(problems, key+" is not string or null")
+				add(key, "", "invalid_type", "string or null", key+" is not string or null")
 			}
 		}
 	}
-	return problems
+	return diagnostics
 }
 
-func validateModelCapabilities(path string, capabilities map[string]any) []string {
-	var problems []string
+func validateModelCapabilities(path, modelID string, capabilities map[string]any) []ModelSchemaDiagnostic {
+	var diagnostics []ModelSchemaDiagnostic
 	for _, key := range []string{"batch", "citations", "code_execution", "image_input", "pdf_input", "structured_outputs"} {
-		problems = append(problems, validateCapabilitySupport(path+"."+key, capabilities, key)...)
+		diagnostics = append(diagnostics, validateCapabilitySupport(path+"."+key, modelID, capabilities, key)...)
 	}
 
 	contextManagement, ok := capabilities["context_management"].(map[string]any)
 	if !ok {
-		problems = append(problems, path+".context_management is missing or not an object")
+		diagnostics = append(diagnostics, ModelSchemaDiagnostic{Path: path + ".context_management", ModelID: modelID, Issue: "invalid_type", Expected: "object", message: path + ".context_management is missing or not an object"})
 	} else {
 		for _, key := range []string{"clear_thinking_20251015", "clear_tool_uses_20250919", "compact_20260112"} {
-			problems = append(problems, validateCapabilitySupport(path+".context_management."+key, contextManagement, key)...)
+			diagnostics = append(diagnostics, validateCapabilitySupport(path+".context_management."+key, modelID, contextManagement, key)...)
 		}
-		problems = append(problems, validateRequiredBool(path+".context_management.supported", contextManagement, "supported")...)
+		diagnostics = append(diagnostics, validateRequiredBool(path+".context_management.supported", modelID, contextManagement, "supported")...)
 	}
 
 	effort, ok := capabilities["effort"].(map[string]any)
 	if !ok {
-		problems = append(problems, path+".effort is missing or not an object")
+		diagnostics = append(diagnostics, ModelSchemaDiagnostic{Path: path + ".effort", ModelID: modelID, Issue: "invalid_type", Expected: "object", message: path + ".effort is missing or not an object"})
 	} else {
 		for _, key := range []string{"high", "low", "max", "medium", "xhigh"} {
-			problems = append(problems, validateCapabilitySupport(path+".effort."+key, effort, key)...)
+			diagnostics = append(diagnostics, validateCapabilitySupport(path+".effort."+key, modelID, effort, key)...)
 		}
-		problems = append(problems, validateRequiredBool(path+".effort.supported", effort, "supported")...)
+		diagnostics = append(diagnostics, validateRequiredBool(path+".effort.supported", modelID, effort, "supported")...)
 	}
 
 	thinking, ok := capabilities["thinking"].(map[string]any)
 	if !ok {
-		problems = append(problems, path+".thinking is missing or not an object")
+		diagnostics = append(diagnostics, ModelSchemaDiagnostic{Path: path + ".thinking", ModelID: modelID, Issue: "invalid_type", Expected: "object", message: path + ".thinking is missing or not an object"})
 	} else {
-		problems = append(problems, validateRequiredBool(path+".thinking.supported", thinking, "supported")...)
+		diagnostics = append(diagnostics, validateRequiredBool(path+".thinking.supported", modelID, thinking, "supported")...)
 		types, ok := thinking["types"].(map[string]any)
 		if !ok {
-			problems = append(problems, path+".thinking.types is missing or not an object")
+			diagnostics = append(diagnostics, ModelSchemaDiagnostic{Path: path + ".thinking.types", ModelID: modelID, Issue: "invalid_type", Expected: "object with adaptive and enabled objects, each containing a boolean supported field", message: path + ".thinking.types is missing or not an object"})
 		} else {
 			for _, key := range []string{"adaptive", "enabled"} {
-				problems = append(problems, validateCapabilitySupport(path+".thinking.types."+key, types, key)...)
+				diagnostics = append(diagnostics, validateCapabilitySupport(path+".thinking.types."+key, modelID, types, key)...)
 			}
 		}
 	}
-	return problems
+	return diagnostics
 }
 
-func validateCapabilitySupport(path string, parent map[string]any, key string) []string {
+func validateCapabilitySupport(path, modelID string, parent map[string]any, key string) []ModelSchemaDiagnostic {
 	value, exists := parent[key]
 	if !exists {
-		return []string{path + " is missing"}
+		return []ModelSchemaDiagnostic{{Path: path, ModelID: modelID, Issue: "missing", Expected: "object containing a boolean supported field", message: path + " is missing"}}
 	}
 	object, ok := value.(map[string]any)
 	if !ok {
-		return []string{path + " is not an object"}
+		return []ModelSchemaDiagnostic{{Path: path, ModelID: modelID, Issue: "invalid_type", Expected: "object containing a boolean supported field", message: path + " is not an object"}}
 	}
-	return validateRequiredBool(path+".supported", object, "supported")
+	return validateRequiredBool(path+".supported", modelID, object, "supported")
 }
 
-func validateRequiredBool(path string, parent map[string]any, key string) []string {
+func validateRequiredBool(path, modelID string, parent map[string]any, key string) []ModelSchemaDiagnostic {
 	value, exists := parent[key]
 	if !exists {
-		return []string{path + " is missing"}
+		return []ModelSchemaDiagnostic{{Path: path, ModelID: modelID, Issue: "missing", Expected: "boolean", message: path + " is missing"}}
 	}
 	if _, ok := value.(bool); !ok {
-		return []string{path + " is not boolean"}
+		return []ModelSchemaDiagnostic{{Path: path, ModelID: modelID, Issue: "invalid_type", Expected: "boolean", message: path + " is not boolean"}}
 	}
 	return nil
 }

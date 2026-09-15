@@ -125,8 +125,29 @@ func TestOperatorReporterShowsSchedulerWaitsPerTarget(t *testing.T) {
 		Waits:       []execution.WaitSnapshot{{ID: "wait", TargetID: "google-genai", EligibleAt: 40 * time.Second}},
 		PlannedJobs: 1,
 	})
-	if got := output.String(); !strings.Contains(got, "Waiting 1") || !strings.Contains(got, "WAITING") || !strings.Contains(got, "next in 30s") {
+	if got := output.String(); !strings.Contains(got, "Waiting 1/30s") || !strings.Contains(got, "WAITING") || strings.Contains(got, "next in") {
 		t.Fatalf("terminal frame does not explain scheduler wait: %q", got)
+	}
+}
+
+func TestWaitSummaryUsesEarliestPositiveDeadlineOnly(t *testing.T) {
+	cases := []struct {
+		name   string
+		offset time.Duration
+		waits  []execution.WaitSnapshot
+		want   time.Duration
+	}{
+		{"multiple", 10 * time.Second, []execution.WaitSnapshot{{EligibleAt: 20 * time.Second}, {EligibleAt: 12 * time.Second}}, 2 * time.Second},
+		{"elapsed", 10 * time.Second, []execution.WaitSnapshot{{EligibleAt: 9 * time.Second}}, 0},
+		{"no deadline", 10 * time.Second, []execution.WaitSnapshot{{}}, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			count, got := waitSummary(execution.Snapshot{Run: execution.RunSnapshot{Offset: tc.offset}, Waits: tc.waits})
+			if count != len(tc.waits) || got != tc.want {
+				t.Fatalf("waitSummary=%d/%s, want %d/%s", count, got, len(tc.waits), tc.want)
+			}
+		})
 	}
 }
 
@@ -154,7 +175,7 @@ func TestOperatorETAExtrapolatesObservedJobThroughput(t *testing.T) {
 		},
 		PlannedJobs: 4, FinishedJobs: 2,
 	}
-	if got, want := etaText(snapshot, 1), "~ 10s"; got != want {
+	if got, want := etaText(snapshot, 1), "~10s"; got != want {
 		t.Fatalf("ETA=%q, want %q", got, want)
 	}
 }

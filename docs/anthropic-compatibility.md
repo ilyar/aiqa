@@ -42,7 +42,7 @@ Native requests use `x-api-key` and the pinned `anthropic-version`. They do not 
 
 Anthropic classification uses only Anthropic target metadata and target-qualified overrides. It does not reuse OpenAI provider adapters or OpenAI model-name rules.
 
-The default `--anthropic-unknown-model=inventory` policy keeps ambiguous inventory entries discovery-only. A complete Anthropic `ModelInfo` identifies a Messages route; incomplete metadata remains ambiguous and receives no automatic preflight. Use `--anthropic-unknown-model=messages` to opt into the low-confidence Messages fallback and its safe optional tools and structured-output probes. A clean 400, 404, or 422 response becomes `UNSUP`, not `N/A`.
+The default `--anthropic-unknown-model=probe` policy tests eligible selected profile modules when capability metadata is absent, and records a metadata advisory without claiming support. Explicit unsupported or conflicting declarations remain authoritative. Use `inventory` for conservative catalog handling or `messages` for the legacy low-confidence Messages fallback. Existing permissions still control high-token and persistent-resource probes. A clean unsupported-route response is assessed from its evidence, not treated as non-applicability merely because metadata was missing.
 
 Override incomplete metadata with:
 

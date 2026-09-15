@@ -11,6 +11,7 @@ const (
 	ImagesEdits                  = "images.edits"
 	ImagesVariations             = "images.variations"
 	Embeddings                   = "embeddings"
+	Rerank                       = "rerank"
 	AudioTranscriptions          = "audio.transcriptions"
 	AudioSpeech                  = "audio.speech"
 	AudioTranslations            = "audio.translations"
@@ -42,7 +43,7 @@ var Known = map[string]bool{
 	ChatText: true, ChatImageInput: true, ChatAudioInput: true,
 	ResponsesText: true, ResponsesImageInput: true, ResponsesAudioInput: true,
 	ImagesGenerations: true, ImagesEdits: true, ImagesVariations: true,
-	Embeddings: true, AudioTranscriptions: true, AudioSpeech: true,
+	Embeddings: true, Rerank: true, AudioTranscriptions: true, AudioSpeech: true,
 	AudioTranslations: true, VideosGenerations: true, Realtime: true,
 	AnthropicMessagesText: true, AnthropicImageInput: true, AnthropicTools: true,
 	AnthropicStructuredOutput: true, AnthropicThinkingAdaptive: true,
@@ -64,10 +65,11 @@ type Evidence struct {
 }
 
 type Classification struct {
-	Model        string     `json:"model"`
-	Capabilities []Evidence `json:"capabilities,omitempty"`
-	Unknown      bool       `json:"unknown"`
-	Reason       string     `json:"reason,omitempty"`
+	Model         string     `json:"model"`
+	Capabilities  []Evidence `json:"capabilities,omitempty"`
+	Unknown       bool       `json:"unknown"`
+	ProbeEligible bool       `json:"-"`
+	Reason        string     `json:"reason,omitempty"`
 }
 
 func (c Classification) Has(id string) bool {

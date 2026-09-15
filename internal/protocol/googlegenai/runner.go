@@ -294,11 +294,11 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	} else {
 		for index, model := range selected {
 			unknownPolicy := target.UnknownModel
-			if len(requested) > 0 {
+			if len(requested) > 0 && unknownPolicy != "probe" {
 				unknownPolicy = "inventory"
 			}
 			classification := capability.ClassifyGoogleGenAI(model, metadata[model], capability.Options{BaseURL: target.BaseURL, Overrides: overrides, UnknownPolicy: unknownPolicy})
-			if len(requested) > 0 && classification.Unknown {
+			if len(requested) > 0 && unknownPolicy != "probe" && classification.Unknown {
 				var test result.TestResult
 				var response api.Response
 				var preflightErr error
@@ -345,7 +345,7 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 					routeBlocked[index] = true
 				}
 			}
-			if interactionEligible(requested, p, model) && (classification.Unknown || classification.Has(capability.GoogleGenerateText) || classification.Has(capability.GoogleInteractionsText)) {
+			if !classification.ProbeEligible && interactionEligible(requested, p, model) && (classification.Unknown || classification.Has(capability.GoogleGenerateText) || classification.Has(capability.GoogleInteractionsText)) {
 				// Interactions is selected by explicit/profile policy, not by the
 				// legacy generateContent inventory method.
 				classification.Capabilities = append(classification.Capabilities,
@@ -439,19 +439,14 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 		selection := testBase(p, "google.interactions.model_selection")
 		eligible := false
 		for _, model := range modelResults {
-			for _, item := range model.Capabilities {
-				if item.ID == capability.GoogleInteractionsText {
-					eligible = true
-					break
-				}
-			}
-			if eligible {
+			if interactionSelectionEligible(model) {
+				eligible = true
 				break
 			}
 		}
 		if eligible {
 			selection.Status = result.StatusPass
-			selection.Summary = "An explicit or profile-allowlisted model was selected for Interactions"
+			selection.Summary = "An eligible model was selected for Interactions"
 		} else {
 			selection.Status = result.StatusError
 			selection.Summary = "No eligible Interactions model was selected; core evidence is inconclusive"
@@ -466,6 +461,23 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	guidance.QualifyArtifacts(&tmp, target.ID)
 	assessment.ApplyTarget(&tmp, p, target.ID, string(target.Protocol))
 	return toTarget(target, tmp), nil
+}
+
+// interactionSelectionEligible accepts advertised Interactions support or an
+// already authorized probe-policy module. The latter is execution evidence,
+// not a capability claim, so it must not be copied into ModelReport.Capabilities.
+func interactionSelectionEligible(model result.ModelReport) bool {
+	for _, item := range model.Capabilities {
+		if item.ID == capability.GoogleInteractionsText {
+			return true
+		}
+	}
+	for _, module := range model.Modules {
+		if module.ID == "google-genai.interactions" && module.Source == "probe_policy" && module.Requested && module.Execution == result.ExecutionExecuted {
+			return true
+		}
+	}
+	return false
 }
 
 func googleJobContext(ctx context.Context, target, model, kind string) context.Context {
@@ -494,11 +506,11 @@ func freezeExecution(ctx context.Context, options protocolpkg.RunOptions, client
 	explicit, legacy := len(requestedModels(options.Config, options.Target)) > 0, strings.Contains(options.Profile.ID, "generate-content")
 	for index, model := range selected {
 		unknown := options.Target.UnknownModel
-		if explicit {
+		if explicit && unknown != "probe" {
 			unknown = "inventory"
 		}
 		classification := capability.ClassifyGoogleGenAI(model, metadata[model], capability.Options{BaseURL: options.Target.BaseURL, Overrides: overrides, UnknownPolicy: unknown})
-		if explicit && classification.Unknown {
+		if explicit && unknown != "probe" && classification.Unknown {
 			var test result.TestResult
 			var response api.Response
 			var preflightErr error
@@ -533,7 +545,7 @@ func freezeExecution(ctx context.Context, options protocolpkg.RunOptions, client
 				}
 			}
 		}
-		if interactionEligible(requestedModels(options.Config, options.Target), options.Profile, model) && (classification.Unknown || classification.Has(capability.GoogleGenerateText) || classification.Has(capability.GoogleInteractionsText)) {
+		if !classification.ProbeEligible && interactionEligible(requestedModels(options.Config, options.Target), options.Profile, model) && (classification.Unknown || classification.Has(capability.GoogleGenerateText) || classification.Has(capability.GoogleInteractionsText)) {
 			classification.Capabilities = append(classification.Capabilities, capability.Evidence{Capability: capability.GoogleInteractionsText, Source: "profile_allowlist", Rule: "google-genai.interactions.allowlist", Confidence: "high", Reason: "model is explicitly eligible for the selected Interactions surface"}, capability.Evidence{Capability: capability.GoogleInteractionsTools, Source: "profile_allowlist", Rule: "google-genai.interactions.allowlist", Confidence: "medium", Reason: "text model is eligible for client-side Interactions tool probing"}, capability.Evidence{Capability: capability.GoogleInteractionsStructured, Source: "profile_allowlist", Rule: "google-genai.interactions.allowlist", Confidence: "medium", Reason: "text model is eligible for Interactions structured-output probing"})
 			if options.Config.AllowPersistentResources {
 				classification.Capabilities = append(classification.Capabilities, capability.Evidence{Capability: capability.GoogleInteractionsStateful, Source: "explicit_opt_in", Rule: "google-genai.interactions.stateful.opt_in", Confidence: "high", Reason: "persistent Interaction probing was explicitly authorized"})
@@ -1018,12 +1030,11 @@ func runModelGet(parent context.Context, client *Client, timeout time.Duration, 
 		}
 	}
 	if raw, exists := resp.JSON["supportedGenerationMethods"]; exists {
-		values := stringValues(raw)
-		if len(values) == 0 {
-			methods.Status, methods.Summary = result.StatusFail, "supportedGenerationMethods is not a non-empty string array"
+		if !validGenerationMethods(raw) {
+			methods.Status, methods.Summary = result.StatusFail, "supportedGenerationMethods is not a string array"
 		} else {
 			methods.Status, methods.Summary = result.StatusPass, "supportedGenerationMethods is a string array"
-			methods.Metrics = map[string]any{"method_count": len(values)}
+			methods.Metrics = map[string]any{"method_count": len(stringValues(raw))}
 		}
 	} else {
 		methods.Status, methods.Summary = result.StatusSkip, "The provider did not advertise supportedGenerationMethods"

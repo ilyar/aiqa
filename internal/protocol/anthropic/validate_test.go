@@ -69,6 +69,20 @@ func TestValidateModelsRequiresPinnedSDKModelInfoGroups(t *testing.T) {
 	}
 }
 
+func TestModelSchemaDiagnosticsPreservePathModelAndExpectation(t *testing.T) {
+	model := validModel("vendor/model")
+	delete(model["capabilities"].(map[string]any)["batch"].(map[string]any), "supported")
+	root := map[string]any{"data": []any{model}, "has_more": false, "first_id": "vendor/model", "last_id": "vendor/model"}
+	diagnostics := ModelSchemaDiagnostics(root)
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostics=%+v", diagnostics)
+	}
+	got := diagnostics[0]
+	if got.Path != "data[0].capabilities.batch.supported" || got.ModelID != "vendor/model" || got.Issue != "missing" || got.Expected != "boolean" {
+		t.Fatalf("diagnostic=%+v", got)
+	}
+}
+
 func validModel(id string) map[string]any {
 	support := func() map[string]any { return map[string]any{"supported": true} }
 	return map[string]any{

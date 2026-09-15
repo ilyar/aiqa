@@ -13,6 +13,21 @@ import (
 	"github.com/ilyar/aiqa/internal/result"
 )
 
+func TestMarkdownNotesTreatModelMarkupAsPlainText(t *testing.T) {
+	note := "Model \"![image](https://example.invalid/x)<img src=x>&amp;`*_[x]\\\": capability metadata is absent.\nnext"
+	r := result.ReportV3{Targets: []result.TargetReport{{Notes: []string{note}}}}
+	md := MarkdownV3(r)
+	if strings.Contains(md, "![image]") || strings.Contains(md, "<img") || strings.Contains(md, "\nnext") {
+		t.Fatalf("note rendered active markup: %s", md)
+	}
+	if !strings.Contains(md, "!\\[image\\]") || !strings.Contains(md, "&lt;img src=x&gt;&amp;amp;") {
+		t.Fatalf("note missing escaped text: %s", md)
+	}
+	if r.Targets[0].Notes[0] != note {
+		t.Fatal("rendering changed source note")
+	}
+}
+
 func TestWriteVerboseLogWritesPrivateSanitizedSidecar(t *testing.T) {
 	dir := t.TempDir()
 	secret := "test-secret-value"

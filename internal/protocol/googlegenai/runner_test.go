@@ -100,6 +100,45 @@ func TestRunTargetDiscoveryUsesFrozenInventoryJobOwner(t *testing.T) {
 	}
 }
 
+func TestRunModelGetAcceptsEmptyGenerationMethodsMetadata(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1beta/models/fixture-text" {
+			t.Fatalf("path=%q", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"name":"models/fixture-text","supportedGenerationMethods":[]}`))
+	}))
+	defer server.Close()
+	p, err := profile.LoadFile("google-genai-compat-2026-09.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := NewClient(server.URL, "fixture-key", "v1beta", "test", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := runModelGet(context.Background(), client, time.Second, p, "fixture-text")
+	if len(results) < 3 || results[2].ID != "google.models.metadata.methods" || results[2].Status != result.StatusPass {
+		t.Fatalf("empty method array should be valid metadata: %+v", results)
+	}
+	if got := results[2].Metrics["method_count"]; got != 0 {
+		t.Fatalf("method_count=%v, want 0", got)
+	}
+}
+
+func TestInteractionSelectionAcceptsExecutedProbePolicyModuleWithoutCapability(t *testing.T) {
+	model := result.ModelReport{ID: "opaque", Modules: []result.ModuleAssessment{{ID: "google-genai.interactions", Source: "probe_policy", Requested: true, Execution: result.ExecutionExecuted}}}
+	if !interactionSelectionEligible(model) {
+		t.Fatal("executed Interactions probe-policy module was not eligible")
+	}
+	if len(model.Capabilities) != 0 {
+		t.Fatalf("test model must not carry fabricated capabilities: %+v", model.Capabilities)
+	}
+	model.Modules[0].Execution = result.ExecutionSkipped
+	if interactionSelectionEligible(model) {
+		t.Fatal("skipped probe-policy module was eligible")
+	}
+}
+
 // TestRunAgainstDeterministicFixture exercises the native runner through a
 // local Gemini-shaped service.  It intentionally covers the Interactions
 // lifecycle, malformed JSON handling, structured output, tools, streaming,

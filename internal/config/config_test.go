@@ -339,14 +339,23 @@ func TestParseExpectedCLI(t *testing.T) {
 	if cfg.GoogleGenAIProfile != "google-genai-generate-content-compat-2026-09.json" {
 		t.Fatalf("unexpected Google GenAI default profile: %q", cfg.GoogleGenAIProfile)
 	}
-	if cfg.UnknownModel != "inventory" {
+	if cfg.UnknownModel != "probe" {
 		t.Fatalf("unexpected unknown-model policy: %s", cfg.UnknownModel)
 	}
-	if cfg.AnthropicUnknownModel != "inventory" {
-		t.Fatalf("unexpected Anthropic unknown-model policy: %s", cfg.AnthropicUnknownModel)
+	if cfg.AnthropicUnknownModel != "probe" || cfg.GoogleGenAIUnknownModel != "probe" {
+		t.Fatalf("unexpected target unknown-model policies: Anthropic=%s Google=%s", cfg.AnthropicUnknownModel, cfg.GoogleGenAIUnknownModel)
 	}
 	if cfg.Guidance != "full" || cfg.GuidancePack != "auto" || cfg.GuidanceLocale != "en" {
 		t.Fatalf("unexpected guidance defaults: mode=%q pack=%q locale=%q", cfg.Guidance, cfg.GuidancePack, cfg.GuidanceLocale)
+	}
+}
+
+func TestParseAcceptsProbeUnknownPolicies(t *testing.T) {
+	t.Setenv("OPENAI_BASE_URL", "https://example.test/v1")
+	t.Setenv("OPENAI_API_KEY", "secret")
+	cfg, err := Parse([]string{"test=compat", "--unknown-model=probe", "--anthropic-unknown-model=probe", "--google-genai-unknown-model=probe"})
+	if err != nil || cfg.UnknownModel != "probe" || cfg.AnthropicUnknownModel != "probe" || cfg.GoogleGenAIUnknownModel != "probe" {
+		t.Fatalf("probe policies were not accepted: cfg=%+v err=%v", cfg, err)
 	}
 }
 

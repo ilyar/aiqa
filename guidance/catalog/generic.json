@@ -1,6 +1,38 @@
 {
-  "revision": "2026-09-01.1",
+  "revision": "2026-09-15.1",
   "entries": [
+    {
+      "id": "metadata.model-capability-unknown",
+      "revision": "1",
+      "finding_code": "metadata.model_capability_unknown",
+      "finding_title": "Model capability metadata cannot determine applicability",
+      "recommendation_title": "Resolve the selected model's capability metadata",
+      "default_priority": "p2",
+      "action_kind": "investigate",
+      "guidance_level": 2,
+      "audiences": ["model_integrator", "qa_operator"],
+      "why": "Skipped checks with unknown applicability are inconclusive; they do not prove an unsupported provider feature.",
+      "attribution": {"component": "unknown", "confidence": "low", "basis": "The active profile could not map the selected model metadata to a supported capability."},
+      "steps": [{"id": "inspect-metadata", "text": "Distinguish absent capability metadata from unrecognized declared values and from a profile-model mismatch before changing routing or support claims."}, {"id": "declare-capability", "text": "Publish recognized model capability metadata, or add an explicit reviewed profile mapping when the model is intentionally supported."}],
+      "verification": [],
+      "references": [{"title": "AIQA compatibility profile guidance", "url": "https://github.com/ilyar/aiqa/blob/main/docs/architecture.md", "source_kind": "project"}]
+    },
+    {
+      "id": "execution.profile-scope.no-match",
+      "revision": "1",
+      "finding_code": "execution.profile_scope.no_match",
+      "finding_title": "The selected profile has no applicable native route for the requested models",
+      "recommendation_title": "Select a compatibility profile that matches advertised APIs",
+      "default_priority": "p2",
+      "action_kind": "configure",
+      "guidance_level": 2,
+      "audiences": ["qa_operator", "model_integrator"],
+      "why": "A discovery-only run cannot establish compatibility for a profile whose native API routes are not applicable to the selected models.",
+      "attribution": {"component": "client_configuration", "confidence": "high", "basis": "The selected profile scope and the observed model API metadata do not overlap."},
+      "steps": [{"id": "select-matching-profile", "text": "Select the profile that matches the advertised API surface, such as the Google Interactions profile when Interactions is the supported route."}, {"id": "do-not-invent-support", "text": "Do not add generateContent, embedding, or other capability claims solely to make a profile applicable."}],
+      "verification": [],
+      "references": [{"title": "AIQA architecture", "url": "https://github.com/ilyar/aiqa/blob/main/docs/architecture.md", "source_kind": "project"}]
+    },
     {
       "id": "openai.models.created-missing",
       "revision": "1",

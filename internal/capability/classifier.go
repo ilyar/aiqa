@@ -65,10 +65,41 @@ func Classify(model string, metadata map[string]any, opts Options) Classificatio
 	if len(evidence) > 0 {
 		return Classification{Model: model, Capabilities: evidence}
 	}
-	if opts.UnknownPolicy != "inventory" {
+	if opts.UnknownPolicy == "chat" || opts.UnknownPolicy == "" {
 		return fromValues(model, []string{ChatText}, "default_policy", "unclassified-default.chat", "low", "no evidence of a non-text capability; treated as text by default")
 	}
+	if opts.UnknownPolicy == "probe" && !openAICapabilityDeclared(metadata) {
+		return Classification{Model: model, ProbeEligible: true, Reason: "capability metadata absent; support being tested"}
+	}
 	return Classification{Model: model, Unknown: true, Reason: "insufficient capability evidence"}
+}
+
+func openAICapabilityDeclared(metadata map[string]any) bool {
+	if metadata == nil {
+		return false
+	}
+	for _, key := range []string{"capabilities", "provider_capabilities", "interfaces", "output_modalities", "modalities", "model_type", "task", "pipeline_tag", "is_image"} {
+		if _, present := metadata[key]; present {
+			return true
+		}
+	}
+	if value, present := metadata["type"]; present {
+		if text, ok := value.(string); !ok || !strings.EqualFold(strings.TrimSpace(text), "model") {
+			return true
+		}
+	}
+	if architecture, present := metadata["architecture"]; present {
+		values, ok := architecture.(map[string]any)
+		if !ok {
+			return true
+		}
+		for _, key := range []string{"output_modalities", "modalities"} {
+			if _, present := values[key]; present {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ClassifyAnthropic uses only target-local overrides and Anthropic model
@@ -79,6 +110,7 @@ func ClassifyAnthropic(model string, metadata map[string]any, opts Options) Clas
 	}
 
 	var evidence []Evidence
+	textExplicitlyUnsupported := anthropicTextExplicitlyUnsupported(metadata)
 	add := func(capability, rule, confidence, reason string) {
 		evidence = append(evidence, Evidence{Capability: capability, Source: "vendor_metadata", Rule: rule, Confidence: confidence, Reason: reason})
 	}
@@ -103,7 +135,13 @@ func ClassifyAnthropic(model string, metadata map[string]any, opts Options) Clas
 			}
 		}
 	}
-	if anthropicModelInfoIsMessages(metadata) {
+	if opts.UnknownPolicy == "probe" && len(evidence) == 0 && !textExplicitlyUnsupported {
+		if !anthropicCapabilityDeclared(metadata) {
+			return Classification{Model: model, ProbeEligible: true, Reason: "capability metadata absent; support being tested"}
+		}
+		return Classification{Model: model, Unknown: true, Reason: "insufficient Anthropic capability evidence"}
+	}
+	if !textExplicitlyUnsupported && anthropicModelInfoIsMessages(metadata) {
 		messagesKnown := false
 		for _, item := range evidence {
 			if item.Capability == AnthropicMessagesText {
@@ -120,10 +158,16 @@ func ClassifyAnthropic(model string, metadata map[string]any, opts Options) Clas
 		}
 	}
 	evidence = deduplicate(evidence)
+	if textExplicitlyUnsupported && hasCapability(evidence, AnthropicMessagesText) {
+		return Classification{Model: model, Unknown: true, Reason: "contradictory Messages text capability metadata", Capabilities: evidence}
+	}
+	if textExplicitlyUnsupported && len(evidence) == 0 {
+		return Classification{Model: model, Reason: "metadata explicitly declares Messages text unsupported"}
+	}
 	if opts.UnknownPolicy == "inventory" && len(evidence) == 0 {
 		return Classification{Model: model, Unknown: true, Reason: "insufficient Anthropic capability evidence"}
 	}
-	if opts.UnknownPolicy != "inventory" {
+	if (opts.UnknownPolicy == "messages" || opts.UnknownPolicy == "") && !textExplicitlyUnsupported {
 		// Models returned by the Anthropic inventory are treated as Messages text
 		// models unless metadata or an override says otherwise. Optional tools and
 		// structured-output modules remain probeable at low confidence so a clean
@@ -150,6 +194,50 @@ func ClassifyAnthropic(model string, metadata map[string]any, opts Options) Clas
 		return Classification{Model: model, Unknown: true, Reason: "insufficient Anthropic capability evidence"}
 	}
 	return Classification{Model: model, Capabilities: deduplicate(evidence)}
+}
+
+func anthropicCapabilityDeclared(metadata map[string]any) bool {
+	if metadata == nil {
+		return false
+	}
+	for _, key := range []string{"capabilities", "provider_capabilities", "interfaces"} {
+		if _, present := metadata[key]; present {
+			return true
+		}
+	}
+	for _, key := range []string{"text", "messages", "messages_text", "image_input", "vision", "tools", "tool_use", "structured_output", "structured_outputs", "thinking_adaptive", "adaptive_thinking", "thinking_manual", "manual_thinking", "prompt_caching"} {
+		if _, present := metadata[key]; present {
+			return true
+		}
+	}
+	return false
+}
+
+func anthropicTextExplicitlyUnsupported(metadata map[string]any) bool {
+	if metadata == nil {
+		return false
+	}
+	capabilities, _ := metadata["capabilities"].(map[string]any)
+	for _, key := range []string{"text", "messages", "messages_text"} {
+		if capabilityExplicitlyUnsupported(metadata[key]) || capabilityExplicitlyUnsupported(capabilities[key]) {
+			return true
+		}
+	}
+	return false
+}
+
+func capabilityExplicitlyUnsupported(value any) bool {
+	switch typed := value.(type) {
+	case bool:
+		return !typed
+	case map[string]any:
+		for _, key := range []string{"supported", "enabled", "available"} {
+			if enabled, ok := typed[key].(bool); ok && !enabled {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func anthropicModelInfoIsMessages(metadata map[string]any) bool {
@@ -189,7 +277,13 @@ func ClassifyGoogleGenAI(model string, metadata map[string]any, opts Options) Cl
 		return fromValues(model, values, "override", "explicit.google-genai-model-capability", "high", "explicit Google GenAI capability override")
 	}
 	var evidence []Evidence
-	methods := stringValues(metadata["supportedGenerationMethods"])
+	methods, methodsPresent, methodsValid := googleGenerationMethods(metadata)
+	if methodsPresent && !methodsValid {
+		return Classification{Model: model, Unknown: true, Reason: "supported generation methods metadata is malformed"}
+	}
+	if methodsPresent && len(methods) == 0 {
+		return Classification{Model: model, Reason: "metadata explicitly declares no supported generation methods"}
+	}
 	has := func(want string) bool {
 		for _, method := range methods {
 			if strings.EqualFold(strings.TrimSpace(method), want) {
@@ -216,6 +310,9 @@ func ClassifyGoogleGenAI(model string, metadata map[string]any, opts Options) Cl
 	if has("embedContent") {
 		evidence = append(evidence, Evidence{Capability: GoogleEmbedContent, Source: "vendor_metadata", Rule: "metadata.supportedGenerationMethods.embedContent", Confidence: "high", Reason: "Google metadata declares embedContent support"})
 	}
+	if methodsPresent && len(evidence) == 0 {
+		return Classification{Model: model, Unknown: true, Reason: "supported generation methods are unrecognized"}
+	}
 	if capabilitySupported(metadata["thinking"]) {
 		evidence = append(evidence,
 			Evidence{Capability: GoogleGenerateThinking, Source: "vendor_metadata", Rule: "metadata.thinking", Confidence: "high", Reason: "Google metadata declares thinking support"},
@@ -233,9 +330,59 @@ func ClassifyGoogleGenAI(model string, metadata map[string]any, opts Options) Cl
 		if opts.UnknownPolicy == "text" {
 			return fromValues(model, []string{GoogleGenerateText}, "default_policy", "google-genai.unclassified-default.text", "low", "no contrary metadata; treated as a text generation model")
 		}
+		if opts.UnknownPolicy == "probe" && !googleCapabilityDeclared(metadata) {
+			return Classification{Model: model, ProbeEligible: true, Reason: "capability metadata absent; support being tested"}
+		}
 		return Classification{Model: model, Unknown: true, Reason: "insufficient Google GenAI capability evidence"}
 	}
 	return Classification{Model: model, Capabilities: evidence}
+}
+
+func googleCapabilityDeclared(metadata map[string]any) bool {
+	if metadata == nil {
+		return false
+	}
+	for _, key := range []string{"supportedGenerationMethods", "capabilities", "provider_capabilities", "interfaces", "thinking", "vision", "inputModalities", "input_modalities"} {
+		if _, present := metadata[key]; present {
+			return true
+		}
+	}
+	return false
+}
+
+func hasCapability(evidence []Evidence, capability string) bool {
+	for _, item := range evidence {
+		if item.Capability == capability {
+			return true
+		}
+	}
+	return false
+}
+
+func googleGenerationMethods(metadata map[string]any) ([]string, bool, bool) {
+	if metadata == nil {
+		return nil, false, false
+	}
+	raw, present := metadata["supportedGenerationMethods"]
+	if !present {
+		return nil, false, false
+	}
+	switch methods := raw.(type) {
+	case []string:
+		return methods, true, true
+	case []any:
+		values := make([]string, 0, len(methods))
+		for _, method := range methods {
+			value, ok := method.(string)
+			if !ok {
+				return nil, true, false
+			}
+			values = append(values, value)
+		}
+		return values, true, true
+	default:
+		return nil, true, false
+	}
 }
 
 func containsString(values []string, wanted string) bool {
@@ -393,6 +540,7 @@ func normalizeMetadataCapability(value string) string {
 		"chat": ChatText, "chat.completion": ChatText, "chat.completions": ChatText, "text.generation": ChatText, "text": ChatText,
 		"image.generation": ImagesGenerations, "text.to.image": ImagesGenerations,
 		"embedding": Embeddings, "embeddings": Embeddings, "text.embedding": Embeddings, "feature.extraction": Embeddings,
+		"rerank": Rerank, "reranking": Rerank, "text.reranking": Rerank,
 		"automatic.speech.recognition": AudioTranscriptions,
 		"text.to.speech":               AudioSpeech,
 	}
@@ -462,7 +610,7 @@ func conflict(evidence []Evidence) bool {
 	hasEmbedding, hasGeneration := false, false
 	for _, item := range evidence {
 		switch item.Capability {
-		case Embeddings, AudioSpeech, AudioTranscriptions:
+		case Embeddings, Rerank, AudioSpeech, AudioTranscriptions:
 			hasEmbedding = true
 		case ImagesGenerations, ImagesEdits, VideosGenerations:
 			hasGeneration = true

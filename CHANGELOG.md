@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.0-alpha.13 – 2026-09-16
+
+- Default missing-capability handling to `probe`: run eligible selected profile checks and bound built-in SDK suites instead of skipping models solely because capability metadata is absent.
+- Report missing metadata as an advisory, without inventing supported capabilities or lowering the compatibility verdict. Keep declared capabilities, explicit negative metadata, and cost/resource permission gates authoritative.
+
+## 1.0.0-alpha.12 – 2026-09-15
+
+- Compact terminal ETA as `ETA ~1m41s` and show the next wait deadline inline as `Waiting 1/1s`, without a separate waiting detail row.
+
+## 1.0.0-alpha.11 – 2026-09-15
+
+- Recognize declared rerank-only models without routing them through chat checks.
+- Respect explicit unsupported model capabilities and accept empty Google method arrays without inventing generation support.
+- Report actionable model metadata diagnostics and prevent discovery-only success when no model matches the selected compatibility profile.
+
 ## 1.0.0-alpha.7 – 2026-09-06
 - Add private `aiqa.trace.v1` forensic sidecars, offline trace verdicts, strict
   lifecycle and HTTP ownership verification, and cooperative executable-suite

@@ -180,6 +180,82 @@ func TestGuidanceIsDeterministic(t *testing.T) {
 	}
 }
 
+func TestGuidanceGroupsUnknownModelMetadataSkips(t *testing.T) {
+	p := profile.Profile{Protocol: "google-genai"}
+	r := result.Report{Requirements: []result.RequirementAssessment{
+		{ID: "google.generate-content.text", Subject: result.SubjectRef{Kind: "model", ID: "opaque", TargetID: "fixture", Protocol: "google-genai"}, Applicability: result.ApplicabilityUnknown, Status: result.RequirementSkip},
+		{ID: "google.generate-content.tools", Subject: result.SubjectRef{Kind: "model", ID: "opaque", TargetID: "fixture", Protocol: "google-genai"}, Applicability: result.ApplicabilityUnknown, Status: result.RequirementSkip},
+	}}
+	Apply(&r, p, Options{Mode: "full"})
+	if len(r.Guidance.Findings) != 1 || r.Guidance.Findings[0].Code != "metadata.model_capability_unknown" || len(r.Guidance.Findings[0].RequirementIDs) != 2 {
+		t.Fatalf("unknown capability skips were not grouped: %+v", r.Guidance.Findings)
+	}
+	if len(r.Guidance.Recommendations) != 1 || r.Guidance.Recommendations[0].Source.ID != "metadata.model-capability-unknown" {
+		t.Fatalf("missing metadata recommendation: %+v", r.Guidance.Recommendations)
+	}
+	if got := r.Guidance.Recommendations[0].Verification[0].IDs; len(got) != 2 || got[0] != "google.generate-content.text" {
+		t.Fatalf("verification must use actual requirements, got %v", got)
+	}
+}
+
+func TestGuidanceRendersTypedAnthropicMetadataDiagnostics(t *testing.T) {
+	p := profile.Profile{Protocol: "anthropic"}
+	r := result.Report{Requirements: []result.RequirementAssessment{
+		{
+			ID: "anthropic.models.list.schema", Subject: result.SubjectRef{Kind: "provider", ID: "fixture", TargetID: "fixture", Protocol: "anthropic"}, Status: result.RequirementFail,
+			Evidence: []result.EvidenceRef{
+				{ID: "models", Kind: "native", Status: result.StatusFail, Signals: []result.EvidenceSignal{
+					{Code: "anthropic.models.list.invalid_envelope", Parameters: map[string]any{"diagnostics": []any{map[string]any{"path": "data[0].capabilities.batch.supported", "model_id": "vendor/model", "issue": "missing", "expected": "boolean"}}}},
+				}},
+			},
+		},
+	}}
+	Apply(&r, p, Options{Mode: "full"})
+	if len(r.Guidance.Recommendations) != 1 {
+		t.Fatalf("recommendations=%+v", r.Guidance.Recommendations)
+	}
+	steps := r.Guidance.Recommendations[0].Steps
+	if len(steps) < 2 || !strings.Contains(steps[0].Text, metadataLiteral("data[0].capabilities.batch.supported")) || !strings.Contains(steps[0].Text, "vendor/model") || !strings.Contains(steps[0].Text, "boolean") {
+		t.Fatalf("typed diagnostic was not rendered: %+v", steps)
+	}
+}
+
+func TestUnknownMetadataRecommendationsNameProtocolFields(t *testing.T) {
+	for _, tc := range []struct{ protocol, field string }{
+		{"openai", "capabilities array"},
+		{"anthropic", "capabilities.text.supported"},
+		{"google-genai", "supportedGenerationMethods"},
+	} {
+		r := result.Report{Requirements: []result.RequirementAssessment{{
+			ID: "fixture.check", Subject: result.SubjectRef{Kind: "model", ID: "unknown", Protocol: tc.protocol},
+			Applicability: result.ApplicabilityUnknown, Status: result.RequirementSkip,
+		}}}
+		Apply(&r, profile.Profile{Protocol: tc.protocol}, Options{Mode: "full"})
+		data, err := json.Marshal(r.Guidance.Recommendations)
+		if err != nil || !strings.Contains(string(data), tc.field) {
+			t.Fatalf("%s: missing actionable field %s: %s, %v", tc.protocol, tc.field, data, err)
+		}
+	}
+}
+
+func TestMetadataRecommendationKeepsProviderIDLiteral(t *testing.T) {
+	id := "model\n![image](https://example.invalid/x)<script>`x`"
+	diagnostic := map[string]any{"path": "data[0].capabilities.batch", "model_id": id, "expected": "object"}
+	steps := metadataSchemaSteps(map[string]any{"diagnostics": []any{diagnostic}})
+	if len(steps) == 0 {
+		t.Fatal("missing recommendation")
+	}
+	text := steps[0].Text
+	for _, unsafe := range []string{"\n", "![image]", "<script>", "`x`"} {
+		if strings.Contains(text, unsafe) {
+			t.Fatalf("unsafe markup %q in %q", unsafe, text)
+		}
+	}
+	if diagnostic["model_id"] != id {
+		t.Fatal("source diagnostic changed")
+	}
+}
+
 func TestGuidanceEmitsTargetsWithoutBroadCommands(t *testing.T) {
 	r := result.Report{
 		Summary: result.Summary{Assessment: &result.ConformanceAssessment{Verdict: "partial"}},

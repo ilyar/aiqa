@@ -46,6 +46,48 @@ func TestRoutingUsesModulesDeclaredByProfile(t *testing.T) {
 	}
 }
 
+func TestRerankCapabilityIsNotApplicableToChatAndRoutesToDeclaredModule(t *testing.T) {
+	definitions := []profile.Module{
+		{ID: ModuleChat, Subject: "model", DefaultEnabled: true, CostClass: "token", Capabilities: []string{ChatText}},
+		{ID: "rerank", Subject: "model", DefaultEnabled: true, CostClass: "token", Capabilities: []string{Rerank}},
+	}
+	classification := fromValues("reranker", []string{Rerank}, "test", "test", "high", "rerank")
+	modules := AssessModules(classification, definitions, RoutingOptions{Modules: []string{"auto"}})
+	if got := Module(modules, ModuleChat); got == nil || got.Applicability != result.ApplicabilityNotApplicable {
+		t.Fatalf("chat routing: %+v", got)
+	}
+	if got := Module(modules, "rerank"); got == nil || got.Applicability != result.ApplicabilityApplicable || got.Execution != result.ExecutionSkipped {
+		t.Fatalf("rerank routing: %+v", got)
+	}
+}
+
+func TestProbeEligibleRoutingExecutesRequestedImplementedModulesAndPreservesGates(t *testing.T) {
+	classification := Classification{Model: "opaque", ProbeEligible: true}
+	definitions := []profile.Module{
+		{ID: ModuleChat, Subject: "model", DefaultEnabled: true, CostClass: "token", Capabilities: []string{ChatText}},
+		{ID: ModuleImages, Subject: "model", DefaultEnabled: false, CostClass: "billable-artifact", Capabilities: []string{ImagesGenerations}},
+		{ID: "anthropic.thinking", Subject: "model", DefaultEnabled: false, CostClass: "high-token", Capabilities: []string{AnthropicThinkingManual}},
+		{ID: "google-genai.interactions-stateful", Subject: "model", DefaultEnabled: false, CostClass: "persistent-resource", Capabilities: []string{GoogleInteractionsStateful}},
+	}
+	auto := AssessModules(classification, definitions, RoutingOptions{Modules: []string{"auto"}})
+	if got := Module(auto, ModuleChat); got == nil || got.Execution != result.ExecutionExecuted || got.Source != "probe_policy" || got.Confidence != "low" {
+		t.Fatalf("chat probe routing=%+v", got)
+	}
+	if got := Module(auto, ModuleImages); got == nil || got.Applicability != result.ApplicabilityNotApplicable {
+		t.Fatalf("unrequested billable probe routing=%+v", got)
+	}
+	costs := AssessModules(classification, definitions, RoutingOptions{Modules: []string{ModuleImages, "anthropic.thinking", "google-genai.interactions-stateful"}})
+	if got := Module(costs, ModuleImages); got == nil || got.Execution != result.ExecutionSkipped || got.Reason != "billable artifact module was not enabled" {
+		t.Fatalf("billable probe bypassed gate=%+v", got)
+	}
+	if got := Module(costs, "anthropic.thinking"); got == nil || got.Execution != result.ExecutionSkipped || got.Reason != "high-token probes require explicit authorization" {
+		t.Fatalf("high-token probe bypassed gate=%+v", got)
+	}
+	if got := Module(costs, "google-genai.interactions-stateful"); got == nil || got.Execution != result.ExecutionSkipped || got.Reason != "persistent-resource probes require explicit authorization" {
+		t.Fatalf("persistent probe bypassed gate=%+v", got)
+	}
+}
+
 func TestAnthropicThinkingRequiresCapabilityAndHighTokenAuthorization(t *testing.T) {
 	definitions := []profile.Module{{ID: "anthropic.thinking", Subject: "model", DefaultEnabled: false, CostClass: "high-token", Capabilities: []string{AnthropicThinkingManual}}}
 	classification := fromValues("claude", []string{AnthropicThinkingManual}, "test", "test", "high", "declared")

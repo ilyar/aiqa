@@ -6,6 +6,33 @@ import (
 	"github.com/ilyar/aiqa/internal/api"
 )
 
+func TestValidateModelsGenerationMethodsShape(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value any
+		valid bool
+	}{
+		{"empty", []any{}, true},
+		{"strings", []any{"generateContent"}, true},
+		{"typed empty", []string{}, true},
+		{"typed strings", []string{"interactions"}, true},
+		{"mixed", []any{"generateContent", 42}, false},
+		{"scalar", "generateContent", false},
+		{"null", nil, false},
+		{"object", map[string]any{}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := map[string]any{"models": []any{map[string]any{
+				"name": "models/catalog-entry", "supportedGenerationMethods": tc.value,
+			}}}
+			problems := ValidateModels(root)
+			if (len(problems) == 0) != tc.valid {
+				t.Fatalf("valid=%v, problems=%v", tc.valid, problems)
+			}
+		})
+	}
+}
+
 func TestValidateGoogleModelsAndUsage(t *testing.T) {
 	valid := map[string]any{
 		"models": []any{map[string]any{

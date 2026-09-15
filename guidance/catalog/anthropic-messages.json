@@ -1,6 +1,22 @@
 {
-  "revision": "2026-09-01.1",
+  "revision": "2026-09-15.1",
   "entries": [
+    {
+      "id": "anthropic.models.list.invalid-envelope",
+      "revision": "1",
+      "finding_code": "anthropic.models.list.invalid_envelope",
+      "finding_title": "The Models response omits or malforms required Anthropic metadata",
+      "recommendation_title": "Repair the exact Anthropic model metadata fields",
+      "default_priority": "p1",
+      "action_kind": "fix",
+      "guidance_level": 3,
+      "audiences": ["gateway_maintainer", "model_integrator"],
+      "why": "Anthropic SDK model discovery requires typed capability objects and their nested supported flags.",
+      "attribution": {"component": "provider_gateway", "confidence": "high", "basis": "The malformed fields are emitted by the Anthropic Models endpoint."},
+      "steps": [{"id": "preserve-supported-semantics", "text": "Keep each declared capability object and its boolean supported field consistent with the model's actual support."}],
+      "verification": [{"kind": "requirement", "ids": ["anthropic.models.list.schema"]}],
+      "references": [{"title": "Anthropic Models API", "url": "https://platform.claude.com/docs/en/api/models/list", "source_kind": "official"}]
+    },
     {
       "id": "anthropic.version.rejected",
       "revision": "1",

@@ -390,7 +390,7 @@ func MarkdownV3(r result.ReportV3) string {
 		}
 		fmt.Fprintf(&b, "- **External checks:** %s\n", targetExternalChecks(target))
 		for _, note := range target.Notes {
-			fmt.Fprintf(&b, "- **Note:** %s\n", escapeInline(note))
+			fmt.Fprintf(&b, "- **Note:** %s\n", escapeNote(note))
 		}
 		fmt.Fprintf(&b, "- **Discovered models:** %d\n", target.Discovery.ModelCount)
 		fmt.Fprintf(&b, "- **Selected models:** %s\n\n", selectedModelsText(target.Models))

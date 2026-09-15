@@ -6,6 +6,21 @@ import (
 	"testing"
 )
 
+func TestGoogleAncillaryMetadataDoesNotOverrideMethodDeclaration(t *testing.T) {
+	for _, policy := range []string{"inventory", "text"} {
+		for _, methods := range []any{42, []any{"futureMethod"}, []any{"generateContent", 42}} {
+			c := ClassifyGoogleGenAI("model", map[string]any{"supportedGenerationMethods": methods, "thinking": true, "vision": true}, Options{UnknownPolicy: policy})
+			if !c.Unknown {
+				t.Fatalf("%s: invalid/unrecognized methods became executable: %+v", policy, c)
+			}
+		}
+		c := ClassifyGoogleGenAI("model", map[string]any{"supportedGenerationMethods": []any{}, "thinking": true}, Options{UnknownPolicy: policy})
+		if c.Unknown || len(c.Capabilities) != 0 {
+			t.Fatalf("%s: empty methods became executable: %+v", policy, c)
+		}
+	}
+}
+
 func TestVibecodeAdapterDistinguishesImageAndTokenModels(t *testing.T) {
 	image := Classify("gpt-image-2", map[string]any{"is_image": true}, Options{BaseURL: "https://vibecode.moe/v1"})
 	if !image.Has(ImagesGenerations) || image.Has(ChatText) {
@@ -30,6 +45,25 @@ func TestUnclassifiedModelDefaultsToLowConfidenceChat(t *testing.T) {
 	strict := Classify("custom-model", nil, Options{UnknownPolicy: "inventory"})
 	if !strict.Unknown || strict.Has(ChatText) {
 		t.Fatalf("explicit inventory policy was ignored: %+v", strict)
+	}
+}
+
+func TestProbePolicyMarksOnlyAbsentOpenAICapabilityMetadataEligible(t *testing.T) {
+	eligible := Classify("opaque", map[string]any{"id": "opaque", "type": "model"}, Options{UnknownPolicy: "probe"})
+	if eligible.Unknown || !eligible.ProbeEligible || len(eligible.Capabilities) != 0 {
+		t.Fatalf("absent OpenAI metadata was not probe eligible: %+v", eligible)
+	}
+	for name, metadata := range map[string]map[string]any{
+		"declared unknown":  {"capabilities": []any{"future-capability"}},
+		"malformed":         {"capabilities": 42},
+		"explicit negative": {"capabilities": map[string]any{"embeddings": false}},
+		"foreign interface": {"interfaces": []any{"/v1/rerank"}},
+		"negative image":    {"is_image": false},
+	} {
+		got := Classify("opaque", metadata, Options{UnknownPolicy: "probe"})
+		if !got.Unknown || got.ProbeEligible {
+			t.Fatalf("%s became probe eligible: %+v", name, got)
+		}
 	}
 }
 
@@ -64,6 +98,17 @@ func TestTextInputDoesNotOverrideEmbeddingEvidence(t *testing.T) {
 	}, Options{})
 	if got.Unknown || !got.Has(Embeddings) || got.Has(ChatText) {
 		t.Fatalf("text input was mistaken for a chat capability: %+v", got)
+	}
+}
+
+func TestExplicitRerankEvidencePreventsChatFallbackAndAllowsExplicitMultiCapability(t *testing.T) {
+	rerank := Classify("opaque", map[string]any{"capabilities": map[string]any{"rerank": true}}, Options{})
+	if rerank.Unknown || !rerank.Has(Rerank) || rerank.Has(ChatText) {
+		t.Fatalf("rerank was classified as chat or unknown: %+v", rerank)
+	}
+	multi := Classify("opaque", map[string]any{"capabilities": map[string]any{"rerank": true, "chat": true}}, Options{})
+	if multi.Unknown || !multi.Has(Rerank) || !multi.Has(ChatText) {
+		t.Fatalf("explicit rerank/chat capabilities were not preserved: %+v", multi)
 	}
 }
 
@@ -159,6 +204,45 @@ func TestAnthropicInventoryPolicyDoesNotAssumeMessages(t *testing.T) {
 	}
 }
 
+func TestAnthropicProbePolicyAllowsPartialModelInfoOnlyWhenCapabilitiesAbsent(t *testing.T) {
+	partial := map[string]any{"type": "model", "display_name": "Partial"}
+	got := ClassifyAnthropic("partial", partial, Options{UnknownPolicy: "probe"})
+	if got.Unknown || !got.ProbeEligible || got.Has(AnthropicMessagesText) {
+		t.Fatalf("partial ModelInfo was not probe eligible: %+v", got)
+	}
+	negative := ClassifyAnthropic("negative", map[string]any{"capabilities": map[string]any{"text": map[string]any{"supported": false}}}, Options{UnknownPolicy: "probe"})
+	if negative.Unknown || negative.ProbeEligible || negative.Has(AnthropicMessagesText) {
+		t.Fatalf("explicit Anthropic text rejection became probe eligible: %+v", negative)
+	}
+}
+
+func TestAnthropicProbePolicyDefersCompleteModelInfoAndForeignDeclarations(t *testing.T) {
+	complete := map[string]any{
+		"type": "model", "display_name": "Complete", "created_at": "2026-09-01T00:00:00Z",
+		"max_input_tokens": 200000, "max_tokens": 8192,
+	}
+	if got := ClassifyAnthropic("complete", complete, Options{UnknownPolicy: "probe"}); got.Unknown || !got.ProbeEligible || got.Has(AnthropicMessagesText) {
+		t.Fatalf("complete capability-free ModelInfo was not probe eligible: %+v", got)
+	}
+	for name, metadata := range map[string]map[string]any{
+		"capabilities":          {"capabilities": []any{"rerank"}},
+		"provider capabilities": {"provider_capabilities": []any{"rerank"}},
+		"interfaces":            {"interfaces": []any{"/v1/rerank"}},
+	} {
+		for key, value := range complete {
+			metadata[key] = value
+		}
+		got := ClassifyAnthropic("foreign", metadata, Options{UnknownPolicy: "probe"})
+		if !got.Unknown || got.ProbeEligible || got.Has(AnthropicMessagesText) {
+			t.Fatalf("%s declaration was inferred as Messages: %+v", name, got)
+		}
+	}
+	override := ClassifyAnthropic("foreign", map[string]any{"capabilities": []any{"rerank"}}, Options{UnknownPolicy: "probe", Overrides: map[string][]string{"foreign": {AnthropicMessagesText}}})
+	if override.Unknown || override.ProbeEligible || !override.Has(AnthropicMessagesText) {
+		t.Fatalf("explicit Anthropic override lost precedence: %+v", override)
+	}
+}
+
 func TestAnthropicCompleteModelInfoIdentifiesMessagesRoute(t *testing.T) {
 	got := ClassifyAnthropic("claude-mock", map[string]any{
 		"type": "model", "display_name": "Claude Mock", "created_at": "2026-09-01T00:00:00Z",
@@ -167,6 +251,35 @@ func TestAnthropicCompleteModelInfoIdentifiesMessagesRoute(t *testing.T) {
 	}, Options{UnknownPolicy: "inventory"})
 	if got.Unknown || !got.Has(AnthropicMessagesText) || len(got.Capabilities) != 1 {
 		t.Fatalf("complete Anthropic ModelInfo was not trusted as Messages text: %+v", got)
+	}
+}
+
+func TestAnthropicExplicitTextRejectionOverridesModelInfoAndDefault(t *testing.T) {
+	metadata := map[string]any{
+		"type": "model", "display_name": "Reranker", "created_at": "2026-09-01T00:00:00Z",
+		"max_input_tokens": 200000, "max_tokens": 8192,
+		"capabilities": map[string]any{"text": map[string]any{"supported": false}},
+	}
+	for _, policy := range []string{"inventory", "messages"} {
+		got := ClassifyAnthropic("reranker", metadata, Options{UnknownPolicy: policy})
+		if got.Unknown || got.Has(AnthropicMessagesText) {
+			t.Fatalf("policy %q invented Messages text: %+v", policy, got)
+		}
+	}
+}
+
+func TestAnthropicContradictoryTextMetadataRemainsUnknown(t *testing.T) {
+	cases := []map[string]any{
+		{"capabilities": map[string]any{"text": false, "messages": true}},
+		{"capabilities": map[string]any{"text": map[string]any{"supported": false, "enabled": true}}},
+	}
+	for _, metadata := range cases {
+		for _, policy := range []string{"inventory", "messages"} {
+			got := ClassifyAnthropic("contradictory", metadata, Options{UnknownPolicy: policy})
+			if !got.Unknown || !got.Has(AnthropicMessagesText) {
+				t.Fatalf("policy %q did not preserve contradictory text evidence: %+v", policy, got)
+			}
+		}
 	}
 }
 
@@ -202,5 +315,57 @@ func TestGoogleUnknownPolicyAndMetadata(t *testing.T) {
 	embed := ClassifyGoogleGenAI("embed", map[string]any{"supportedGenerationMethods": []any{"embedContent"}}, Options{UnknownPolicy: "text"})
 	if embed.Unknown || !embed.Has(GoogleEmbedContent) || embed.Has(GoogleGenerateText) {
 		t.Fatalf("embedding-only Google model was routed to generation: %+v", embed)
+	}
+}
+
+func TestGoogleProbePolicyRequiresAbsentCapabilityMetadata(t *testing.T) {
+	eligible := ClassifyGoogleGenAI("opaque", map[string]any{"name": "models/opaque"}, Options{UnknownPolicy: "probe"})
+	if eligible.Unknown || !eligible.ProbeEligible || len(eligible.Capabilities) != 0 {
+		t.Fatalf("absent Google metadata was not probe eligible: %+v", eligible)
+	}
+	for name, metadata := range map[string]map[string]any{
+		"empty":     {"supportedGenerationMethods": []any{}},
+		"malformed": {"supportedGenerationMethods": "generateContent"},
+		"future":    {"supportedGenerationMethods": []any{"futureMethod"}},
+		"negative":  {"thinking": false},
+	} {
+		got := ClassifyGoogleGenAI("opaque", metadata, Options{UnknownPolicy: "probe"})
+		if got.ProbeEligible || name != "empty" && !got.Unknown {
+			t.Fatalf("%s Google metadata became probe eligible: %+v", name, got)
+		}
+	}
+}
+
+func TestGoogleProbePolicyRejectsForeignCapabilityDeclarations(t *testing.T) {
+	for name, metadata := range map[string]map[string]any{
+		"capabilities":          {"capabilities": []any{"rerank"}},
+		"provider capabilities": {"provider_capabilities": []any{"rerank"}},
+		"interfaces":            {"interfaces": []any{"/v1/rerank"}},
+	} {
+		got := ClassifyGoogleGenAI("foreign", metadata, Options{UnknownPolicy: "probe"})
+		if !got.Unknown || got.ProbeEligible || got.Has(GoogleGenerateText) {
+			t.Fatalf("%s declaration became generation probe eligible: %+v", name, got)
+		}
+	}
+	override := ClassifyGoogleGenAI("foreign", map[string]any{"capabilities": []any{"rerank"}}, Options{UnknownPolicy: "probe", Overrides: map[string][]string{"foreign": {GoogleGenerateText}}})
+	if override.Unknown || override.ProbeEligible || !override.Has(GoogleGenerateText) {
+		t.Fatalf("explicit Google override lost precedence: %+v", override)
+	}
+}
+
+func TestGoogleGenerationMethodsEmptyMalformedAndFutureValues(t *testing.T) {
+	empty := ClassifyGoogleGenAI("empty", map[string]any{"supportedGenerationMethods": []any{}}, Options{UnknownPolicy: "text"})
+	if empty.Unknown || len(empty.Capabilities) != 0 || empty.Has(GoogleGenerateText) {
+		t.Fatalf("empty method list invented generation support: %+v", empty)
+	}
+	for _, policy := range []string{"inventory", "text"} {
+		malformed := ClassifyGoogleGenAI("bad", map[string]any{"supportedGenerationMethods": "generateContent"}, Options{UnknownPolicy: policy})
+		if !malformed.Unknown || malformed.Has(GoogleGenerateText) {
+			t.Fatalf("policy %q accepted malformed method list: %+v", policy, malformed)
+		}
+		future := ClassifyGoogleGenAI("future", map[string]any{"supportedGenerationMethods": []any{"futureMethod"}}, Options{UnknownPolicy: policy})
+		if !future.Unknown || future.Has(GoogleGenerateText) {
+			t.Fatalf("policy %q treated unrecognized future method as generation: %+v", policy, future)
+		}
 	}
 }

@@ -752,6 +752,27 @@ func TestPlanSDKSelectsBuiltinsWithoutExtSuitesAndDeduplicatesExplicitSelection(
 	}
 }
 
+func TestPlanSDKAllowsOnlyBoundBuiltinProbePolicyModuleWithoutCapabilities(t *testing.T) {
+	builtin := &testExtension{source: "builtin", manifest: testManifest("official-sdk.openai", "openai", SuiteDescriptor{ID: "chat.completions", Subject: "model", Capabilities: []string{"chat.completions.text"}, Cost: "text", InternalConcurrency: 1})}
+	external := &testExtension{source: "executable", manifest: testManifest("fixture.external", "openai", SuiteDescriptor{ID: "chat.completions", Subject: "model", Capabilities: []string{"chat.completions.text"}, Cost: "text", InternalConcurrency: 1})}
+	registry, err := NewRegistry(builtin, external)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := profile.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := result.ModelReport{ID: "opaque", Modules: []result.ModuleAssessment{{ID: "chat-completions", Source: "probe_policy", Requested: true, Execution: result.ExecutionExecuted}}}
+	target := config.TargetConfig{ID: "openai", Protocol: config.ProtocolOpenAI, BaseURL: "https://example.test/v1"}
+	if plan := planTarget(registry, config.Config{Tests: []string{"sdk"}}, target, p, []result.ModelReport{model}); len(plan) != 1 || plan[0].manifest.Extension.ID != "official-sdk.openai" {
+		t.Fatalf("bound builtin probe-policy plan=%+v", plan)
+	}
+	if plan := planTarget(registry, config.Config{Tests: []string{"ext-suite"}, ExtSuites: []string{"fixture.external"}}, target, p, []result.ModelReport{model}); len(plan) != 0 {
+		t.Fatalf("unbound external suite bypassed metadata capabilities: %+v", plan)
+	}
+}
+
 func TestFrozenInvocationExecutionDoesNotReplanAfterFreeze(t *testing.T) {
 	manifest := testManifest("fixture.frozen", "openai", SuiteDescriptor{ID: "provider", Subject: "provider", Cost: "text", InternalConcurrency: 1})
 	called := false

@@ -71,11 +71,14 @@ Classification is target-local and metadata-first:
 2. `supportedGenerationMethods` for generation, counting, and embeddings.
 3. explicit vision and thinking metadata.
 4. the modern profile's Interactions selection policy.
-5. the configured unknown-model policy (`inventory` by default; `text` is an
-   explicit low-confidence fallback).
+5. the configured unknown-model policy (`probe` by default; `inventory` retains
+   conservative handling and `text` is the legacy low-confidence fallback).
 
-An embedding-only model never receives generation or Interactions calls. An
-unknown model does not automatically receive every suite. Raw model metadata
+An embedding-only model never receives generation or Interactions calls. When
+capability metadata is absent, `probe` runs eligible checks from the selected
+profile and emits an advisory, not a capability claim. Existing module and
+cost/resource gates remain in force. Explicit empty or malformed method lists
+do not trigger this fallback. Raw model metadata
 is retained in JSON while normalized IDs remove only the `models/` prefix.
 
 ## Native REST evidence

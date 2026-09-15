@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -44,6 +45,7 @@ type Snapshot struct {
 	Inflight     int
 	Concurrency  int
 	Waiting      int
+	WaitingFor   time.Duration
 	RPS          float64
 	HTTPDone     int
 	HTTPTotal    int
@@ -104,9 +106,7 @@ func Render(s Snapshot, width, height int, options Options) Frame {
 		lines = append(lines, fit(runLabel(s.RunID), limit, options.ASCII))
 		lines = append(lines, fit(fmt.Sprintf("%s Elapsed %s Jobs %d/%d (%d%%)", phase, value(s.Elapsed, "--:--"), s.JobsDone, s.JobsTotal, percent(s.JobsDone, s.JobsTotal)), limit, options.ASCII))
 		runtime := fmt.Sprintf("In-flight %d/%d RPS %.1f ETA %s", s.Inflight, s.Concurrency, s.RPS, value(s.ETA, "unknown"))
-		if s.Waiting > 0 {
-			runtime += fmt.Sprintf(" Waiting %d", s.Waiting)
-		}
+		runtime += waitingText(s)
 		lines = append(lines, fit(runtime, limit, options.ASCII))
 		lines = append(lines, "")
 		lines = append(lines, fit("TARGET       STATE      JOBS  VERDICT", limit, options.ASCII))
@@ -147,6 +147,20 @@ func Render(s Snapshot, width, height int, options Options) Frame {
 	return Frame{Lines: lines}
 }
 
+func waitingText(s Snapshot) string {
+	if s.Waiting <= 0 {
+		return ""
+	}
+	if s.WaitingFor > 0 {
+		display := s.WaitingFor.Round(time.Second)
+		if display <= 0 {
+			display = time.Second
+		}
+		return fmt.Sprintf(" Waiting %d/%s", s.Waiting, display)
+	}
+	return fmt.Sprintf(" Waiting %d", s.Waiting)
+}
+
 // SelectMode implements the documented stderr policy. interactive describes
 // stderr, not stdout; it exists to make selection deterministic in tests.
 func SelectMode(requested Mode, interactive bool, env map[string]string) (mode Mode, fallback bool) {
@@ -178,18 +192,13 @@ func value(got, fallback string) string {
 	return clean(got)
 }
 
-// runLabel returns the canonical run identifier after terminal-safe cleaning.
-// Production IDs are generated as aiqa-<UID>; legacy IDs remain namespaced for
-// display but are not rewritten in trace/report artifacts.
+// runLabel displays the canonical identifier unchanged after a tool label.
 func runLabel(id string) string {
 	id = clean(id)
-	if strings.HasPrefix(id, "aiqa-") {
-		return id
-	}
 	if id == "" {
-		return "aiqa"
+		return "AIQA"
 	}
-	return "aiqa-" + id
+	return "AIQA: " + id
 }
 func percent(done, total int) int {
 	if total <= 0 {

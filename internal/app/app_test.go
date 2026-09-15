@@ -30,9 +30,9 @@ func TestNewForensicRunIDUsesCanonicalUUIDv8(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	uid := strings.TrimPrefix(id, "aiqa-")
-	if !strings.HasPrefix(id, "aiqa-") || len(uid) != 36 || uid[8] != '-' || uid[13] != '-' || uid[18] != '-' || uid[23] != '-' || uid[14] != '8' || !strings.ContainsRune("89ab", rune(uid[19])) {
-		t.Fatalf("run ID=%q, want aiqa-<RFC 9562 UUIDv8>", id)
+	uid := id
+	if len(uid) != 36 || uid[8] != '-' || uid[13] != '-' || uid[18] != '-' || uid[23] != '-' || uid[14] != '8' || !strings.ContainsRune("89ab", rune(uid[19])) {
+		t.Fatalf("run ID=%q, want RFC 9562 UUIDv8", id)
 	}
 	if got, want := uid[:8]+uid[9:13], "018bcfe5687b"; got != want {
 		t.Fatalf("UUID timestamp=%q, want %q", got, want)

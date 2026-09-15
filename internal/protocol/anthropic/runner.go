@@ -302,11 +302,11 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	} else {
 		for index, model := range selected {
 			unknownPolicy := target.UnknownModel
-			if len(requested) > 0 {
+			if len(requested) > 0 && unknownPolicy != "probe" {
 				unknownPolicy = "inventory"
 			}
 			classifications[index] = capability.ClassifyAnthropic(model, metadata[model], capability.Options{BaseURL: target.BaseURL, Overrides: overrides, UnknownPolicy: unknownPolicy})
-			if len(requested) > 0 && classifications[index].Unknown {
+			if len(requested) > 0 && unknownPolicy != "probe" && classifications[index].Unknown {
 				var test result.TestResult
 				var response api.Response
 				var preflightErr error
@@ -475,11 +475,11 @@ func freezeExecution(ctx context.Context, options protocolpkg.RunOptions, client
 	explicit := len(requestedModels(options.Config, options.Target)) > 0
 	for index, model := range selected {
 		unknown := options.Target.UnknownModel
-		if explicit {
+		if explicit && unknown != "probe" {
 			unknown = "inventory"
 		}
 		classification := capability.ClassifyAnthropic(model, metadata[model], capability.Options{BaseURL: options.Target.BaseURL, Overrides: overrides, UnknownPolicy: unknown})
-		if explicit && classification.Unknown {
+		if explicit && unknown != "probe" && classification.Unknown {
 			var test result.TestResult
 			var response api.Response
 			var preflightErr error
@@ -635,7 +635,12 @@ func discoveryResults(p profile.Profile, resp api.Response, models []api.Model, 
 		schema.Status = result.StatusFail
 		schema.Summary = "Anthropic model-list schema is invalid"
 		schema.Observation = strings.Join(problems, "; ")
-		schema.Signals = []result.EvidenceSignal{{Code: "anthropic.models.list.invalid_envelope"}}
+		diagnostics := ModelSchemaDiagnostics(resp.JSON)
+		parameters := make([]any, 0, len(diagnostics))
+		for _, diagnostic := range diagnostics {
+			parameters = append(parameters, map[string]any{"path": diagnostic.Path, "model_id": diagnostic.ModelID, "issue": diagnostic.Issue, "expected": diagnostic.Expected})
+		}
+		schema.Signals = []result.EvidenceSignal{{Code: "anthropic.models.list.invalid_envelope", Parameters: map[string]any{"diagnostics": parameters}}}
 	} else {
 		schema.Status = result.StatusPass
 		schema.Summary = fmt.Sprintf("Anthropic model-list schema is valid (%d models)", len(models))

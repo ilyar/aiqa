@@ -494,11 +494,11 @@ func freezeExecution(ctx context.Context, options protocolpkg.RunOptions, client
 	explicit := len(requestedModels(cfg, target)) > 0
 	for index, model := range selected {
 		unknownPolicy := target.UnknownModel
-		if explicit {
+		if explicit && unknownPolicy != "probe" {
 			unknownPolicy = "inventory"
 		}
 		frozen.classifications[index] = capability.Classify(model, metadata[model], capability.Options{BaseURL: target.BaseURL, Overrides: overrides, UnknownPolicy: unknownPolicy})
-		if explicit && frozen.classifications[index].Unknown {
+		if explicit && unknownPolicy != "probe" && frozen.classifications[index].Unknown {
 			preflightCtx := logging.Scope(ctx, target.ID, model, "", "", "")
 			var modelEnd func(string, logging.Fields)
 			if options.Telemetry != nil {

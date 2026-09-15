@@ -317,8 +317,8 @@ func Parse(args []string) (Config, error) {
 		Concurrency:             1,
 		ExtSuitePaths:           splitPathList(os.Getenv("AIQA_EXT_SUITE_PATHS")),
 		Modules:                 []string{"auto"},
-		UnknownModel:            "inventory",
-		AnthropicUnknownModel:   "inventory",
+		UnknownModel:            "probe",
+		AnthropicUnknownModel:   "probe",
 		MaxArtifactsPerModel:    1,
 		FailOn:                  "core",
 		Guidance:                "full",
@@ -342,7 +342,7 @@ func Parse(args []string) (Config, error) {
 		GoogleGenAIAPIKey:       googleGenAIAPIKey,
 		GoogleGenAIAPIVersion:   googleGenAIAPIVersion,
 		GoogleGenAIProfile:      googleGenAIProfile,
-		GoogleGenAIUnknownModel: "inventory",
+		GoogleGenAIUnknownModel: "probe",
 	}
 
 	var normalizeErr error
@@ -397,15 +397,15 @@ func Parse(args []string) (Config, error) {
 	fs.StringVar(&modules, "module", modules, "capability modules: auto, chat-completions, images-generations, or anthropic.*")
 	fs.StringVar(&modelCapabilities, "model-capability", "", "model capability overrides: model=capability[+capability]")
 	fs.StringVar(&cfg.CapabilityFile, "capability-file", "", "JSON file with model capability overrides")
-	fs.StringVar(&cfg.UnknownModel, "unknown-model", cfg.UnknownModel, "unknown model policy: inventory or chat")
+	fs.StringVar(&cfg.UnknownModel, "unknown-model", cfg.UnknownModel, "unknown model policy: probe, inventory, or chat")
 	fs.StringVar(&openAIModelCapabilities, "openai-model-capability", "", "OpenAI model capability overrides")
 	fs.StringVar(&anthropicModelCapabilities, "anthropic-model-capability", "", "Anthropic model capability overrides")
 	fs.StringVar(&googleGenAIModelCapabilities, "google-genai-model-capability", "", "Google GenAI model capability overrides")
 	fs.StringVar(&cfg.OpenAICapabilityFile, "openai-capability-file", "", "OpenAI capability override file")
 	fs.StringVar(&cfg.AnthropicCapabilityFile, "anthropic-capability-file", "", "Anthropic capability override file")
 	fs.StringVar(&cfg.GoogleGenAICapabilityFile, "google-genai-capability-file", "", "Google GenAI capability override file")
-	fs.StringVar(&cfg.AnthropicUnknownModel, "anthropic-unknown-model", cfg.AnthropicUnknownModel, "unknown Anthropic model policy: messages or inventory")
-	fs.StringVar(&cfg.GoogleGenAIUnknownModel, "google-genai-unknown-model", cfg.GoogleGenAIUnknownModel, "unknown Google GenAI model policy: inventory or text")
+	fs.StringVar(&cfg.AnthropicUnknownModel, "anthropic-unknown-model", cfg.AnthropicUnknownModel, "unknown Anthropic model policy: probe, messages, or inventory")
+	fs.StringVar(&cfg.GoogleGenAIUnknownModel, "google-genai-unknown-model", cfg.GoogleGenAIUnknownModel, "unknown Google GenAI model policy: probe, inventory, or text")
 	fs.BoolVar(&cfg.AllowBillableArtifacts, "allow-billable-artifacts", false, "allow modules that create billable media")
 	fs.IntVar(&cfg.MaxArtifactsPerModel, "max-artifacts-per-model", cfg.MaxArtifactsPerModel, "maximum billable artifacts generated per model")
 	fs.StringVar(&cfg.FailOn, "fail-on", cfg.FailOn, "exit policy: core,any,never")
@@ -839,14 +839,14 @@ func (c Config) Validate() error {
 	if contains(c.Modules, "anthropic.thinking") && !c.AllowHighTokenProbes {
 		return errors.New("--module=anthropic.thinking requires --allow-high-token-probes")
 	}
-	if c.UnknownModel != "inventory" && c.UnknownModel != "chat" {
-		return errors.New("--unknown-model must be inventory or chat")
+	if c.UnknownModel != "inventory" && c.UnknownModel != "chat" && c.UnknownModel != "probe" {
+		return errors.New("--unknown-model must be probe, inventory, or chat")
 	}
-	if c.AnthropicUnknownModel != "inventory" && c.AnthropicUnknownModel != "messages" {
-		return errors.New("--anthropic-unknown-model must be inventory or messages")
+	if c.AnthropicUnknownModel != "inventory" && c.AnthropicUnknownModel != "messages" && c.AnthropicUnknownModel != "probe" {
+		return errors.New("--anthropic-unknown-model must be probe, inventory, or messages")
 	}
-	if c.GoogleGenAIUnknownModel != "inventory" && c.GoogleGenAIUnknownModel != "text" {
-		return errors.New("--google-genai-unknown-model must be inventory or text")
+	if c.GoogleGenAIUnknownModel != "inventory" && c.GoogleGenAIUnknownModel != "text" && c.GoogleGenAIUnknownModel != "probe" {
+		return errors.New("--google-genai-unknown-model must be probe, inventory, or text")
 	}
 	if c.MaxArtifactsPerModel < 1 || c.MaxArtifactsPerModel > 10 {
 		return errors.New("--max-artifacts-per-model must be between 1 and 10")

@@ -462,6 +462,15 @@ func escapeInline(s string) string {
 	return strings.ReplaceAll(s, "`", "\\`")
 }
 
+// Notes are plain text and can contain provider-controlled model identifiers.
+func escapeNote(s string) string {
+	return strings.NewReplacer(
+		"\\", "\\\\", "`", "\\`", "*", "\\*", "_", "\\_",
+		"[", "\\[", "]", "\\]", "<", "&lt;", ">", "&gt;", "&", "&amp;",
+		"\r", " ", "\n", " ",
+	).Replace(s)
+}
+
 // serviceLink renders only the origin's host so Markdown identifies the
 // provider without exposing API paths, query parameters, or credentials.
 func serviceLink(raw string) string {

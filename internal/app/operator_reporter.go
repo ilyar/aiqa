@@ -154,22 +154,32 @@ func (r *operatorReporter) renderSnapshot(snapshot execution.Snapshot, verdicts 
 		}
 		waiting := waits[target.ID]
 		state := terminalTargetState(target.Phase)
-		detail := ""
 		if target.Phase == execution.PhaseRunning && waiting.count > 0 {
 			state = "waiting"
-			if waiting.next > 0 {
-				detail = fmt.Sprintf("waiting %d; next in %s", waiting.count, waiting.next.Round(time.Second))
-			}
 		}
-		rows = append(rows, terminal.Target{ID: target.ID, State: state, JobsDone: done, JobsTotal: total, Verdict: verdicts[target.ID], Detail: detail})
+		rows = append(rows, terminal.Target{ID: target.ID, State: state, JobsDone: done, JobsTotal: total, Verdict: verdicts[target.ID]})
 	}
+	_, nextWait := waitSummary(snapshot)
 	frame := terminal.Render(terminal.Snapshot{
 		RunID: snapshot.Run.ID, Phase: string(snapshot.Run.Phase), Elapsed: snapshot.Run.Offset.Round(1e9).String(),
 		ETA: etaText(snapshot, r.capacity), JobsDone: snapshot.FinishedJobs, JobsTotal: snapshot.PlannedJobs,
-		Inflight: countInflight(snapshot), Concurrency: r.capacity, Waiting: len(snapshot.Waits), RPS: requestRate(snapshot),
+		Inflight: countInflight(snapshot), Concurrency: r.capacity, Waiting: len(snapshot.Waits), WaitingFor: nextWait, RPS: requestRate(snapshot),
 		TargetsDone: terminalTargetsDone(snapshot), TargetsTotal: len(snapshot.Targets), Verdict: runVerdict, Rows: rows,
 	}, width, 0, terminal.Options{})
 	r.draw(frame)
+}
+
+// waitSummary is presentation-only: it reports the earliest future eligibility
+// deadline among current waits without changing reducer or scheduler state.
+func waitSummary(snapshot execution.Snapshot) (int, time.Duration) {
+	var next time.Duration
+	for _, wait := range snapshot.Waits {
+		remaining := wait.EligibleAt - snapshot.Run.Offset
+		if remaining > 0 && (next == 0 || remaining < next) {
+			next = remaining
+		}
+	}
+	return len(snapshot.Waits), next
 }
 
 type targetWait struct {
@@ -269,7 +279,7 @@ func etaText(snapshot execution.Snapshot, capacity int) string {
 		if forecast < *result.RangeLow {
 			forecast = *result.RangeLow
 		}
-		return "~ " + eta.RoundDisplay(forecast).String()
+		return "~" + eta.RoundDisplay(forecast).String()
 	}
 	if result.State == eta.LowerBound {
 		return ">= " + eta.RoundDisplay(*result.RangeLow).String()

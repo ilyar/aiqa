@@ -32,6 +32,51 @@ func TestRepresentativeModelSkipsEarlierInapplicableModels(t *testing.T) {
 	}
 }
 
+func TestPrepareUnknownInventoryModelUsesProbePolicyWithoutPreflight(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/models" {
+			t.Fatalf("probe policy unexpectedly preflighted %q", r.URL.Path)
+		}
+		requests.Add(1)
+		_, _ = w.Write([]byte(`{"data":[{"id":"opaque","object":"model","created":1}]}`))
+	}))
+	defer server.Close()
+	p, err := profile.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := PrepareTarget(context.Background(), protocolpkg.RunOptions{
+		Target: config.TargetConfig{ID: "fixture", Protocol: config.ProtocolOpenAI, BaseURL: server.URL, APIKey: "fixture-key", Models: []string{"opaque"}, UnknownModel: "probe"},
+		Config: config.Config{Tests: []string{"compat"}, Concurrency: 1, Timeout: time.Second}, Profile: p,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests.Load() != 1 {
+		t.Fatalf("requests=%d, want inventory only", requests.Load())
+	}
+	foundCompat := false
+	for _, job := range prepared.Jobs {
+		foundCompat = foundCompat || job.ID == protocolpkg.JobID("fixture", "opaque", "compat")
+	}
+	if !foundCompat {
+		t.Fatalf("probe-policy native job was not frozen: %+v", prepared.Jobs)
+	}
+	if len(prepared.Candidates) != 1 || len(prepared.Candidates[0].Capabilities) != 0 {
+		t.Fatalf("probe policy fabricated model capabilities: %+v", prepared.Candidates)
+	}
+	var chat *result.ModuleAssessment
+	for index := range prepared.Candidates[0].Modules {
+		if prepared.Candidates[0].Modules[index].ID == "chat-completions" {
+			chat = &prepared.Candidates[0].Modules[index]
+		}
+	}
+	if chat == nil || chat.Source != "probe_policy" || !chat.Requested || chat.Execution != result.ExecutionExecuted {
+		t.Fatalf("probe-policy chat module=%+v", chat)
+	}
+}
+
 func TestRunTargetDiscoveryUsesFrozenInventoryJobOwner(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/models" {

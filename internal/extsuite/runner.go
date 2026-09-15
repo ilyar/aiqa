@@ -599,13 +599,13 @@ func planTarget(registry *Registry, cfg config.Config, target config.TargetConfi
 		if !selectsExtension(cfg, extension, manifest, selected) || !supportsProtocol(manifest, string(target.Protocol)) || !contains(manifest.ProfileContracts, p.SchemaVersion) {
 			continue
 		}
-		providerSuites := applicableSuites(manifest, cfg, p, nil, nil)
+		providerSuites := applicableSuites(extension, manifest, cfg, p, nil, nil)
 		if len(providerSuites) > 0 {
 			out = append(out, invocation{extension: extension, manifest: manifest, subject: result.SubjectRef{TargetID: target.ID, Protocol: string(target.Protocol), Kind: "provider", ID: strings.TrimRight(target.BaseURL, "/")}, suiteIDs: providerSuites})
 		}
 		for index := range models {
 			model := &models[index]
-			suites := applicableSuites(manifest, cfg, p, model, &artifactBudgets[index])
+			suites := applicableSuites(extension, manifest, cfg, p, model, &artifactBudgets[index])
 			if len(suites) == 0 {
 				continue
 			}
@@ -641,7 +641,7 @@ func selectsExtension(cfg config.Config, extension Extension, manifest Manifest,
 	return len(selected) == 0 || selected[manifest.Extension.ID]
 }
 
-func applicableSuites(manifest Manifest, cfg config.Config, p profile.Profile, model *result.ModelReport, artifactBudget *int) []string {
+func applicableSuites(extension Extension, manifest Manifest, cfg config.Config, p profile.Profile, model *result.ModelReport, artifactBudget *int) []string {
 	var out []string
 	for _, suite := range manifest.Suites {
 		if model == nil && suite.Subject != "provider" || model != nil && suite.Subject != "model" {
@@ -649,7 +649,8 @@ func applicableSuites(manifest Manifest, cfg config.Config, p profile.Profile, m
 		}
 		binding, bound := p.ExtensionBinding(manifest.Extension.ID, suite.ID)
 		if model != nil {
-			if !hasCapabilities(*model, suite.Capabilities) {
+			probePolicySuite := extension.Provenance().Source == "builtin" && bound && probePolicyModuleExecuted(*model, binding.Module)
+			if !hasCapabilities(*model, suite.Capabilities) && !probePolicySuite {
 				continue
 			}
 			if bound && !moduleExecuted(*model, binding.Module) {
@@ -699,6 +700,19 @@ func moduleExecuted(model result.ModelReport, moduleID string) bool {
 	for _, module := range model.Modules {
 		if module.ID == moduleID {
 			return module.Execution == result.ExecutionExecuted
+		}
+	}
+	return false
+}
+
+// probePolicyModuleExecuted is the sole SDK exception to metadata capability
+// matching. It applies only to a built-in suite already bound by the selected
+// profile and only after routing has authorized that module under probe policy.
+// Executable and unbound suites continue to require advertised capabilities.
+func probePolicyModuleExecuted(model result.ModelReport, moduleID string) bool {
+	for _, module := range model.Modules {
+		if module.ID == moduleID {
+			return module.Source == "probe_policy" && module.Requested && module.Execution == result.ExecutionExecuted
 		}
 	}
 	return false

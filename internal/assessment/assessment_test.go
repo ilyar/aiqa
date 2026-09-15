@@ -3,9 +3,67 @@ package assessment
 import (
 	"testing"
 
+	"github.com/ilyar/aiqa/internal/capability"
 	"github.com/ilyar/aiqa/internal/profile"
 	"github.com/ilyar/aiqa/internal/result"
 )
+
+func TestForeignCatalogDoesNotPassUnevaluatedProfile(t *testing.T) {
+	for _, tc := range []struct {
+		name, profile, protocol string
+		classification          capability.Classification
+	}{
+		{"reranker", "openai-compat-2026-09.json", "openai", capability.Classify("reranker", map[string]any{"capabilities": []any{"rerank"}}, capability.Options{UnknownPolicy: "inventory"})},
+		{"foreign Google model", "google-genai-generate-content-compat-2026-09.json", "google-genai", capability.ClassifyGoogleGenAI("foreign", map[string]any{"supportedGenerationMethods": []any{}}, capability.Options{UnknownPolicy: "inventory"})},
+		{"different Google surface", "google-genai-generate-content-compat-2026-09.json", "google-genai", capability.ClassifyGoogleGenAI("interaction", map[string]any{"supportedGenerationMethods": []any{"interactions"}}, capability.Options{UnknownPolicy: "inventory"})},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, err := profile.LoadFile(tc.profile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r := result.Report{Config: result.PublicConfig{Tests: []string{"compat"}}, Models: []result.ModelReport{{ID: tc.classification.Model, Modules: capability.AssessModules(tc.classification, p.Modules, capability.RoutingOptions{})}}}
+			ApplyTarget(&r, p, "target", tc.protocol)
+			if got := r.Summary.Assessment; got.Verdict != "inconclusive" || got.Comparison.Rankable || got.Coverage.Expected != got.Coverage.Excluded {
+				t.Fatalf("catalog-only profile was evaluated: %+v", got)
+			}
+			if r.Models[0].Assessment.Verdict != "not-evaluated" {
+				t.Fatalf("foreign catalog model passed without probes: %+v", r.Models[0].Assessment)
+			}
+			r.Discovery.Tests = []result.TestResult{{ID: "discovery.failure", Required: true, Status: result.StatusFail}}
+			ApplyTarget(&r, p, "target", tc.protocol)
+			if got := r.Summary.Assessment; got.Verdict != "fail" || got.Comparison.Rankable {
+				t.Fatalf("lost core failure: %+v", got)
+			}
+			r.Discovery.Tests = nil
+			r.Config.Tests = []string{"sdk"}
+			ApplyTarget(&r, p, "target", tc.protocol)
+			for _, requirement := range r.Requirements {
+				if requirement.ID == "selection.profile_scope" {
+					t.Fatal("native scope guard affected SDK-only run")
+				}
+			}
+		})
+	}
+}
+
+func TestMixedCatalogDoesNotCreateProfileScopeGap(t *testing.T) {
+	p, err := profile.LoadFile("openai-compat-2026-09.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := result.Report{Config: result.PublicConfig{Tests: []string{"compat"}}}
+	for _, kind := range []string{"rerank", "chat"} {
+		c := capability.Classify(kind, map[string]any{"capabilities": []any{kind}}, capability.Options{UnknownPolicy: "inventory"})
+		r.Models = append(r.Models, result.ModelReport{ID: kind, Modules: capability.AssessModules(c, p.Modules, capability.RoutingOptions{})})
+	}
+	ApplyTarget(&r, p, "target", "openai")
+	for _, requirement := range r.Requirements {
+		if requirement.ID == "selection.profile_scope" {
+			t.Fatal("foreign model penalized applicable sibling")
+		}
+	}
+}
 
 func TestCoreFailureIsAuthoritative(t *testing.T) {
 	r := reportWithTest(result.TestResult{ID: "models.list.schema", Name: "schema", Required: true, Status: result.StatusFail})
@@ -152,10 +210,13 @@ func TestNonApplicableModuleDoesNotEnterMeasures(t *testing.T) {
 	}}}
 	Apply(&r, p)
 	assessment := r.Summary.Assessment
-	if len(r.Requirements) == 0 || assessment.Core.Total != 0 || assessment.Optional.Total != 0 || assessment.Verdict != "pass" {
+	if len(r.Requirements) == 0 || assessment.Core.Total != 1 || assessment.Core.Skip != 1 || assessment.Optional.Total != 0 || assessment.Verdict != "inconclusive" {
 		t.Fatalf("N/A affected conformance: requirements=%+v assessment=%+v", r.Requirements, assessment)
 	}
 	for _, requirement := range r.Requirements {
+		if requirement.ID == "selection.profile_scope" {
+			continue // The scope gap is separate from the excluded model requirements.
+		}
 		if requirement.Applicability != result.ApplicabilityNotApplicable || requirement.Status != result.RequirementNotApplicable {
 			t.Fatalf("unexpected N/A requirement: %+v", requirement)
 		}

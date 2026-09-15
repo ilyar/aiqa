@@ -42,8 +42,10 @@ func ValidateModels(root map[string]any) []string {
 			}
 		}
 		if methods, exists := model["supportedGenerationMethods"]; exists {
-			if len(stringValues(methods)) == 0 {
-				problems = append(problems, fmt.Sprintf("models[%d].supportedGenerationMethods must contain strings", index))
+			// The Models contract specifies an array of strings, not a nonempty
+			// array. An empty catalog declaration must not invent generation support.
+			if !validGenerationMethods(methods) {
+				problems = append(problems, fmt.Sprintf("models[%d].supportedGenerationMethods must be an array of strings", index))
 			}
 		}
 	}
@@ -53,6 +55,22 @@ func ValidateModels(root map[string]any) []string {
 		}
 	}
 	return problems
+}
+
+func validGenerationMethods(raw any) bool {
+	switch values := raw.(type) {
+	case []any:
+		for _, value := range values {
+			if _, ok := value.(string); !ok {
+				return false
+			}
+		}
+		return true
+	case []string:
+		return true
+	default:
+		return false
+	}
 }
 
 func ValidateGenerateContent(root map[string]any) []string {

@@ -51,9 +51,15 @@ func AssessModules(classification Classification, definitions []profile.Module, 
 			assessment.Applicability = result.ApplicabilityUnknown
 			assessment.Execution = result.ExecutionSkipped
 			assessment.Reason = classification.Reason
-		case matchedCapability != "":
+		case matchedCapability != "" || classification.ProbeEligible && requested:
 			assessment.Applicability = result.ApplicabilityApplicable
-			assessment.Reason, assessment.Source, assessment.Confidence = capabilityReason(classification, matchedCapability)
+			if classification.ProbeEligible {
+				assessment.Reason = "capability metadata absent; support being tested"
+				assessment.Source = "probe_policy"
+				assessment.Confidence = "low"
+			} else {
+				assessment.Reason, assessment.Source, assessment.Confidence = capabilityReason(classification, matchedCapability)
+			}
 			moduleEnabled := requested
 			highToken := definition.CostClass == "high-token"
 			persistent := definition.CostClass == "persistent-resource"

@@ -104,11 +104,11 @@ OpenAI classification collects evidence from these sources in order. Only an exp
 
 Conflicting positive evidence produces `unknown` and prevents capability probes. Positive non-text evidence routes the model only to matching modules; it never triggers the text fallback. `input_modalities: ["text"]` alone does not prove Chat Completions support because embedding models can accept the same input modality.
 
-If no OpenAI capability evidence exists and nothing identifies the model as non-text, the default `--unknown-model=inventory` policy leaves the entry inventory-only. `--unknown-model=chat` opts into the low-confidence `chat.completions.text` fallback. Anthropic has a separate classifier and capability namespace: complete `ModelInfo` metadata identifies a Messages route, while the default `--anthropic-unknown-model=inventory` keeps incomplete entries inventory-only; `messages` opts into its low-confidence fallback. Google maps `supportedGenerationMethods` to `google-genai.generate-content.text`, `google-genai.count-tokens`, and `google-genai.embed-content`. It never infers Interactions from `generateContent`; the modern profile uses an explicitly selected model or its reviewed allowlist. `--google-genai-unknown-model=inventory` is conservative by default, while `text` opts into a low-confidence generation fallback.
+The default unknown-model policy is `probe` for all protocols. When capability information is absent, an internal eligibility marker allows selected profile probes through the normal implementation and cost/resource gates. Modules record `source=probe_policy` with low confidence; no capability declaration is fabricated. Only built-in SDK suites bound to those eligible modules may bypass missing capability declarations. These decisions are frozen before execution. The final report includes an advisory in target notes, outside canonical requirements, so missing optional metadata does not lower the verdict. Explicit negative, malformed, conflicting, or unrecognized declarations do not become probe eligibility. Legacy `inventory`, OpenAI `chat`, Anthropic `messages`, and Google `text` policies remain available.
 
 Module assessment records applicability separately from execution:
 
-- `applicable` means the model has a required capability;
+- `applicable` means a required capability matches, or the probe policy allows testing that route; it is not proof of runtime support;
 - `not_applicable` means positive classification points elsewhere;
 - `unknown` means the evidence conflicts or strict inventory mode has no classification;
 - `executed` and `skipped` record what happened after applicability and cost policy were applied.

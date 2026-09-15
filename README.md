@@ -74,7 +74,7 @@ telemetry contract is in [`docs/unified-model-routing.md`](docs/unified-model-ro
 
 ## Capability routing
 
-OpenAI's standard model object does not declare endpoint capabilities. AIQA therefore uses explicit overrides first, then recognized vendor metadata and conservative model-name rules. When no capability evidence exists and nothing identifies the model as non-text, the default inventory policy leaves the entry untested; `--unknown-model=chat` opts into the low-confidence text fallback. Explicit image, embedding, audio, or video evidence still prevents chat routing, and conflicting evidence remains unknown.
+OpenAI's standard model object does not declare endpoint capabilities. AIQA uses explicit overrides first, then recognized vendor metadata and conservative model-name rules. Since alpha.13, the default `--unknown-model=probe` policy runs eligible checks from the selected profile when capability information is absent. It reports a metadata advisory, not a provider failure or a claim of support. Explicit non-chat declarations still restrict routing; malformed or conflicting declarations do not enable unrestricted probing.
 
 Declare a known model explicitly:
 
@@ -95,7 +95,7 @@ Multiple capabilities use `+`, and larger catalogs can use `--capability-file`:
 }
 ```
 
-The default is `--unknown-model=inventory`. Use `--unknown-model=chat` only when an unclassified OpenAI-compatible entry should receive the low-confidence text fallback. Anthropic uses the same conservative inventory default; `--anthropic-unknown-model=messages` is the opt-in fallback.
+The default unknown-model policy is `probe` for OpenAI, Anthropic, and Google GenAI. It selects implemented checks allowed by the profile, module selection, and existing artifact/high-token/persistent-resource permissions, including bound built-in SDK suites. `--unknown-model=inventory` retains conservative catalog handling; `chat`, Anthropic `messages`, and Google `text` retain their explicit low-confidence text fallbacks. Explicit model selection under legacy policies retains its existing route preflight behavior. Missing optional capability metadata alone does not lower a compatibility verdict.
 
 Image generation is a billable module and remains skipped by default. Enable it deliberately for a selected model:
 
@@ -192,7 +192,9 @@ See [`docs/anthropic-compatibility.md`](docs/anthropic-compatibility.md) for the
 
 The Google GenAI compatibility contract has two profiles. The default [`profile/google-genai-generate-content-compat-2026-09.json`](profile/google-genai-generate-content-compat-2026-09.json) tests the public Gemini Developer API `generateContent` surface. [`profile/google-genai-compat-2026-09.json`](profile/google-genai-compat-2026-09.json) tests the separate modern Interactions contract and must be selected explicitly with `--google-genai-profile` or `GOOGLE_GENAI_PROFILE`. Google is an independent Gemini Developer API target, defaults to `v1beta`, and authenticates with `x-goog-api-key`. Configure it with `GOOGLE_GENAI_BASE_URL` and `GOOGLE_GENAI_API_KEY`; `GOOGLE_GEMINI_BASE_URL`, `GOOGLE_API_KEY`, and `GEMINI_API_KEY` are compatibility aliases. See [`docs/google-genai-compatibility.md`](docs/google-genai-compatibility.md).
 
-Google routing is metadata-first: `supportedGenerationMethods` enables `generateContent`, `countTokens`, and `embedContent` modules independently. `generateContent` never implies Interactions. The modern profile selects Interactions only for an explicitly selected model or its reviewed allowlist; an unknown or embedding-only model is not sent through that surface. Unclassified Google models remain inventory-only by default (`--google-genai-unknown-model=text` opts into a text fallback).
+Google routing is metadata-first: `supportedGenerationMethods` enables `generateContent`, `countTokens`, and `embedContent` modules independently. `generateContent` never implies Interactions. With absent capability metadata, the default `--google-genai-unknown-model=probe` uses the selected profile to determine eligible probes. Explicit empty method arrays and embedding-only declarations do not enable generation. Use `inventory` for conservative handling or `text` for the legacy text fallback.
+
+A provider catalog may include models served through other APIs. Declared `rerank` capabilities do not enable chat checks; AIQA does not implement a rerank probe. An explicit empty Google `supportedGenerationMethods` array declares no generation methods, and Anthropic `capabilities.text.supported: false` prevents inferred Messages support. Missing or conflicting metadata remains distinct from declared non-applicability. If every requested native route is non-applicable, discovery alone cannot produce a compatibility PASS: the report recommends selecting a matching profile. Metadata recommendations identify invalid Anthropic field paths; providers should declare unsupported features truthfully, not add capabilities just to satisfy a selected profile.
 
 ## Extension suites and SDK checks
 

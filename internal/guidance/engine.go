@@ -5,10 +5,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"html"
 	"reflect"
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/ilyar/aiqa/internal/profile"
 	"github.com/ilyar/aiqa/internal/result"
@@ -294,6 +296,12 @@ func rootCauseKey(requirement result.RequirementAssessment, code string) string 
 }
 
 func findingCodes(requirement result.RequirementAssessment, catalog Catalog) []string {
+	// An unknown applicability is neither a provider rejection nor an optional
+	// feature gap. Group all skipped requirements for the same model into one
+	// metadata investigation instead of fabricating a recommendation per probe.
+	if requirement.Applicability == result.ApplicabilityUnknown && requirement.Status == result.RequirementSkip {
+		return []string{"metadata.model_capability_unknown"}
+	}
 	if requirement.FailureKind == "evidence_conflict" {
 		if requirement.ID == "chat.stream.sse" || requirement.ID == "chat.stream.usage" || strings.HasSuffix(requirement.ID, "official-sdk.openai.chat.stream") || strings.HasSuffix(requirement.ID, "official-sdk.openai.chat.stream.usage") {
 			return []string{"evidence.chat.stream.native_sdk_conflict"}
@@ -366,6 +374,29 @@ func buildRecommendations(r result.Report, p profile.Profile, catalog Catalog, p
 			source = result.RecommendationSource{Kind: "catalog", ID: entry.ID, Revision: entry.Revision}
 		}
 		applyPack(&guidanceLevel, &steps, &workarounds, &caveats, &references, pack, finding.Code)
+		if finding.Code == "anthropic.models.list.invalid_envelope" {
+			steps = append(metadataSchemaSteps(finding.Details), steps...)
+		}
+		if finding.Code == "metadata.model_capability_unknown" || finding.Code == "execution.profile_scope.no_match" {
+			verification = []result.Verification{{Kind: "requirements", IDs: append([]string(nil), finding.RequirementIDs...)}}
+		}
+		if finding.Code == "metadata.model_capability_unknown" {
+			protocol := finding.Subject.Protocol
+			if protocol == "" {
+				protocol = p.Protocol
+			}
+			switch protocol {
+			case "anthropic":
+				steps = append(steps, result.RecommendationStep{ID: "anthropic-metadata", Text: "Return the Anthropic ModelInfo fields and capability objects with boolean supported flags. Declare capabilities.text.supported explicitly for a mixed catalog; false means this model is not a Messages text model."})
+			case "google-genai":
+				steps = append(steps, result.RecommendationStep{ID: "google-metadata", Text: "Return supportedGenerationMethods as an array containing only implemented methods, such as generateContent, countTokens, embedContent, or interactions. An empty array declares no methods; it is different from missing or malformed metadata. Do not translate OpenAI embeddings into Google embedContent unless that Google route exists."})
+			default:
+				steps = append(steps, result.RecommendationStep{ID: "openai-metadata", Text: "For an OpenAI-compatible mixed catalog, AIQA recognizes the provider extension capabilities array, for example [\"chat.completions.text\"], [\"embeddings\"], or [\"rerank\"]. Publish only actual capabilities; this extension is not a required OpenAI Model field, and declaring rerank does not mean AIQA can test that API."})
+			}
+		}
+		if finding.Code == "execution.profile_scope.no_match" && p.Protocol == "google-genai" {
+			steps = append(steps, result.RecommendationStep{ID: "google-interactions-profile", Text: "If the provider advertises interactions, select --google-genai-profile=google-genai-compat-2026-09.json. Keep generateContent absent unless the provider implements it; the pinned Google SDK does not expose Interactions methods."})
+		}
 		for index := range verification {
 			verification[index].TargetID = finding.Subject.TargetID
 			verification[index].Protocol = finding.Subject.Protocol
@@ -403,6 +434,50 @@ func buildRecommendations(r result.Report, p profile.Profile, catalog Catalog, p
 	}
 	sort.Slice(recommendations, func(i, j int) bool { return recommendationLess(recommendations[i], recommendations[j], findingIndex) })
 	return recommendations
+}
+
+func metadataSchemaSteps(details map[string]any) []result.RecommendationStep {
+	raw, ok := details["diagnostics"].([]any)
+	if !ok || len(raw) == 0 {
+		return nil
+	}
+	entries := make([]string, 0, len(raw))
+	for _, item := range raw {
+		diagnostic, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		path, _ := diagnostic["path"].(string)
+		expected, _ := diagnostic["expected"].(string)
+		modelID, _ := diagnostic["model_id"].(string)
+		if path == "" || expected == "" {
+			continue
+		}
+		entry := metadataLiteral(path) + " (expected " + metadataLiteral(expected) + ")"
+		if modelID != "" {
+			entry += " for model " + metadataLiteral(modelID)
+		}
+		entries = append(entries, entry)
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	return []result.RecommendationStep{
+		{ID: "repair-model-metadata", Text: "Add or correct the required Anthropic model metadata: " + strings.Join(uniqueStrings(entries), "; ") + "."},
+		{ID: "declare-unsupported-safely", Text: "Use {\"supported\": false} only when that exact feature is actually unsupported; do not use it to mask absent, malformed, or unrecognized metadata."},
+	}
+}
+
+// Recommendation steps can be rendered as Markdown. Provider-supplied model
+// IDs must stay literal text rather than becoming markup or extra paragraphs.
+func metadataLiteral(value string) string {
+	value = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || r == '\u2028' || r == '\u2029' {
+			return ' '
+		}
+		return r
+	}, value)
+	return strings.NewReplacer("\\", "\\\\", "`", "\\`", "*", "\\*", "_", "\\_", "[", "\\[", "]", "\\]", "(", "\\(", ")", "\\)", "!", "\\!", "#", "\\#", "|", "\\|").Replace(html.EscapeString(value))
 }
 
 func summarizeGuidance(requirements []result.RequirementAssessment, findings []result.Finding, recommendations []result.Recommendation) result.GuidanceSummary {

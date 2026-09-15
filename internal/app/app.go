@@ -436,6 +436,7 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 				logf(logging.Error, "[%s] extension suites returned an error", target.ID)
 			}
 		}
+		appendProbePolicyNotes(&targetReport)
 		outcome := "completed"
 		if executionErr != nil || extensionErr != nil {
 			outcome = "error"
@@ -594,7 +595,7 @@ func newForensicRunIDAt(version string, now time.Time, entropy io.Reader) (strin
 	hex.Encode(encoded[19:23], raw[8:10])
 	encoded[23] = '-'
 	hex.Encode(encoded[24:36], raw[10:16])
-	return "aiqa-" + string(encoded[:]), nil
+	return string(encoded[:]), nil
 }
 
 // targetWorkflowLimit controls application-level target orchestration only.
