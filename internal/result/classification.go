@@ -41,6 +41,8 @@ func classifyExecutionSignals(c *Classification, status Status, signals []Eviden
 			c.Kind, c.Reason = ClassificationExecutionGap, "local safety limit ended execution before complete conformance evidence was available"
 		case "execution.output_truncated":
 			c.Kind, c.Reason = ClassificationExecutionGap, "output token budget ended before complete conformance evidence was available"
+		case "execution.stream_interrupted":
+			c.Kind, c.Reason = ClassificationExecutionGap, "stream reading was interrupted before complete conformance evidence was available"
 		case "execution.model_access_unavailable":
 			c.Kind, c.Reason = ClassificationExecutionGap, "model access is unavailable; protocol conformance was not evaluated"
 		case "execution.daily_quota_exhausted":

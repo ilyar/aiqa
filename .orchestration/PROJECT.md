@@ -64,15 +64,18 @@ Do not install MCP servers or assume credentials because a manifest mentions the
   AIQA `1.0.0-beta.1` and `1.0.0-beta.2`; the published skill 1.0.0 is unchanged.
 - Beta.2 preparation: CI/release workflows and Makefile were inspected against
   the observed manifest. Installer checks passed 44/44; secret screening passed
-  216 reachable commit trees and the candidate worktree. Dependency security
+  217 reachable commit trees and the candidate worktree. Dependency security
   checks passed (no called vulnerabilities; one uncalled module vulnerability).
-  Final integrated `make qa` passed: coverage 66.5%, mutation 4613/4613 (100%),
+  Final integrated `make qa` passed: coverage 66.9%, mutation 4643/4643 (100%),
   zero mutation timeouts, full race suite, and nine operator-skill tests including
   three-protocol loopback. Independent beta.2 review found no remaining blockers.
   Eight beta.2 candidate cross-builds and checksums passed; Linux amd64 version
   smoke passed. The two authorized live endpoints use private output under
   ignored `local/report/`, never a CI upload. Public artifacts are built again
   from the release tag by CI; cross-builds do not imply native qualification.
+- OpenAI SSE read errors after HTTP 200 are execution gaps, including usage
+  and tool streams. Independent malformed headers/events/chunks remain failures;
+  clean EOF is still checked for required terminal protocol evidence.
 - CI and the local `make qa` gate now include `make skill-check`, which builds
   the pinned-version binary and runs Python unittest checks including all three
   protocols against loopback only. Local execution needs Go on PATH and socket

@@ -542,12 +542,18 @@ func probeStreaming(parent context.Context, env Environment, model string, inclu
 		return t
 	}
 	chunkProblems := validateStreamChunkShapes(resp.Events)
+	if !strings.Contains(strings.ToLower(resp.ContentType), "text/event-stream") {
+		chunkProblems = append(chunkProblems, "Content-Type is not text/event-stream")
+	}
 	if includeUsage {
 		if len(resp.InvalidEvents) > 0 || len(chunkProblems) > 0 {
 			t.Status = result.StatusFail
 			t.Summary = "stream usage request returned malformed SSE chunks"
 			t.Observation = strings.Join(append(resp.InvalidEvents, chunkProblems...), "; ")
 			return t
+		}
+		if err != nil {
+			return streamInterrupted(&t, err, "stream usage request")
 		}
 		if resp.Usage.TotalTokens <= 0 {
 			t.Status = result.StatusFail
@@ -560,14 +566,20 @@ func probeStreaming(parent context.Context, env Environment, model string, inclu
 	}
 	var problems []string
 	problems = append(problems, chunkProblems...)
-	if !strings.Contains(strings.ToLower(resp.ContentType), "text/event-stream") {
-		problems = append(problems, "Content-Type is not text/event-stream")
+	if len(resp.InvalidEvents) > 0 {
+		problems = append(problems, fmt.Sprintf("%d invalid SSE event(s)", len(resp.InvalidEvents)))
+	}
+	if len(problems) > 0 {
+		t.Status = result.StatusFail
+		t.Summary = "streaming protocol differs from OpenAI SSE"
+		t.Observation = strings.Join(problems, "; ")
+		return t
+	}
+	if err != nil {
+		return streamInterrupted(&t, err, "stream")
 	}
 	if len(resp.Events) == 0 {
 		problems = append(problems, "no SSE data events were received")
-	}
-	if len(resp.InvalidEvents) > 0 {
-		problems = append(problems, fmt.Sprintf("%d invalid SSE event(s)", len(resp.InvalidEvents)))
 	}
 	if !resp.Done {
 		problems = append(problems, "[DONE] terminator is missing")
@@ -586,6 +598,18 @@ func probeStreaming(parent context.Context, env Environment, model string, inclu
 	t.Metrics["events"] = len(resp.Events)
 	t.Metrics["finish_reasons"] = resp.FinishReasons
 	return t
+}
+
+// streamInterrupted distinguishes a late read interruption after successful
+// headers from a clean EOF with an incomplete protocol. The former leaves no
+// complete conformance evidence; the latter is a provider-visible missing
+// terminator/usage failure handled by the caller after err is known to be nil.
+func streamInterrupted(t *result.TestResult, err error, subject string) result.TestResult {
+	t.Status = result.StatusError
+	t.Summary = subject + " was interrupted before completion; compatibility outcome is inconclusive"
+	t.Error = errorText(err)
+	t.Signals = append(t.Signals, result.EvidenceSignal{Code: "execution.stream_interrupted", RootCause: "stream-read-interrupted"})
+	return *t
 }
 
 func validateStreamChunkShapes(events []api.SSEEvent) []string {
@@ -832,6 +856,19 @@ func probeStreamingTool(parent context.Context, env Environment, model string) r
 		t.Summary = "streaming tool call contained invalid SSE events"
 		t.Observation = strings.Join(resp.InvalidEvents, "; ")
 		return t
+	}
+	chunkProblems := validateStreamChunkShapes(resp.Events)
+	if !strings.Contains(strings.ToLower(resp.ContentType), "text/event-stream") || len(chunkProblems) > 0 {
+		t.Status = result.StatusFail
+		t.Summary = "streaming tool call has malformed SSE protocol evidence"
+		if !strings.Contains(strings.ToLower(resp.ContentType), "text/event-stream") {
+			chunkProblems = append(chunkProblems, "Content-Type is not text/event-stream")
+		}
+		t.Observation = strings.Join(chunkProblems, "; ")
+		return t
+	}
+	if err != nil {
+		return streamInterrupted(&t, err, "streaming tool call")
 	}
 	if !resp.Done {
 		t.Status = result.StatusFail

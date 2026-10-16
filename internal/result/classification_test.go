@@ -2,6 +2,17 @@ package result
 
 import "testing"
 
+func TestInterruptedHTTP200StreamIsExecutionGap(t *testing.T) {
+	test := TestResult{ID: "chat.stream.sse", Status: StatusError, HTTP: HTTPObservation{StatusCode: 200}, Signals: []EvidenceSignal{{Code: "execution.stream_interrupted"}}}
+	if c := ClassifyTestResult(test, "revision"); c == nil || c.Kind != ClassificationExecutionGap {
+		t.Fatalf("interrupted stream classification=%+v", c)
+	}
+	test.Status = StatusFail
+	if c := ClassifyTestResult(test, "revision"); c == nil || c.Kind != ClassificationProviderNonconformance {
+		t.Fatalf("interruption signal hid independent malformed stream: %+v", c)
+	}
+}
+
 func TestExecutionBlockerClassificationPreservesVerdicts(t *testing.T) {
 	for _, code := range []string{"execution.model_access_unavailable", "execution.daily_quota_exhausted"} {
 		test := TestResult{ID: "google.generate-content.basic", Status: StatusError, HTTP: HTTPObservation{StatusCode: 404}, Signals: []EvidenceSignal{{Code: code}}}

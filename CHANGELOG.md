@@ -12,6 +12,9 @@
   forensic traces, without treating absent execution as successful coverage.
 - Preserve discovery request statistics when execution stops before
   any model is selected, including rejected credentials.
+- Treat interrupted OpenAI SSE reads after HTTP 200 as incomplete execution,
+  not a missing-terminator or missing-usage protocol failure; retain independent
+  malformed-stream failures and clean-EOF contract checks.
 - Update public binaries, download links, and installer defaults to beta.2.
   Operator skill 1.0.1 accepts both beta.1 and beta.2; the original pinned skill
   1.0.0 release remains unchanged.
