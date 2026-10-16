@@ -222,7 +222,7 @@ func safeUpper(s string) string { return strings.ToUpper(clean(s)) }
 func clean(s string) string {
 	var b strings.Builder
 	for _, r := range s {
-		if r == utf8.RuneError || unicode.IsControl(r) || r == '\u001b' || r == '\u200e' || r == '\u200f' || (r >= '\u202a' && r <= '\u202e') || (r >= '\u2066' && r <= '\u2069') {
+		if r == utf8.RuneError || unicode.IsControl(r) || r == '\u061c' || r == '\u200e' || r == '\u200f' || r == '\u2028' || r == '\u2029' || (r >= '\u202a' && r <= '\u202e') || (r >= '\u2066' && r <= '\u2069') {
 			continue
 		}
 		b.WriteRune(r)

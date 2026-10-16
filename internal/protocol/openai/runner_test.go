@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -20,6 +21,30 @@ import (
 	"github.com/ilyar/aiqa/internal/suites"
 )
 
+func TestPrepareRejectsOversizedInventoryBeforePlanning(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[]}` + strings.Repeat(" ", 1024)))
+	}))
+	defer server.Close()
+	p, err := profile.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = PrepareTarget(context.Background(), protocolpkg.RunOptions{
+		Target: config.TargetConfig{ID: "fixture", Protocol: config.ProtocolOpenAI, BaseURL: server.URL, APIKey: "fixture-key"},
+		Config: config.Config{Tests: []string{"compat"}, Concurrency: 1, Timeout: time.Second, InventoryByteBudget: 64}, Profile: p,
+	})
+	if err == nil {
+		t.Fatal("oversized whitespace inventory was accepted")
+	}
+	if requests.Load() != 1 {
+		t.Fatalf("requests=%d, want only inventory request", requests.Load())
+	}
+}
+
 func TestRepresentativeModelSkipsEarlierInapplicableModels(t *testing.T) {
 	models := []string{"aaa-image", "bbb-unknown", "ccc-chat"}
 	plans := [][]result.ModuleAssessment{
@@ -29,6 +54,40 @@ func TestRepresentativeModelSkipsEarlierInapplicableModels(t *testing.T) {
 	}
 	if got := representativeModel(models, plans, "chat-completions"); got != "ccc-chat" {
 		t.Fatalf("representative model=%q, want ccc-chat", got)
+	}
+}
+
+func TestProbePolicyImageRejectionLeavesChatEvidenceAndReclassifiesOnlyImages(t *testing.T) {
+	modules := []result.ModuleAssessment{
+		{ID: capability.ModuleChat, Applicability: result.ApplicabilityApplicable, Execution: result.ExecutionExecuted, Source: "probe_policy"},
+		{ID: capability.ModuleImages, Applicability: result.ApplicabilityApplicable, Execution: result.ExecutionExecuted, Source: "probe_policy"},
+	}
+	chat := result.TestResult{ID: "chat.completions.basic", Status: result.StatusPass}
+	image := []result.TestResult{{
+		ID: "images.generate.basic", Status: result.StatusFail,
+		HTTP: result.HTTPObservation{StatusCode: http.StatusBadRequest, Snippet: `{"error":{"code":"invalid_value","param":"model","type":"image_generation_user_error"}}`},
+	}}
+	imageModule := capability.Module(modules, capability.ModuleImages)
+	if !resolveProbePolicyImageRejection(capability.Classification{ProbeEligible: true}, imageModule, image) {
+		t.Fatal("structured image rejection was not recognized")
+	}
+	if chat.Status != result.StatusPass || modules[0].Applicability != result.ApplicabilityApplicable || modules[1].Applicability != result.ApplicabilityNotApplicable || modules[1].Execution != result.ExecutionExecuted || modules[1].Source != "probe_policy" {
+		t.Fatalf("unexpected module/test state: chat=%+v modules=%+v image=%+v", chat, modules, image)
+	}
+}
+
+func TestProbePolicyImageRejectionDoesNotApplyToPositiveEvidence(t *testing.T) {
+	modules := []result.ModuleAssessment{{ID: capability.ModuleImages, Applicability: result.ApplicabilityApplicable, Execution: result.ExecutionExecuted, Source: "model_id"}}
+	image := []result.TestResult{{
+		ID: "images.generate.basic", Status: result.StatusFail,
+		HTTP: result.HTTPObservation{StatusCode: http.StatusBadRequest, Snippet: `{"error":{"code":"invalid_value","param":"model","type":"image_generation_user_error"}}`},
+	}}
+	imageModule := capability.Module(modules, capability.ModuleImages)
+	if resolveProbePolicyImageRejection(capability.Classification{ProbeEligible: true}, imageModule, image) {
+		t.Fatal("positive evidence would have been reclassified")
+	}
+	if image[0].Status != result.StatusFail || modules[0].Applicability != result.ApplicabilityApplicable {
+		t.Fatalf("positive-evidence rejection was altered: module=%+v test=%+v", modules[0], image[0])
 	}
 }
 

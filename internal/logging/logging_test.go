@@ -52,6 +52,26 @@ func TestLoggerRedactsUnknownAndUnsafeValues(t *testing.T) {
 	}
 }
 
+func TestLoggerRedactsConfiguredSecretsBeforeTruncation(t *testing.T) {
+	secret := "key-super-secret"
+	logger := New(4, "key", secret)
+	logger.Log(Trace, "safe.event", Fields{"model": strings.Repeat("x", 510) + secret})
+	line := logger.Lines()[0]
+	if strings.Contains(line, secret) || strings.Contains(line, "[REDACTED]-super-secret") {
+		t.Fatalf("configured secret leaked: %s", line)
+	}
+}
+
+func TestLoggerRedactsConfiguredSecretInEventName(t *testing.T) {
+	secret := "modelsecret"
+	logger := New(4, secret)
+	logger.Log(Trace, secret, Fields{"model": "safe"})
+	line := logger.Lines()[0]
+	if strings.Contains(line, secret) || !strings.Contains(line, `"event":"redacted_event"`) {
+		t.Fatalf("event name leaked configured secret: %s", line)
+	}
+}
+
 func TestLoggerStructuredContextAndRedaction(t *testing.T) {
 	logger := New(4)
 	ctx := Scope(WithLogger(context.Background(), logger), "openai", "gpt-test", "compat", "chat.basic", "probe-7")
@@ -190,6 +210,11 @@ func TestLoggerAddSinkRejectsInsecureFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = file.Close() })
+	// The process umask can remove the group/world bits requested above. Set
+	// them explicitly so this test always supplies an insecure file.
+	if err := file.Chmod(0o644); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := New(4).AddSink(file, SinkOptions{}); err == nil || !strings.Contains(err.Error(), "group/world") {
 		t.Fatalf("AddSink accepted insecure file: %v", err)
 	}

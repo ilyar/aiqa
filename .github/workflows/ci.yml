@@ -11,12 +11,16 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: '1.27'
           cache: true
       - run: make check
+      - run: bash script/secret-screen.sh
+      - run: bash script/install_test.sh
       - run: make security-check
       - run: make build VERSION=ci COMMIT="${GITHUB_SHA::12}" DATE=ci
       - run: ./bin/aiqa --version
@@ -27,8 +31,8 @@ jobs:
     continue-on-error: true
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: '1.27'
       - run: make build VERSION=ci COMMIT="${GITHUB_SHA::12}" DATE=ci
@@ -42,7 +46,7 @@ jobs:
           ./bin/aiqa test=compat --model="$OPENAI_MODEL" --timeout=30 --request-interval=250ms --format=json --name=live-openai
       - name: Upload sanitized OpenAI report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: live-openai-report
           path: live-openai.json
@@ -54,8 +58,8 @@ jobs:
     continue-on-error: true
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: '1.27'
       - run: make build VERSION=ci COMMIT="${GITHUB_SHA::12}" DATE=ci
@@ -69,7 +73,7 @@ jobs:
           ./bin/aiqa test=compat --model="$ANTHROPIC_MODEL" --timeout=30 --request-interval=250ms --format=json --name=live-anthropic
       - name: Upload sanitized Anthropic report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: live-anthropic-report
           path: live-anthropic.json
@@ -81,8 +85,8 @@ jobs:
     continue-on-error: true
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: '1.27'
       - run: make build VERSION=ci COMMIT="${GITHUB_SHA::12}" DATE=ci
@@ -96,7 +100,7 @@ jobs:
           ./bin/aiqa test=compat,sdk --target=google-genai --model="$AIQA_MODEL" --timeout=30 --request-interval=500ms --format=json --name=live-google-genai
       - name: Upload sanitized Google GenAI report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: live-google-genai-report
           path: live-google-genai.json
@@ -108,8 +112,8 @@ jobs:
     continue-on-error: true
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: '1.27'
       - run: make build VERSION=ci COMMIT="${GITHUB_SHA::12}" DATE=ci
@@ -127,7 +131,7 @@ jobs:
           ./bin/aiqa test=compat --model="$OPENAI_MODEL,$ANTHROPIC_MODEL" --timeout=30 --request-interval=250ms --format=json --name=live-dual
       - name: Upload sanitized dual-target report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: live-dual-bifrost-report
           path: live-dual.json

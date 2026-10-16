@@ -88,6 +88,9 @@ func runSuite(ctx context.Context, client *anthropicsdk.Client, request extsuite
 		}
 		defer cancel()
 	}
+	if suiteID == "models.list" {
+		ctx = request.Runtime.InventoryContext(ctx)
+	}
 	usage, err := runCase(ctx, client, suiteID, request.Subject.ID)
 	duration := time.Since(started)
 	event.DurationMS = duration.Milliseconds()
@@ -328,6 +331,12 @@ func applyError(event *extsuite.SuiteEvent, err error) {
 	event.Outcome = result.ExtensionOutcomeAssertionFailed
 	event.Summary = err.Error()
 	event.Error = err.Error()
+	if errors.Is(err, api.ErrWorkLimit) {
+		event.Outcome = result.ExtensionOutcomeExecutionError
+		event.Summary = "local execution work limit reached; compatibility outcome is inconclusive"
+		event.Signals = append(event.Signals, result.EvidenceSignal{Code: "execution.work_limit"})
+		return
+	}
 	var apiErr *anthropicsdk.Error
 	if errors.As(err, &apiErr) {
 		event.Outcome = result.ExtensionOutcomeRequestRejected

@@ -89,7 +89,8 @@ func runSuite(ctx context.Context, client *openaisdk.Client, request extsuite.Ru
 	var err error
 	switch suiteID {
 	case "models.list":
-		page, listErr := client.Models.List(ctx)
+		inventoryCtx := request.Runtime.InventoryContext(ctx)
+		page, listErr := client.Models.List(inventoryCtx)
 		err = listErr
 		if err == nil && (page == nil || len(page.Data) == 0) {
 			err = errors.New("SDK returned an empty model page")
@@ -168,7 +169,7 @@ func runSuite(ctx context.Context, client *openaisdk.Client, request extsuite.Ru
 		}
 	case "images.generations":
 		var images *openaisdk.ImagesResponse
-		images, err = client.Images.Generate(ctx, openaisdk.ImageGenerateParams{Prompt: "A plain blue circle on a white background", Model: openaisdk.ImageModel(model)}, option.WithJSONSet("n", 1))
+		images, err = client.Images.Generate(api.WithSingleAttempt(ctx), openaisdk.ImageGenerateParams{Prompt: "A plain blue circle on a white background", Model: openaisdk.ImageModel(model)}, option.WithJSONSet("n", 1))
 		if err == nil && (images == nil || len(images.Data) == 0 || images.Data[0].B64JSON == "" && images.Data[0].URL == "") {
 			err = errors.New("SDK parsed an image response without image data")
 		}
@@ -264,6 +265,12 @@ func applyError(event *extsuite.SuiteEvent, err error) {
 	event.Outcome = result.ExtensionOutcomeAssertionFailed
 	event.Summary = err.Error()
 	event.Error = err.Error()
+	if errors.Is(err, api.ErrWorkLimit) {
+		event.Outcome = result.ExtensionOutcomeExecutionError
+		event.Summary = "local execution work limit reached; compatibility outcome is inconclusive"
+		event.Signals = append(event.Signals, result.EvidenceSignal{Code: "execution.work_limit"})
+		return
+	}
 	var apiErr *openaisdk.Error
 	if errors.As(err, &apiErr) {
 		event.Outcome = result.ExtensionOutcomeRequestRejected

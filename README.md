@@ -2,6 +2,42 @@
 
 Compatibility and behavior testing for OpenAI, Anthropic, and Google GenAI API facades.
 
+## Install the beta
+
+Standalone binaries for **1.0.0-beta.1** are prepared for Linux, macOS,
+Windows, and FreeBSD, each on amd64 and arm64. Downloads become available
+when the [beta release](https://github.com/ilyar/aiqa/releases/tag/v1.0.0-beta.1)
+is published.
+
+On Linux, macOS, and FreeBSD:
+
+```sh
+curl -LsSf https://ilyar.github.io/aiqa/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+aiqa --version
+```
+
+The installer verifies SHA-256 before installing into `~/.local/bin` (or
+`XDG_BIN_HOME`). It does not need sudo or change shell profiles. Inspect
+[install.sh](site/install.sh) before running it if preferred. Override the
+destination with `AIQA_INSTALL_DIR` or select a release with `AIQA_VERSION`:
+
+```sh
+curl -LsSf https://ilyar.github.io/aiqa/install.sh -o install.sh
+AIQA_INSTALL_DIR="$HOME/bin" AIQA_VERSION=1.0.0-beta.1 sh install.sh
+```
+
+On Windows, download `aiqa-windows-amd64.exe` or `aiqa-windows-arm64.exe`
+from the release, rename it to `aiqa.exe`, and place it in a directory on
+your PATH. Compare `Get-FileHash .\aiqa.exe -Algorithm SHA256` with the
+matching original filename in the release's `SHA256SUMS`. Git Bash users
+can also run the shell installer. For manual Unix installs, download the
+matching binary, verify its checksum, rename it to `aiqa`, and make it
+executable with `chmod +x aiqa`.
+
+[Website and downloads](https://ilyar.github.io/aiqa/) ·
+[Changelog](CHANGELOG.md)
+
 ## Quick start
 
 ```bash
@@ -41,6 +77,14 @@ aiqa --verbose test=compat \
 ```
 
 The OpenAI base URL includes `/v1`. The Anthropic base URL is the prefix before `/v1`; AIQA appends `/v1/models`, `/v1/messages`, and `/v1/messages/count_tokens`. A configured base URL without its matching key is a configuration error. The global `--model` list is intersected independently with every active target inventory, so the same ID may be tested by more than one protocol. Removed protocol-specific model selectors and `GOOGLE_GENAI_MODEL` produce a migration error.
+
+By default, each target's inventory is limited to 4,096 entries and 16 MiB,
+with at most 64 selected models. Use `--model` to narrow the run, or deliberately
+adjust `--max-selected-models`, `--max-catalog-models`, and
+`--inventory-byte-budget`. Exceeding a safety limit does not count as successful
+conformance evidence. A target with no evaluated model scope is inconclusive,
+including when the requested model exists only on a different target.
+See [SECURITY.md](SECURITY.md) for work limits and trust boundaries.
 
 Test the parameters of every discovered model classified as Chat Completions capable:
 

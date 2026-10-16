@@ -13,6 +13,11 @@ Each target first retrieves and validates its own model inventory. The raw entri
 
 With an explicit global list, a target schedules only IDs present in its successfully retrieved inventory. It never creates synthetic metadata or probes an absent ID. An ID missing from one target is silently omitted there. If the global list is absent, only trusted inventory entries are scheduled; ambiguous entries remain visible as inventory-only records and receive no automatic preflight.
 
+Silent omission does not establish conformance: a model-scoped target with no
+evaluated models is `INCONCLUSIVE` and non-rankable, even if another target
+matched the requested ID. The target-level incomplete-scope requirement does
+not create a synthetic model or claim provider nonconformance.
+
 Successful discovery with zero matches is valid. A failed or malformed discovery remains visible as an error or inconclusive discovery result and cannot be converted into a successful empty selection.
 
 ## Ambiguous routes

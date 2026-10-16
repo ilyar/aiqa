@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -85,7 +86,8 @@ type span struct {
 // Verify reads a trace once and returns a deterministic, offline verdict.
 // Empty input denotes a forensic trace that was not requested. Syntax errors
 // are inconclusive because no complete trace could be examined.
-func Verify(input io.Reader) Verdict {
+func Verify(input io.Reader, secrets ...string) Verdict {
+	secrets = normalizedSecrets(secrets)
 	v := Verdict{SchemaVersion: VerdictSchemaVersion, TraceSchemaVersion: TraceSchemaVersion, Status: Pass, Coverage: []Coverage{}, Violations: []Violation{}}
 	spans := map[string]*span{}
 	closed := map[string]uint64{}
@@ -132,7 +134,7 @@ func Verify(input io.Reader) Verdict {
 		} else {
 			lastSeq = r.Seq
 		}
-		if !hasOnlyAllowedFields(r.Fields) || containsSensitiveData(r.Fields) {
+		if !hasOnlyAllowedFields(r.Fields) || containsSensitiveData(r.Fields, secrets) {
 			add("sensitive_field_detected", "error", r, "remove sensitive diagnostic fields before writing the trace")
 		}
 		if derived := stringField(r.Fields, "derived_from"); derived != "" && !safeIdentifier(derived) {
@@ -298,6 +300,7 @@ func Verify(input io.Reader) Verdict {
 	if v.Status != Inconclusive && len(v.Violations) > 0 {
 		v.Status = Fail
 	}
+	redactVerdict(&v, secrets)
 	return v
 }
 
@@ -389,7 +392,7 @@ func safeIdentifier(value string) bool {
 	return true
 }
 
-func containsSensitiveData(fields map[string]json.RawMessage) bool {
+func containsSensitiveData(fields map[string]json.RawMessage, secrets []string) bool {
 	for key, raw := range fields {
 		lowerKey := strings.ToLower(key)
 		for _, marker := range []string{"authorization", "api_key", "apikey", "credential", "password", "secret", "token", "header", "query", "body", "prompt", "tool_argument", "media"} {
@@ -397,7 +400,7 @@ func containsSensitiveData(fields map[string]json.RawMessage) bool {
 				return true
 			}
 		}
-		if sensitiveJSON(raw) {
+		if sensitiveJSON(raw, secrets) {
 			return true
 		}
 	}
@@ -417,22 +420,27 @@ func hasOnlyAllowedFields(fields map[string]json.RawMessage) bool {
 	return true
 }
 
-func sensitiveJSON(raw json.RawMessage) bool {
+func sensitiveJSON(raw json.RawMessage, secrets []string) bool {
 	var value any
 	if json.Unmarshal(raw, &value) != nil {
 		return true
 	}
-	return sensitiveValue(value)
+	return sensitiveValue(value, secrets)
 }
 
-func sensitiveValue(value any) bool {
+func sensitiveValue(value any, secrets []string) bool {
 	switch typed := value.(type) {
 	case string:
+		for _, secret := range secrets {
+			if strings.Contains(typed, secret) {
+				return true
+			}
+		}
 		lower := strings.ToLower(typed)
 		return strings.Contains(lower, "http://") || strings.Contains(lower, "https://") || strings.Contains(lower, "bearer ") || strings.Contains(lower, "api_key") || strings.Contains(lower, "authorization:")
 	case []any:
 		for _, item := range typed {
-			if sensitiveValue(item) {
+			if sensitiveValue(item, secrets) {
 				return true
 			}
 		}
@@ -442,12 +450,64 @@ func sensitiveValue(value any) bool {
 			if strings.Contains(lowerKey, "authorization") || strings.Contains(lowerKey, "api_key") || strings.Contains(lowerKey, "secret") || strings.Contains(lowerKey, "token") || strings.Contains(lowerKey, "prompt") || strings.Contains(lowerKey, "body") {
 				return true
 			}
-			if sensitiveValue(item) {
+			if sensitiveValue(item, secrets) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+func normalizedSecrets(secrets []string) []string {
+	unique := make([]string, 0, len(secrets))
+	seen := make(map[string]struct{}, len(secrets))
+	for _, secret := range secrets {
+		if secret != "" {
+			if _, ok := seen[secret]; !ok {
+				seen[secret] = struct{}{}
+				unique = append(unique, secret)
+			}
+		}
+	}
+	sort.SliceStable(unique, func(i, j int) bool { return len(unique[i]) > len(unique[j]) })
+	return unique
+}
+
+func redactVerdict(v *Verdict, secrets []string) {
+	if len(secrets) == 0 {
+		return
+	}
+	redactValue(reflect.ValueOf(v), secrets)
+}
+
+func redactValue(value reflect.Value, secrets []string) {
+	if !value.IsValid() {
+		return
+	}
+	switch value.Kind() {
+	case reflect.Pointer:
+		if !value.IsNil() {
+			redactValue(value.Elem(), secrets)
+		}
+	case reflect.Struct:
+		for i := 0; i < value.NumField(); i++ {
+			if value.Field(i).CanSet() {
+				redactValue(value.Field(i), secrets)
+			}
+		}
+	case reflect.Slice:
+		for i := 0; i < value.Len(); i++ {
+			redactValue(value.Index(i), secrets)
+		}
+	case reflect.String:
+		if value.CanSet() {
+			s := value.String()
+			for _, secret := range secrets {
+				s = strings.ReplaceAll(s, secret, "[REDACTED]")
+			}
+			value.SetString(s)
+		}
+	}
 }
 
 func eventOperation(event string) (string, string) {

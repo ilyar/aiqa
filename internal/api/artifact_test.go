@@ -16,13 +16,21 @@ func TestArtifactURLRedactionRemovesSignedQuery(t *testing.T) {
 }
 
 func TestPublicIPRejectsNonPublicDestinations(t *testing.T) {
-	for _, raw := range []string{"127.0.0.1", "10.0.0.1", "169.254.1.1", "::1", "fc00::1"} {
+	for _, raw := range []string{"127.0.0.1", "10.0.0.1", "100.64.0.1", "192.0.0.11", "192.0.2.1", "198.18.0.1", "203.0.113.1", "::1", "::ffff:192.0.2.1", "64:ff9b::808:808", "100:0:0:1::1", "2001:db8::1", "2002::1", "fc00::1"} {
 		if publicIP(net.ParseIP(raw)) {
 			t.Fatalf("non-public address accepted: %s", raw)
 		}
 	}
 	if !publicIP(net.ParseIP("8.8.8.8")) {
 		t.Fatal("public address was rejected")
+	}
+}
+
+func TestPublicIPRetainsIANAExceptionsAndGlobalUnicast(t *testing.T) {
+	for _, raw := range []string{"8.8.8.8", "192.0.0.9", "192.0.0.10", "2001:1::1", "2001:3::1", "2001:20::1", "2606:4700:4700::1111"} {
+		if !publicIP(net.ParseIP(raw)) {
+			t.Fatalf("global address rejected: %s", raw)
+		}
 	}
 }
 

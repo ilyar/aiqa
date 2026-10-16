@@ -2,6 +2,7 @@ package result
 
 import (
 	"reflect"
+	"sort"
 	"strings"
 )
 
@@ -17,6 +18,9 @@ func RedactSecrets(value any, secrets ...string) {
 			unique = append(unique, secret)
 		}
 	}
+	// Replace longer values first: replacing a configured prefix must not leave
+	// the suffix of another configured credential visible.
+	sort.SliceStable(unique, func(i, j int) bool { return len(unique[i]) > len(unique[j]) })
 	if len(unique) == 0 {
 		return
 	}

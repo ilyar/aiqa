@@ -103,8 +103,17 @@ func Run(ctx context.Context, cfg config.Config, build BuildInfo) (RunResult, er
 	return runMultiTarget(ctx, cfg, build)
 }
 
+func configuredSecrets(cfg config.Config) []string {
+	secrets := []string{cfg.APIKey, cfg.GoogleGenAIAPIKey}
+	for _, target := range cfg.Targets {
+		secrets = append(secrets, target.APIKey)
+	}
+	return secrets
+}
+
 func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (out RunResult, runErr error) {
-	logger := logging.New(cfg.Verbosity)
+	secrets := configuredSecrets(cfg)
+	logger := logging.New(cfg.Verbosity, secrets...)
 	operatorReporter := newOperatorReporter(cfg)
 	defer operatorReporter.Close()
 	var reporter progress.FrozenSink = operatorReporter
@@ -138,7 +147,7 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 
 		trace, err := os.Open(sidecarPath)
 		if err == nil {
-			verdict := traceverify.Verify(trace)
+			verdict := traceverify.Verify(trace, secrets...)
 			if sidecarWriteErr != nil {
 				verdict.Status = traceverify.Inconclusive
 				verdict.Violations = append(verdict.Violations, traceverify.Violation{
@@ -239,6 +248,8 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 		}
 	}()
 	ctx = logging.WithLogger(ctx, logger)
+	// The transport owns the atomic accounting for this run-wide physical-attempt cap.
+	ctx = api.WithAttemptBudget(ctx, 10000)
 	ctx, runOp := tracing.Start(ctx, "run", logging.Fields{"run_id": forensicRunID, "suite_count": len(cfg.Tests), "target": "all"})
 	runOutcome := "completed"
 	runFields := logging.Fields{}

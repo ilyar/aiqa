@@ -11,6 +11,34 @@ import (
 	"github.com/ilyar/aiqa/internal/result"
 )
 
+func TestDailyQuotaGuidanceDoesNotPromiseRateReductionFix(t *testing.T) {
+	f := result.Finding{EvidenceState: "inconclusive", Observed: "RESOURCE_EXHAUSTED quotaId:GenerateRequestsPerDayPerProjectPerModel-FreeTier"}
+	if !strings.Contains(genericRecommendationTitle(f, "rerun"), "daily quota") || !strings.Contains(genericWhy(f, nil), "does not replenish") {
+		t.Fatal("daily quota must be distinguished from short-term throttling")
+	}
+	if steps := genericSteps(f, "rerun"); len(steps) != 2 || steps[0].ID != "restore-daily-quota" {
+		t.Fatalf("unexpected quota steps: %+v", steps)
+	}
+	f.Observed = "429 requests per minute"
+	if dailyQuotaExhausted(f) {
+		t.Fatal("temporary throttling mislabeled daily quota")
+	}
+}
+
+func TestTypedModelAccessAndQuotaGuidance(t *testing.T) {
+	for _, code := range []string{"execution.model_access_unavailable", "execution.daily_quota_exhausted"} {
+		r := result.Report{Requirements: []result.RequirementAssessment{{ID: "google.generate-content.basic", Level: result.RequirementCore, Status: result.RequirementError, Subject: result.SubjectRef{Kind: "model", ID: "opaque"}, Evidence: []result.EvidenceRef{{ID: "native:blocker", Status: result.StatusError, Summary: "Provider prerequisite unavailable", Signals: []result.EvidenceSignal{{Code: code}}}}}}}
+		Apply(&r, testProfile(), Options{Mode: "full", Pack: "generic", Locale: "en"})
+		if len(r.Guidance.Findings) != 1 || r.Guidance.Findings[0].Code != code || len(r.Guidance.Recommendations) != 1 {
+			t.Fatalf("missing typed guidance: %+v", r.Guidance)
+		}
+		title := r.Guidance.Recommendations[0].Title
+		if strings.Contains(title, "incompatible") || (!strings.Contains(title, "model access") && !strings.Contains(title, "daily quota")) {
+			t.Fatalf("misleading prerequisite advice: %s", title)
+		}
+	}
+}
+
 func TestCreatedFindingIsDeduplicatedAndProjectsPartial(t *testing.T) {
 	provider := result.SubjectRef{Kind: "provider", ID: "https://example.test/v1"}
 	r := result.Report{

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -137,8 +138,18 @@ func PrepareTarget(ctx context.Context, options protocolpkg.RunOptions) (protoco
 		discoveryCtx, discoveryProbe = options.Telemetry.Start(logging.Scope(suiteCtx, options.Target.ID, "", "discovery", "anthropic.models.list.http", ""), "probe", logging.Fields{"probe": "aiqa.native.anthropic.models.list.http"})
 	}
 	listCtx, cancel := api.WithRequestTimeout(discoveryCtx, options.Config.Timeout)
+	listCtx = api.WithResponseBodyLimit(listCtx, protocolpkg.EffectiveInventoryByteBudget(options.Config.InventoryByteBudget))
+	listCtx = api.WithJSONCollectionLimit(listCtx, options.Config.MaxCatalogModels)
 	models, response, listErr := client.ListModels(listCtx)
 	cancel()
+	if errors.Is(listErr, api.ErrWorkLimit) {
+		return protocolpkg.PreparedTarget{}, listErr
+	}
+	if listErr == nil && response.Is2xx() {
+		if err := protocolpkg.ValidateInventoryResponseBudget(models, int64(len(response.Body)), options.Config.MaxCatalogModels, options.Config.InventoryByteBudget); err != nil {
+			return protocolpkg.PreparedTarget{}, err
+		}
+	}
 	if discoveryProbe != nil {
 		outcome := "completed"
 		if listErr != nil || !response.Is2xx() {
@@ -149,6 +160,9 @@ func PrepareTarget(ctx context.Context, options protocolpkg.RunOptions) (protoco
 		discoveryProvider.End(outcome, logging.Fields{"status": outcome})
 	}
 	selected, metadata := selectModels(requestedModels(options.Config, options.Target), models)
+	if err := protocolpkg.ValidateSelectionBudget(selected, options.Config.MaxSelectedModels); err != nil {
+		return protocolpkg.PreparedTarget{}, err
+	}
 	executor := probe.NewExecutor(options.Config.Concurrency)
 	frozen, err := freezeExecution(ctx, options, client, executor, selected, metadata)
 	if err != nil {
@@ -233,8 +247,18 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 		models, listResp, listErr = options.Inventory.Models, options.Inventory.Response, options.Inventory.Err
 	} else {
 		listCtx, cancel := api.WithRequestTimeout(anthropicJobContext(discoveryCtx, target.ID, "", "inventory"), cfg.Timeout)
+		listCtx = api.WithResponseBodyLimit(listCtx, protocolpkg.EffectiveInventoryByteBudget(cfg.InventoryByteBudget))
+		listCtx = api.WithJSONCollectionLimit(listCtx, cfg.MaxCatalogModels)
 		models, listResp, listErr = client.ListModels(listCtx)
 		cancel()
+		if errors.Is(listErr, api.ErrWorkLimit) {
+			return result.TargetReport{}, listErr
+		}
+	}
+	if listErr == nil && listResp.Is2xx() {
+		if err := protocolpkg.ValidateInventoryResponseBudget(models, int64(len(listResp.Body)), cfg.MaxCatalogModels, cfg.InventoryByteBudget); err != nil {
+			return result.TargetReport{}, err
+		}
 	}
 	tmp.Discovery.ModelCount = len(models)
 	for _, model := range models {
@@ -254,7 +278,7 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	}
 	if cfg.HasTest("compat") {
 		tmp.Discovery.Tests = append(tmp.Discovery.Tests, discoveryTests...)
-		tmp.Discovery.Tests = append(tmp.Discovery.Tests, paginationResult(ctx, client, cfg.Timeout, p, listResp, models, listErr, options.Telemetry))
+		tmp.Discovery.Tests = append(tmp.Discovery.Tests, paginationResult(ctx, client, cfg, p, listResp, models, listErr, options.Telemetry))
 	}
 	if options.Inventory != nil {
 		outcome := "completed"
@@ -264,6 +288,9 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 		protocolpkg.StartJob(options.Progress, target.ID, "", "inventory")(outcome)
 	}
 	selected, metadata := selectModels(requested, models)
+	if err := protocolpkg.ValidateSelectionBudget(selected, cfg.MaxSelectedModels); err != nil {
+		return result.TargetReport{}, err
+	}
 	if options.frozen != nil {
 		selected, metadata = options.frozen.selected, options.frozen.metadata
 	}
@@ -648,7 +675,7 @@ func discoveryResults(p profile.Profile, resp api.Response, models []api.Model, 
 	return []result.TestResult{httpTest, schema}
 }
 
-func paginationResult(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, first api.Response, models []api.Model, listErr error, telemetryProvider *telemetry.Provider) (test result.TestResult) {
+func paginationResult(parent context.Context, client *Client, cfg config.Config, p profile.Profile, first api.Response, models []api.Model, listErr error, telemetryProvider *telemetry.Provider) (test result.TestResult) {
 	test = testBase(p, "anthropic.models.list.pagination")
 	if listErr != nil || !first.Is2xx() || len(ValidateModels(first.JSON)) != 0 {
 		test.Status = result.StatusSkip
@@ -688,7 +715,15 @@ func paginationResult(parent context.Context, client *Client, timeout time.Durat
 	var next []api.Model
 	var resp api.Response
 	var err error
-	ctx, cancel := api.WithRequestTimeout(probeCtx, timeout)
+	budget := protocolpkg.EffectiveInventoryByteBudget(cfg.InventoryByteBudget)
+	remaining := budget - int64(len(first.Body))
+	if remaining <= 0 {
+		setHTTPStatus(&test, first, fmt.Errorf("%w: inventory pagination has no remaining byte budget", api.ErrWorkLimit), true)
+		return test
+	}
+	ctx, cancel := api.WithRequestTimeout(probeCtx, cfg.Timeout)
+	ctx = api.WithResponseBodyLimit(ctx, remaining)
+	ctx = api.WithJSONCollectionLimit(ctx, cfg.MaxCatalogModels)
 	next, resp, err = client.ListModelsPage(ctx, lastID, 1)
 	cancel()
 	test.DurationMS = resp.Duration.Milliseconds()
@@ -696,6 +731,10 @@ func paginationResult(parent context.Context, client *Client, timeout time.Durat
 	setHTTPStatus(&test, resp, err, true)
 	if test.Status != result.StatusPass {
 		test.Summary = "The next Anthropic Models page could not be retrieved"
+		return test
+	}
+	if err := protocolpkg.ValidateInventoryBudget(next, cfg.MaxCatalogModels, remaining); err != nil {
+		test.Status, test.Summary, test.Error = result.StatusError, "The next Anthropic Models page exceeded local inventory limits", err.Error()
 		return test
 	}
 	if len(next) == 0 {
@@ -969,6 +1008,7 @@ func runAssistantPrefill(parent context.Context, client *Client, timeout time.Du
 	} else if test.Status == result.StatusPass {
 		test.Summary = "Assistant prefill returned a non-empty continuation"
 	}
+	applyPrefillContract(&test, model, resp)
 	return test
 }
 
@@ -1181,9 +1221,9 @@ func streamResults(p profile.Profile, base result.TestResult, stream api.StreamR
 
 func runTools(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string, telemetryProvider *telemetry.Provider, plan *progressPlan) []result.TestResult {
 	tool := map[string]any{"name": "get_status", "description": "Return status for a resource.", "input_schema": map[string]any{"type": "object", "properties": map[string]any{"resource_id": map[string]any{"type": "string"}}, "required": []any{"resource_id"}, "additionalProperties": false}}
-	auto := runToolChoiceProbe(parent, client, timeout, p, model, "anthropic.tools.auto", tool, map[string]any{"type": "auto"}, false, telemetryProvider)
-	anyProbe := runToolChoiceProbe(parent, client, timeout, p, model, "anthropic.tools.any", tool, map[string]any{"type": "any"}, true, telemetryProvider)
-	none := runToolChoiceProbe(parent, client, timeout, p, model, "anthropic.tools.none", tool, map[string]any{"type": "none"}, false, telemetryProvider)
+	auto := runToolChoiceProbe(parent, client, timeout, p, model, "anthropic.tools.auto", tool, map[string]any{"type": "auto"}, false, 0, telemetryProvider)
+	anyProbe := runToolChoiceProbe(parent, client, timeout, p, model, "anthropic.tools.any", tool, map[string]any{"type": "any"}, true, 0, telemetryProvider)
+	none := runToolChoiceProbe(parent, client, timeout, p, model, "anthropic.tools.none", tool, map[string]any{"type": "none"}, false, 0, telemetryProvider)
 	if none.Status == result.StatusPass && none.Metrics["tool_use_count"].(int) != 0 {
 		none.Status = result.StatusFail
 		none.Summary = "tool_choice=none still emitted a tool_use block"
@@ -1308,15 +1348,18 @@ func runTools(parent context.Context, client *Client, timeout time.Duration, p p
 	})
 
 	strictTool := map[string]any{"name": "get_status", "description": "Return status for a resource.", "strict": true, "input_schema": tool["input_schema"]}
-	strict := runToolChoiceProbe(parent, client, timeout, p, model, "anthropic.tools.strict", strictTool, map[string]any{"type": "tool", "name": "get_status"}, true, telemetryProvider)
+	strict := runToolChoiceProbe(parent, client, timeout, p, model, "anthropic.tools.strict", strictTool, map[string]any{"type": "tool", "name": "get_status"}, true, 0, telemetryProvider)
 	if strict.Status == result.StatusPass {
 		strict.Summary = "Strict tool choice returned schema-conforming input"
 	}
 	return append([]result.TestResult{auto, anyProbe, none}, append(specificResults, continuation, parallel, streamProbe, strict)...)
 }
 
-func runToolChoiceProbe(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model, id string, tool, choice map[string]any, requireUse bool, telemetryProvider *telemetry.Provider) result.TestResult {
+func runToolChoiceProbe(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model, id string, tool, choice map[string]any, requireUse bool, maxTokens int, telemetryProvider *telemetry.Provider) result.TestResult {
 	body := basicBody(model)
+	if maxTokens > 0 {
+		body["max_tokens"] = maxTokens
+	}
 	body["tools"] = []any{tool}
 	body["tool_choice"] = choice
 	body["messages"] = []any{map[string]any{"role": "user", "content": "Call get_status for resource-alpha before answering."}}
@@ -1331,9 +1374,20 @@ func runToolChoiceProbe(parent context.Context, client *Client, timeout time.Dur
 		if test.Status != result.StatusPass {
 			return test
 		}
+		if id == "anthropic.tools.strict_schema" && stringValue(resp.JSON["stop_reason"]) == "max_tokens" {
+			test.Status = result.StatusError
+			test.Summary = p.Probe(id).Name + " was truncated at max_tokens before schema validation"
+			test.Signals = []result.EvidenceSignal{{Code: "execution.output_truncated", Parameters: map[string]any{"stop_reason": "max_tokens", "max_tokens": maxTokens}}}
+			return test
+		}
 		if requireUse && len(uses) == 0 {
 			test.Status = result.StatusFail
 			test.Summary = p.Probe(id).Name + " did not emit tool_use"
+			return test
+		}
+		if id == "anthropic.tools.strict_schema" && !validStrictToolUses(uses) {
+			test.Status = result.StatusFail
+			test.Summary = p.Probe(id).Name + " returned an invalid tool_use block"
 			return test
 		}
 		if len(uses) > 0 {
@@ -1349,6 +1403,24 @@ func runToolChoiceProbe(parent context.Context, client *Client, timeout time.Dur
 		}
 		return test
 	})
+}
+
+func validStrictToolInput(input map[string]any) bool {
+	resourceID, ok := input["resource_id"].(string)
+	return len(input) == 1 && ok && resourceID != ""
+}
+
+func validStrictToolUses(uses []map[string]any) bool {
+	if len(uses) == 0 {
+		return false
+	}
+	for _, use := range uses {
+		input, _ := use["input"].(map[string]any)
+		if stringValue(use["id"]) == "" || stringValue(use["name"]) != "get_status" || !validStrictToolInput(input) {
+			return false
+		}
+	}
+	return true
 }
 
 func runCountTokens(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string, observed int64, telemetryProvider *telemetry.Provider) []result.TestResult {
@@ -1440,7 +1512,7 @@ func runStructured(parent context.Context, client *Client, timeout time.Duration
 		return []result.TestResult{test, stop}
 	})
 	strictTool := map[string]any{"name": "get_status", "description": "Return status.", "strict": true, "input_schema": map[string]any{"type": "object", "properties": map[string]any{"resource_id": map[string]any{"type": "string"}}, "required": []any{"resource_id"}, "additionalProperties": false}}
-	strict := runToolChoiceProbe(parent, client, timeout, p, model, "anthropic.tools.strict_schema", strictTool, map[string]any{"type": "tool", "name": "get_status"}, true, telemetryProvider)
+	strict := runToolChoiceProbe(parent, client, timeout, p, model, "anthropic.tools.strict_schema", strictTool, map[string]any{"type": "tool", "name": "get_status"}, true, 128, telemetryProvider)
 	if strict.Status == result.StatusPass {
 		strict.Summary = "Strict tool input conforms to the local schema"
 	}
@@ -1607,6 +1679,11 @@ func call(parent context.Context, timeout time.Duration, fn func(context.Context
 	return fn(ctx)
 }
 func setHTTPStatus(t *result.TestResult, resp api.Response, err error, optional bool) {
+	if errors.Is(err, api.ErrWorkLimit) {
+		t.Status, t.Summary, t.Error = result.StatusError, "Request was stopped by the configured work budget", err.Error()
+		t.Signals = []result.EvidenceSignal{{Code: "execution.work_limit", RootCause: "work-limit"}}
+		return
+	}
 	if err != nil && resp.StatusCode == 0 {
 		t.Status = result.StatusError
 		t.Summary = "Request could not be completed"

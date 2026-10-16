@@ -370,7 +370,7 @@ func executeInvocations(ctx context.Context, cfg config.Config, target config.Ta
 					MaxOutputBytes:                maxStdoutBytes,
 				},
 				Credential: Credential{Type: "api_key", Value: target.APIKey},
-				Runtime:    RuntimeServices{Executor: executor, DiagnosticLogger: logger, Telemetry: provider, InvocationContext: invocationCtx},
+				Runtime:    RuntimeServices{Executor: executor, DiagnosticLogger: logger, Telemetry: provider, InvocationContext: invocationCtx, MaxCatalogModels: cfg.MaxCatalogModels, InventoryByteBudget: cfg.InventoryByteBudget},
 			}
 			if client != nil {
 				request.Runtime.HTTPClient = client.PacedHTTPClient(planned.subject.ID)

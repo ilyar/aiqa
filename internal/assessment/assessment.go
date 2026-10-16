@@ -44,6 +44,14 @@ func ApplyGloballyUnmatchedRequestedScope(r *result.Report, targetID, protocol s
 		return false
 	}
 	provider := result.SubjectRef{TargetID: targetID, Protocol: protocol, Kind: "provider", ID: normalizedEndpoint(r.Config.BaseURL)}
+	filtered := r.Requirements[:0]
+	for _, requirement := range r.Requirements {
+		if requirement.Subject == provider && requirement.ID == "selection.evaluated_model_scope" {
+			continue
+		}
+		filtered = append(filtered, requirement)
+	}
+	r.Requirements = filtered
 	for _, requirement := range r.Requirements {
 		if requirement.Subject == provider && requirement.ID == "selection.requested_models" {
 			return false
@@ -127,7 +135,9 @@ func apply(r *result.Report, p profile.Profile, targetID, protocol string) {
 	if nativeCoverageSelected(r.Config.Tests) && len(r.Models) > 0 {
 		materializeProviderCoverage(items, provider, p)
 	}
+	materializeEmptyModelScope(items, r, provider)
 
+	reconcileSpeculativeImageCoverage(items, r)
 	for _, item := range items {
 		finalizeRequirement(item)
 	}
@@ -149,6 +159,75 @@ func apply(r *result.Report, p profile.Profile, targetID, protocol string) {
 	})
 	r.Requirements = requirements
 	refreshAssessment(r, targetID != "")
+}
+
+// Catalog discovery is not compatibility evidence. If a requested native
+// suite has no selected model route at all, retain discovery observations but
+// produce explicit core incomplete evidence so the report cannot be ranked as
+// a passing target.
+func materializeEmptyModelScope(items map[requirementKey]*result.RequirementAssessment, r *result.Report, provider result.SubjectRef) {
+	// A global requested-model miss is materialized later by the coordinator;
+	// avoid duplicating its more precise evidence here.
+	if provider.TargetID == "" || len(r.Config.Tests) == 0 || len(r.Models) != 0 {
+		return
+	}
+	item := get(items, provider, "selection.evaluated_model_scope", "Evaluated model scope", "At least one model route must be evaluated to establish model compatibility", result.RequirementCore, "selection")
+	item.Applicability = result.ApplicabilityApplicable
+	item.Status = result.RequirementSkip
+	item.FailureKind = "no_evaluated_model_scope"
+	item.Evidence = []result.EvidenceRef{{
+		ID: evidenceID("coverage", provider, "no-evaluated-model-scope"), Kind: "coverage",
+		ProbeID: "aiqa.local.selection.evaluated_model_scope", Status: result.StatusSkip,
+		Summary: "No selected model route was evaluated; catalog discovery alone does not establish model compatibility",
+		Signals: []result.EvidenceSignal{{Code: "execution.model_scope.empty", RootCause: "no-evaluated-model-scope"}},
+	}}
+}
+
+// A capability trial is not a claim that the model implements that route.
+// Resolve only a narrowly identified model rejection, retaining every raw
+// observation. Successful positive probes or other failures prevent exclusion.
+func reconcileSpeculativeImageCoverage(items map[requirementKey]*result.RequirementAssessment, r *result.Report) {
+	for mi := range r.Models {
+		model := &r.Models[mi]
+		for ai := range model.Modules {
+			module := &model.Modules[ai]
+			if module.ID != "images-generations" || module.Source != "probe_policy" || !module.Requested {
+				continue
+			}
+			negative, conflicting := false, false
+			for _, item := range items {
+				if item.Subject.Kind != "model" || item.Subject.ID != model.ID || item.Module != module.ID {
+					continue
+				}
+				for _, ev := range item.Evidence {
+					marked := false
+					for _, signal := range ev.Signals {
+						if signal.Code == "capability.probe.unsupported" && ev.Status == result.StatusUnsupported {
+							marked, negative = true, true
+						}
+					}
+					control := item.ID == "images.generate.invalid_json" || item.ID == "images.generate.invalid_model"
+					if ev.Status == result.StatusPass && !control || ev.Status == result.StatusFail || ev.Status == result.StatusError || ev.Status == result.StatusWarn {
+						conflicting = true
+					}
+					if ev.Status == result.StatusUnsupported && !marked && ev.Kind != "extension" {
+						conflicting = true
+					}
+				}
+			}
+			if !negative || conflicting {
+				module.Applicability = result.ApplicabilityApplicable
+				continue
+			}
+			module.Applicability = result.ApplicabilityNotApplicable
+			module.Reason = "Capability probe found that the selected model is unavailable on the image generation route"
+			for _, item := range items {
+				if item.Subject.Kind == "model" && item.Subject.ID == model.ID && item.Module == module.ID {
+					item.Applicability = result.ApplicabilityNotApplicable
+				}
+			}
+		}
+	}
 }
 
 // A catalog-only success cannot establish model compatibility when every
@@ -176,7 +255,7 @@ func refreshAssessment(r *result.Report, target bool) {
 	applyCoverageLevels(&assessment, r.Requirements)
 	applyCoverageVerdict(&assessment)
 	for _, requirement := range r.Requirements {
-		if requirement.FailureKind == "no_evaluated_profile_scope" {
+		if requirement.FailureKind == "no_evaluated_profile_scope" || requirement.FailureKind == "no_evaluated_model_scope" {
 			assessment.Comparison.Rankable = false
 			assessment.Comparison.VerdictRank = nil
 		}

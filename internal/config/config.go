@@ -68,21 +68,32 @@ type Config struct {
 	ContextMaxTokens       int64
 	ContextPrecision       int64
 	ContextBudget          int64
-	ContextStartBytes      int
-	ContextMaxBytes        int
+	// ContextRequestBudget and ContextByteBudget bound the aggregate work of a
+	// context-window search. They are separate from the per-request ceiling:
+	// provider usage telemetry can be incomplete or deliberately understated.
+	ContextRequestBudget int
+	ContextByteBudget    int64
+	ContextStartBytes    int
+	ContextMaxBytes      int
 	// TargetConcurrency is zero for the default "auto" mode. A positive value
 	// limits active target workflows without changing the global HTTP capacity.
-	TargetConcurrency            int
-	PacingGroups                 []string
-	Progress                     string
-	NoProgress                   bool
-	Quiet                        bool
-	Color                        string
-	Unicode                      string
-	Stdout                       string
-	QueueTimeout                 time.Duration
-	RunTimeout                   time.Duration
-	RequestMemoryBudget          int64
+	TargetConcurrency   int
+	PacingGroups        []string
+	Progress            string
+	NoProgress          bool
+	Quiet               bool
+	Color               string
+	Unicode             string
+	Stdout              string
+	QueueTimeout        time.Duration
+	RunTimeout          time.Duration
+	RequestMemoryBudget int64
+	// Inventory limits are defensive defaults for provider-controlled model
+	// catalogues. Operators who need a larger explicit selection may raise them.
+	MaxSelectedModels            int
+	MaxCatalogModels             int
+	InventoryByteBudget          int64
+	GoogleModelWorkers           int
 	VersionOnly                  bool
 	HelpOnly                     bool
 	TargetSelection              string
@@ -328,6 +339,8 @@ func Parse(args []string) (Config, error) {
 		ContextMaxTokens:        1_100_000,
 		ContextPrecision:        512,
 		ContextBudget:           8_000_000,
+		ContextRequestBudget:    32,
+		ContextByteBudget:       64 * 1024 * 1024,
 		ContextStartBytes:       1024,
 		ContextMaxBytes:         32 * 1024 * 1024,
 		TargetConcurrency:       0,
@@ -335,6 +348,10 @@ func Parse(args []string) (Config, error) {
 		Color:                   "auto",
 		Unicode:                 "auto",
 		RequestMemoryBudget:     128 * 1024 * 1024,
+		MaxSelectedModels:       64,
+		MaxCatalogModels:        4096,
+		InventoryByteBudget:     16 * 1024 * 1024,
+		GoogleModelWorkers:      4,
 		TargetSelection:         "auto",
 		OpenAIProfile:           "openai-compat-2026-09.json",
 		AnthropicProfile:        "anthropic-compat-2026-09.json",
@@ -390,6 +407,10 @@ func Parse(args []string) (Config, error) {
 	fs.Var(optionalDurationValue{&cfg.QueueTimeout}, "queue-timeout", "admission queue wait limit; 0 is unlimited")
 	fs.Var(optionalDurationValue{&cfg.RunTimeout}, "run-timeout", "whole run time limit; 0 is unlimited")
 	fs.Var(bytesValue{&cfg.RequestMemoryBudget}, "request-memory-budget", "in-memory request budget, e.g. 128MiB")
+	fs.IntVar(&cfg.MaxSelectedModels, "max-selected-models", cfg.MaxSelectedModels, "maximum automatically selected models")
+	fs.IntVar(&cfg.MaxCatalogModels, "max-catalog-models", cfg.MaxCatalogModels, "maximum provider inventory entries retained")
+	fs.Var(bytesValue{&cfg.InventoryByteBudget}, "inventory-byte-budget", "maximum aggregate provider inventory bytes, e.g. 16MiB")
+	fs.IntVar(&cfg.GoogleModelWorkers, "google-model-workers", cfg.GoogleModelWorkers, "maximum concurrent Google model workflows")
 	fs.Var(&extSuiteValues, "ext-suite", "extension IDs to run; repeatable or comma-separated; official-sdk selects configured SDKs; default: all applicable extensions")
 	fs.Var(&extSuitePaths, "ext-suite-path", "absolute extension executable path; may be repeated")
 	fs.BoolVar(&cfg.AllowHighTokenProbes, "allow-high-token-probes", false, "allow opt-in high-token probes")
@@ -419,6 +440,8 @@ func Parse(args []string) (Config, error) {
 	fs.Var(int64Value{&cfg.ContextMaxTokens}, "context-max", "maximum context target to probe, e.g. 1100k")
 	fs.Var(int64Value{&cfg.ContextPrecision}, "context-precision", "desired context boundary precision in tokens")
 	fs.Var(int64Value{&cfg.ContextBudget}, "context-budget", "maximum prompt-token budget per model for context probing")
+	fs.IntVar(&cfg.ContextRequestBudget, "context-request-budget", cfg.ContextRequestBudget, "maximum requests per model for context probing")
+	fs.Var(bytesValue{&cfg.ContextByteBudget}, "context-byte-budget", "maximum cumulative payload bytes per model for context probing")
 	fs.IntVar(&cfg.ContextStartBytes, "context-start-bytes", cfg.ContextStartBytes, "initial context payload size")
 	fs.IntVar(&cfg.ContextMaxBytes, "context-max-bytes", cfg.ContextMaxBytes, "hard request-payload ceiling")
 	fs.BoolVar(&cfg.VersionOnly, "version", false, "print version and exit")
@@ -763,6 +786,18 @@ func (c Config) Validate() error {
 	if c.RequestMemoryBudget <= 0 {
 		return errors.New("--request-memory-budget must be positive")
 	}
+	if c.MaxSelectedModels < 1 || c.MaxSelectedModels > 4096 {
+		return errors.New("--max-selected-models must be between 1 and 4096")
+	}
+	if c.MaxCatalogModels < c.MaxSelectedModels || c.MaxCatalogModels > 65536 {
+		return errors.New("--max-catalog-models must be between --max-selected-models and 65536")
+	}
+	if c.InventoryByteBudget <= 0 {
+		return errors.New("--inventory-byte-budget must be positive")
+	}
+	if c.GoogleModelWorkers < 1 || c.GoogleModelWorkers > 32 {
+		return errors.New("--google-model-workers must be between 1 and 32")
+	}
 	switch c.Progress {
 	case "auto", "tty", "plain", "off":
 	default:
@@ -808,6 +843,9 @@ func (c Config) Validate() error {
 	}
 	if c.ContextStartBytes < 256 || c.ContextMaxBytes < c.ContextStartBytes {
 		return errors.New("invalid context byte limits")
+	}
+	if c.ContextRequestBudget < 1 || c.ContextRequestBudget > 1024 || c.ContextByteBudget < int64(c.ContextStartBytes) {
+		return errors.New("invalid aggregate context probe limits")
 	}
 	if c.ContextPrecision > c.ContextMaxTokens {
 		return errors.New("--context-precision must not exceed --context-max")

@@ -100,3 +100,30 @@ func TestAnthropicThinkingRequiresCapabilityAndHighTokenAuthorization(t *testing
 		t.Fatalf("authorized applicable thinking did not run: %+v", got)
 	}
 }
+
+func TestPartialProbeCapabilityRoutesOnlyItsRequestedAnthropicModule(t *testing.T) {
+	classification := Classification{Model: "partial", Capabilities: []Evidence{{Capability: AnthropicStructuredOutput}}, ProbeCapabilities: []string{AnthropicTools}}
+	definitions := []profile.Module{
+		{ID: "anthropic.structured-output", Subject: "model", DefaultEnabled: true, CostClass: "token", Capabilities: []string{AnthropicStructuredOutput}},
+		{ID: "anthropic.tools", Subject: "model", DefaultEnabled: true, CostClass: "token", Capabilities: []string{AnthropicTools}},
+		{ID: "anthropic.vision", Subject: "model", DefaultEnabled: true, CostClass: "token-media-input", Capabilities: []string{AnthropicImageInput}},
+	}
+	modules := AssessModules(classification, definitions, RoutingOptions{Modules: []string{"auto"}})
+	if got := Module(modules, "anthropic.structured-output"); got == nil || got.Execution != result.ExecutionExecuted || got.Source == "probe_policy" {
+		t.Fatalf("declared structured routing=%+v", got)
+	}
+	if got := Module(modules, "anthropic.tools"); got == nil || got.Execution != result.ExecutionExecuted || got.Source != "probe_policy" {
+		t.Fatalf("absent tools were not probe-routed=%+v", got)
+	}
+	if got := Module(modules, "anthropic.vision"); got == nil || got.Applicability != result.ApplicabilityNotApplicable {
+		t.Fatalf("unlisted vision became probe-routed=%+v", got)
+	}
+}
+
+func TestAdvertisedCapabilityWinsOverProbeMarker(t *testing.T) {
+	classification := Classification{Model: "known", Capabilities: []Evidence{{Capability: AnthropicTools, Source: "vendor_metadata", Confidence: "high", Reason: "declared"}}, ProbeCapabilities: []string{AnthropicTools}}
+	modules := AssessModules(classification, []profile.Module{{ID: "anthropic.tools", Subject: "model", DefaultEnabled: true, CostClass: "token", Capabilities: []string{AnthropicTools}}}, RoutingOptions{Modules: []string{"auto"}})
+	if got := Module(modules, "anthropic.tools"); got == nil || got.Source != "vendor_metadata" || got.Confidence != "high" {
+		t.Fatalf("advertised capability lost to probe marker: %+v", got)
+	}
+}

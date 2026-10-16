@@ -109,3 +109,10 @@ func TestDecoderPartialMalformedOversizedAndSanitizes(t *testing.T) {
 		t.Fatalf("schema mismatch = %#v", got)
 	}
 }
+
+func TestSafeTextEscapesBidiControls(t *testing.T) {
+	text := SafeText("model\u202eexe\u2028line\u2029paragraph")
+	if strings.ContainsAny(text, "\u202e\u2028\u2029") || !strings.Contains(text, `\u202e`) || !strings.Contains(text, `\u2028`) || !strings.Contains(text, `\u2029`) {
+		t.Fatalf("bidi control survived terminal sanitizer: %q", text)
+	}
+}

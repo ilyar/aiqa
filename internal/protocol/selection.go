@@ -1,12 +1,98 @@
 package protocol
 
 import (
+	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/ilyar/aiqa/internal/api"
 	"github.com/ilyar/aiqa/internal/result"
 )
+
+// ValidateInventoryBudget rejects attacker-sized catalogues before their
+// entries are copied into discovery reports, planning structures, or workers.
+// Callers retain the discovery error as incomplete evidence rather than
+// silently truncating a catalogue into an apparent successful run.
+func ValidateInventoryBudget(models []api.Model, maxModels int, maxBytes int64) error {
+	// Zero is the Go struct's legacy/default value in programmatic callers;
+	// retain the secure CLI defaults rather than accidentally disabling limits.
+	if maxModels == 0 {
+		maxModels = 4096
+	}
+	if maxBytes == 0 {
+		maxBytes = 16 * 1024 * 1024
+	}
+	if maxModels < 1 || maxBytes < 1 {
+		return fmt.Errorf("invalid inventory budget")
+	}
+	if len(models) > maxModels {
+		return fmt.Errorf("provider inventory has %d models; configured limit is %d", len(models), maxModels)
+	}
+	var size int64
+	for _, model := range models {
+		if err := ValidateModelID(model.ID); err != nil {
+			return err
+		}
+		encoded, err := json.Marshal(model.Raw)
+		if err != nil {
+			return fmt.Errorf("encode provider inventory entry: %w", err)
+		}
+		size += int64(len(encoded))
+		if size > maxBytes {
+			return fmt.Errorf("provider inventory is %d bytes; configured limit is %d", size, maxBytes)
+		}
+	}
+	return nil
+}
+
+func EffectiveInventoryByteBudget(maxBytes int64) int64 {
+	if maxBytes == 0 {
+		return 16 * 1024 * 1024
+	}
+	return maxBytes
+}
+
+// ValidateModelID preserves ordinary Unicode model names and punctuation while
+// rejecting values that can alter terminal/Markdown framing or force
+// attacker-sized map/report allocations.
+func ValidateModelID(id string) error {
+	if id == "" || len(id) > 1024 || !utf8.ValidString(id) {
+		return fmt.Errorf("invalid provider model id")
+	}
+	for _, r := range id {
+		if r <= 0x1f || (r >= 0x7f && r <= 0x9f) || r == 0x061c || r == 0x200e || r == 0x200f || (r >= 0x2028 && r <= 0x202e) || (r >= 0x2066 && r <= 0x2069) {
+			return fmt.Errorf("invalid provider model id")
+		}
+	}
+	return nil
+}
+
+// ValidateInventoryResponseBudget accounts for bytes received from the
+// provider, not a re-serialized subset of parsed fields. Call it for every
+// discovery page before retaining the decoded inventory.
+func ValidateInventoryResponseBudget(models []api.Model, responseBytes int64, maxModels int, maxBytes int64) error {
+	if maxBytes == 0 {
+		maxBytes = 16 * 1024 * 1024
+	}
+	if responseBytes > maxBytes {
+		return fmt.Errorf("provider inventory response is %d bytes; configured limit is %d", responseBytes, maxBytes)
+	}
+	return ValidateInventoryBudget(models, maxModels, maxBytes)
+}
+
+// ValidateSelectionBudget refuses excess work rather than silently dropping
+// models. Raising the configured cap is an explicit operator decision.
+func ValidateSelectionBudget(selected []string, maxModels int) error {
+	if maxModels == 0 {
+		maxModels = 64
+	}
+	if maxModels < 1 || len(selected) > maxModels {
+		return fmt.Errorf("selected %d models; configured limit is %d", len(selected), maxModels)
+	}
+	return nil
+}
 
 // SelectModels intersects one global requested list with a target-local
 // inventory. The normalizer is deliberately protocol-owned: OpenAI and

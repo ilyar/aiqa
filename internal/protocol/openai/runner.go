@@ -3,6 +3,7 @@ package openai
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -60,8 +61,18 @@ func PrepareTarget(ctx context.Context, options protocolpkg.RunOptions) (protoco
 		discoveryCtx, discoveryProbe = options.Telemetry.Start(logging.Scope(suiteCtx, options.Target.ID, "", "discovery", "models.list.http", ""), "probe", logging.Fields{"probe": "aiqa.native.models.list.http"})
 	}
 	listCtx, cancel := api.WithRequestTimeout(discoveryCtx, options.Config.Timeout)
+	listCtx = api.WithResponseBodyLimit(listCtx, protocolpkg.EffectiveInventoryByteBudget(options.Config.InventoryByteBudget))
+	listCtx = api.WithJSONCollectionLimit(listCtx, options.Config.MaxCatalogModels)
 	models, response, listErr := client.ListModels(listCtx)
 	cancel()
+	if errors.Is(listErr, api.ErrWorkLimit) {
+		return protocolpkg.PreparedTarget{}, listErr
+	}
+	if listErr == nil && response.Is2xx() {
+		if err := protocolpkg.ValidateInventoryResponseBudget(models, int64(len(response.Body)), options.Config.MaxCatalogModels, options.Config.InventoryByteBudget); err != nil {
+			return protocolpkg.PreparedTarget{}, err
+		}
+	}
 	if discoveryProbe != nil {
 		outcome := "completed"
 		if listErr != nil || !response.Is2xx() {
@@ -72,6 +83,9 @@ func PrepareTarget(ctx context.Context, options protocolpkg.RunOptions) (protoco
 		discoveryProvider.End(outcome, logging.Fields{"status": outcome})
 	}
 	selected, metadata := selectModels(requestedModels(options.Config, options.Target), models)
+	if err := protocolpkg.ValidateSelectionBudget(selected, options.Config.MaxSelectedModels); err != nil {
+		return protocolpkg.PreparedTarget{}, err
+	}
 	overrides, err := resolvedOverrides(options.Target)
 	if err != nil {
 		return protocolpkg.PreparedTarget{}, err
@@ -194,8 +208,18 @@ func runTarget(ctx context.Context, options protocolpkg.RunOptions, frozen *froz
 			discoveryCtx, discoveryProbe = options.Telemetry.Start(logging.Scope(suiteCtx, target.ID, "", "discovery", "models.list.http", ""), "probe", logging.Fields{"probe": "aiqa.native.models.list.http"})
 		}
 		listCtx, cancel := api.WithRequestTimeout(openAIJobContext(discoveryCtx, target.ID, "", "inventory"), cfg.Timeout)
+		listCtx = api.WithResponseBodyLimit(listCtx, protocolpkg.EffectiveInventoryByteBudget(cfg.InventoryByteBudget))
+		listCtx = api.WithJSONCollectionLimit(listCtx, cfg.MaxCatalogModels)
 		models, listResp, listErr = client.ListModels(listCtx)
 		cancel()
+		if errors.Is(listErr, api.ErrWorkLimit) {
+			return protocolpkg.RunResult{}, listErr
+		}
+	}
+	if listErr == nil && listResp.Is2xx() {
+		if err := protocolpkg.ValidateInventoryResponseBudget(models, int64(len(listResp.Body)), cfg.MaxCatalogModels, cfg.InventoryByteBudget); err != nil {
+			return protocolpkg.RunResult{}, err
+		}
 	}
 	tmp.Discovery.ModelCount = len(models)
 	for _, model := range models {
@@ -229,6 +253,9 @@ func runTarget(ctx context.Context, options protocolpkg.RunOptions, frozen *froz
 		execution = *frozen
 	} else {
 		selected, metadata := selectModels(requestedModels(cfg, target), models)
+		if err := protocolpkg.ValidateSelectionBudget(selected, cfg.MaxSelectedModels); err != nil {
+			return protocolpkg.RunResult{}, err
+		}
 		overrides, freezeErr := resolvedOverrides(target)
 		if freezeErr != nil {
 			return protocolpkg.RunResult{}, freezeErr
@@ -341,7 +368,9 @@ func runTarget(ctx context.Context, options protocolpkg.RunOptions, frozen *froz
 				}
 				if cfg.HasTest("compat") && imageModule != nil && imageModule.Execution == result.ExecutionExecuted {
 					compatCtx := openAIJobContext(modelCtx, target.ID, model, "compat")
-					mr.Compatibility = append(mr.Compatibility, suites.RunImageCompat(compatCtx, env, model)...)
+					imageTests := suites.RunImageCompat(compatCtx, env, model)
+					resolveProbePolicyImageRejection(classifications[index], imageModule, imageTests)
+					mr.Compatibility = append(mr.Compatibility, imageTests...)
 				}
 				if cfg.HasTest("compat") {
 					if len(mr.Compatibility) == 0 {
@@ -389,6 +418,15 @@ func runTarget(ctx context.Context, options protocolpkg.RunOptions, frozen *froz
 	tmp.RateLimit = *protocolpkg.RateLimitStats(client.PacingStats())
 	finish(&tmp, p, target)
 	return protocolpkg.RunResult{Target: toTarget(target, tmp), Runtime: runtime}, nil
+}
+
+func resolveProbePolicyImageRejection(classification capability.Classification, imageModule *result.ModuleAssessment, tests []result.TestResult) bool {
+	if !classification.ProbeEligible || imageModule == nil || imageModule.Source != "probe_policy" || !suites.MarkProbePolicyImageModelUnsupported(tests) {
+		return false
+	}
+	imageModule.Applicability = result.ApplicabilityNotApplicable
+	imageModule.Reason = "image endpoint rejected the probe-policy model as unsupported"
+	return true
 }
 
 func openAIJobContext(ctx context.Context, target, model, kind string) context.Context {

@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/ilyar/aiqa/internal/logview"
@@ -107,6 +106,7 @@ func followLogFile(path string, stdout, stderr io.Writer, filter logview.Filter,
 
 func followLogFileContext(ctx context.Context, path string, stdout, stderr io.Writer, filter logview.Filter, format string) error {
 	follow := logview.NewFollower()
+	identity := fileGeneration{}
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 	header := false
@@ -123,7 +123,7 @@ func followLogFileContext(ctx context.Context, path string, stdout, stderr io.Wr
 			}
 			return fmt.Errorf("followed log %q is not a regular file", path)
 		}
-		snap := logview.Snapshot{Identity: fileIdentity(info), Size: info.Size(), ReadAt: func(offset int64) ([]byte, error) {
+		snap := logview.Snapshot{Identity: identity.next(info), Size: info.Size(), ReadAt: func(offset int64) ([]byte, error) {
 			if _, err := f.Seek(offset, io.SeekStart); err != nil {
 				return nil, err
 			}
@@ -145,14 +145,20 @@ func followLogFileContext(ctx context.Context, path string, stdout, stderr io.Wr
 	}
 }
 
-func fileIdentity(info os.FileInfo) string {
-	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
-		return fmt.Sprintf("%d:%d", stat.Dev, stat.Ino)
+// fileGeneration assigns a stable identity to each file observed by a follow
+// session. os.SameFile is portable, unlike direct inspection of syscall.Stat_t,
+// and avoids treating an ordinary append (which changes ModTime) as rotation.
+type fileGeneration struct {
+	info       os.FileInfo
+	generation uint64
+}
+
+func (f *fileGeneration) next(info os.FileInfo) string {
+	if f.info == nil || !os.SameFile(f.info, info) {
+		f.info = info
+		f.generation++
 	}
-	// The fallback is still deterministic on platforms that do not expose an
-	// inode through FileInfo.Sys; the size is intentionally excluded so growth
-	// does not look like a rotation.
-	return info.Name() + "@" + info.ModTime().UTC().Format(time.RFC3339Nano)
+	return fmt.Sprintf("%d", f.generation)
 }
 
 func makeLogFilter(level, only string, failed bool, statuses, target, model, job, event string) (logview.Filter, error) {

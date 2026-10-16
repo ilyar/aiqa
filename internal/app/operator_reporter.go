@@ -23,16 +23,17 @@ type operatorReporter struct {
 	tty      bool
 	capacity int
 
-	mu         sync.Mutex // serializes terminal writes
-	lines      int
-	stateMu    sync.Mutex
-	verdicts   map[string]string
-	runVerdict string
-	snapshot   *execution.Snapshot
-	snapshotAt time.Time
-	refresh    terminalRefreshTicker
-	stop       chan struct{}
-	refreshWG  sync.WaitGroup
+	mu          sync.Mutex // serializes terminal writes
+	lines       int
+	unavailable bool // guarded by mu; never redraw stale metrics after an error
+	stateMu     sync.Mutex
+	verdicts    map[string]string
+	runVerdict  string
+	snapshot    *execution.Snapshot
+	snapshotAt  time.Time
+	refresh     terminalRefreshTicker
+	stop        chan struct{}
+	refreshWG   sync.WaitGroup
 }
 
 var terminalSize = func() (int, int, error) { return term.GetSize(2) }
@@ -282,7 +283,7 @@ func etaText(snapshot execution.Snapshot, capacity int) string {
 		return "~" + eta.RoundDisplay(forecast).String()
 	}
 	if result.State == eta.LowerBound {
-		return ">= " + eta.RoundDisplay(*result.RangeLow).String()
+		return ">=" + eta.RoundDisplay(*result.RangeLow).String()
 	}
 	if result.Estimate != nil {
 		return eta.RoundDisplay(*result.Estimate).String()
@@ -306,6 +307,35 @@ func throughputForecast(snapshot execution.Snapshot) (time.Duration, bool) {
 func (r *operatorReporter) draw(frame terminal.Frame) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.unavailable {
+		return
+	}
+	r.drawLocked(frame)
+}
+
+// ObserveExecutionUnavailable does not display reducer errors, which may carry
+// provider-controlled identifiers. The report path retains the actual error.
+func (r *operatorReporter) ObserveExecutionUnavailable(_ error) {
+	if r == nil || r.writer == nil {
+		return
+	}
+	r.mu.Lock()
+	if r.unavailable {
+		r.mu.Unlock()
+		return
+	}
+	r.unavailable = true
+	const message = "AIQA: monitoring unavailable"
+	if r.tty {
+		r.drawLocked(terminal.Frame{Lines: []string{message, "Progress unavailable; execution continues."}})
+		r.mu.Unlock()
+		return
+	}
+	r.mu.Unlock()
+	r.Reporter.Message(message + "; execution continues.")
+}
+
+func (r *operatorReporter) drawLocked(frame terminal.Frame) {
 	previousLines := r.lines
 	if previousLines > 0 {
 		_, _ = fmt.Fprintf(r.writer, "\x1b[%dA", previousLines)

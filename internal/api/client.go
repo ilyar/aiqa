@@ -28,6 +28,76 @@ import (
 
 const maxResponseBody = 64 << 20
 
+const (
+	maxRedirectHops      = 3
+	maxRetryAfter        = 30 * time.Second
+	maxSSELineBytes      = 64 << 10
+	maxSSEDataLines      = 256
+	maxSSEEvents         = 10_000
+	maxSSEInvalidEvents  = 64
+	maxSSEToolCalls      = 128
+	maxSSEToolFieldBytes = 1 << 20
+	maxSSEContentBytes   = 8 << 20
+	maxSSEFinishReasons  = 256
+)
+
+// ErrWorkLimit identifies a local, bounded-work guard rather than a provider
+// response. Callers can classify it without matching implementation text.
+var ErrWorkLimit = errors.New("api: work limit exceeded")
+
+type attemptBudgetKey struct{}
+type singleAttemptKey struct{}
+type responseBodyLimitKey struct{}
+
+// WithResponseBodyLimit bounds an untrusted body before retaining or decoding
+// it. It can lower, but never raise, the transport's global response ceiling.
+func WithResponseBodyLimit(ctx context.Context, limit int64) context.Context {
+	return context.WithValue(ctx, responseBodyLimitKey{}, limit)
+}
+
+func responseBodyLimit(ctx context.Context) int64 {
+	limit := int64(maxResponseBody)
+	if requested, ok := ctx.Value(responseBodyLimitKey{}).(int64); ok && requested < limit {
+		limit = requested
+	}
+	if limit < 0 {
+		return 0
+	}
+	return limit
+}
+
+type attemptBudget struct {
+	remaining atomic.Int64
+}
+
+// WithAttemptBudget shares a physical-attempt allowance across derived
+// contexts. A non-positive limit rejects dispatches; callers may use a fresh
+// detached context for cleanup with its own deliberately small allowance.
+func WithAttemptBudget(ctx context.Context, limit int) context.Context {
+	b := &attemptBudget{}
+	b.remaining.Store(int64(limit))
+	return context.WithValue(ctx, attemptBudgetKey{}, b)
+}
+
+// WithSingleAttempt marks a request as unsafe to replay. It applies to native,
+// streaming, and SDK transport paths independently of URL layout.
+func WithSingleAttempt(ctx context.Context) context.Context {
+	return context.WithValue(ctx, singleAttemptKey{}, true)
+}
+
+func consumeAttempt(ctx context.Context) error {
+	b, _ := ctx.Value(attemptBudgetKey{}).(*attemptBudget)
+	if b == nil {
+		return nil
+	}
+	if b.remaining.Add(-1) < 0 {
+		return fmt.Errorf("%w: physical attempt budget exhausted", ErrWorkLimit)
+	}
+	return nil
+}
+
+func singleAttempt(ctx context.Context) bool { return ctx.Value(singleAttemptKey{}) == true }
+
 type Client struct {
 	baseURL           *url.URL
 	apiKey            string
@@ -223,10 +293,7 @@ func newClient(baseURL, apiKey, userAgent string, initialInterval time.Duration,
 		logFields: logging.Fields{},
 		identity:  nextClientIdentity.Add(1),
 	}
-	client.http.CheckRedirect = func(request *http.Request, _ []*http.Request) error {
-		client.injectTraceContext(request.Context(), request)
-		return nil
-	}
+	client.http.CheckRedirect = client.checkRedirect
 	return client, nil
 }
 
@@ -792,6 +859,9 @@ func (c *Client) succeeded(lease *scheduler.Lease, model string, duration time.D
 
 func (c *Client) rateLimited(lease *scheduler.Lease, model string, header http.Header) time.Duration {
 	delay := retryAfter(header)
+	if retryAfterWasClipped(header) {
+		c.trace(context.Background(), logging.Debug, "http.retry_after.clipped", logging.Fields{"delay_ms": delay.Milliseconds()})
+	}
 	if lease != nil {
 		if applied := lease.RateLimited(delay); applied > 0 {
 			c.pacer.observedRateLimit(model, applied)
@@ -913,12 +983,46 @@ func cloneLogFields(fields logging.Fields) logging.Fields {
 // SDK must still disable its own retries; this transport owns the shared retry
 // and rate-limit policy.
 func (c *Client) PacedHTTPClient(model string) *http.Client {
-	return &http.Client{Transport: &pacedRoundTripper{client: c, model: model}, CheckRedirect: func(request *http.Request, _ []*http.Request) error {
-		// net/http copies ordinary headers across redirects; never inherit trace
-		// propagation without checking the redirect destination again.
-		c.injectTraceContext(request.Context(), request)
-		return nil
-	}}
+	return &http.Client{Transport: &pacedRoundTripper{client: c, model: model}, CheckRedirect: c.validateRedirect}
+}
+
+func (c *Client) checkRedirect(request *http.Request, via []*http.Request) error {
+	if err := c.validateRedirect(request, via); err != nil {
+		return err
+	}
+	// Native net/http redirects bypass the logical request loop. SDK redirects
+	// instead enter pacedRoundTripper again, which charges their dispatch there.
+	return consumeAttempt(request.Context())
+}
+
+func (c *Client) validateRedirect(request *http.Request, via []*http.Request) error {
+	if singleAttempt(request.Context()) {
+		return errors.New("api redirect rejected for single-attempt request")
+	}
+	if len(via) >= maxRedirectHops {
+		return fmt.Errorf("%w: redirect hop limit exceeded", ErrWorkLimit)
+	}
+	// API credentials are scoped to the configured origin. Requiring the same
+	// scheme and host also rejects HTTPS downgrade redirects.
+	if request.URL.Scheme != c.baseURL.Scheme || !sameURLHost(request.URL, c.baseURL) {
+		return errors.New("api redirect leaves configured origin")
+	}
+	c.injectTraceContext(request.Context(), request)
+	return nil
+}
+
+func sameURLHost(a, b *url.URL) bool {
+	return strings.EqualFold(a.Hostname(), b.Hostname()) && normalizedPort(a) == normalizedPort(b)
+}
+
+func normalizedPort(u *url.URL) string {
+	if p := u.Port(); p != "" {
+		return p
+	}
+	if u.Scheme == "https" {
+		return "443"
+	}
+	return "80"
 }
 
 type pacedRoundTripper struct {
@@ -944,6 +1048,9 @@ func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 	ctx, logical := r.client.startOperation(ctx, "sdk.logical_request", logging.Fields{"method": request.Method, "path": safeRequestPath(request.URL)})
 	request = request.Clone(ctx)
 	path := safeRequestPath(request.URL)
+	if isArtifactCreationPath(path) {
+		ctx = WithSingleAttempt(ctx)
+	}
 	endLogical := func(outcome string, response *http.Response, err error) {
 		if logical != nil {
 			logical.End(outcome, responseFields(request.Method, path, 0, response, err, 0))
@@ -952,13 +1059,17 @@ func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 	r.client.pacer.logical(r.model)
 	r.client.trace(ctx, logging.Trace, "sdk.logical_request.begin", logging.Fields{"method": request.Method, "path": path})
 	maxAttempts := 3
-	if isArtifactCreationPath(path) {
+	if singleAttempt(ctx) || isArtifactCreationPath(path) {
 		// A response loss after an image creation dispatch is ambiguous. The
 		// reservation accounts for one possible creation, never for an
 		// automatic second provider-side creation.
 		maxAttempts = 1
 	}
 	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if err := consumeAttempt(ctx); err != nil {
+			endLogical("work_limit", nil, err)
+			return nil, err
+		}
 		if attempt > 0 && request.GetBody == nil {
 			r.client.trace(ctx, logging.Error, "sdk.retry.unavailable", logging.Fields{"method": request.Method, "path": path, "attempt": attempt + 1, "reason": "non_replayable_body"})
 			err := errors.New("cannot retry SDK request with a non-replayable body")
@@ -1011,6 +1122,11 @@ func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 		r.client.trace(attemptCtx, logging.Trace, "sdk.attempt.begin", logging.Fields{"method": request.Method, "path": path, "attempt": attempt + 1})
 		started := time.Now()
 		response, err := r.client.http.Transport.RoundTrip(current)
+		if err == nil && response != nil && response.StatusCode >= 200 && response.StatusCode < 300 {
+			if preflightErr := preflightSDKInventory(ctx, response); preflightErr != nil {
+				err = preflightErr
+			}
+		}
 		if response != nil {
 			attemptEvent.headers()
 		}
@@ -1023,7 +1139,8 @@ func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 			}
 			attemptOp.End(outcome, attemptFields)
 		}
-		retry := err != nil || response != nil && (response.StatusCode == http.StatusRequestTimeout || response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500)
+		dailyQuota := response != nil && isGoogleGeneratePath(path) && isGoogleDailyQuotaHTTPResponse(response)
+		retry := !errors.Is(err, ErrWorkLimit) && !dailyQuota && (err != nil || response != nil && (response.StatusCode == http.StatusRequestTimeout || response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500))
 		var rateLimitDelay time.Duration
 		if response != nil && response.StatusCode == http.StatusTooManyRequests {
 			rateLimitDelay = r.client.rateLimited(lease, r.model, response.Header)
@@ -1043,7 +1160,7 @@ func (r *pacedRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 				handedOff = true
 				admissionDone := make(chan struct{})
 				go releaseLeaseOnCancel(attemptCtx, admissionDone, lease, attemptEvent)
-				response.Body = &operationReadCloser{ReadCloser: response.Body, operation: logical, parent: sdkProbe, fields: endFields, outcome: "response_closed", cancel: cancelAttempt, onClose: func() {
+				response.Body = &operationReadCloser{ReadCloser: capResponseBody(ctx, response.Body), operation: logical, parent: sdkProbe, fields: endFields, outcome: "response_closed", cancel: cancelAttempt, onClose: func() {
 					attemptEvent.terminal(executionHTTPOutcome(response, err))
 					close(admissionDone)
 					if lease != nil {
@@ -1210,6 +1327,9 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 	}
 	ctx = c.transportContext(ctx, model)
 	path := safeEndpointPath(endpoint)
+	if isArtifactCreationPath(path) {
+		ctx = WithSingleAttempt(ctx)
+	}
 	if _, hasSuite := logging.FieldsFromContext(ctx)["suite"]; !hasSuite {
 		var suiteOp *telemetry.Operation
 		ctx, suiteOp = c.startOperation(ctx, "suite", logging.Fields{"suite": "native"})
@@ -1242,13 +1362,18 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 	c.pacer.logical(model)
 	c.trace(ctx, logging.Trace, "http.logical_request.begin", logging.Fields{"method": method, "path": path})
 	maxAttempts := 3
-	if isArtifactCreationPath(path) {
+	if singleAttempt(ctx) || isArtifactCreationPath(path) {
 		// See the SDK transport equivalent above: this logical request can
 		// create a billable artifact, so its sole reserved creation must map
 		// to one physical provider attempt.
 		maxAttempts = 1
 	}
 	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if err := consumeAttempt(ctx); err != nil {
+			response := Response{TraceID: traceID}
+			endLogical("work_limit", response, err)
+			return response, err
+		}
 		waitStarted := time.Now()
 		c.trace(ctx, logging.Trace, "pacing.wait.begin", logging.Fields{"method": method, "path": path, "attempt": attempt + 1})
 		if err := c.waitForPacing(ctx, model); err != nil {
@@ -1295,7 +1420,7 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 		}
 		resp.TraceID = traceID
 		c.trace(ctx, logging.Trace, "http.attempt.result", rawResponseFields(method, path, attempt+1, resp, err))
-		if !shouldRetry(resp, err) {
+		if !shouldRetry(resp, err) || isGoogleGeneratePath(path) && IsGoogleDailyQuota(resp.StatusCode, resp.JSON) {
 			if resp.Is2xx() {
 				if attempt > 0 {
 					c.pacer.recovered(model)
@@ -1336,7 +1461,8 @@ func (c *Client) doRawURL(ctx context.Context, method, endpoint string, body []b
 }
 
 func isArtifactCreationPath(path string) bool {
-	return strings.Trim(path, "/") == "images/generations"
+	path = strings.Trim(strings.Split(path, "?")[0], "/")
+	return path == "images/generations" || strings.HasSuffix(path, "/images/generations")
 }
 
 func executionOutcome(response Response, err error) string {
@@ -1388,7 +1514,8 @@ func (c *Client) doRawURLOnce(ctx context.Context, method, endpoint string, body
 	}
 	executionEvent.headers()
 	defer httpResp.Body.Close()
-	limited := io.LimitReader(httpResp.Body, maxResponseBody+1)
+	bodyLimit := responseBodyLimit(ctx)
+	limited := io.LimitReader(httpResp.Body, bodyLimit+1)
 	responseBody, readErr := io.ReadAll(limited)
 	duration := time.Since(started)
 	resp = Response{
@@ -1399,24 +1526,23 @@ func (c *Client) doRawURLOnce(ctx context.Context, method, endpoint string, body
 		Body:        responseBody,
 		Duration:    duration,
 	}
-	if len(responseBody) > maxResponseBody {
-		return resp, fmt.Errorf("response body exceeds %d bytes", maxResponseBody)
+	if int64(len(responseBody)) > bodyLimit {
+		return resp, fmt.Errorf("%w: response body exceeds %d bytes", ErrWorkLimit, bodyLimit)
 	}
 	if readErr != nil {
 		return resp, fmt.Errorf("read response: %w", readErr)
 	}
 	if len(bytes.TrimSpace(responseBody)) > 0 && strings.Contains(strings.ToLower(resp.ContentType), "json") {
-		dec := json.NewDecoder(bytes.NewReader(responseBody))
-		dec.UseNumber()
-		if err := dec.Decode(&resp.JSON); err != nil {
-			return resp, fmt.Errorf("decode JSON response: %w", err)
+		var decodeErr error
+		resp.JSON, decodeErr = decodeResponseJSON(ctx, responseBody)
+		if decodeErr != nil {
+			return resp, fmt.Errorf("decode JSON response: %w", decodeErr)
 		}
 	} else if len(bytes.TrimSpace(responseBody)) > 0 {
-		var generic map[string]any
-		dec := json.NewDecoder(bytes.NewReader(responseBody))
-		dec.UseNumber()
-		if err := dec.Decode(&generic); err == nil {
+		if generic, err := decodeResponseJSON(ctx, responseBody); err == nil {
 			resp.JSON = generic
+		} else if errors.Is(err, ErrWorkLimit) {
+			return resp, fmt.Errorf("decode JSON response: %w", err)
 		}
 	}
 	return resp, nil
@@ -1427,13 +1553,52 @@ func retryAfter(header http.Header) time.Duration {
 	if v == "" {
 		return 0
 	}
-	if seconds, err := strconv.Atoi(v); err == nil && seconds >= 0 {
+	if retryAfterNumericOverflow(v) {
+		return maxRetryAfter
+	}
+	if seconds, err := strconv.ParseInt(v, 10, 64); err == nil && seconds >= 0 {
+		if seconds > int64(maxRetryAfter/time.Second) {
+			return maxRetryAfter
+		}
 		return time.Duration(seconds) * time.Second
 	}
 	if when, err := http.ParseTime(v); err == nil {
-		return time.Until(when)
+		delay := time.Until(when)
+		if delay > maxRetryAfter {
+			return maxRetryAfter
+		}
+		if delay > 0 {
+			return delay
+		}
 	}
 	return 0
+}
+
+func retryAfterWasClipped(header http.Header) bool {
+	v := strings.TrimSpace(header.Get("Retry-After"))
+	if retryAfterNumericOverflow(v) {
+		return true
+	}
+	if seconds, err := strconv.ParseInt(v, 10, 64); err == nil {
+		return seconds > int64(maxRetryAfter/time.Second)
+	}
+	if when, err := http.ParseTime(v); err == nil {
+		return time.Until(when) > maxRetryAfter
+	}
+	return false
+}
+
+func retryAfterNumericOverflow(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	_, err := strconv.ParseInt(value, 10, 64)
+	return errors.Is(err, strconv.ErrRange)
 }
 
 func (c *Client) ChatStream(ctx context.Context, body map[string]any) (StreamResponse, error) {
@@ -1509,7 +1674,16 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 	var finalLease *scheduler.Lease
 	var finalExecutionAttempt *executionAttempt
 	attempts := 0
-	for attempt := 0; attempt < 3; attempt++ {
+	maxAttempts := 3
+	if singleAttempt(ctx) {
+		maxAttempts = 1
+	}
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if err := consumeAttempt(ctx); err != nil {
+			result := StreamResponse{TraceID: traceID}
+			endLogical("work_limit", result, err)
+			return result, err
+		}
 		requestPath := safeRequestPath(&u)
 		waitStarted := time.Now()
 		c.trace(ctx, logging.Trace, "pacing.wait.begin", logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true})
@@ -1577,7 +1751,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 			if attemptOp != nil {
 				attemptOp.End("transport_error", fields)
 			}
-			if attempt == 2 {
+			if attempt == maxAttempts-1 {
 				c.pacer.exhausted(model)
 				c.trace(ctx, logging.Warn, "http.stream_retry.exhausted", logging.Fields{"method": http.MethodPost, "path": requestPath, "attempt": attempt + 1, "stream": true, "reason": errorClass(err)})
 				c.trace(ctx, logging.Debug, "http.stream_logical_request.result", logging.Fields{"method": http.MethodPost, "path": requestPath, "stream": true, "duration_ms": time.Since(started).Milliseconds(), "outcome": "transport_error", "reason": errorClass(err)})
@@ -1606,7 +1780,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 		if attemptOp != nil {
 			attemptOp.End("response", attemptFields)
 		}
-		if !shouldRetryStatus(httpResp.StatusCode, httpResp.Header) {
+		if !shouldRetryStatus(httpResp.StatusCode, httpResp.Header) || isGoogleGeneratePath(requestPath) && isGoogleDailyQuotaHTTPResponse(httpResp) {
 			finalAttemptCancel = cancelAttempt
 			finalLease = lease
 			finalExecutionAttempt = attemptEvent
@@ -1623,7 +1797,7 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 		if delay <= 0 {
 			delay = time.Duration(1<<attempt) * 100 * time.Millisecond
 		}
-		if attempt == 2 {
+		if attempt == maxAttempts-1 {
 			finalAttemptCancel = cancelAttempt
 			finalLease = lease
 			finalExecutionAttempt = attemptEvent
@@ -1673,6 +1847,8 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 		RequestID:   requestID(httpResp.Header),
 		TraceID:     traceID,
 	}
+	accumulator := streamAccumulator{toolArguments: make(map[int]*strings.Builder)}
+	defer accumulator.finalize(&result)
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(httpResp.Body, 32<<10))
 		result.Duration = time.Since(started)
@@ -1693,8 +1869,16 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 	var dataLines []string
 	var snippet strings.Builder
 	eventIndex := 0
+	var complexityErr error
 	flush := func() {
+		if complexityErr != nil {
+			return
+		}
 		if len(dataLines) == 0 && event.Event == "" && event.ID == "" {
+			return
+		}
+		if eventIndex >= maxSSEEvents {
+			complexityErr = fmt.Errorf("%w: SSE event count", ErrWorkLimit)
 			return
 		}
 		event.Data = strings.Join(dataLines, "\n")
@@ -1704,9 +1888,11 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 			dec := json.NewDecoder(strings.NewReader(event.Data))
 			dec.UseNumber()
 			if err := dec.Decode(&event.JSON); err != nil {
-				result.InvalidEvents = append(result.InvalidEvents, truncate(event.Data, 512)+": "+err.Error())
+				if len(result.InvalidEvents) < maxSSEInvalidEvents {
+					result.InvalidEvents = append(result.InvalidEvents, truncate(event.Data, 512)+": "+err.Error())
+				}
 			} else {
-				consumeStreamJSON(&result, event.JSON)
+				complexityErr = consumeStreamJSON(&result, &accumulator, event.JSON)
 			}
 		}
 		eventIndex++
@@ -1732,8 +1918,15 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 	}
 
 	for {
-		line, readErr := reader.ReadString('\n')
-		if len(line) > 0 {
+		lineBytes, readErr := reader.ReadSlice('\n')
+		if errors.Is(readErr, bufio.ErrBufferFull) {
+			complexityErr = fmt.Errorf("%w: SSE line length", ErrWorkLimit)
+		}
+		line := string(lineBytes)
+		if len(line) > maxSSELineBytes {
+			complexityErr = fmt.Errorf("%w: SSE line length", ErrWorkLimit)
+		}
+		if len(line) > 0 && complexityErr == nil {
 			line = strings.TrimSuffix(line, "\n")
 			line = strings.TrimSuffix(line, "\r")
 			switch {
@@ -1742,18 +1935,34 @@ func (c *Client) StreamJSONForModel(ctx context.Context, path string, body map[s
 			case strings.HasPrefix(line, ":"):
 				// SSE comment / heartbeat.
 			case strings.HasPrefix(line, "data:"):
+				if len(dataLines) >= maxSSEDataLines {
+					complexityErr = fmt.Errorf("%w: SSE data lines", ErrWorkLimit)
+					break
+				}
 				dataLines = append(dataLines, strings.TrimSpace(strings.TrimPrefix(line, "data:")))
 			case strings.HasPrefix(line, "event:"):
 				event.Event = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
 			case strings.HasPrefix(line, "id:"):
 				event.ID = strings.TrimSpace(strings.TrimPrefix(line, "id:"))
 			default:
-				result.InvalidEvents = append(result.InvalidEvents, "invalid SSE line: "+truncate(line, 256))
+				if len(result.InvalidEvents) < maxSSEInvalidEvents {
+					result.InvalidEvents = append(result.InvalidEvents, "invalid SSE line: "+truncate(line, 256))
+				}
 			}
+		}
+		if complexityErr != nil {
+			result.Duration, result.RawSnippet = time.Since(started), snippet.String()
+			endLogical("work_limit", result, complexityErr)
+			return result, complexityErr
 		}
 		if readErr != nil {
 			if errors.Is(readErr, io.EOF) {
 				flush()
+				if complexityErr != nil {
+					result.Duration, result.RawSnippet = time.Since(started), snippet.String()
+					endLogical("work_limit", result, complexityErr)
+					return result, complexityErr
+				}
 				if limitedBody.N <= 0 {
 					result.Duration = time.Since(started)
 					result.RawSnippet = snippet.String()
@@ -1920,38 +2129,79 @@ func requestID(h http.Header) string {
 	return ""
 }
 
-func consumeStreamJSON(out *StreamResponse, root map[string]any) {
+type streamAccumulator struct {
+	content       strings.Builder
+	toolArguments map[int]*strings.Builder
+}
+
+func (a *streamAccumulator) finalize(out *StreamResponse) {
+	out.Content = a.content.String()
+	for index, builder := range a.toolArguments {
+		if index >= len(out.ToolCalls) {
+			continue
+		}
+		function, _ := out.ToolCalls[index]["function"].(map[string]any)
+		if function != nil {
+			function["arguments"] = builder.String()
+		}
+	}
+}
+
+func consumeStreamJSON(out *StreamResponse, accumulator *streamAccumulator, root map[string]any) error {
 	if u := ParseUsage(root); u.TotalTokens > 0 || u.PromptTokens > 0 || u.CompletionTokens > 0 {
 		out.Usage = u
 	}
 	choices, _ := root["choices"].([]any)
+	if len(choices) > maxSSEToolCalls {
+		return fmt.Errorf("%w: stream choice count", ErrWorkLimit)
+	}
 	for _, raw := range choices {
 		choice, ok := raw.(map[string]any)
 		if !ok {
 			continue
 		}
 		if reason, ok := choice["finish_reason"].(string); ok && reason != "" {
+			if len(out.FinishReasons) >= maxSSEFinishReasons {
+				return fmt.Errorf("%w: stream finish reasons", ErrWorkLimit)
+			}
 			out.FinishReasons = append(out.FinishReasons, reason)
 		}
 		delta, _ := choice["delta"].(map[string]any)
 		if delta == nil {
 			continue
 		}
-		out.Content += contentString(delta["content"])
+		content := contentString(delta["content"])
+		if len(content) > maxSSEContentBytes-accumulator.content.Len() {
+			return fmt.Errorf("%w: stream content", ErrWorkLimit)
+		}
+		accumulator.content.WriteString(content)
 		if calls, ok := delta["tool_calls"].([]any); ok {
+			if len(calls) > maxSSEToolCalls {
+				return fmt.Errorf("%w: stream tool-call array count", ErrWorkLimit)
+			}
 			for _, call := range calls {
 				if m, ok := call.(map[string]any); ok {
-					mergeStreamToolCall(out, m)
+					if err := mergeStreamToolCall(out, accumulator, m); err != nil {
+						return err
+					}
 				}
 			}
 		}
 	}
+	return nil
 }
 
-func mergeStreamToolCall(out *StreamResponse, delta map[string]any) {
-	index := int(int64Value(delta["index"]))
-	if index < 0 {
-		index = len(out.ToolCalls)
+func mergeStreamToolCall(out *StreamResponse, accumulator *streamAccumulator, delta map[string]any) error {
+	index := len(out.ToolCalls)
+	if raw, exists := delta["index"]; exists {
+		n, ok := exactNonNegativeIndex(raw)
+		if !ok || n >= maxSSEToolCalls {
+			return fmt.Errorf("%w: invalid sparse stream tool-call index", ErrWorkLimit)
+		}
+		index = n
+	}
+	if index >= maxSSEToolCalls {
+		return fmt.Errorf("%w: stream tool-call count", ErrWorkLimit)
 	}
 	for len(out.ToolCalls) <= index {
 		out.ToolCalls = append(out.ToolCalls, map[string]any{"index": len(out.ToolCalls)})
@@ -1964,7 +2214,7 @@ func mergeStreamToolCall(out *StreamResponse, delta map[string]any) {
 	}
 	functionDelta, _ := delta["function"].(map[string]any)
 	if functionDelta == nil {
-		return
+		return nil
 	}
 	function, _ := target["function"].(map[string]any)
 	if function == nil {
@@ -1975,8 +2225,45 @@ func mergeStreamToolCall(out *StreamResponse, delta map[string]any) {
 		function["name"] = name
 	}
 	if args, exists := functionDelta["arguments"]; exists {
-		function["arguments"] = stringValue(function["arguments"]) + stringValue(args)
+		builder := accumulator.toolArguments[index]
+		if builder == nil {
+			builder = &strings.Builder{}
+			accumulator.toolArguments[index] = builder
+		}
+		fragment := stringValue(args)
+		if len(fragment) > maxSSEToolFieldBytes-builder.Len() {
+			return fmt.Errorf("%w: stream tool-call arguments", ErrWorkLimit)
+		}
+		builder.WriteString(fragment)
 	}
+	return nil
+}
+
+func exactNonNegativeIndex(value any) (int, bool) {
+	var n int64
+	switch v := value.(type) {
+	case json.Number:
+		parsed, err := strconv.ParseInt(v.String(), 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		n = parsed
+	case float64:
+		if v != float64(int64(v)) {
+			return 0, false
+		}
+		n = int64(v)
+	case int:
+		n = int64(v)
+	case int64:
+		n = v
+	default:
+		return 0, false
+	}
+	if n < 0 || n > int64(maxSSEToolCalls) {
+		return 0, false
+	}
+	return int(n), true
 }
 
 func cloneMap(in map[string]any) map[string]any {

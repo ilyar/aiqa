@@ -1,7 +1,42 @@
 # Changelog
 
+## 1.0.0-beta.1 – 2026-10-16
+
+- Publish the first public AIQA distribution, with static binaries for Linux,
+  macOS, Windows, and FreeBSD on amd64 and arm64, SHA-256 checksums, and the
+  project license.
+- Update vulnerable transitive dependencies, make log-follow file identity
+  portable across supported operating systems, and provide a checksum-verifying
+  installer for the public release assets.
+- Add the GitHub Pages introduction, platform downloads, and installation guide.
+- Harden provider-controlled redirects, artifact destinations, inventory and
+  streaming work limits, retry cooldowns, and context-probe accounting. Prevent
+  replay of image generation and persistent-resource creation requests.
+- Redact configured secrets before trace serialization, handle overlapping
+  credentials safely, render hostile report text literally, and keep untested
+  model scopes inconclusive instead of reporting a rankable success.
+- Add the `test=sdk` selector for built-in SDK checks, keep `test=ext-suite` for generic extensions, and shorten report labels to SDK names, versions, and links.
+- Replace protocol-specific model selectors with one global `--model` list. Each active target intersects it with its validated inventory, keeps absent IDs silent, and records the requested list once in report v3. Removed selectors and `GOOGLE_GENAI_MODEL` return migration errors.
+- Add explicit ambiguous-model preflight and route/transient classification, capability-aware module materialization, dependency blocking, provider-root guidance, exact transport retry telemetry, and the pinned Anthropic Models validator shape.
+- Add first-class Google GenAI (`google-genai`) support with modern Interactions and strict legacy GenerateContent profiles, target-scoped configuration, metadata-aware routing, native REST/SSE probes, usage/error validation, and explicit persistent-resource safeguards.
+- Embed the pinned Google Gen AI Go SDK `v1.71.0` as `official-sdk.google-genai`; aggregate `--ext-suite=official-sdk` now includes it only when the Google target is configured. The report records that this SDK has no public Interactions API methods.
+- Add Google guidance, report-v3 target notes, service/version rendering, deterministic profile/schema/dependency/SBOM gates, and documentation for current/legacy surfaces and capability selection.
+
+## 1.0.0-alpha.14 – 2026-09-16
+
+- Give the Anthropic strict-tool probe a 128-token output budget and report truncation as incomplete execution evidence. Validate extra properties in completed strict tool inputs.
+- Send only supported contents fields to Gemini countTokens instead of a generation request body.
+- Treat a narrowly identified image-model rejection during speculative capability discovery as an unavailable route, preserving raw evidence and conflicting results. Declared image support remains subject to normal conformance checks.
+- Explain exhausted daily quotas separately from temporary throttling in report recommendations.
+- Probe individually unknown Anthropic capabilities without discarding declared metadata; recognize nested thinking support and preserve explicit exclusions and cost gates.
+- Preserve the documented Sonnet 5 prefill rejection as raw evidence while marking the optional positive-prefill requirement not applicable.
+- Report explicit Google model-access restrictions as incomplete execution evidence in native and SDK checks. Avoid retrying the same generation request after a confirmed structured daily-quota rejection.
+- Defer model-parameter changes to `model-param-backlog.md`; this correction targets `test=compat,sdk`.
+
 ## 1.0.0-alpha.13 – 2026-09-16
 
+- Keep execution progress live across rate-limit cooldowns, including expired deadlines. Show an explicit monitoring-unavailable message if accounting fails instead of displaying stale counters and ETA.
+- Recover adaptive request pacing by halving the interval after five successful attempts, down to the existing 200 ms floor, while preserving `Retry-After` cooldowns.
 - Default missing-capability handling to `probe`: run eligible selected profile checks and bound built-in SDK suites instead of skipping models solely because capability metadata is absent.
 - Report missing metadata as an advisory, without inventing supported capabilities or lowering the compatibility verdict. Keep declared capabilities, explicit negative metadata, and cost/resource permission gates authoritative.
 
@@ -23,15 +58,6 @@
 
 ## 1.0.0-alpha.6 – 2026-09-06
 - Render every configured protocol service in the Markdown `Service` field, while retaining origin-only links that exclude API paths, query parameters, credentials, and API keys.
-
-## Unreleased
-
-- Add the `test=sdk` selector for built-in SDK checks, keep `test=ext-suite` for generic extensions, and shorten report labels to SDK names, versions, and links.
-- Replace protocol-specific model selectors with one global `--model` list. Each active target intersects it with its validated inventory, keeps absent IDs silent, and records the requested list once in report v3. Removed selectors and `GOOGLE_GENAI_MODEL` return migration errors.
-- Add explicit ambiguous-model preflight and route/transient classification, capability-aware module materialization, dependency blocking, provider-root guidance, exact transport retry telemetry, and the pinned Anthropic Models validator shape.
-- Add first-class Google GenAI (`google-genai`) support with modern Interactions and strict legacy GenerateContent profiles, target-scoped configuration, metadata-aware routing, native REST/SSE probes, usage/error validation, and explicit persistent-resource safeguards.
-- Embed the pinned Google Gen AI Go SDK `v1.71.0` as `official-sdk.google-genai`; aggregate `--ext-suite=official-sdk` now includes it only when the Google target is configured. The report records that this SDK has no public Interactions API methods.
-- Add Google guidance, report-v3 target notes, service/version rendering, deterministic profile/schema/dependency/SBOM gates, and documentation for current/legacy surfaces and capability selection.
 
 ## 1.0.0-alpha.4 – 2026-09-02
 - Replace Docker and checker-specific Official SDK transports with the explicit `test=ext-suite` architecture.

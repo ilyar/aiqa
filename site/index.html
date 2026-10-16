@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="AIQA tests OpenAI, Anthropic, and Google GenAI API compatibility. Install a standalone binary and turn provider behavior into evidence.">
+  <meta name="theme-color" content="#f5f4ef">
+  <title>AIQA — Know what your AI API can do.</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="nav wrap">
+    <a class="wordmark" href="#" aria-label="AIQA home">aiqa<span aria-hidden="true">↗</span></a>
+    <nav aria-label="Main navigation"><a href="#capabilities">Capabilities</a><a href="#install">Install</a><a href="https://github.com/ilyar/aiqa">GitHub ↗</a></nav>
+  </header>
+  <main>
+    <section class="hero wrap">
+      <p class="eyebrow">API COMPATIBILITY / 1.0.0-BETA.1</p>
+      <h1>Know what your<br>AI API can do<span class="accent">.</span></h1>
+      <div class="hero-bottom"><p>One command-line tool. Three API families.<br>Test real behavior and turn compatibility claims into evidence.</p><a class="button" href="#install">Get AIQA <span aria-hidden="true">↗</span></a></div>
+      <div class="protocols" aria-label="Supported protocols"><span>OpenAI</span><span>Anthropic</span><span>Google GenAI</span></div>
+    </section>
+    <section class="capabilities wrap" id="capabilities">
+      <p class="eyebrow">01 / FROM REQUEST TO REPORT</p>
+      <h2>Compatibility.<br>With the details attached.</h2>
+      <div class="features">
+        <article><span class="number">01</span><h3>Probe the protocol.</h3><p>Check models, chat and messages, streaming, tools, structured output, and errors against versioned profiles.</p></article>
+        <article><span class="number">02</span><h3>Follow the evidence.</h3><p>Compare native API behavior with built-in SDK checks. Inspect capability routing, usage, rate limits, and incomplete checks.</p></article>
+        <article><span class="number">03</span><h3>Make the next fix clear.</h3><p>Read Markdown reports or process versioned JSON. Get compatibility verdicts and actionable guidance for each target.</p></article>
+      </div>
+    </section>
+    <section class="install" id="install"><div class="wrap">
+      <p class="eyebrow">02 / GET STARTED</p>
+      <h2>One binary.<br>Ready for your terminal.</h2>
+      <p>Linux, macOS, and FreeBSD · amd64 / arm64</p>
+      <pre class="command"><code>curl -LsSf https://ilyar.github.io/aiqa/install.sh | sh</code></pre>
+      <p class="fine">Installs beta.1 to <code>~/.local/bin</code> and verifies SHA-256. Add that directory to your PATH. No sudo or shell-profile changes. <a href="install.sh">Read the installer</a>.</p>
+      <details><summary>Custom directory or version</summary><pre><code>curl -LsSf https://ilyar.github.io/aiqa/install.sh -o install.sh
+AIQA_INSTALL_DIR="$HOME/bin" AIQA_VERSION=1.0.0-beta.1 sh install.sh
+export PATH="$HOME/bin:$PATH"
+aiqa --version</code></pre></details>
+      <div class="downloads">
+        <h3>Prefer a direct download?</h3>
+        <p>Choose your operating system and CPU. On Unix, rename the download to <code>aiqa</code>, run <code>chmod +x aiqa</code>, and move it into your PATH. On Windows, rename it to <code>aiqa.exe</code> and place it in a directory on PATH.</p>
+        <table><caption>Version 1.0.0-beta.1 downloads</caption><thead><tr><th scope="col">System</th><th scope="col">Intel / AMD 64-bit</th><th scope="col">ARM 64-bit</th></tr></thead><tbody>
+          <tr><th scope="row">Linux</th><td><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.1/aiqa-linux-amd64">amd64 ↓</a></td><td><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.1/aiqa-linux-arm64">arm64 ↓</a></td></tr>
+          <tr><th scope="row">macOS</th><td><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.1/aiqa-darwin-amd64">Intel ↓</a></td><td><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.1/aiqa-darwin-arm64">Apple silicon ↓</a></td></tr>
+          <tr><th scope="row">Windows</th><td><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.1/aiqa-windows-amd64.exe">amd64 .exe ↓</a></td><td><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.1/aiqa-windows-arm64.exe">arm64 .exe ↓</a></td></tr>
+          <tr><th scope="row">FreeBSD</th><td><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.1/aiqa-freebsd-amd64">amd64 ↓</a></td><td><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.1/aiqa-freebsd-arm64">arm64 ↓</a></td></tr>
+        </tbody></table>
+        <p class="fine"><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.1/SHA256SUMS">SHA256SUMS</a> · <a href="https://github.com/ilyar/aiqa/releases/tag/v1.0.0-beta.1">Release notes</a>. Downloads become available when the beta release is published. Windows users can also run the shell installer in Git Bash.</p>
+      </div>
+    </div></section>
+    <section class="start wrap">
+      <p class="eyebrow">03 / YOUR FIRST CHECK</p>
+      <h2>Point it at your API.</h2>
+      <pre><code>export OPENAI_BASE_URL="https://your-provider.example/v1"
+export OPENAI_API_KEY="your-api-key"
+
+aiqa test=compat --model=your-model \
+  --format=markdown,json --name=compat-report</code></pre>
+      <p>Requests use your provider account and may incur charges. Image generation and persistent-resource probes have explicit opt-in gates. Review reports before sharing them.</p>
+      <a class="text-link" href="https://github.com/ilyar/aiqa#readme">Read the full documentation ↗</a>
+    </section>
+  </main>
+  <footer class="wrap"><a class="wordmark" href="#">aiqa<span aria-hidden="true">↗</span></a><p>Open source. Built for evidence.</p><a href="https://github.com/ilyar/aiqa/blob/main/LICENSE">License</a></footer>
+</body>
+</html>

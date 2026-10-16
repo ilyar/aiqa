@@ -11,6 +11,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -124,11 +126,12 @@ type Logger struct {
 	tee       *teeSink
 	handler   *redactingHandler
 	slog      *slog.Logger
+	secrets   []string
 	emitMu    sync.Mutex // makes LogfLine's returned record unambiguous.
 }
 
 // New constructs a logger. Invalid values are clamped to the documented range.
-func New(verbosity int) *Logger {
+func New(verbosity int, secrets ...string) *Logger {
 	if verbosity < 0 {
 		verbosity = 0
 	}
@@ -137,6 +140,7 @@ func New(verbosity int) *Logger {
 	}
 	sink := &lineSink{}
 	tee := &teeSink{memory: sink}
+	normalized := normalizedSecrets(secrets)
 	base := slog.NewJSONHandler(tee, &slog.HandlerOptions{
 		Level: slogTrace,
 		ReplaceAttr: func(_ []string, attr slog.Attr) slog.Attr {
@@ -145,16 +149,31 @@ func New(verbosity int) *Logger {
 				level, _ := attr.Value.Any().(slog.Level)
 				return slog.String(slog.LevelKey, externalLevel(level))
 			case slog.MessageKey:
-				return slog.String("event", safeEventName(attr.Value.String()))
+				return slog.String("event", safeEventName(attr.Value.String(), normalized))
 			default:
 				return attr
 			}
 		},
 	})
-	logger := &Logger{verbosity: verbosity, sink: sink, tee: tee}
-	logger.handler = &redactingHandler{base: base, sequence: &logger.sequence, writeMu: &sync.Mutex{}}
+	logger := &Logger{verbosity: verbosity, sink: sink, tee: tee, secrets: normalized}
+	logger.handler = &redactingHandler{base: base, sequence: &logger.sequence, writeMu: &sync.Mutex{}, secrets: logger.secrets}
 	logger.slog = slog.New(logger.handler)
 	return logger
+}
+
+func normalizedSecrets(secrets []string) []string {
+	unique := make([]string, 0, len(secrets))
+	seen := make(map[string]struct{}, len(secrets))
+	for _, secret := range secrets {
+		if secret != "" {
+			if _, ok := seen[secret]; !ok {
+				seen[secret] = struct{}{}
+				unique = append(unique, secret)
+			}
+		}
+	}
+	sort.SliceStable(unique, func(i, j int) bool { return len(unique[i]) > len(unique[j]) })
+	return unique
 }
 
 // Enabled reports whether a category will be retained.
@@ -202,7 +221,7 @@ func (l *Logger) logLine(ctx context.Context, level Level, event string, fields 
 	// for callers using Slog directly.
 	l.emitMu.Lock()
 	before := l.sink.Len()
-	l.slog.LogAttrs(ctx, slogLevel(level), safeEventName(event), attrs...)
+	l.slog.LogAttrs(ctx, slogLevel(level), safeEventName(event, l.secrets), attrs...)
 	line := l.sink.At(before)
 	l.emitMu.Unlock()
 	return line, true
@@ -462,6 +481,7 @@ type redactingHandler struct {
 	writeMu *sync.Mutex
 	attrs   []slog.Attr
 	groups  []string
+	secrets []string
 }
 
 func (h *redactingHandler) Enabled(_ context.Context, level slog.Level) bool {
@@ -493,7 +513,7 @@ func (h *redactingHandler) Handle(ctx context.Context, record slog.Record) error
 		clean.AddAttrs(slog.String("operation_id", ""))
 	}
 	for _, attr := range attrs {
-		if cleaned, ok := safeAttr(attr); ok {
+		if cleaned, ok := safeAttr(attr, h.secrets); ok {
 			clean.AddAttrs(h.group(cleaned))
 		}
 	}
@@ -529,7 +549,7 @@ func (h *redactingHandler) group(attr slog.Attr) slog.Attr {
 	return attr
 }
 
-func safeAttr(attr slog.Attr) (slog.Attr, bool) {
+func safeAttr(attr slog.Attr, secrets []string) (slog.Attr, bool) {
 	attr.Value = attr.Value.Resolve()
 	if !allowedField(attr.Key) {
 		// Field names can themselves be provider-controlled (for example a
@@ -537,16 +557,31 @@ func safeAttr(attr slog.Attr) (slog.Attr, bool) {
 		// retaining its name with a redacted value.
 		return slog.Attr{}, false
 	}
-	if attr.Value.Kind() == slog.KindGroup {
+	if attr.Value.Kind() == slog.KindAny {
+		value := reflect.ValueOf(attr.Value.Any())
+		if value.IsValid() && value.Kind() == reflect.String {
+			// Named string enums are scalar values too. Convert the underlying
+			// string without invoking arbitrary String/MarshalJSON methods.
+			return slog.String(attr.Key, safeText(value.String(), secrets)), true
+		}
+	}
+	if attr.Value.Kind() == slog.KindGroup || attr.Value.Kind() == slog.KindAny {
+		// Arbitrary values may serialize nested strings, map keys, or custom
+		// marshaler output. Only reviewed scalar values cross this boundary.
 		return slog.String(attr.Key, "[REDACTED]"), true
 	}
 	if attr.Value.Kind() == slog.KindString {
-		return slog.String(attr.Key, safeText(attr.Value.String())), true
+		return slog.String(attr.Key, safeText(attr.Value.String(), secrets)), true
 	}
 	return attr, true
 }
 
-func safeEventName(event string) string {
+func safeEventName(event string, secrets []string) string {
+	for _, secret := range secrets {
+		if strings.Contains(event, secret) {
+			return "redacted_event"
+		}
+	}
 	event = strings.TrimSpace(event)
 	if event == "" {
 		return "unnamed"
@@ -559,7 +594,10 @@ func safeEventName(event string) string {
 	return event
 }
 
-func safeText(value string) string {
+func safeText(value string, secrets []string) string {
+	for _, secret := range secrets {
+		value = strings.ReplaceAll(value, secret, "[REDACTED]")
+	}
 	value = strings.TrimSpace(value)
 	if len(value) > 512 {
 		value = value[:512] + "…"

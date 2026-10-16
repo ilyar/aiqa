@@ -2,8 +2,10 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +15,55 @@ import (
 	"github.com/ilyar/aiqa/internal/scheduler"
 	"github.com/ilyar/aiqa/internal/telemetry"
 )
+
+type executionFakeClock struct {
+	mu     sync.Mutex
+	now    time.Time
+	timers []*executionFakeTimer
+}
+
+type executionFakeTimer struct {
+	at time.Time
+	ch chan time.Time
+}
+
+func newExecutionFakeClock(now time.Time) *executionFakeClock { return &executionFakeClock{now: now} }
+
+func (c *executionFakeClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *executionFakeClock) After(d time.Duration) <-chan time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	ch := make(chan time.Time, 1)
+	at := c.now.Add(d)
+	if !at.After(c.now) {
+		ch <- c.now
+		close(ch)
+		return ch
+	}
+	c.timers = append(c.timers, &executionFakeTimer{at: at, ch: ch})
+	return ch
+}
+
+func (c *executionFakeClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	c.now = c.now.Add(d)
+	remaining := c.timers[:0]
+	for _, timer := range c.timers {
+		if !timer.at.After(c.now) {
+			timer.ch <- c.now
+			close(timer.ch)
+		} else {
+			remaining = append(remaining, timer)
+		}
+	}
+	c.timers = remaining
+	c.mu.Unlock()
+}
 
 func TestExecutionProgressDoesNotTreatTraceOperationAsFrozenJob(t *testing.T) {
 	var output bytes.Buffer
@@ -96,6 +147,91 @@ func TestExecutionProgressBridgesSchedulerWaitsGroupsAndPhysicalTransport(t *tes
 	}
 	if p.err != nil {
 		t.Fatalf("bridge reducer error=%v", p.err)
+	}
+}
+
+func TestExecutionProgressClampsExpiredSchedulerCooldownAndPreservesRetryReason(t *testing.T) {
+	sink := progress.New(progress.Options{Writer: io.Discard})
+	p, err := newExecutionProgress("run-cooldown", 1, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := p.started.Add(10 * time.Second)
+	p.ObserveSchedulerFact(scheduler.Fact{Kind: scheduler.FactGroupUpdated, At: at, Group: "quota", Capacity: 1, Interval: time.Second, Cooldown: p.started.Add(5 * time.Second), Reason: scheduler.WaitRetryAfter}, api.ExecutionOwner{})
+	if p.err != nil {
+		t.Fatalf("expired cooldown caused reducer error: %v", p.err)
+	}
+	groups := p.reducer.Snapshot().Groups
+	if len(groups) != 1 || groups[0].CooldownUntil != 10*time.Second || groups[0].CooldownReason != execution.WaitRetryAfter {
+		t.Fatalf("cooldown snapshot=%+v", groups)
+	}
+}
+
+func TestExecutionProgressBridgesFirst429FactThenSuccessfulJob(t *testing.T) {
+	sink := progress.New(progress.Options{Writer: io.Discard})
+	p, err := newExecutionProgress("run-first-429", 1, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.RunStarted(1)
+	p.Freeze([]progress.Job{{ID: "job-1", Target: "target-1"}})
+	owner := api.ExecutionOwner{TargetID: "target-1", JobID: "job-1"}
+	clock := newExecutionFakeClock(p.started)
+	broker, err := scheduler.New(scheduler.Config{Capacity: 1, Clock: clock, Groups: map[string]scheduler.Group{
+		"quota": {Capacity: 1, Adaptive: &scheduler.AdaptiveGroup{InitialInterval: time.Second, MaxCapacity: 1}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker.SetFactObserver(func(fact scheduler.Fact) { p.ObserveSchedulerFact(fact, owner) })
+	lease, err := broker.Acquire(context.Background(), scheduler.Request{Target: owner.TargetID, Group: "quota"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Start(owner.JobID)
+	lease.RateLimited(time.Minute)
+	lease.Release()
+	clock.Advance(time.Minute)
+	retry, err := broker.Acquire(context.Background(), scheduler.Request{Target: owner.TargetID, Group: "quota"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	retry.Succeeded()
+	retry.Release()
+	p.Complete(owner.JobID, "completed")
+	snapshot := p.reducer.Snapshot()
+	if p.err != nil || snapshot.FinishedJobs != 1 {
+		t.Fatalf("429 bridge failed before successful completion: err=%v snapshot=%+v", p.err, snapshot.Run)
+	}
+	if len(snapshot.Groups) != 1 || snapshot.Groups[0].CooldownReason != execution.WaitRetryAfter {
+		t.Fatalf("retry-after reason was not preserved: %+v", snapshot.Groups)
+	}
+}
+
+type unavailableTestSink struct {
+	*progress.Reporter
+	errs []error
+}
+
+func (s *unavailableTestSink) ObserveExecutionUnavailable(err error) { s.errs = append(s.errs, err) }
+
+func TestExecutionProgressNotifiesSinkOnceOnReducerError(t *testing.T) {
+	sink := &unavailableTestSink{Reporter: progress.New(progress.Options{Writer: io.Discard})}
+	p, err := newExecutionProgress("run-unavailable", 1, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.apply(func(base execution.Base) execution.Event {
+		return execution.GroupCooldownChanged{Base: base, Until: time.Second, Reason: execution.WaitRetryAfter}
+	})
+	p.apply(func(base execution.Base) execution.Event {
+		return execution.RunPhaseChanged{Base: base, Phase: execution.PhaseRunning}
+	})
+	if len(sink.errs) != 1 || sink.errs[0] == nil {
+		t.Fatalf("unavailable notifications=%v", sink.errs)
+	}
+	if _, err := p.Summary(); err == nil {
+		t.Fatal("reducer error was not retained for Summary")
 	}
 }
 

@@ -349,6 +349,44 @@ func TestGloballyUnmatchedRequestedScopeIsInconclusiveWithoutSyntheticModel(t *t
 	}
 }
 
+func TestEmptyInventoryIsInconclusiveAndNotRankable(t *testing.T) {
+	for _, tc := range []struct{ file, protocol string }{
+		{"openai-compat-2026-09.json", "openai"},
+		{"anthropic-compat-2026-09.json", "anthropic"},
+		{"google-genai-generate-content-compat-2026-09.json", "google-genai"},
+	} {
+		t.Run(tc.protocol, func(t *testing.T) {
+			p, err := profile.LoadFile(tc.file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r := result.Report{Config: result.PublicConfig{BaseURL: "https://example.test/v1", Tests: []string{"compat"}}}
+			ApplyTarget(&r, p, "target", tc.protocol)
+			if got := r.Summary.Assessment; got.Verdict != "inconclusive" || got.Comparison.Rankable || got.Core.Skip != 1 {
+				t.Fatalf("empty inventory assessment=%+v", got)
+			}
+			if len(r.Requirements) != 1 || r.Requirements[0].ID != "selection.evaluated_model_scope" || r.Requirements[0].FailureKind != "no_evaluated_model_scope" {
+				t.Fatalf("empty inventory requirement=%+v", r.Requirements)
+			}
+		})
+	}
+}
+
+func TestTargetLocalRequestedModelMissIsInconclusiveWithoutSyntheticModel(t *testing.T) {
+	p, err := profile.LoadFile("openai-compat-2026-09.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := result.Report{Config: result.PublicConfig{BaseURL: "https://example.test/v1", Tests: []string{"compat"}, RequestedModels: []string{"matched-on-another-target"}}}
+	ApplyTarget(&r, p, "target-b", "openai")
+	if got := r.Summary.Assessment; got.Verdict != "inconclusive" || got.Comparison.Rankable {
+		t.Fatalf("target-local miss assessment=%+v", got)
+	}
+	if len(r.Models) != 0 || len(r.Requirements) != 1 || r.Requirements[0].ID != "selection.evaluated_model_scope" {
+		t.Fatalf("target-local miss fabricated provider/model evidence: %+v", r)
+	}
+}
+
 func TestGloballyUnmatchedRequestedScopeDoesNotPenalizePartialTargetMatch(t *testing.T) {
 	r := result.Report{Config: result.PublicConfig{
 		BaseURL:         "https://example.test/v1",

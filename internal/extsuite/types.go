@@ -81,6 +81,9 @@ type Credential struct {
 type RuntimeServices struct {
 	HTTPClient *http.Client
 	Executor   *probe.Executor
+	// Host-only inventory settings also apply to built-in SDK model-list probes.
+	MaxCatalogModels    int
+	InventoryByteBudget int64
 	// Telemetry is host-only runtime state. Built-in SDK suites use it to
 	// establish a real suite -> probe context before they call their SDK.
 	// It is never serialized to executable extensions.

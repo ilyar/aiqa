@@ -90,6 +90,9 @@ func runSuite(parent context.Context, client *genai.Client, request extsuite.Run
 		}
 		defer cancel()
 	}
+	if suiteID == "models.list" {
+		ctx = request.Runtime.InventoryContext(ctx)
+	}
 	usage, err := runCase(ctx, client, suiteID, request.Subject.ID)
 	duration := time.Since(started)
 	event.DurationMS = duration.Milliseconds()
@@ -222,8 +225,17 @@ func applyError(event *extsuite.SuiteEvent, err error) {
 	event.Outcome = result.ExtensionOutcomeAssertionFailed
 	event.Summary = err.Error()
 	event.Error = err.Error()
+	if errors.Is(err, api.ErrWorkLimit) {
+		event.Outcome = result.ExtensionOutcomeExecutionError
+		event.Summary = "local execution work limit reached; compatibility outcome is inconclusive"
+		event.Signals = append(event.Signals, result.EvidenceSignal{Code: "execution.work_limit"})
+		return
+	}
 	var apiErr genai.APIError
 	if errors.As(err, &apiErr) {
+		if applyExecutionBlocker(event, apiErr) {
+			return
+		}
 		event.Outcome = result.ExtensionOutcomeRequestRejected
 		event.HTTP.StatusCode = apiErr.Code
 		if capabilitySuite(event.SuiteID) {
@@ -233,6 +245,9 @@ func applyError(event *extsuite.SuiteEvent, err error) {
 	}
 	var apiErrPtr *genai.APIError
 	if errors.As(err, &apiErrPtr) && apiErrPtr != nil {
+		if applyExecutionBlocker(event, *apiErrPtr) {
+			return
+		}
 		event.Outcome = result.ExtensionOutcomeRequestRejected
 		event.HTTP.StatusCode = apiErrPtr.Code
 		if capabilitySuite(event.SuiteID) {
@@ -249,6 +264,24 @@ func applyError(event *extsuite.SuiteEvent, err error) {
 	if errors.As(err, &urlErr) || errors.As(err, &netErr) {
 		event.Outcome = result.ExtensionOutcomeExecutionError
 	}
+}
+
+func applyExecutionBlocker(event *extsuite.SuiteEvent, err genai.APIError) bool {
+	details := make([]any, len(err.Details))
+	for i := range err.Details {
+		details[i] = err.Details[i]
+	}
+	summary, signal := protocolgoogle.ExecutionBlocker(api.Response{StatusCode: err.Code, JSON: map[string]any{
+		"error": map[string]any{"status": err.Status, "message": err.Message, "details": details},
+	}})
+	if signal.Code == "" {
+		return false
+	}
+	event.Outcome = result.ExtensionOutcomeExecutionError
+	event.HTTP.StatusCode = err.Code
+	event.Summary, event.Error, event.ErrorKind = summary, "", ""
+	event.Signals = append(event.Signals, signal)
+	return true
 }
 
 func capabilitySuite(suiteID string) bool {

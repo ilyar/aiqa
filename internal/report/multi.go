@@ -314,7 +314,7 @@ func normalizeTargetClassifications(target *result.TargetReport) {
 		for si := range target.Extensions[ri].Suites {
 			s := &target.Extensions[ri].Suites[si]
 			if s.Classification == nil {
-				s.Classification = result.ClassifyResult(s.Status, "extension."+s.ExtensionID+"."+s.SuiteID, s.RequirementID, target.Profile.Revision, s.HTTP)
+				s.Classification = result.ClassifyExtensionResult(*s, target.Profile.Revision)
 				if s.ErrorKind == "deadline_exceeded" || s.ErrorKind == "cancelled" || s.ErrorKind == "transport" || s.ErrorKind == "process" {
 					s.Classification.Kind = "execution_gap"
 					s.Classification.Reason = "extension execution ended without conclusive provider evidence"

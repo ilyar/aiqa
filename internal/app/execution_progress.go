@@ -34,10 +34,18 @@ type executionProgress struct {
 	outcomes    []protocol.TerminalOutcome
 	seenFacts   map[uint64]struct{}
 	unavailable bool
+	notified    bool
 }
 
 type executionSnapshotObserver interface {
 	ObserveExecutionSnapshot(execution.Snapshot)
+}
+
+// executionUnavailableObserver is optional so legacy progress sinks remain
+// source-compatible. Implementations must not render the error text because
+// reducer errors may contain internal identifiers.
+type executionUnavailableObserver interface {
+	ObserveExecutionUnavailable(error)
 }
 
 func newExecutionProgress(runID string, capacity int, sink progress.Sink) (*executionProgress, error) {
@@ -211,7 +219,11 @@ func (p *executionProgress) ObserveSchedulerFact(fact scheduler.Fact, owner api.
 		if !fact.Cooldown.IsZero() {
 			p.applyAt(offset, func(base execution.Base) execution.Event {
 				base.GroupID = fact.Group
-				return execution.GroupCooldownChanged{Base: base, Until: p.schedulerOffset(fact.Cooldown), Reason: executionWaitReason(fact.Reason)}
+				until := p.schedulerOffset(fact.Cooldown)
+				if until < base.Meta.Offset {
+					until = base.Meta.Offset
+				}
+				return execution.GroupCooldownChanged{Base: base, Until: until, Reason: executionWaitReason(fact.Reason)}
 			})
 		}
 		return
@@ -414,7 +426,11 @@ func (p *executionProgress) applyAt(offset time.Duration, event func(execution.B
 	base := execution.Base{Meta: execution.Meta{RunID: p.runID, Seq: p.sequence, Offset: offset}}
 	if err := p.reducer.Apply(event(base)); err != nil {
 		p.err = err
+		observer, notify := p.unavailableObserverLocked()
 		p.mu.Unlock()
+		if notify {
+			observer.ObserveExecutionUnavailable(err)
+		}
 		return
 	}
 	p.lastOffset = offset
@@ -427,12 +443,26 @@ func (p *executionProgress) applyAt(offset time.Duration, event func(execution.B
 	}
 	observer, publish := p.sink.(executionSnapshotObserver)
 	publish = publish && p.err == nil
+	unavailable, notify := p.unavailableObserverLocked()
+	failure := p.err
 	p.mu.Unlock()
+	if notify {
+		unavailable.ObserveExecutionUnavailable(failure)
+	}
 	// Terminal writes can block. Never hold execution state while a renderer
 	// redraws; the next frame is derived from a later immutable snapshot.
 	if publish {
 		observer.ObserveExecutionSnapshot(snapshot)
 	}
+}
+
+func (p *executionProgress) unavailableObserverLocked() (executionUnavailableObserver, bool) {
+	observer, ok := p.sink.(executionUnavailableObserver)
+	if !ok || p.notified || p.err == nil {
+		return nil, false
+	}
+	p.notified = true
+	return observer, true
 }
 
 func withJob(base execution.Base, id string) execution.Base {

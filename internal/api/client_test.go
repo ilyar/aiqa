@@ -96,19 +96,19 @@ func TestPacingObserverReportsOnlyActualWaitsAcrossTransportPaths(t *testing.T) 
 func TestArtifactCreationEndpointsDoNotRetryAfterDispatch(t *testing.T) {
 	for _, test := range []struct {
 		name string
-		run  func(*Client) error
+		run  func(*Client, string) error
 	}{
 		{
 			name: "native",
-			run: func(client *Client) error {
-				_, err := client.ImagesGenerate(context.Background(), map[string]any{"model": "image-model", "prompt": "fixture"})
+			run: func(client *Client, path string) error {
+				_, err := client.DoJSON(context.Background(), http.MethodPost, path, map[string]any{"model": "image-model", "prompt": "fixture"})
 				return err
 			},
 		},
 		{
 			name: "sdk",
-			run: func(client *Client) error {
-				request, err := http.NewRequestWithContext(context.Background(), http.MethodPost, client.BaseURL()+"/images/generations", strings.NewReader(`{"model":"image-model"}`))
+			run: func(client *Client, path string) error {
+				request, err := http.NewRequestWithContext(context.Background(), http.MethodPost, client.BaseURL()+"/"+path, strings.NewReader(`{"model":"image-model"}`))
 				if err != nil {
 					return err
 				}
@@ -120,24 +120,84 @@ func TestArtifactCreationEndpointsDoNotRetryAfterDispatch(t *testing.T) {
 			},
 		},
 	} {
-		t.Run(test.name, func(t *testing.T) {
-			var calls atomic.Int32
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				calls.Add(1)
-				w.WriteHeader(http.StatusServiceUnavailable)
-			}))
-			defer server.Close()
-			client, err := NewClient(server.URL, "secret", "aiqa-test", time.Nanosecond)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := test.run(client); err != nil {
-				t.Fatal(err)
-			}
-			if got := calls.Load(); got != 1 {
-				t.Fatalf("provider attempts=%d, want 1", got)
-			}
-		})
+		for _, path := range []string{"images/generations", "v1/images/generations", "proxy/v1/images/generations"} {
+			t.Run(test.name+"/"+path, func(t *testing.T) {
+				var calls atomic.Int32
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					calls.Add(1)
+					w.WriteHeader(http.StatusServiceUnavailable)
+				}))
+				defer server.Close()
+				client, err := NewClient(server.URL, "secret", "aiqa-test", time.Nanosecond)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := test.run(client, path); err != nil {
+					t.Fatal(err)
+				}
+				if got := calls.Load(); got != 1 {
+					t.Fatalf("provider attempts=%d, want 1", got)
+				}
+			})
+		}
+	}
+}
+
+func TestAttemptBudgetAndRetryAfterAreBounded(t *testing.T) {
+	if got := retryAfter(http.Header{"Retry-After": []string{"999999999999"}}); got != maxRetryAfter {
+		t.Fatalf("retry-after=%s, want %s", got, maxRetryAfter)
+	}
+	ctx := WithAttemptBudget(context.Background(), 1)
+	if err := consumeAttempt(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := consumeAttempt(ctx); !errors.Is(err, ErrWorkLimit) {
+		t.Fatalf("budget error=%v", err)
+	}
+}
+
+func TestAttemptBudgetCountsNativeRedirectDispatches(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if r.URL.Path == "/first" {
+			http.Redirect(w, r, "/second", http.StatusFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+	client, err := NewClient(server.URL, "secret", "aiqa-test", time.Nanosecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.DoRaw(WithAttemptBudget(context.Background(), 1), http.MethodGet, "first", nil, "application/json")
+	if !errors.Is(err, ErrWorkLimit) {
+		t.Fatalf("redirect budget error=%v", err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("physical dispatches=%d, want 1", got)
+	}
+}
+
+func TestArtifactCreationRejectsRedirectBeforeSecondDispatch(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		http.Redirect(w, r, "/v1/images/generations/redirected", http.StatusTemporaryRedirect)
+	}))
+	defer server.Close()
+	client, err := NewClient(server.URL, "secret", "aiqa-test", time.Nanosecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.DoJSON(context.Background(), http.MethodPost, "v1/images/generations", map[string]any{"model": "m"})
+	if err == nil {
+		t.Fatal("artifact redirect unexpectedly succeeded")
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("artifact dispatches=%d, want 1", got)
 	}
 }
 
@@ -587,14 +647,16 @@ func TestTelemetryPropagationIsRemovedOnCrossOriginRedirect(t *testing.T) {
 		t.Fatal(err)
 	}
 	resp, err := client.PacedHTTPClient("model").Do(req)
-	if err != nil {
-		t.Fatal(err)
+	if err == nil {
+		t.Fatalf("cross-origin redirect error=%v response=%v, want rejection", err, resp)
 	}
-	_ = resp.Body.Close()
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	// Native transport has its own http.Client and must apply exactly the same
-	// redirect re-authorization rule as the SDK adapter.
-	if _, err := client.DoJSON(ctx, http.MethodGet, "", nil); err != nil {
-		t.Fatal(err)
+	// strict configured-origin rule as the SDK adapter.
+	if _, err := client.DoJSON(ctx, http.MethodGet, "", nil); err == nil {
+		t.Fatal("native cross-origin redirect unexpectedly succeeded")
 	}
 }
 

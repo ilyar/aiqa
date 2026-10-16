@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ilyar/aiqa/internal/api"
 )
@@ -118,11 +119,26 @@ func (c *Client) ListModelsPage(ctx context.Context, pageToken string) ([]api.Mo
 		if raw, ok := item.(map[string]any); ok {
 			name, _ := raw["name"].(string)
 			if name != "" {
+				if !safeRawModelName(name) {
+					return nil, resp, fmt.Errorf("%w: invalid Google model name", api.ErrWorkLimit)
+				}
 				models = append(models, api.Model{ID: NormalizeModelID(name), Raw: raw})
 			}
 		}
 	}
 	return models, resp, nil
+}
+
+func safeRawModelName(name string) bool {
+	if len(name) > 1024 || !utf8.ValidString(name) {
+		return false
+	}
+	for _, r := range name {
+		if r <= 0x1f || (r >= 0x7f && r <= 0x9f) || r == 0x061c || r == 0x200e || r == 0x200f || (r >= 0x202a && r <= 0x202e) || r == 0x2028 || r == 0x2029 || (r >= 0x2066 && r <= 0x2069) {
+			return false
+		}
+	}
+	return true
 }
 
 func (c *Client) NextPageToken(resp api.Response) string {

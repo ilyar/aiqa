@@ -495,6 +495,12 @@ func newGoogleFixture(t *testing.T) *httptest.Server {
 		if !auth(w, r) {
 			return
 		}
+		var body map[string]any
+		if json.NewDecoder(r.Body).Decode(&body) != nil || len(body) != 1 || body["contents"] == nil {
+			t.Error("countTokens must send only contents, without generationConfig")
+			writeGoogleError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid countTokens fields")
+			return
+		}
 		writeGoogleJSON(w, http.StatusOK, map[string]any{"totalTokens": 5})
 	})
 	mux.HandleFunc("/v1beta/models/fixture-text:embedContent", func(w http.ResponseWriter, r *http.Request) {

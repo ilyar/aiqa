@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/ilyar/aiqa/internal/api"
@@ -69,4 +70,33 @@ func trimGoogleResource(id string) string {
 		return id[len("models/"):]
 	}
 	return id
+}
+
+func TestInventoryAndSelectionBudgetsRejectRatherThanTruncate(t *testing.T) {
+	models := []api.Model{{ID: "one", Raw: map[string]any{"id": "one"}}, {ID: "two", Raw: map[string]any{"id": "two"}}}
+	if err := ValidateInventoryBudget(models, 1, 1024); err == nil {
+		t.Fatal("oversized inventory was accepted")
+	}
+	if err := ValidateInventoryBudget(models[:1], 10, 1); err == nil {
+		t.Fatal("oversized inventory bytes were accepted")
+	}
+	if err := ValidateInventoryResponseBudget(models[:1], 1025, 10, 1024); err == nil {
+		t.Fatal("raw response byte budget was accepted")
+	}
+	if err := ValidateSelectionBudget([]string{"one", "two"}, 1); err == nil {
+		t.Fatal("oversized selection was silently accepted")
+	}
+}
+
+func TestValidateModelIDRejectsControlsAndKeepsNormalUnicode(t *testing.T) {
+	for _, id := range []string{"gpt-5.4/mini", "模型-β", "bad\nmodel", "bad\x1b]8;;https://x", "bad\u061c", "bad\u200e", "bad\u200f", "bad\u2028model", "bad\u2029model", "bad\u202e", string([]byte{0xff})} {
+		err := ValidateModelID(id)
+		if strings.HasPrefix(id, "gpt-") || id == "模型-β" {
+			if err != nil {
+				t.Fatalf("valid id %q: %v", id, err)
+			}
+		} else if err == nil {
+			t.Fatalf("invalid id accepted: %q", id)
+		}
+	}
 }

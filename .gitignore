@@ -4,8 +4,23 @@
 *.test
 *.out
 http-client.private.env.json
+*http-client.private.env.json
 /.http-client.private.env-*
 !script/http-client-private-env.go
 !script/http-client-private-env_test.go
 .DS_Store
 __pycache__/
+
+# Local provider credentials and private execution evidence.
+/.aws/
+/.env
+/.env.*
+!/.env.example
+/log/
+/*.log
+/*.trace.jsonl
+/*.trace-verdict.json
+/compat-report.json
+/compat-report.md
+/gonka-models.json
+/opencode.jsonc

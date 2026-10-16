@@ -2,6 +2,7 @@ package anthropic
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -139,5 +140,78 @@ func TestPreparedTargetDoesNotRepeatFrozenPreflight(t *testing.T) {
 	}
 	if got := messages.Load(); got != 1 {
 		t.Fatalf("preflight requests=%d, want only Prepare's frozen request", got)
+	}
+}
+
+func TestStrictSchemaProbeSeparatesCompleteSchemaFailuresFromTruncation(t *testing.T) {
+	p, err := profile.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name        string
+		input       string
+		secondInput string
+		stopReason  string
+		wantStatus  result.Status
+		wantSignal  string
+	}{
+		{name: "complete valid input", input: `{"resource_id":"resource-alpha"}`, stopReason: "end_turn", wantStatus: result.StatusPass},
+		{name: "complete invalid input", input: `{}`, stopReason: "end_turn", wantStatus: result.StatusFail},
+		{name: "complete input with extra property", input: `{"resource_id":"resource-alpha","unexpected":true}`, stopReason: "end_turn", wantStatus: result.StatusFail},
+		{name: "complete numeric input", input: `{"resource_id":123}`, stopReason: "end_turn", wantStatus: result.StatusFail},
+		{name: "complete null input", input: `{"resource_id":null}`, stopReason: "end_turn", wantStatus: result.StatusFail},
+		{name: "complete array input", input: `{"resource_id":["resource-alpha"]}`, stopReason: "end_turn", wantStatus: result.StatusFail},
+		{name: "complete second malformed input", input: `{"resource_id":"resource-alpha"}`, secondInput: `{}`, stopReason: "end_turn", wantStatus: result.StatusFail},
+		{name: "truncated input", input: `{}`, stopReason: "max_tokens", wantStatus: result.StatusError, wantSignal: "execution.output_truncated"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var strictRequests int
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/v1/messages" {
+					t.Fatalf("path=%q", r.URL.Path)
+				}
+				var request map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Fatal(err)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				if _, structured := request["output_config"]; structured {
+					_, _ = w.Write([]byte(`{"model":"fixture","type":"message","role":"assistant","content":[{"type":"text","text":"{\"ok\":true,\"value\":\"AIQA_OK\"}"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
+					return
+				}
+				tools, _ := request["tools"].([]any)
+				tool, _ := tools[0].(map[string]any)
+				if tool["strict"] != true {
+					t.Fatalf("strict tool=%#v", tool)
+				}
+				if maxTokens, ok := request["max_tokens"].(float64); !ok || maxTokens != 128 {
+					t.Fatalf("strict max_tokens=%#v, want 128", request["max_tokens"])
+				}
+				strictRequests++
+				content := `[{"type":"tool_use","id":"toolu_fixture","name":"get_status","input":` + tc.input + `}]`
+				if tc.secondInput != "" {
+					content = `[{"type":"tool_use","id":"toolu_fixture","name":"get_status","input":` + tc.input + `},{"type":"tool_use","id":"toolu_second","name":"get_status","input":` + tc.secondInput + `}]`
+				}
+				_, _ = w.Write([]byte(`{"model":"fixture","type":"message","role":"assistant","content":` + content + `,"stop_reason":"` + tc.stopReason + `","usage":{"input_tokens":1,"output_tokens":1}}`))
+			}))
+			defer server.Close()
+
+			client, err := NewClient(server.URL, "key", StableAPIVersion, "aiqa/test", 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := runStructured(context.Background(), client, time.Second, p, "fixture", nil)
+			strict := got[len(got)-1]
+			if strict.Status != tc.wantStatus {
+				t.Fatalf("strict status=%s summary=%q, want %s", strict.Status, strict.Summary, tc.wantStatus)
+			}
+			if tc.wantSignal != "" && (len(strict.Signals) != 1 || strict.Signals[0].Code != tc.wantSignal) {
+				t.Fatalf("strict signals=%#v", strict.Signals)
+			}
+			if strictRequests != 1 {
+				t.Fatalf("strict requests=%d, want 1", strictRequests)
+			}
+		})
 	}
 }

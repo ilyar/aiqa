@@ -36,6 +36,19 @@ func TestVerifyValidNativeGraph(t *testing.T) {
 	}
 }
 
+func TestVerifyConfiguredSecretsAreDetectedAndNeverEchoed(t *testing.T) {
+	secret := "provider-secret"
+	record := traceRecord(1, "run.start", secret, "", secret)
+	verdict := Verify(strings.NewReader(trace(record)), secret)
+	encoded, err := json.Marshal(verdict)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(encoded, []byte("sensitive_field_detected")) || bytes.Contains(encoded, []byte(secret)) {
+		t.Fatalf("verdict did not safely report configured secret: %s", encoded)
+	}
+}
+
 func TestVerifyRejectsOrphanHTTPAttempt(t *testing.T) {
 	verdict := Verify(strings.NewReader(trace(
 		traceRecord(1, "run.start", "run", "", "run-op"),

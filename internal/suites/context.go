@@ -36,21 +36,24 @@ func ProbeContextWindow(parent context.Context, env Environment, model string, m
 	payloadBytes := env.Config.ContextStartBytes
 	maxBytes := env.Config.ContextMaxBytes
 	maxTarget := env.Config.ContextMaxTokens
+	var consumedBytes int64
+	var requests int
+	budgetStopped := false
 
 	for payloadBytes <= maxBytes {
-		estimate := estimateTokensForBytes(payloadBytes, out.Samples)
-		if out.ConsumedTokens > 0 && out.ConsumedTokens+estimate > env.Config.ContextBudget {
-			out.Summary = "context probe stopped at the configured token budget"
+		estimate := conservativeContextCharge(payloadBytes)
+		if stop := contextBudgetStop(env, out.ConsumedTokens, consumedBytes, requests, estimate, payloadBytes); stop != "" {
+			out.Summary = stop
+			budgetStopped = true
 			break
 		}
 		sample, explicitOverflow := runContextSample(parent, env, model, payloadBytes, outputLimitParam, out.Samples)
 		out.Samples = append(out.Samples, sample)
 		out.ProbeCount++
-		cost := sample.ReportedPromptTokens
-		if cost <= 0 {
-			cost = sample.EstimatedPromptTokens
-		}
-		out.ConsumedTokens += cost
+		requests++
+		consumedBytes += int64(payloadBytes)
+		cost := maxContextCharge(sample, payloadBytes)
+		out.ConsumedTokens = saturatedAdd(out.ConsumedTokens, cost)
 		if sample.Accepted {
 			tokens := sample.ReportedPromptTokens
 			if tokens <= 0 {
@@ -118,6 +121,12 @@ func ProbeContextWindow(parent context.Context, env Environment, model string, m
 		out.Confidence = confidenceFromSamples(out.Samples, false)
 		return out
 	}
+	if budgetStopped {
+		out.Status = result.StatusWarn
+		out.LowerBoundTokens = low.tokens
+		out.Confidence = confidenceFromSamples(out.Samples, false)
+		return out
+	}
 
 	for iteration := 0; iteration < 20; iteration++ {
 		upperEstimate := estimateTokensForBytes(high.bytes, out.Samples)
@@ -130,18 +139,19 @@ func ProbeContextWindow(parent context.Context, env Environment, model string, m
 		if mid <= low.bytes || mid >= high.bytes {
 			break
 		}
-		estimate := estimateTokensForBytes(mid, out.Samples)
-		if out.ConsumedTokens+estimate > env.Config.ContextBudget {
+		estimate := conservativeContextCharge(mid)
+		if stop := contextBudgetStop(env, out.ConsumedTokens, consumedBytes, requests, estimate, mid); stop != "" {
+			out.Summary = stop
+			budgetStopped = true
 			break
 		}
 		sample, _ := runContextSample(parent, env, model, mid, outputLimitParam, out.Samples)
 		out.Samples = append(out.Samples, sample)
 		out.ProbeCount++
-		cost := sample.ReportedPromptTokens
-		if cost <= 0 {
-			cost = sample.EstimatedPromptTokens
-		}
-		out.ConsumedTokens += cost
+		requests++
+		consumedBytes += int64(mid)
+		cost := maxContextCharge(sample, mid)
+		out.ConsumedTokens = saturatedAdd(out.ConsumedTokens, cost)
 		if sample.Accepted {
 			tokens := sample.ReportedPromptTokens
 			if tokens <= 0 {
@@ -292,7 +302,54 @@ func estimateTokensForBytes(payloadBytes int, samples []result.ContextSample) in
 	}
 	sort.Float64s(ratios)
 	ratio := ratios[len(ratios)/2]
-	return int64(math.Ceil(float64(payloadBytes) * ratio))
+	return maxInt64(int64(math.Ceil(float64(payloadBytes)*ratio)), conservativeContextCharge(payloadBytes))
+}
+
+// conservativeContextCharge is independent of provider telemetry and is used
+// before sending a request. Do not let a low reported count teach the search
+// that dense input costs less than this floor.
+func conservativeContextCharge(payloadBytes int) int64 {
+	return int64(math.Ceil(float64(payloadBytes)/3.0)) + 128
+}
+
+func maxContextCharge(sample result.ContextSample, payloadBytes int) int64 {
+	return maxInt64(sample.ReportedPromptTokens, conservativeContextCharge(payloadBytes))
+}
+
+func maxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func saturatedAdd(a, b int64) int64 {
+	if b > 0 && a > math.MaxInt64-b {
+		return math.MaxInt64
+	}
+	return a + b
+}
+
+func contextBudgetStop(env Environment, consumedTokens, consumedBytes int64, requests int, tokenCharge int64, payloadBytes int) string {
+	requestBudget, byteBudget := env.Config.ContextRequestBudget, env.Config.ContextByteBudget
+	// Programmatic callers historically built Config literals. Preserve secure
+	// defaults for that zero value rather than treating it as zero requests.
+	if requestBudget == 0 {
+		requestBudget = 32
+	}
+	if byteBudget == 0 {
+		byteBudget = 64 * 1024 * 1024
+	}
+	if requests >= requestBudget {
+		return "context probe stopped at the configured request budget"
+	}
+	if consumedBytes+int64(payloadBytes) > byteBudget {
+		return "context probe stopped at the configured cumulative byte budget"
+	}
+	if consumedTokens > env.Config.ContextBudget || tokenCharge > env.Config.ContextBudget-consumedTokens {
+		return "context probe stopped at the configured token budget"
+	}
+	return ""
 }
 
 func confidenceFromSamples(samples []result.ContextSample, bracketed bool) string {

@@ -312,6 +312,9 @@ func findingCodes(requirement result.RequirementAssessment, catalog Catalog) []s
 	runner := map[string]bool{}
 	for _, evidence := range requirement.Evidence {
 		for _, signal := range evidence.Signals {
+			if requirement.Status == result.RequirementError && (signal.Code == "execution.model_access_unavailable" || signal.Code == "execution.daily_quota_exhausted") {
+				curated[signal.Code] = true
+			}
 			if _, ok := catalog.Entry(signal.Code); ok {
 				curated[signal.Code] = true
 			}
@@ -678,6 +681,12 @@ func actionFor(finding result.Finding, requirements map[string]result.Requiremen
 }
 
 func genericRecommendationTitle(finding result.Finding, action string) string {
+	if modelAccessUnavailable(finding) {
+		return "Restore model access or explicitly select an available model"
+	}
+	if dailyQuotaExhausted(finding) {
+		return "Restore daily quota before repeating generation checks"
+	}
 	switch action {
 	case "rerun":
 		return "Rerun the affected requirement after execution recovers"
@@ -693,6 +702,12 @@ func genericRecommendationTitle(finding result.Finding, action string) string {
 }
 
 func genericWhy(finding result.Finding, requirements map[string]result.RequirementAssessment) string {
+	if modelAccessUnavailable(finding) {
+		return "The provider explicitly restricted access to the selected model. Its catalog entry does not prove this account can use it; this is incomplete evidence, not a protocol failure."
+	}
+	if dailyQuotaExhausted(finding) {
+		return "The provider reported an exhausted per-day quota. Lower concurrency or a short retry delay does not replenish it; compatibility remains inconclusive."
+	}
 	if finding.EvidenceState == "inconclusive" {
 		return "The run did not produce enough evidence to decide compatibility; no provider implementation change is justified yet."
 	}
@@ -708,6 +723,12 @@ func genericWhy(finding result.Finding, requirements map[string]result.Requireme
 }
 
 func genericSteps(finding result.Finding, action string) []result.RecommendationStep {
+	if modelAccessUnavailable(finding) {
+		return []result.RecommendationStep{{ID: "restore-model-access", Text: "Verify model availability for this project and API version with the provider."}, {ID: "select-available-model", Text: "Obtain access or explicitly approve a replacement model, then rerun the requested checks; do not silently change the selected model."}}
+	}
+	if dailyQuotaExhausted(finding) {
+		return []result.RecommendationStep{{ID: "restore-daily-quota", Text: "Check the project's model-specific daily quota and billing tier; wait for the documented reset or obtain sufficient quota."}, {ID: "rerun-with-quota", Text: "Rerun the affected checks only when quota is available. Do not interpret quota rejection as missing protocol support."}}
+	}
 	switch action {
 	case "rerun":
 		return []result.RecommendationStep{{ID: "restore-execution", Text: "Resolve the provider, network, rate-limit, or runner condition without treating it as a capability result."}, {ID: "rerun", Text: "Rerun the affected requirement and require a conclusive response."}}
@@ -718,6 +739,14 @@ func genericSteps(finding result.Finding, action string) []result.Recommendation
 	default:
 		return []result.RecommendationStep{{ID: "inspect-evidence", Text: "Inspect the linked structured evidence for the first incompatible boundary."}, {ID: "correct-behavior", Text: "Make the implementation satisfy the canonical requirement without weakening validation."}}
 	}
+}
+
+func dailyQuotaExhausted(finding result.Finding) bool {
+	return finding.EvidenceState == "inconclusive" && (finding.Code == "execution.daily_quota_exhausted" || strings.Contains(finding.Observed, "GenerateRequestsPerDayPerProjectPerModel"))
+}
+
+func modelAccessUnavailable(finding result.Finding) bool {
+	return finding.EvidenceState == "inconclusive" && finding.Code == "execution.model_access_unavailable"
 }
 
 func potentialImpact(r result.Report, finding result.Finding, action string, requirements map[string]result.RequirementAssessment) result.PotentialImpact {

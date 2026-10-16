@@ -27,7 +27,9 @@ func DiscoveryTests(p profile.Profile, resp api.Response, models []api.Model, li
 	httpTest := testBase(p, "models.list.http", "compat")
 	httpTest.DurationMS = resp.Duration.Milliseconds()
 	httpTest.HTTP = httpObservation(resp)
-	if resp.StatusCode == 0 && listErr != nil {
+	if applyWorkLimit(&httpTest, listErr) {
+		// A partial 2xx catalogue must not become a discovery success.
+	} else if resp.StatusCode == 0 && listErr != nil {
 		httpTest.Status = result.StatusError
 		httpTest.Summary = "model discovery failed before an HTTP response"
 		httpTest.Error = errorText(listErr)
@@ -516,6 +518,9 @@ func probeStreaming(parent context.Context, env Environment, model string, inclu
 	t.DurationMS = resp.Duration.Milliseconds()
 	t.HTTP = streamObservation(resp)
 	t.Usage = resp.Usage
+	if applyWorkLimit(&t, err) {
+		return t
+	}
 	if err != nil && resp.StatusCode == 0 {
 		t.Status = result.StatusError
 		t.Summary = "stream failed before an HTTP response"
@@ -798,6 +803,9 @@ func probeStreamingTool(parent context.Context, env Environment, model string) r
 	t.DurationMS = resp.Duration.Milliseconds()
 	t.HTTP = streamObservation(resp)
 	t.Usage = resp.Usage
+	if applyWorkLimit(&t, err) {
+		return t
+	}
 	if err != nil && resp.StatusCode == 0 {
 		t.Status = result.StatusError
 		t.Summary = "streaming tool call failed before an HTTP response"
@@ -1158,6 +1166,9 @@ func toolChoiceConstraintSignal(mode string) result.EvidenceSignal {
 }
 
 func evaluateErrorProbe(t result.TestResult, resp api.Response, err error, expectedStatus []int, label string) result.TestResult {
+	if applyWorkLimit(&t, err) {
+		return t
+	}
 	if err != nil && resp.StatusCode == 0 {
 		t.Status = result.StatusError
 		t.Summary = label + " probe failed before an HTTP response"

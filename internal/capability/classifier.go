@@ -122,18 +122,31 @@ func ClassifyAnthropic(model string, metadata map[string]any, opts Options) Clas
 		{[]string{"image_input", "vision"}, AnthropicImageInput},
 		{[]string{"tools", "tool_use"}, AnthropicTools},
 		{[]string{"structured_output", "structured_outputs"}, AnthropicStructuredOutput},
-		{[]string{"thinking_adaptive", "adaptive_thinking"}, AnthropicThinkingAdaptive},
-		{[]string{"thinking_manual", "manual_thinking"}, AnthropicThinkingManual},
 		{[]string{"prompt_caching"}, AnthropicPromptCaching},
 	}
 	capabilities, _ := metadata["capabilities"].(map[string]any)
 	for _, check := range checks {
-		for _, key := range check.keys {
-			if capabilitySupported(capabilities[key]) || capabilitySupported(metadata[key]) {
-				add(check.capability, "metadata.capabilities."+key, "high", "Anthropic model metadata declares "+key+" support")
-				break
-			}
+		state := anthropicCapabilityState(metadata, capabilities, check.keys)
+		if state.conflict {
+			add(check.capability, "metadata.capabilities."+check.keys[0], "high", "Anthropic model metadata has contradictory "+check.keys[0]+" declarations")
+			return Classification{Model: model, Unknown: true, Reason: "contradictory Anthropic " + check.capability + " metadata", Capabilities: deduplicate(evidence)}
 		}
+		if state.malformed {
+			return Classification{Model: model, Unknown: true, Reason: "malformed Anthropic " + check.capability + " metadata"}
+		}
+		if state.supported {
+			add(check.capability, "metadata.capabilities."+check.keys[0], "high", "Anthropic model metadata declares "+check.keys[0]+" support")
+		}
+	}
+	adaptive, manual, thinkingState := anthropicThinkingCapabilities(metadata, capabilities)
+	if thinkingState != "" {
+		return Classification{Model: model, Unknown: true, Reason: thinkingState}
+	}
+	if adaptive.supported {
+		add(AnthropicThinkingAdaptive, "metadata.capabilities.thinking.types.adaptive", "high", "Anthropic model metadata declares adaptive thinking support")
+	}
+	if manual.supported {
+		add(AnthropicThinkingManual, "metadata.capabilities.thinking.types.enabled", "high", "Anthropic model metadata declares enabled thinking support")
 	}
 	if opts.UnknownPolicy == "probe" && len(evidence) == 0 && !textExplicitlyUnsupported {
 		if !anthropicCapabilityDeclared(metadata) {
@@ -178,6 +191,9 @@ func ClassifyAnthropic(model string, metadata map[string]any, opts Options) Clas
 			{Capability: AnthropicStructuredOutput, Source: "default_policy", Rule: "anthropic.optional-probe.structured-output", Confidence: "low", Reason: "structured output is safe to probe on a Messages text model"},
 		}
 		for _, item := range defaults {
+			if anthropicCapabilityState(metadata, capabilities, anthropicCapabilityKeys(item.Capability)).unsupported {
+				continue
+			}
 			found := false
 			for _, existing := range evidence {
 				if existing.Capability == item.Capability {
@@ -193,7 +209,172 @@ func ClassifyAnthropic(model string, metadata map[string]any, opts Options) Clas
 	if len(evidence) == 0 {
 		return Classification{Model: model, Unknown: true, Reason: "insufficient Anthropic capability evidence"}
 	}
-	return Classification{Model: model, Capabilities: deduplicate(evidence)}
+	evidence = deduplicate(evidence)
+	classification := Classification{Model: model, Capabilities: evidence}
+	if opts.UnknownPolicy == "probe" {
+		classification.ProbeCapabilities = anthropicProbeCapabilities(metadata, evidence)
+	}
+	return classification
+}
+
+// anthropicProbeCapabilities identifies individual absent, low-risk Messages
+// features. It never represents support: explicit negative, malformed, or
+// contradictory declarations suppress only that feature's probe route.
+func anthropicProbeCapabilities(metadata map[string]any, evidence []Evidence) []string {
+	// Individual feature absence is meaningful only after the inventory has
+	// established that this is a Messages model.  A non-text model must never
+	// gain Messages probes merely because another feature was advertised.
+	if !hasCapability(evidence, AnthropicMessagesText) {
+		return nil
+	}
+	checks := []struct {
+		capability string
+		keys       []string
+	}{
+		{AnthropicMessagesText, []string{"text", "messages", "messages_text"}},
+		{AnthropicImageInput, []string{"image_input", "vision"}},
+		{AnthropicTools, []string{"tools", "tool_use"}},
+		{AnthropicStructuredOutput, []string{"structured_output", "structured_outputs"}},
+	}
+	capabilities, capabilitiesOK := metadata["capabilities"].(map[string]any)
+	if _, declared := metadata["capabilities"]; declared && !capabilitiesOK {
+		return nil
+	}
+	var probe []string
+	for _, check := range checks {
+		if hasCapability(evidence, check.capability) {
+			continue
+		}
+		present, safe := false, true
+		for _, key := range check.keys {
+			for _, source := range []map[string]any{metadata, capabilities} {
+				if source == nil {
+					continue
+				}
+				value, exists := source[key]
+				if !exists {
+					continue
+				}
+				present = true
+				if capabilityExplicitlyUnsupported(value) || !capabilitySupported(value) {
+					safe = false
+				}
+			}
+		}
+		if !present && safe {
+			probe = append(probe, check.capability)
+		}
+	}
+	return probe
+}
+
+type anthropicCapabilityMetadataState struct {
+	supported   bool
+	unsupported bool
+	conflict    bool
+	malformed   bool
+}
+
+func anthropicCapabilityState(metadata, capabilities map[string]any, keys []string) anthropicCapabilityMetadataState {
+	var state anthropicCapabilityMetadataState
+	for _, key := range keys {
+		for _, source := range []map[string]any{metadata, capabilities} {
+			if source == nil {
+				continue
+			}
+			value, present := source[key]
+			if !present {
+				continue
+			}
+			state.observe(value)
+		}
+	}
+	return state
+}
+
+func anthropicCapabilityKeys(capability string) []string {
+	switch capability {
+	case AnthropicMessagesText:
+		return []string{"text", "messages", "messages_text"}
+	case AnthropicImageInput:
+		return []string{"image_input", "vision"}
+	case AnthropicTools:
+		return []string{"tools", "tool_use"}
+	case AnthropicStructuredOutput:
+		return []string{"structured_output", "structured_outputs"}
+	}
+	return nil
+}
+
+func (state *anthropicCapabilityMetadataState) observe(value any) {
+	supported := capabilitySupported(value)
+	unsupported := capabilityExplicitlyUnsupported(value)
+	if !supported && !unsupported {
+		state.malformed = true
+		return
+	}
+	state.supported = state.supported || supported
+	state.unsupported = state.unsupported || unsupported
+	state.conflict = state.supported && state.unsupported
+}
+
+func anthropicThinkingCapabilities(metadata, capabilities map[string]any) (anthropicCapabilityMetadataState, anthropicCapabilityMetadataState, string) {
+	adaptive := anthropicCapabilityState(metadata, capabilities, []string{"thinking_adaptive", "adaptive_thinking"})
+	manual := anthropicCapabilityState(metadata, capabilities, []string{"thinking_manual", "manual_thinking"})
+	raw, present := capabilities["thinking"]
+	if !present {
+		return validatedAnthropicThinking(adaptive, manual)
+	}
+	thinking, ok := raw.(map[string]any)
+	if !ok {
+		return adaptive, manual, "malformed Anthropic thinking metadata"
+	}
+	parent, parentPresent := thinking["supported"]
+	if parentPresent {
+		supported, ok := parent.(bool)
+		if !ok {
+			return adaptive, manual, "malformed Anthropic thinking metadata"
+		}
+		if !supported {
+			adaptive.observe(false)
+			manual.observe(false)
+		}
+	}
+	rawTypes, typesPresent := thinking["types"]
+	if !typesPresent {
+		return validatedAnthropicThinking(adaptive, manual)
+	}
+	types, ok := rawTypes.(map[string]any)
+	if !ok {
+		return adaptive, manual, "malformed Anthropic thinking types metadata"
+	}
+	for _, item := range []struct {
+		key   string
+		state *anthropicCapabilityMetadataState
+	}{
+		{"adaptive", &adaptive},
+		{"enabled", &manual},
+	} {
+		value, present := types[item.key]
+		if !present {
+			continue
+		}
+		if !capabilitySupported(value) && !capabilityExplicitlyUnsupported(value) {
+			return adaptive, manual, "malformed Anthropic thinking types metadata"
+		}
+		item.state.observe(value)
+	}
+	return validatedAnthropicThinking(adaptive, manual)
+}
+
+func validatedAnthropicThinking(adaptive, manual anthropicCapabilityMetadataState) (anthropicCapabilityMetadataState, anthropicCapabilityMetadataState, string) {
+	if adaptive.conflict || manual.conflict {
+		return adaptive, manual, "contradictory Anthropic thinking metadata"
+	}
+	if adaptive.malformed || manual.malformed {
+		return adaptive, manual, "malformed Anthropic thinking types metadata"
+	}
+	return adaptive, manual, ""
 }
 
 func anthropicCapabilityDeclared(metadata map[string]any) bool {

@@ -19,10 +19,14 @@ The original model request is stored once as `config.requested_models`. Target
 rows contain only models selected from that target's successfully retrieved
 inventory; `targets[].models` is not a copy of the requested list. An ID that
 is absent from one successful inventory is silently omitted there, and an ID
-absent from every successful inventory creates no model row, requirement,
-finding, or verdict effect. Raw inventory and discovery validation remain in
-the affected target, so consumers can distinguish silent absence from a
-discovery failure. The full routing contract is in
+absent from every successful inventory creates no synthetic model row or
+model-specific failure. A model-scoped run with no evaluated models does,
+however, receive a target-level incomplete-scope requirement and an
+`INCONCLUSIVE`, non-rankable verdict. This also applies when a requested model
+exists only on another target. A globally unmatched request receives explicit
+requested-selection evidence. Raw inventory and discovery validation remain in
+the affected target, so consumers can distinguish absent scope from a discovery
+failure. The full routing contract is in
 [`unified-model-routing.md`](unified-model-routing.md).
 
 Model verdicts are derived from that model's canonical requirements. A missing planned native or profile-bound extension result cannot leave a model labelled `PASS`.

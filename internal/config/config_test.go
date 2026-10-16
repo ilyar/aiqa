@@ -46,6 +46,12 @@ func TestParseExecutionControlDefaults(t *testing.T) {
 	if cfg.TargetConcurrency != 0 || cfg.Progress != "auto" || cfg.Color != "auto" || cfg.Unicode != "auto" || cfg.Stdout != "" || cfg.QueueTimeout != 0 || cfg.RunTimeout != 0 || cfg.RequestMemoryBudget != 128*1024*1024 {
 		t.Fatalf("unexpected execution defaults: %+v", cfg)
 	}
+	if cfg.MaxSelectedModels != 64 || cfg.MaxCatalogModels != 4096 || cfg.InventoryByteBudget != 16*1024*1024 || cfg.GoogleModelWorkers != 4 {
+		t.Fatalf("unexpected inventory defaults: %+v", cfg)
+	}
+	if cfg.ContextRequestBudget != 32 || cfg.ContextByteBudget != 64*1024*1024 {
+		t.Fatalf("unexpected context defaults: %+v", cfg)
+	}
 }
 
 func TestParseExecutionControlsRejectInvalidOrAmbiguousValues(t *testing.T) {

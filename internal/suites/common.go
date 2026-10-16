@@ -3,6 +3,7 @@ package suites
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -228,7 +229,24 @@ func errorText(err error) string {
 	return truncate(err.Error(), 1000)
 }
 
+// applyWorkLimit records a local execution guard before interpreting any HTTP
+// response. A 2xx response may have been received before bounded SSE parsing
+// or the run-wide transport budget stopped work; that is not provider evidence.
+func applyWorkLimit(t *result.TestResult, err error) bool {
+	if !errors.Is(err, api.ErrWorkLimit) {
+		return false
+	}
+	t.Status = result.StatusError
+	t.Summary = "local execution work limit reached; compatibility outcome is inconclusive"
+	t.Error = errorText(err)
+	t.Signals = append(t.Signals, result.EvidenceSignal{Code: "execution.work_limit"})
+	return true
+}
+
 func statusForOptionalHTTP(resp api.Response, err error) result.Status {
+	if errors.Is(err, api.ErrWorkLimit) {
+		return result.StatusError
+	}
 	if err != nil && resp.StatusCode == 0 {
 		return result.StatusError
 	}

@@ -324,11 +324,17 @@ func SafeText(value string) string {
 			b.WriteString(`\r`)
 		case r == '\t':
 			b.WriteString(`\t`)
-		case unicode.IsControl(r):
+		case unicode.IsControl(r) || r == '\u2028' || r == '\u2029':
+			fmt.Fprintf(&b, `\u%04x`, r)
+		case isBidiControl(r):
 			fmt.Fprintf(&b, `\u%04x`, r)
 		default:
 			b.WriteRune(r)
 		}
 	}
 	return b.String()
+}
+
+func isBidiControl(r rune) bool {
+	return r == '\u061c' || (r >= '\u200e' && r <= '\u200f') || (r >= '\u202a' && r <= '\u202e') || (r >= '\u2066' && r <= '\u2069')
 }

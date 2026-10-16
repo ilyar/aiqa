@@ -577,7 +577,7 @@ func (b *Broker) flushFacts() {
 }
 
 func (b *Broker) recordGroupLocked(name string, g *groupState) {
-	b.recordFactLocked(Fact{Kind: FactGroupUpdated, At: b.cfg.Clock.Now(), Group: name, Capacity: g.admissionCapacity(), Interval: g.Interval, Cooldown: g.cooldown, Revision: g.revision})
+	b.recordFactLocked(Fact{Kind: FactGroupUpdated, At: b.cfg.Clock.Now(), Group: name, Capacity: g.admissionCapacity(), Interval: g.Interval, Cooldown: g.cooldown, Reason: g.cooldownReason, Revision: g.revision})
 }
 
 func (b *Broker) groupLocked(name string) *groupState {
@@ -664,7 +664,10 @@ func (b *Broker) succeededLocked(g *groupState) {
 	g.successStreak = 0
 	g.quietWindows++
 	if g.Interval > 200*time.Millisecond {
-		g.Interval -= 100 * time.Millisecond
+		// A multiplicative recovery reaches the established 200ms floor in
+		// a bounded number of quiet windows.  The former fixed decrement made a
+		// 30s post-429 interval take hours of successful work to recover.
+		g.Interval /= 2
 		if g.Interval < 200*time.Millisecond {
 			g.Interval = 200 * time.Millisecond
 		}
@@ -935,8 +938,9 @@ func (l *MemoryLease) Release() {
 func (l *Lease) Release() { l.release(false) }
 
 // Succeeded reports a quiet successful attempt before Release.  For an
-// adaptive group, five successes tighten the interval and every second quiet
-// window raises its learned in-flight limit by one, up to its configured cap.
+// adaptive group, five successes halve the interval down to the established
+// 200ms floor and every second quiet window raises its learned in-flight limit
+// by one, up to its configured cap.
 // Calling it for a static group is harmless.
 func (l *Lease) Succeeded() {
 	l.feedbackOnce.Do(func() {

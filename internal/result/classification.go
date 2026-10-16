@@ -18,7 +18,33 @@ func ClassifyResult(status Status, id, requirementID, profileRevision string, ht
 }
 
 func ClassifyTestResult(test TestResult, profileRevision string) *Classification {
-	return classifyResult(test.Status, test.ID, test.RequirementID, profileRevision, test.HTTP, test.Summary+" "+test.Expected+" "+test.Observation)
+	c := classifyResult(test.Status, test.ID, test.RequirementID, profileRevision, test.HTTP, test.Summary+" "+test.Expected+" "+test.Observation)
+	classifyExecutionSignals(c, test.Status, test.Signals)
+	return c
+}
+
+func ClassifyExtensionResult(suite ExtensionSuiteResult, profileRevision string) *Classification {
+	c := ClassifyResult(suite.Status, "extension."+suite.ExtensionID+"."+suite.SuiteID, suite.RequirementID, profileRevision, suite.HTTP)
+	classifyExecutionSignals(c, suite.Status, suite.Signals)
+	return c
+}
+
+func classifyExecutionSignals(c *Classification, status Status, signals []EvidenceSignal) {
+	if c == nil || status != StatusError {
+		return
+	}
+	for _, signal := range signals {
+		switch signal.Code {
+		case "execution.work_limit":
+			c.Kind, c.Reason = ClassificationExecutionGap, "local safety limit ended execution before complete conformance evidence was available"
+		case "execution.output_truncated":
+			c.Kind, c.Reason = ClassificationExecutionGap, "output token budget ended before complete conformance evidence was available"
+		case "execution.model_access_unavailable":
+			c.Kind, c.Reason = ClassificationExecutionGap, "model access is unavailable; protocol conformance was not evaluated"
+		case "execution.daily_quota_exhausted":
+			c.Kind, c.Reason = ClassificationExecutionGap, "daily quota is exhausted; lowering concurrency does not restore it"
+		}
+	}
 }
 
 func classifyResult(status Status, id, requirementID, profileRevision string, http HTTPObservation, semanticEvidence string) *Classification {

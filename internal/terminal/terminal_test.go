@@ -70,10 +70,10 @@ func TestGoldenFrames(t *testing.T) {
 
 func TestSanitizesControlsAndUsesCellWidths(t *testing.T) {
 	s := sample()
-	s.Rows[0].ID = "very-long-界\u0301\x1b[31m\u202eevil-openai-model"
+	s.Rows[0].ID = "\u061c\u2028\u2029very-long-界\u0301\x1b[31m\u202eevil-openai-model"
 	f := Render(s, 48, 12, Options{})
 	for _, line := range f.Lines {
-		if strings.ContainsAny(line, "\x1b\u202e\r\n") {
+		if strings.ContainsAny(line, "\x1b\u061c\u2028\u2029\u202e\r\n") {
 			t.Fatalf("unsafe frame line %q", line)
 		}
 		if uniseg.StringWidth(line) > 47 {

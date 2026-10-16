@@ -1,0 +1,133 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - id: tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]; then
+            echo "release tags must match vMAJOR.MINOR.PATCH-beta.N: $TAG" >&2
+            exit 1
+          fi
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+  quality:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.27'
+          cache: true
+      - run: make check
+      - run: bash script/secret-screen.sh
+      - run: make security-check
+      - run: make race
+      - run: bash script/install_test.sh
+
+  native-smoke:
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.27'
+          cache: true
+      - name: Build and smoke test
+        shell: bash
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+          COMMIT: ${{ github.sha }}
+          DATE: release
+        run: |
+          make build VERSION="$VERSION" COMMIT="${COMMIT:0:12}" DATE="$DATE"
+          ./bin/aiqa --version
+
+  build-release:
+    needs: [validate, quality, native-smoke]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.27'
+          cache: true
+      - name: Build release artifacts
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+          COMMIT: ${{ github.sha }}
+          DATE: release
+        run: make dist VERSION="$VERSION" COMMIT="${COMMIT:0:12}" DATE="$DATE"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: aiqa-${{ needs.validate.outputs.version }}
+          path: |
+            dist/${{ needs.validate.outputs.version }}/aiqa-linux-amd64
+            dist/${{ needs.validate.outputs.version }}/aiqa-linux-arm64
+            dist/${{ needs.validate.outputs.version }}/aiqa-darwin-amd64
+            dist/${{ needs.validate.outputs.version }}/aiqa-darwin-arm64
+            dist/${{ needs.validate.outputs.version }}/aiqa-windows-amd64.exe
+            dist/${{ needs.validate.outputs.version }}/aiqa-windows-arm64.exe
+            dist/${{ needs.validate.outputs.version }}/aiqa-freebsd-amd64
+            dist/${{ needs.validate.outputs.version }}/aiqa-freebsd-arm64
+            dist/${{ needs.validate.outputs.version }}/SHA256SUMS
+            dist/${{ needs.validate.outputs.version }}/LICENSE
+          if-no-files-found: error
+
+  create-draft:
+    needs: [validate, build-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: aiqa-${{ needs.validate.outputs.version }}
+          path: release
+      - name: Verify release checksums
+        run: |
+          cd release
+          sha256sum --check SHA256SUMS
+      - name: Create draft prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          gh release create "$TAG" \
+            --title "AIQA $VERSION" \
+            --draft \
+            --prerelease \
+            --generate-notes \
+            release/aiqa-linux-amd64 \
+            release/aiqa-linux-arm64 \
+            release/aiqa-darwin-amd64 \
+            release/aiqa-darwin-arm64 \
+            release/aiqa-windows-amd64.exe \
+            release/aiqa-windows-arm64.exe \
+            release/aiqa-freebsd-amd64 \
+            release/aiqa-freebsd-arm64 \
+            release/SHA256SUMS \
+            release/LICENSE

@@ -29,6 +29,38 @@ const maxImageArtifactBytes = 20 << 20
 // ImageCompatProbeCount counts the lifecycle probes started by RunImageCompat.
 const ImageCompatProbeCount = 3
 
+// MarkProbePolicyImageModelUnsupported records the narrowly-defined response
+// which means a probe-policy model cannot be used by the images endpoint. The
+// HTTP observation remains attached to the test for auditability.
+func MarkProbePolicyImageModelUnsupported(tests []result.TestResult) bool {
+	for index := range tests {
+		test := &tests[index]
+		if test.ID != "images.generate.basic" || test.Status != result.StatusFail || test.HTTP.StatusCode != http.StatusBadRequest {
+			continue
+		}
+		var payload struct {
+			Error struct {
+				Code  string `json:"code"`
+				Param string `json:"param"`
+				Type  string `json:"type"`
+			} `json:"error"`
+		}
+		if json.Unmarshal([]byte(test.HTTP.Snippet), &payload) != nil ||
+			payload.Error.Code != "invalid_value" ||
+			payload.Error.Param != "model" ||
+			payload.Error.Type != "image_generation_user_error" {
+			continue
+		}
+		test.Status = result.StatusUnsupported
+		test.Summary = "image generation rejected this probe-policy model"
+		test.Signals = append(test.Signals, result.EvidenceSignal{
+			Code: "capability.probe.unsupported", RootCause: "model-route-unsupported",
+		})
+		return true
+	}
+	return false
+}
+
 func RunImageCompat(parent context.Context, env Environment, model string) []result.TestResult {
 	parent, suiteOp := env.startSuite(parent, "compat-images", logging.Fields{"model": model})
 	defer endOperation(suiteOp, "completed", nil)
@@ -62,7 +94,7 @@ func probeImageGeneration(parent context.Context, env Environment, model string)
 		// From this point a provider creation may occur. The shared bucket stays
 		// consumed even if a timeout leaves creation ambiguous.
 		reservation.Commit()
-		resp, err = env.Client.ImagesGenerate(ctx, map[string]any{
+		resp, err = env.Client.ImagesGenerate(api.WithSingleAttempt(ctx), map[string]any{
 			"model":  model,
 			"prompt": "A single blue square centered on a plain white background.",
 		})

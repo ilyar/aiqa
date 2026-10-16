@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
 	"time"
@@ -73,6 +74,9 @@ func FetchPublicArtifactWithTelemetry(ctx context.Context, provider *telemetry.P
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	transport.DialContext = publicDialContext
+	// Artifact URLs are untrusted provider output. Ambient proxy settings would
+	// bypass publicDialContext and could turn them into internal proxy requests.
+	transport.Proxy = nil
 	client := &http.Client{
 		Transport: transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -162,7 +166,50 @@ func publicDialContext(ctx context.Context, network, address string) (net.Conn, 
 }
 
 func publicIP(ip net.IP) bool {
-	return ip != nil && !ip.IsLoopback() && !ip.IsPrivate() && !ip.IsUnspecified() && !ip.IsLinkLocalUnicast() && !ip.IsLinkLocalMulticast() && !ip.IsMulticast()
+	address, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return false
+	}
+	if address.Is4In6() {
+		address = address.Unmap()
+	}
+	if !address.IsGlobalUnicast() {
+		return false
+	}
+	for _, prefix := range globallyReachableArtifactExceptions {
+		if prefix.Contains(address) {
+			return true
+		}
+	}
+	for _, prefix := range nonGlobalArtifactPrefixes {
+		if prefix.Contains(address) {
+			return false
+		}
+	}
+	return true
+}
+
+// IANA IPv4/IPv6 Special-Purpose Address Registries (2025-10-09). These are
+// deny ranges whose entries are not globally reachable. Explicit IANA global
+// exceptions are checked first above. NAT64 translation is denied
+// conservatively: it can embed an otherwise forbidden IPv4 destination.
+var nonGlobalArtifactPrefixes = mustPrefixes(
+	"0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16",
+	"172.16.0.0/12", "192.0.0.0/24", "192.0.2.0/24",
+	"192.88.99.0/24", "192.168.0.0/16", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4",
+	"::/128", "::1/128", "::ffff:0:0/96", "64:ff9b::/96", "64:ff9b:1::/48", "100::/64", "100:0:0:1::/64",
+	"2001::/23", "2001:db8::/32", "2002::/16", "3fff::/20", "5f00::/16", "fc00::/7", "fe80::/10", "fec0::/10")
+
+var globallyReachableArtifactExceptions = mustPrefixes(
+	"192.0.0.9/32", "192.0.0.10/32", "2001:1::1/128", "2001:1::2/128", "2001:1::3/128",
+	"2001:3::/32", "2001:4:112::/48", "2001:20::/28", "2001:30::/28")
+
+func mustPrefixes(values ...string) []netip.Prefix {
+	out := make([]netip.Prefix, 0, len(values))
+	for _, value := range values {
+		out = append(out, netip.MustParsePrefix(value))
+	}
+	return out
 }
 
 func redactURLError(err error) error {

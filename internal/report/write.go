@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/ilyar/aiqa/internal/config"
@@ -16,7 +17,7 @@ var (
 )
 
 func reportSecrets(cfg config.Config) []string {
-	out := []string{cfg.APIKey}
+	out := []string{cfg.APIKey, cfg.GoogleGenAIAPIKey}
 	for _, target := range cfg.Targets {
 		out = append(out, target.APIKey)
 	}
@@ -53,7 +54,9 @@ func atomicWrite(path string, data []byte, mode os.FileMode) error {
 }
 
 func sanitizeVerboseLogLine(line string, secrets []string) string {
-	for _, secret := range secrets {
+	ordered := append([]string(nil), secrets...)
+	sort.SliceStable(ordered, func(i, j int) bool { return len(ordered[i]) > len(ordered[j]) })
+	for _, secret := range ordered {
 		if secret != "" {
 			line = strings.ReplaceAll(line, secret, "[REDACTED]")
 		}

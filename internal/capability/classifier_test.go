@@ -254,6 +254,93 @@ func TestAnthropicCompleteModelInfoIdentifiesMessagesRoute(t *testing.T) {
 	}
 }
 
+func TestAnthropicProbePolicyRoutesOnlyAbsentPartialCapabilities(t *testing.T) {
+	metadata := map[string]any{
+		"type": "model", "display_name": "Partial", "created_at": "2026-09-01T00:00:00Z",
+		"max_input_tokens": 200000, "max_tokens": 8192,
+		"capabilities": map[string]any{
+			"structured_outputs": map[string]any{"supported": true},
+			"image_input":        map[string]any{"supported": true},
+		},
+	}
+	got := ClassifyAnthropic("partial", metadata, Options{UnknownPolicy: "probe"})
+	if got.Unknown || got.ProbeEligible || !got.Has(AnthropicStructuredOutput) || !got.Has(AnthropicImageInput) || !got.ProbeHas(AnthropicTools) {
+		t.Fatalf("partial capability probe plan=%+v", got)
+	}
+	for _, capability := range []string{AnthropicStructuredOutput, AnthropicImageInput} {
+		if got.ProbeHas(capability) {
+			t.Fatalf("declared capability %q became a probe: %+v", capability, got)
+		}
+	}
+	for name, value := range map[string]any{
+		"explicit false": map[string]any{"supported": false},
+		"malformed":      []any{"tools"},
+	} {
+		metadata["capabilities"].(map[string]any)["tools"] = value
+		got := ClassifyAnthropic("partial", metadata, Options{UnknownPolicy: "probe"})
+		if got.ProbeHas(AnthropicTools) {
+			t.Fatalf("%s tools metadata became probe eligible: %+v", name, got)
+		}
+	}
+}
+
+func TestAnthropicNestedThinkingTypesAreParsedWithoutProbePolicy(t *testing.T) {
+	got := ClassifyAnthropic("thinking", map[string]any{"capabilities": map[string]any{
+		"thinking": map[string]any{"types": map[string]any{
+			"adaptive": map[string]any{"supported": true},
+			"enabled":  map[string]any{"supported": true},
+		}},
+	}}, Options{UnknownPolicy: "inventory"})
+	if got.Unknown || !got.Has(AnthropicThinkingAdaptive) || !got.Has(AnthropicThinkingManual) {
+		t.Fatalf("nested thinking types were not classified: %+v", got)
+	}
+}
+
+func TestAnthropicProbePolicyRejectsContradictoryAndMalformedFeatureMetadata(t *testing.T) {
+	for name, metadata := range map[string]map[string]any{
+		"tool aliases conflict": {"capabilities": map[string]any{"tools": false, "tool_use": true}},
+		"thinking conflict":     {"capabilities": map[string]any{"thinking": map[string]any{"supported": false, "types": map[string]any{"adaptive": map[string]any{"supported": true}}}}},
+		"malformed thinking":    {"capabilities": map[string]any{"thinking": []any{"adaptive"}}},
+	} {
+		got := ClassifyAnthropic("conflict", metadata, Options{UnknownPolicy: "probe"})
+		if !got.Unknown || got.ProbeEligible || len(got.ProbeCapabilities) != 0 {
+			t.Fatalf("%s became routable: %+v", name, got)
+		}
+	}
+}
+
+func TestAnthropicThinkingMetadataRejectsFlatNestedContradictions(t *testing.T) {
+	for name, metadata := range map[string]map[string]any{
+		"adaptive flat false nested true": {"capabilities": map[string]any{"thinking_adaptive": false, "thinking": map[string]any{"types": map[string]any{"adaptive": true}}}},
+		"adaptive flat true nested false": {"capabilities": map[string]any{"thinking_adaptive": true, "thinking": map[string]any{"types": map[string]any{"adaptive": false}}}},
+		"manual flat false nested true":   {"capabilities": map[string]any{"thinking_manual": false, "thinking": map[string]any{"types": map[string]any{"enabled": true}}}},
+		"manual flat true nested false":   {"capabilities": map[string]any{"thinking_manual": true, "thinking": map[string]any{"types": map[string]any{"enabled": false}}}},
+		"child internal conflict":         {"capabilities": map[string]any{"thinking": map[string]any{"types": map[string]any{"adaptive": map[string]any{"supported": false, "enabled": true}}}}},
+	} {
+		got := ClassifyAnthropic("thinking", metadata, Options{UnknownPolicy: "probe"})
+		if !got.Unknown || got.Has(AnthropicThinkingAdaptive) || got.Has(AnthropicThinkingManual) || len(got.ProbeCapabilities) != 0 {
+			t.Fatalf("%s became routable: %+v", name, got)
+		}
+	}
+}
+
+func TestAnthropicMessagesPolicyDoesNotOverrideExplicitToolDenial(t *testing.T) {
+	got := ClassifyAnthropic("denied-tools", map[string]any{"capabilities": map[string]any{"tools": false}}, Options{UnknownPolicy: "messages"})
+	if got.Has(AnthropicTools) {
+		t.Fatalf("messages policy overrode explicit tools denial: %+v", got)
+	}
+}
+
+func TestAnthropicPartialProbeRequiresMessagesRoute(t *testing.T) {
+	got := ClassifyAnthropic("vision-only", map[string]any{"capabilities": map[string]any{
+		"text":        map[string]any{"supported": false},
+		"image_input": map[string]any{"supported": true},
+	}}, Options{UnknownPolicy: "probe"})
+	if got.Unknown || !got.Has(AnthropicImageInput) || got.ProbeHas(AnthropicMessagesText) || got.ProbeHas(AnthropicTools) {
+		t.Fatalf("non-Messages image model gained probes: %+v", got)
+	}
+}
+
 func TestAnthropicExplicitTextRejectionOverridesModelInfoAndDefault(t *testing.T) {
 	metadata := map[string]any{
 		"type": "model", "display_name": "Reranker", "created_at": "2026-09-01T00:00:00Z",

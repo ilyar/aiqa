@@ -452,14 +452,42 @@ func shortSHA(value string) string {
 }
 
 func escapeCell(s string) string {
-	s = strings.ReplaceAll(s, "|", "\\|")
-	s = strings.ReplaceAll(s, "\r", " ")
-	s = strings.ReplaceAll(s, "\n", " ")
-	return strings.TrimSpace(s)
+	return markdownLiteral(s)
 }
 
 func escapeInline(s string) string {
-	return strings.ReplaceAll(s, "`", "\\`")
+	return markdownLiteral(s)
+}
+
+// markdownLiteral makes provider-controlled text inert in code spans and table
+// cells: it cannot terminate a span, become a link/HTML element, or use bidi
+// controls to change what an operator sees.
+func markdownLiteral(s string) string {
+	var b strings.Builder
+	for _, r := range strings.TrimSpace(s) {
+		switch {
+		case r == '\r' || r == '\n':
+			b.WriteByte(' ')
+		case r == '`':
+			// Backslashes do not escape a backtick inside a CommonMark code span.
+			// Retain a visible literal representation without a delimiter rune.
+			b.WriteString(`\u0060`)
+		case r < 0x20 || (r >= 0x7f && r <= 0x9f) || r == '\u2028' || r == '\u2029' || isBidiControl(r):
+			fmt.Fprintf(&b, `\\u%04x`, r)
+		case strings.ContainsRune("\\\\[]<>|", r):
+			b.WriteByte('\\')
+			b.WriteRune(r)
+		case r == '&':
+			b.WriteString("&amp;")
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func isBidiControl(r rune) bool {
+	return r == '\u061c' || (r >= '\u200e' && r <= '\u200f') || (r >= '\u202a' && r <= '\u202e') || (r >= '\u2066' && r <= '\u2069')
 }
 
 // Notes are plain text and can contain provider-controlled model identifiers.

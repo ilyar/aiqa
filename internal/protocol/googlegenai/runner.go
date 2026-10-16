@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -132,8 +133,18 @@ func PrepareTarget(ctx context.Context, options protocolpkg.RunOptions) (protoco
 		discoveryCtx, discoveryProbe = options.Telemetry.Start(logging.Scope(suiteCtx, options.Target.ID, "", "discovery", "google.models.list.http", ""), "probe", logging.Fields{"probe": "aiqa.native.google.models.list.http"})
 	}
 	listCtx, cancel := api.WithRequestTimeout(discoveryCtx, options.Config.Timeout)
-	models, response, paginationResponse, listErr := discoverAll(listCtx, client)
+	listCtx = api.WithResponseBodyLimit(listCtx, protocolpkg.EffectiveInventoryByteBudget(options.Config.InventoryByteBudget))
+	listCtx = api.WithJSONCollectionLimit(listCtx, options.Config.MaxCatalogModels)
+	models, response, paginationResponse, listErr := discoverAll(listCtx, client, options.Config.MaxCatalogModels, options.Config.InventoryByteBudget)
 	cancel()
+	if errors.Is(listErr, api.ErrWorkLimit) {
+		return protocolpkg.PreparedTarget{}, listErr
+	}
+	if listErr == nil && response.Is2xx() {
+		if err := protocolpkg.ValidateInventoryResponseBudget(models, int64(len(response.Body)), options.Config.MaxCatalogModels, options.Config.InventoryByteBudget); err != nil {
+			return protocolpkg.PreparedTarget{}, err
+		}
+	}
 	if discoveryProbe != nil {
 		outcome := "completed"
 		if listErr != nil || !response.Is2xx() {
@@ -144,6 +155,9 @@ func PrepareTarget(ctx context.Context, options protocolpkg.RunOptions) (protoco
 		discoveryProvider.End(outcome, logging.Fields{"status": outcome})
 	}
 	selected, metadata := selectModels(requestedModels(options.Config, options.Target), models)
+	if err := protocolpkg.ValidateSelectionBudget(selected, options.Config.MaxSelectedModels); err != nil {
+		return protocolpkg.PreparedTarget{}, err
+	}
 	executor := probe.NewExecutor(options.Config.Concurrency)
 	frozen, err := freezeExecution(ctx, options, client, executor, selected, metadata, paginationResponse)
 	if err != nil {
@@ -232,8 +246,24 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 		}
 	} else {
 		listCtx, cancel := api.WithRequestTimeout(googleJobContext(discoveryCtx, target.ID, "", "inventory"), cfg.Timeout)
-		models, listResp, paginationResp, listErr = discoverAll(listCtx, client)
+		listCtx = api.WithResponseBodyLimit(listCtx, protocolpkg.EffectiveInventoryByteBudget(cfg.InventoryByteBudget))
+		listCtx = api.WithJSONCollectionLimit(listCtx, cfg.MaxCatalogModels)
+		models, listResp, paginationResp, listErr = discoverAll(listCtx, client, cfg.MaxCatalogModels, cfg.InventoryByteBudget)
 		cancel()
+		if errors.Is(listErr, api.ErrWorkLimit) {
+			return result.TargetReport{}, listErr
+		}
+	}
+	if errors.Is(listErr, api.ErrWorkLimit) {
+		return result.TargetReport{}, listErr
+	}
+	if listErr != nil || !listResp.Is2xx() {
+		models = nil
+	}
+	if listErr == nil && listResp.Is2xx() {
+		if err := protocolpkg.ValidateInventoryResponseBudget(models, int64(len(listResp.Body)), cfg.MaxCatalogModels, cfg.InventoryByteBudget); err != nil {
+			return result.TargetReport{}, fmt.Errorf("%w: %v", api.ErrWorkLimit, err)
+		}
 	}
 	tmp.Discovery.ModelCount = len(models)
 	for _, model := range models {
@@ -262,6 +292,9 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 		protocolpkg.StartJob(options.Progress, target.ID, "", "inventory")(outcome)
 	}
 	selected, metadata := selectModels(requested, models)
+	if err := protocolpkg.ValidateSelectionBudget(selected, cfg.MaxSelectedModels); err != nil {
+		return result.TargetReport{}, err
+	}
 	if options.frozen != nil {
 		selected, metadata = options.frozen.selected, options.frozen.metadata
 	}
@@ -375,64 +408,84 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 	if options.Inventory == nil {
 		plan = newProgressPlan(options.Progress, target.ID, plannedProbeCount(cfg, selected, modulePlans, routeBlocked, strings.Contains(p.ID, "generate-content")))
 	}
+	// A provider catalogue is untrusted input. Use a fixed worker pool instead
+	// of one goroutine per selected model.
+	workers := cfg.GoogleModelWorkers
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > len(selected) {
+		workers = len(selected)
+	}
+	type modelJob struct {
+		index int
+		model string
+	}
+	jobs := make(chan modelJob)
 	var wg sync.WaitGroup
-	for index, model := range selected {
-		index, model := index, model
+	for range workers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			modelCtx := logging.Scope(ctx, target.ID, model, "", "", "")
-			var modelEnd func(string, logging.Fields)
-			if options.Telemetry != nil {
-				_, modelOp := options.Telemetry.Start(modelCtx, "model", logging.Fields{"model": model})
-				modelCtx = modelOp.Context()
-				modelEnd = modelOp.End
-			} else {
-				modelEnd = func(string, logging.Fields) {}
-			}
-			classification := classifications[index]
-			modules := modulePlans[index]
-			mr := result.ModelReport{ID: model, Metadata: cloneMap(metadata[model]), Modules: modules}
-			for _, evidence := range classification.Capabilities {
-				mr.Capabilities = append(mr.Capabilities, result.CapabilityAssessment{ID: evidence.Capability, Source: evidence.Source, Rule: evidence.Rule, Confidence: evidence.Confidence, Reason: evidence.Reason})
-			}
-			compatDone := func(string) {}
-			if cfg.HasTest("compat") {
-				compatDone = protocolpkg.StartJob(options.Progress, target.ID, model, "compat")
-			}
-			if cfg.HasTest("compat") && preflightTests[index] != nil && routeBlocked[index] {
-				mr.Compatibility = append(mr.Compatibility, *preflightTests[index])
-			} else if cfg.HasTest("compat") {
-				compatCtx := googleJobContext(modelCtx, target.ID, model, "compat")
-				mr.Compatibility = runModelWithPreflight(compatCtx, client, cfg, p, model, modules, executor, options.Telemetry, strings.Contains(p.ID, "generate-content"), preflights[index], preflightErrors[index], plan)
-			}
-			if cfg.HasTest("compat") {
-				if len(mr.Compatibility) == 0 {
-					compatDone("skipped")
+			for job := range jobs {
+				index, model := job.index, job.model
+				modelCtx := logging.Scope(ctx, target.ID, model, "", "", "")
+				var modelEnd func(string, logging.Fields)
+				if options.Telemetry != nil {
+					_, modelOp := options.Telemetry.Start(modelCtx, "model", logging.Fields{"model": model})
+					modelCtx = modelOp.Context()
+					modelEnd = modelOp.End
 				} else {
-					compatDone("completed")
+					modelEnd = func(string, logging.Fields) {}
 				}
+				classification := classifications[index]
+				modules := modulePlans[index]
+				mr := result.ModelReport{ID: model, Metadata: cloneMap(metadata[model]), Modules: modules}
+				for _, evidence := range classification.Capabilities {
+					mr.Capabilities = append(mr.Capabilities, result.CapabilityAssessment{ID: evidence.Capability, Source: evidence.Source, Rule: evidence.Rule, Confidence: evidence.Confidence, Reason: evidence.Reason})
+				}
+				compatDone := func(string) {}
+				if cfg.HasTest("compat") {
+					compatDone = protocolpkg.StartJob(options.Progress, target.ID, model, "compat")
+				}
+				if cfg.HasTest("compat") && preflightTests[index] != nil && routeBlocked[index] {
+					mr.Compatibility = append(mr.Compatibility, *preflightTests[index])
+				} else if cfg.HasTest("compat") {
+					compatCtx := googleJobContext(modelCtx, target.ID, model, "compat")
+					mr.Compatibility = runModelWithPreflight(compatCtx, client, cfg, p, model, modules, executor, options.Telemetry, strings.Contains(p.ID, "generate-content"), preflights[index], preflightErrors[index], plan)
+				}
+				if cfg.HasTest("compat") {
+					if len(mr.Compatibility) == 0 {
+						compatDone("skipped")
+					} else {
+						compatDone("completed")
+					}
+				}
+				paramDone := func(string) {}
+				if cfg.HasTest("model-param") {
+					paramDone = protocolpkg.StartJob(options.Progress, target.ID, model, "model-param")
+				}
+				if cfg.HasTest("model-param") && hasAnyGenerationModule(modules, strings.Contains(p.ID, "generate-content")) {
+					mr.Compatibility = append(mr.Compatibility, runGoogleModelParamNotice(p)...)
+					paramDone("completed")
+				} else if cfg.HasTest("model-param") {
+					paramDone("skipped")
+				}
+				sort.Slice(mr.Compatibility, func(i, j int) bool { return mr.Compatibility[i].ID < mr.Compatibility[j].ID })
+				if options.Telemetry == nil {
+					protocolpkg.LogTestResults(options.Logf, target.ID, model, mr.Compatibility)
+				}
+				stats := client.PacingStatsForModel(model)
+				mr.RateLimit = protocolpkg.RateLimitStats(stats)
+				modelResults[index] = mr
+				modelEnd("completed", logging.Fields{"status": "completed"})
 			}
-			paramDone := func(string) {}
-			if cfg.HasTest("model-param") {
-				paramDone = protocolpkg.StartJob(options.Progress, target.ID, model, "model-param")
-			}
-			if cfg.HasTest("model-param") && hasAnyGenerationModule(modules, strings.Contains(p.ID, "generate-content")) {
-				mr.Compatibility = append(mr.Compatibility, runGoogleModelParamNotice(p)...)
-				paramDone("completed")
-			} else if cfg.HasTest("model-param") {
-				paramDone("skipped")
-			}
-			sort.Slice(mr.Compatibility, func(i, j int) bool { return mr.Compatibility[i].ID < mr.Compatibility[j].ID })
-			if options.Telemetry == nil {
-				protocolpkg.LogTestResults(options.Logf, target.ID, model, mr.Compatibility)
-			}
-			stats := client.PacingStatsForModel(model)
-			mr.RateLimit = protocolpkg.RateLimitStats(stats)
-			modelResults[index] = mr
-			modelEnd("completed", logging.Fields{"status": "completed"})
 		}()
 	}
+	for index, model := range selected {
+		jobs <- modelJob{index: index, model: model}
+	}
+	close(jobs)
 	wg.Wait()
 	tmp.Models = modelResults
 	if cfg.HasTest("compat") && len(p.InteractionModels()) > 0 {
@@ -699,10 +752,21 @@ func runGooglePreflight(parent context.Context, client *Client, timeout time.Dur
 	return test, resp, err
 }
 
-func discoverAll(ctx context.Context, client *Client) ([]api.Model, api.Response, api.Response, error) {
+func discoverAll(ctx context.Context, client *Client, maxModels int, maxBytes int64) ([]api.Model, api.Response, api.Response, error) {
+	if maxModels == 0 {
+		maxModels = 4096
+	}
+	maxBytes = protocolpkg.EffectiveInventoryByteBudget(maxBytes)
+	ctx = api.WithResponseBodyLimit(ctx, maxBytes)
+	ctx = api.WithJSONCollectionLimit(ctx, maxModels)
 	models, first, err := client.ListModelsPage(ctx, "")
 	if err != nil || !first.Is2xx() {
-		return models, first, first, err
+		return nil, first, first, err
+	}
+	responseBytes := int64(len(first.Body))
+	rawEntries := googleInventoryEntryCount(first)
+	if err := protocolpkg.ValidateInventoryResponseBudget(models, responseBytes, maxModels, maxBytes); err != nil {
+		return nil, first, first, fmt.Errorf("%w: %v", api.ErrWorkLimit, err)
 	}
 	last := first
 	for page := 0; page < 10; page++ {
@@ -710,14 +774,37 @@ func discoverAll(ctx context.Context, client *Client) ([]api.Model, api.Response
 		if token == "" {
 			return models, first, last, nil
 		}
-		next, response, nextErr := client.ListModelsPage(ctx, token)
+		remaining := maxBytes - responseBytes
+		if remaining <= 0 {
+			return nil, first, last, fmt.Errorf("%w: provider inventory exhausted configured byte budget", api.ErrWorkLimit)
+		}
+		remainingEntries := maxModels - rawEntries
+		if remainingEntries <= 0 {
+			return nil, first, last, fmt.Errorf("%w: provider inventory exhausted configured model count", api.ErrWorkLimit)
+		}
+		pageCtx := api.WithResponseBodyLimit(ctx, remaining)
+		pageCtx = api.WithJSONCollectionLimit(pageCtx, remainingEntries)
+		next, response, nextErr := client.ListModelsPage(pageCtx, token)
 		last = response
 		if nextErr != nil {
-			return models, first, last, nextErr
+			return nil, first, last, nextErr
 		}
 		models = append(models, next...)
+		responseBytes += int64(len(response.Body))
+		rawEntries += googleInventoryEntryCount(response)
+		if rawEntries > maxModels {
+			return nil, first, last, fmt.Errorf("%w: provider inventory exceeds configured model count", api.ErrWorkLimit)
+		}
+		if err := protocolpkg.ValidateInventoryResponseBudget(models, responseBytes, maxModels, maxBytes); err != nil {
+			return nil, first, last, fmt.Errorf("%w: %v", api.ErrWorkLimit, err)
+		}
 	}
-	return models, first, last, fmt.Errorf("Google models list pagination exceeded the 10-page safety bound")
+	return nil, first, last, fmt.Errorf("%w: Google models list pagination exceeded the 10-page safety bound", api.ErrWorkLimit)
+}
+
+func googleInventoryEntryCount(resp api.Response) int {
+	items, _ := resp.JSON["models"].([]any)
+	return len(items)
 }
 
 func discoveryResults(p profile.Profile, resp, paginationResp api.Response, models []api.Model, err error) []result.TestResult {
@@ -1071,6 +1158,7 @@ func runInteractionStream(parent context.Context, client *Client, timeout time.D
 	} else {
 		httpTest.Status, httpTest.Summary = result.StatusPass, "Interactions stream uses SSE"
 	}
+	applyStreamExecutionBlocker(&httpTest, stream)
 	sequence := derived(p, "google.interactions.stream.sequence", httpTest)
 	sequence.Usage = validation.Usage
 	sequence.Metrics = map[string]any{"sse_event_types": streamEventTypes(stream)}
@@ -1264,6 +1352,7 @@ func runGenerateStream(parent context.Context, client *Client, timeout time.Dura
 	} else {
 		httpTest.Status, httpTest.Summary = result.StatusPass, "GenerateContent stream uses SSE"
 	}
+	applyStreamExecutionBlocker(&httpTest, stream)
 	sequence := derived(p, "google.generate-content.stream.sequence", httpTest)
 	sequence.Usage = validation.Usage
 	sequence.Metrics = map[string]any{"sse_event_types": streamEventTypes(stream)}
@@ -1350,7 +1439,8 @@ func runGenerateStructured(parent context.Context, client *Client, timeout time.
 
 func runCountTokens(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string) []result.TestResult {
 	resp, err := call(parent, timeout, func(ctx context.Context) (api.Response, error) {
-		return client.CountTokens(ctx, model, generationBody(model, "Count this text."))
+		// countTokens accepts contents, not top-level generationConfig.
+		return client.CountTokens(ctx, model, map[string]any{"contents": generationBody(model, "Count this text.")["contents"]})
 	})
 	t := testBase(p, "google.tokens.count.basic")
 	t.DurationMS, t.HTTP = resp.Duration.Milliseconds(), observation(resp)
@@ -1411,7 +1501,9 @@ func runThinking(parent context.Context, client *Client, timeout time.Duration, 
 func runInteractionStateful(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string, telemetryProvider *telemetry.Provider, plan *progressPlan) []result.TestResult {
 	created := testBase(p, "google.interactions.stateful")
 	createBody := map[string]any{"model": model, "input": "Remember the token AIQA_STATEFUL_OK.", "store": true}
-	resp, err := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Interaction(ctx, createBody) })
+	// A persistent create has no provider idempotency key. Its physical request
+	// count must therefore be one even if the shared transport normally retries.
+	resp, err := call(api.WithSingleAttempt(parent), timeout, func(ctx context.Context) (api.Response, error) { return client.Interaction(ctx, createBody) })
 	created.DurationMS, created.HTTP = resp.Duration.Milliseconds(), metadataObservation(resp)
 	created.Usage = ParseUsage(resp.JSON)
 	setHTTPStatus(&created, resp, err, true)
@@ -1425,8 +1517,16 @@ func runInteractionStateful(parent context.Context, client *Client, timeout time
 	}
 	cleanup := testBase(p, "google.interactions.stateful.cleanup")
 	if id == "" {
-		cleanup.Status = result.StatusSkip
-		cleanup.Summary = "Cleanup was skipped because the create response had no resource id"
+		ambiguous := resp.Is2xx() || err != nil || resp.StatusCode == 0 || isTransientStatus(resp.StatusCode)
+		if ambiguous {
+			cleanup.Status = result.StatusError
+			cleanup.Summary = "Persistent create outcome is ambiguous; cleanup is unproven"
+			cleanup.Error = "provider may have created a resource without returning its id"
+			cleanup.Signals = []result.EvidenceSignal{{Code: "execution.persistent_resource.cleanup_unproven", RootCause: "cleanup-unproven"}}
+		} else {
+			cleanup.Status = result.StatusSkip
+			cleanup.Summary = "Cleanup was skipped because the create response had no resource id"
+		}
 		return []result.TestResult{created, cleanup}
 	}
 	// The cleanup lifecycle is conditional on the provider returning an ID, so
@@ -1435,13 +1535,24 @@ func runInteractionStateful(parent context.Context, client *Client, timeout time
 	continuationBody := map[string]any{"model": model, "previous_interaction_id": id, "input": "What token did I ask you to remember?", "store": false}
 	continuation, continuationErr := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.Interaction(ctx, continuationBody) })
 	if created.Status == result.StatusPass {
-		if continuationErr != nil || !continuation.Is2xx() || !strings.Contains(interactionText(continuation.JSON), "AIQA_STATEFUL_OK") {
+		if errors.Is(continuationErr, api.ErrWorkLimit) {
+			created.Status = result.StatusError
+			created.Summary = "Stateful Interaction continuation was stopped by the configured work budget"
+			created.Signals = []result.EvidenceSignal{{Code: "execution.work_limit", RootCause: "work-limit"}}
+		} else if continuationErr != nil || !continuation.Is2xx() || !strings.Contains(interactionText(continuation.JSON), "AIQA_STATEFUL_OK") {
 			created.Status = result.StatusFail
 			created.Summary = "Stateful Interaction did not continue the stored context"
 		}
 	}
-	cleanup = nativeChildProbe(parent, telemetryProvider, cleanup.ID, func(cleanupCtx context.Context) result.TestResult {
-		cleanupResp, cleanupErr := call(cleanupCtx, timeout, func(ctx context.Context) (api.Response, error) { return client.DeleteInteraction(ctx, model, id) })
+	cleanup = nativeChildProbe(context.WithoutCancel(parent), telemetryProvider, cleanup.ID, func(cleanupCtx context.Context) result.TestResult {
+		// Cleanup must get a small, detached dispatch allowance even when the
+		// scan's shared work budget or parent cancellation was exhausted.
+		cleanupCtx = api.WithAttemptBudget(context.WithoutCancel(cleanupCtx), 3)
+		cleanupTimeout := timeout
+		if cleanupTimeout <= 0 {
+			cleanupTimeout = 15 * time.Second
+		}
+		cleanupResp, cleanupErr := call(api.WithSingleAttempt(cleanupCtx), cleanupTimeout, func(ctx context.Context) (api.Response, error) { return client.DeleteInteraction(ctx, model, id) })
 		cleanup.DurationMS = cleanupResp.Duration.Milliseconds()
 		cleanup.HTTP = metadataObservation(cleanupResp)
 		if cleanupErr != nil && cleanupResp.StatusCode == 0 {
@@ -1679,6 +1790,12 @@ func callStream(parent context.Context, timeout time.Duration, fn func(context.C
 }
 
 func setHTTPStatus(t *result.TestResult, resp api.Response, err error, optional bool) {
+	if applyWorkLimit(t, err) {
+		return
+	}
+	if applyExecutionBlocker(t, resp) {
+		return
+	}
 	if err != nil && resp.StatusCode == 0 {
 		t.Status, t.Summary, t.Error = result.StatusError, "Request could not be completed", err.Error()
 		return
@@ -1706,6 +1823,12 @@ func setHTTPStatus(t *result.TestResult, resp api.Response, err error, optional 
 }
 
 func setExpectedError(t *result.TestResult, resp api.Response, err error) {
+	if applyWorkLimit(t, err) {
+		return
+	}
+	if applyExecutionBlocker(t, resp) {
+		return
+	}
 	if err != nil && resp.StatusCode == 0 {
 		t.Status, t.Summary, t.Error = result.StatusError, "Error probe could not be completed", err.Error()
 		return
@@ -1745,6 +1868,9 @@ func streamObservation(resp api.StreamResponse) result.HTTPObservation {
 	return result.HTTPObservation{StatusCode: resp.StatusCode, ContentType: resp.ContentType, RequestID: resp.RequestID, TraceID: resp.TraceID}
 }
 func setStreamError(t *result.TestResult, err error, status int, optional bool) {
+	if applyWorkLimit(t, err) {
+		return
+	}
 	t.Status, t.Summary, t.Error = result.StatusError, "Google stream could not be evaluated", err.Error()
 	// A read/parse error after a successful response is an execution error,
 	// not a protocol assertion failure.  Only an actual non-success HTTP
@@ -1757,6 +1883,15 @@ func setStreamError(t *result.TestResult, err error, status int, optional bool) 
 	} else {
 		t.Status = result.StatusFail
 	}
+}
+
+func applyWorkLimit(t *result.TestResult, err error) bool {
+	if !errors.Is(err, api.ErrWorkLimit) {
+		return false
+	}
+	t.Status, t.Summary, t.Error = result.StatusError, "Request was stopped by the configured work budget", err.Error()
+	t.Signals = []result.EvidenceSignal{{Code: "execution.work_limit", RootCause: "work-limit"}}
+	return true
 }
 
 func setStreamHTTPStatus(t *result.TestResult, status int, optional bool, summary string) {

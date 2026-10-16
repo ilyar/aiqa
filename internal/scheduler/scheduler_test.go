@@ -209,6 +209,106 @@ func TestAdaptiveRateLimitRevisesGroupBeforeLeaseRelease(t *testing.T) {
 	got.lease.Release()
 }
 
+func TestAdaptiveRecoveryHalvesLongIntervalAndPreservesHardFloor(t *testing.T) {
+	clock := newFakeClock()
+	b := broker(t, Config{Capacity: 2, Clock: clock, Groups: map[string]Group{
+		"shared": {Capacity: 2, Adaptive: &AdaptiveGroup{InitialInterval: 2 * time.Second}},
+	}})
+
+	// Model a capped post-429 interval.  Acquisitions below exercise the public
+	// feedback path and fake-clock pacing rather than just the state helper.
+	b.mu.Lock()
+	b.groups["shared"].Interval = 30 * time.Second
+	b.mu.Unlock()
+	for i := 0; i < 5; i++ {
+		lease, err := b.Acquire(context.Background(), Request{Target: "target", Group: "shared"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		lease.Succeeded()
+		lease.Release()
+		if i != 4 {
+			clock.Advance(30 * time.Second)
+		}
+	}
+	if got := b.Snapshot().Groups["shared"].Interval; got != 15*time.Second {
+		t.Fatalf("recovered interval=%s, want 15s after one quiet window", got)
+	}
+
+	// InitialInterval is a starting value, not the recovery floor.  Preserve the
+	// established 200ms healthy-throughput floor even for a 2s initial value.
+	b.mu.Lock()
+	b.groups["shared"].Interval = 300 * time.Millisecond
+	b.mu.Unlock()
+	for i := 0; i < 5; i++ {
+		clock.Advance(30 * time.Second)
+		lease, err := b.Acquire(context.Background(), Request{Target: "target", Group: "shared"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		lease.Succeeded()
+		lease.Release()
+	}
+	if got := b.Snapshot().Groups["shared"].Interval; got != 200*time.Millisecond {
+		t.Fatalf("recovery floor=%s, want established 200ms", got)
+	}
+}
+
+func TestAdaptiveRetryAfterKeepsCooldownAndPublishesReason(t *testing.T) {
+	clock := newFakeClock()
+	b := broker(t, Config{Capacity: 2, Clock: clock, Groups: map[string]Group{
+		"shared": {Capacity: 2, Adaptive: &AdaptiveGroup{InitialInterval: 200 * time.Millisecond}},
+	}})
+	var facts []Fact
+	b.SetFactObserver(func(f Fact) { facts = append(facts, f) })
+
+	// A long interval is already capped.  Retry-After must not shorten it, and
+	// its cooldown must dominate the next otherwise eligible request.
+	b.mu.Lock()
+	b.groups["shared"].Interval = 30 * time.Second
+	b.mu.Unlock()
+	first, err := b.Acquire(context.Background(), Request{Target: "one", Group: "shared"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := first.RateLimited(time.Minute); got != time.Minute {
+		t.Fatalf("applied retry-after=%s, want 1m", got)
+	}
+	group := b.Snapshot().Groups["shared"]
+	if group.Interval != 30*time.Second || group.Cooldown != clock.Now().Add(time.Minute) {
+		t.Fatalf("429 changed capped interval or cooldown: %+v", group)
+	}
+	first.Release()
+
+	waiting := acquireAsync(b, context.Background(), Request{Target: "two", Group: "shared"})
+	eventually(t, func() bool {
+		s := b.Snapshot()
+		return len(s.Waiting) == 1 && s.Waiting[0].Reason == WaitRetryAfter && s.Waiting[0].EligibleAt == clock.Now().Add(time.Minute)
+	})
+	clock.Advance(time.Minute - time.Millisecond)
+	select {
+	case got := <-waiting:
+		t.Fatalf("cooldown bypassed before Retry-After: %+v", got)
+	default:
+	}
+	clock.Advance(time.Millisecond)
+	got := <-waiting
+	if got.err != nil {
+		t.Fatal(got.err)
+	}
+	got.lease.Release()
+
+	var cooldownFact *Fact
+	for i := range facts {
+		if facts[i].Kind == FactGroupUpdated && facts[i].Cooldown == group.Cooldown {
+			cooldownFact = &facts[i]
+		}
+	}
+	if cooldownFact == nil || cooldownFact.Reason != WaitRetryAfter {
+		t.Fatalf("cooldown group fact missing retry-after reason: %#v", cooldownFact)
+	}
+}
+
 // A request can initially be blocked only by global capacity, so it has no
 // timer.  If a Retry-After cooldown arrives before that capacity is released,
 // releasing the slot must wake it to observe the cooldown and install its own

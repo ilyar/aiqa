@@ -29,3 +29,11 @@ func TestRedactSecretsCoversTypedFieldsMetadataAndMapKeys(t *testing.T) {
 		t.Fatalf("redaction marker is missing: %s", data)
 	}
 }
+
+func TestRedactSecretsReplacesOverlappingSecretsLongestFirst(t *testing.T) {
+	value := struct{ Text string }{Text: "prefix token-extended suffix"}
+	RedactSecrets(&value, "token", "token-extended")
+	if value.Text != "prefix [REDACTED] suffix" {
+		t.Fatalf("overlapping redaction = %q", value.Text)
+	}
+}

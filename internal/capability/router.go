@@ -46,15 +46,16 @@ func AssessModules(classification Classification, definitions []profile.Module, 
 		requested := enabled[definition.ID] || (auto && (definition.DefaultEnabled || billable && opts.AllowBillableArtifacts))
 		assessment := result.ModuleAssessment{ID: definition.ID, Capability: strings.Join(definition.Capabilities, ","), Requested: requested}
 		matchedCapability := firstMatchedCapability(classification, definition.Capabilities)
+		probeMatched := firstProbeCapability(classification, definition.Capabilities)
 		switch {
 		case classification.Unknown:
 			assessment.Applicability = result.ApplicabilityUnknown
 			assessment.Execution = result.ExecutionSkipped
 			assessment.Reason = classification.Reason
-		case matchedCapability != "" || classification.ProbeEligible && requested:
+		case matchedCapability != "" || (classification.ProbeEligible || probeMatched != "") && requested:
 			assessment.Applicability = result.ApplicabilityApplicable
-			if classification.ProbeEligible {
-				assessment.Reason = "capability metadata absent; support being tested"
+			if classification.ProbeEligible || (matchedCapability == "" && probeMatched != "") {
+				assessment.Reason = "capability metadata is absent for this feature; support being tested"
 				assessment.Source = "probe_policy"
 				assessment.Confidence = "low"
 			} else {
@@ -89,6 +90,15 @@ func AssessModules(classification Classification, definitions []profile.Module, 
 		modules = append(modules, assessment)
 	}
 	return modules
+}
+
+func firstProbeCapability(classification Classification, capabilities []string) string {
+	for _, id := range capabilities {
+		if classification.ProbeHas(id) {
+			return id
+		}
+	}
+	return ""
 }
 
 func firstMatchedCapability(classification Classification, capabilities []string) string {

@@ -19,6 +19,25 @@ func TestMarkdownRendersPerModelPacingOnlyForMultipleModels(t *testing.T) {
 	}
 }
 
+func TestMarkdownLiteralMakesHostileModelIDsInert(t *testing.T) {
+	hostile := "x`](https://evil.example) <img src=x>\n\u202epayload\u2028line\u2029paragraph\u0085next"
+	got := escapeInline(hostile)
+	for _, forbidden := range []string{"\n", "\u202e", "\u2028", "\u2029", "\u0085", " <img", "`](https://", "`"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("hostile Markdown remained active %q in %q", forbidden, got)
+		}
+	}
+	if !strings.Contains(got, `\]`) || !strings.Contains(got, `\u202e`) || !strings.Contains(got, `\u0060`) {
+		t.Fatalf("hostile Markdown was not visibly encoded: %q", got)
+	}
+	// A single pair of CommonMark code delimiters therefore has no attacker
+	// controlled closing delimiter or active link/HTML syntax between it.
+	codeSpan := "`" + got + "`"
+	if strings.Count(codeSpan, "`") != 2 {
+		t.Fatalf("hostile identifier can terminate a code span: %q", codeSpan)
+	}
+}
+
 func TestMarkdownPutsActionsBeforeDiagnosticsAndCollapsesRawEvidence(t *testing.T) {
 	partial := "partial"
 	report := result.Report{

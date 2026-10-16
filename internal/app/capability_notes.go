@@ -18,7 +18,7 @@ func appendProbePolicyNotes(target *result.TargetReport) {
 			if module.Source != "probe_policy" || !module.Requested {
 				continue
 			}
-			note := fmt.Sprintf("Model %q: capability metadata is absent. AIQA selects eligible probes from the requested profile to test support; it does not assume support. Existing cost and resource permissions still apply. This metadata advisory does not change the compatibility verdict.", model.ID)
+			note := fmt.Sprintf("Model %q: capability metadata is absent for one or more requested features. AIQA selects eligible probes from the requested profile to test support; it does not assume support. Existing cost and resource permissions still apply. This metadata advisory does not change the compatibility verdict.", model.ID)
 			if !seen[note] {
 				target.Notes = append(target.Notes, note)
 				seen[note] = true

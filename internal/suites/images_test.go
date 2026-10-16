@@ -109,6 +109,32 @@ func TestImageHTTPObservationRedactsSignedURL(t *testing.T) {
 	}
 }
 
+func TestMarkProbePolicyImageModelUnsupported(t *testing.T) {
+	newBasic := func(status result.Status, httpStatus int, snippet string) []result.TestResult {
+		return []result.TestResult{{ID: "images.generate.basic", Status: status, HTTP: result.HTTPObservation{StatusCode: httpStatus, Snippet: snippet}}}
+	}
+	valid := `{"error":{"code":"invalid_value","param":"model","type":"image_generation_user_error"}}`
+	for name, tests := range map[string][]result.TestResult{
+		"exact structured rejection": newBasic(result.StatusFail, http.StatusBadRequest, valid),
+		"generic 400":                newBasic(result.StatusFail, http.StatusBadRequest, `{"error":{"code":"invalid_request_error","param":"prompt","type":"invalid_request_error"}}`),
+		"auth":                       newBasic(result.StatusFail, http.StatusUnauthorized, valid),
+		"malformed snippet":          newBasic(result.StatusFail, http.StatusBadRequest, `{`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := MarkProbePolicyImageModelUnsupported(tests)
+			if got != (name == "exact structured rejection") {
+				t.Fatalf("matched=%v tests=%+v", got, tests)
+			}
+			if got {
+				basic := tests[0]
+				if basic.Status != result.StatusUnsupported || basic.HTTP.Snippet != valid || len(basic.Signals) != 1 || basic.Signals[0].Code != "capability.probe.unsupported" || basic.Signals[0].RootCause != "model-route-unsupported" {
+					t.Fatalf("unsupported evidence=%+v", basic)
+				}
+			}
+		})
+	}
+}
+
 func TestWebPDimensionsSupportsLossyLosslessAndExtendedHeaders(t *testing.T) {
 	makeHeader := func(chunk string) []byte {
 		body := make([]byte, 30)

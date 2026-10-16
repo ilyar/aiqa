@@ -65,11 +65,21 @@ type Evidence struct {
 }
 
 type Classification struct {
-	Model         string     `json:"model"`
-	Capabilities  []Evidence `json:"capabilities,omitempty"`
-	Unknown       bool       `json:"unknown"`
-	ProbeEligible bool       `json:"-"`
-	Reason        string     `json:"reason,omitempty"`
+	Model             string     `json:"model"`
+	Capabilities      []Evidence `json:"capabilities,omitempty"`
+	Unknown           bool       `json:"unknown"`
+	ProbeEligible     bool       `json:"-"`
+	ProbeCapabilities []string   `json:"-"`
+	Reason            string     `json:"reason,omitempty"`
+}
+
+func (c Classification) ProbeHas(id string) bool {
+	for _, capability := range c.ProbeCapabilities {
+		if capability == id {
+			return true
+		}
+	}
+	return false
 }
 
 func (c Classification) Has(id string) bool {

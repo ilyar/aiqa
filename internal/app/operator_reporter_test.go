@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +11,33 @@ import (
 	"github.com/ilyar/aiqa/internal/terminal"
 	"github.com/rivo/uniseg"
 )
+
+func TestOperatorReporterDoesNotRedrawStaleMetricsAfterAccountingError(t *testing.T) {
+	for _, tty := range []bool{true, false} {
+		var output bytes.Buffer
+		r := newAppOperatorReporter(&output, tty, false, 4)
+		if tty {
+			r.draw(terminal.Frame{Lines: []string{"AIQA: run", "RUNNING Jobs 1/23", "ETA 84s", "openai RUNNING"}})
+			output.Reset()
+		}
+		r.ObserveExecutionUnavailable(errors.New("secret provider-controlled error"))
+		first := output.String()
+		if !strings.Contains(first, "monitoring unavailable") || strings.Contains(first, "secret") {
+			t.Fatalf("unsafe or missing diagnostic: %q", first)
+		}
+		if tty && (!strings.Contains(first, "\x1b[4A") || r.lines != 2) {
+			t.Fatalf("stale frame not replaced: %q", first)
+		}
+		r.ObserveExecutionUnavailable(errors.New("again"))
+		if tty {
+			r.draw(terminal.Frame{Lines: []string{"RUNNING Jobs 1/23 ETA 84s"}})
+		}
+		if output.String() != first {
+			t.Fatalf("duplicate diagnostic or stale redraw: %q", output.String())
+		}
+		r.Close()
+	}
+}
 
 func TestOperatorReporterRendersExecutionSnapshotsOnlyInTTY(t *testing.T) {
 	snapshot := execution.Snapshot{
@@ -106,7 +134,7 @@ func TestOperatorReporterRefreshesElapsedAndETAWithoutExecutionEvent(t *testing.
 	now = now.Add(2 * time.Second)
 	r.renderLatest()
 	got := output.String()
-	if !strings.Contains(got, "Elapsed 45s") || !strings.Contains(got, "ETA >= 15s") {
+	if !strings.Contains(got, "Elapsed 45s") || !strings.Contains(got, "ETA >=15s") {
 		t.Fatalf("refresh did not advance elapsed/ETA: %q", got)
 	}
 }
@@ -158,7 +186,7 @@ func TestOperatorETAUsesSchedulerCooldownAsLowerBound(t *testing.T) {
 		Jobs:        []execution.JobSnapshot{{ID: "job", TargetID: "target", State: execution.JobPlanned}},
 		PlannedJobs: 1,
 	}
-	if got, want := etaText(snapshot, 1), ">= 1m1s"; got != want {
+	if got, want := etaText(snapshot, 1), ">=1m1s"; got != want {
 		t.Fatalf("ETA=%q, want %q", got, want)
 	}
 }
