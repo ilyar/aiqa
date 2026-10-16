@@ -185,9 +185,9 @@ repository maintenance program rather than a shipped CLI feature. JSON Schema
 checks cover both Google profiles. `make dependency-check` and `make sbom-check`
 assert the exact SDK version; `make security-check` adds the pinned
 vulnerability scan. The vulnerable transitive gRPC release is explicitly pinned
-to the fixed `v1.82.1` line. CI keeps direct Google calls behind the
-`AIQA_LIVE_GOOGLE_GENAI` secret/variable gate and does not make billable calls
-by default.
+to the fixed `v1.83.2` line. CI runs offline and loopback checks only, without
+provider credentials or live-report uploads. Use the provider-operator skill for
+separately authorized, bounded local checks with provider-side quotas.
 
 The deterministic fixture in
 [`internal/protocol/googlegenai/runner_test.go`](../internal/protocol/googlegenai/runner_test.go)

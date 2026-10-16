@@ -139,7 +139,9 @@ go run ./script/check-profile-upstream.go \
 
 `make check` validates report v3, profile v3, `aiqa.ext.v2`, both built-in SDKs, the complete dual-facade mock, formatting, vet, and unit/integration tests.
 
-Optional live CI jobs are disabled by default and non-blocking. They require explicit repository variables, target secrets, and one selected model. They omit `ext-suite`, billable artifact modules, and high-token thinking; use fixed profile request caps, a 30-second per-request timeout, and adaptive 250 ms initial pacing; and upload only redacted JSON reports with short retention.
+CI uses offline and loopback fixtures only; it neither receives provider keys nor
+uploads live reports. Use the provider-operator skill for separately authorized,
+bounded local live checks with least-privilege credentials and provider-side quotas.
 
 Anthropic surfaces worth expanding are listed in the
 [backlog](../tasks/backlog.md). Each needs a separate profile, deterministic

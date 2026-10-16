@@ -1,0 +1,4 @@
+interface:
+  display_name: "AIQA Provider Operator"
+  short_description: "Verify and configure API protocol compatibility"
+  default_prompt: "Use $aiqa-provider-operator to check my API compatibility and propose evidence-backed configuration fixes."

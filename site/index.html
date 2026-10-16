@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="AIQA tests OpenAI, Anthropic, and Google GenAI API compatibility. Install a standalone binary and turn provider behavior into evidence.">
+  <meta name="description" content="Test OpenAI, Anthropic, and Google GenAI API compatibility with AIQA. Run the CLI directly or use the provider-operator skill with your coding agent.">
   <meta name="theme-color" content="#f5f4ef">
   <title>AIQA — Know what your AI API can do.</title>
   <link rel="stylesheet" href="style.css">
@@ -11,7 +11,7 @@
 <body>
   <header class="nav wrap">
     <a class="wordmark" href="#" aria-label="AIQA home">aiqa<span aria-hidden="true">↗</span></a>
-    <nav aria-label="Main navigation"><a href="#capabilities">Capabilities</a><a href="#install">Install</a><a href="https://github.com/ilyar/aiqa">GitHub ↗</a></nav>
+    <nav aria-label="Main navigation"><a href="#capabilities">Capabilities</a><a href="#install">Install</a><a href="#agent">Use an agent</a><a href="https://github.com/ilyar/aiqa">GitHub ↗</a></nav>
   </header>
   <main>
     <section class="hero wrap">
@@ -48,11 +48,27 @@ aiqa --version</code></pre></details>
           <tr><th scope="row">Windows</th><td><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.1/aiqa-windows-amd64.exe">amd64 .exe ↓</a></td><td><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.1/aiqa-windows-arm64.exe">arm64 .exe ↓</a></td></tr>
           <tr><th scope="row">FreeBSD</th><td><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.1/aiqa-freebsd-amd64">amd64 ↓</a></td><td><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.1/aiqa-freebsd-arm64">arm64 ↓</a></td></tr>
         </tbody></table>
-        <p class="fine"><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.1/SHA256SUMS">SHA256SUMS</a> · <a href="https://github.com/ilyar/aiqa/releases/tag/v1.0.0-beta.1">Release notes</a>. Downloads become available when the beta release is published. Windows users can also run the shell installer in Git Bash.</p>
+        <p class="fine"><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.1/SHA256SUMS">SHA256SUMS</a> · <a href="https://github.com/ilyar/aiqa/releases/tag/v1.0.0-beta.1">Release notes</a>. Windows users can also run the shell installer in Git Bash.</p>
       </div>
     </div></section>
+    <section class="start wrap" id="agent">
+      <p class="eyebrow">03 / FOR API PROVIDER OPERATORS</p>
+      <h2>Your agent.<br>Protocol evidence.</h2>
+      <p>Use the <strong>AIQA Provider Operator</strong> skill with Codex, Claude Code, or another skill-capable coding agent. It helps define the compatibility you need, run bounded checks, explain failures, and propose configuration changes backed by report evidence.</p>
+      <pre class="command"><code>npx skills add ilyar/aiqa --skill aiqa-provider-operator</code></pre>
+      <p class="fine">Skill version 1.0.0, designed for AIQA 1.0.0-beta.1. Install the AIQA binary separately using the instructions above. The bounded runner requires Python 3.10+ on a POSIX host; Windows users can run it in WSL. Installing the skill does not run checks or change your provider.</p>
+      <h3>Then ask your agent</h3>
+      <pre class="agent-prompt"><code>Use $aiqa-provider-operator to check my staging API for OpenAI compatibility. Help me choose the profile and model, agree the paid-request scope, and read the key from my environment. Explain the report and propose configuration fixes before applying changes.</code></pre>
+      <div class="features">
+        <article><span class="number">01</span><h3>Define the contract.</h3><p>Choose one endpoint, protocol, model, and profile. Keep credentials out of prompts and approve the scope before making paid API requests.</p></article>
+        <article><span class="number">02</span><h3>Find the actual cause.</h3><p>Separate protocol failures from missing coverage, quotas, access restrictions, and local execution limits. No tested model means no compatibility claim.</p></article>
+        <article><span class="number">03</span><h3>Fix, then recheck.</h3><p>Review changes to routing, authentication, streaming, or response mapping. Recheck the same contract after approved changes; keep the before-and-after evidence private.</p></article>
+      </div>
+      <p class="fine">Compatibility checks can incur provider charges. The runner does not enable image generation, high-token probing, persistent-resource creation, or external extensions. It does not deploy changes or upload your reports. Limits bound work, not an exact monetary spend.</p>
+      <a class="text-link" href="https://github.com/ilyar/aiqa/tree/skill-aiqa-provider-operator-v1.0.0/skills/aiqa-provider-operator">Review the versioned skill ↗</a>
+    </section>
     <section class="start wrap">
-      <p class="eyebrow">03 / YOUR FIRST CHECK</p>
+      <p class="eyebrow">04 / YOUR FIRST CLI CHECK</p>
       <h2>Point it at your API.</h2>
       <pre><code>export OPENAI_BASE_URL="https://your-provider.example/v1"
 export OPENAI_API_KEY="your-api-key"

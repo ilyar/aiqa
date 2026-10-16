@@ -4,10 +4,9 @@ Compatibility and behavior testing for OpenAI, Anthropic, and Google GenAI API f
 
 ## Install the beta
 
-Standalone binaries for **1.0.0-beta.1** are prepared for Linux, macOS,
-Windows, and FreeBSD, each on amd64 and arm64. Downloads become available
-when the [beta release](https://github.com/ilyar/aiqa/releases/tag/v1.0.0-beta.1)
-is published.
+Standalone binaries for **1.0.0-beta.1** are available for Linux, macOS,
+Windows, and FreeBSD, each on amd64 and arm64, in the
+[beta release](https://github.com/ilyar/aiqa/releases/tag/v1.0.0-beta.1).
 
 On Linux, macOS, and FreeBSD:
 
@@ -37,6 +36,45 @@ executable with `chmod +x aiqa`.
 
 [Website and downloads](https://ilyar.github.io/aiqa/) ·
 [Changelog](CHANGELOG.md)
+
+## Use AIQA through an agent
+
+The **AIQA Provider Operator** skill helps API operators check an explicitly
+chosen compatibility contract, diagnose report evidence, propose configuration
+changes, and recheck approved fixes with Codex, Claude Code, or another
+skill-capable agent.
+
+```sh
+npx skills add ilyar/aiqa --skill aiqa-provider-operator
+```
+
+Install AIQA separately using the instructions above. The skill's bounded runner
+requires Python 3.10+ on POSIX (use WSL on Windows). Skill **1.0.0** is designed
+for AIQA **1.0.0-beta.1**; it has its own version and does not replace the binary
+release. For a version-pinned installation:
+
+```sh
+npx skills add https://github.com/ilyar/aiqa/tree/skill-aiqa-provider-operator-v1.0.0/skills/aiqa-provider-operator
+```
+
+Example request:
+
+> Use $aiqa-provider-operator to check my staging API for OpenAI compatibility.
+> Help me choose the profile and model, agree the paid-request scope, and read
+> the key from my environment. Explain the report and propose configuration
+> fixes before applying changes.
+
+Installation does not run provider checks. The skill requires scoped execution
+authorization; its runner isolates provider credentials and extensions, uses
+finite work limits, and keeps reports private. Checks can still incur charges:
+work limits are not an exact monetary cap. Image generation, high-token probes,
+persistent resources, and executable extensions are excluded from this runner.
+Provider changes need authorization; no deployment or report upload is automatic.
+
+Read [the skill](skills/aiqa-provider-operator/SKILL.md) before installing.
+The repository follows the [skills.sh catalog format](https://skills.sh/docs/faq).
+It can also be added to an optional [pack](https://www.skills.sh/docs/packs);
+packs are unlisted shareable collections, not private access controls.
 
 ## Quick start
 
@@ -461,7 +499,11 @@ Integration tests run a deterministic mock endpoint and check:
 - independent OpenAI, Anthropic, and Google GenAI execution, protocol-specific headers, named SSE events, and v3 report isolation
 - pinned built-in OpenAI, Anthropic, and Google GenAI SDK suites
 
-Live CI jobs are disabled unless the repository variables `AIQA_LIVE_OPENAI`, `AIQA_LIVE_ANTHROPIC`, `AIQA_LIVE_DUAL`, or `AIQA_LIVE_GOOGLE_GENAI` equal `1`. They also require matching secret URLs and keys plus an explicit model variable. OpenAI and Anthropic jobs are non-blocking, run one model, and omit `ext-suite`; the Google job is equally bounded but exercises the explicitly selected native-plus-SDK path. No job scans a production catalog by default.
+CI runs deterministic offline and loopback checks only. It does not supply provider
+credentials to branch-built code, run live provider probes, or upload provider
+reports. The former `AIQA_LIVE_*` switches no longer enable jobs. Run authorized
+live checks locally with the bounded operator skill, using least-privilege test
+credentials and provider-side quotas; keep full reports private.
 
 See [`docs/adding-tests.md`](docs/adding-tests.md) for how to add a new suite or probe
 

@@ -58,5 +58,18 @@ Do not install MCP servers or assume credentials because a manifest mentions the
 
 ## Decisions and pitfalls
 
+- Operator skill: `skills/aiqa-provider-operator`; its release version is
+  independent of the AIQA binary. Use `skill-aiqa-provider-operator-v*` tags,
+  not binary `v*` tags. The helper currently requires AIQA `1.0.0-beta.1`.
+- CI and the local `make qa` gate now include `make skill-check`, which builds
+  the pinned-version binary and runs Python unittest checks including all three
+  protocols against loopback only. Local execution needs Go on PATH and socket
+  permission. No real provider credentials are required.
+- Canonical report v3 target verdict is `targets[].summary.assessment.verdict`;
+  root verdict is `summary.verdict`. Both contain lowercase enum values.
+- Automatic CI has no live-provider jobs or provider-report uploads. Former
+  `AIQA_LIVE_*` switches no longer enable jobs; authorized live checks remain
+  local operator actions. This removes branch-code access to provider secrets.
+
 Link to evidence or ADRs. Keep local task notes in `.orchestration/state/`.
 Revalidate this file when the relevant manifests, CI or architecture change.
