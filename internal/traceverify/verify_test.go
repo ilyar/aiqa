@@ -250,6 +250,137 @@ func TestVerifyCoverageDistinguishesNotSelectedAndSelectedWithoutEvidence(t *tes
 	}
 }
 
+func TestVerifySelectedSDKLifecycleIsComplete(t *testing.T) {
+	plan := targetPlanRecord(3, "target", "run", "target-op", "fixture", "openai", false, true, false)
+	records := []map[string]any{
+		traceRecord(1, "run.start", "run", "", "run-op"),
+		targetRecord(2, "target.start", "target", "run", "target-op", "fixture", "openai"),
+		plan,
+		targetRecord(4, "model.start", "model", "target", "model-op", "fixture", "openai"),
+		targetRecord(5, "suite.start", "suite", "model", "suite-op", "fixture", "openai"),
+		targetRecord(6, "sdk.probe.start", "probe", "suite", "probe-op", "fixture", "openai"),
+		targetRecord(7, "sdk.logical_request.start", "logical", "probe", "logical-op", "fixture", "openai"),
+		targetRecord(8, "sdk.http_attempt.start", "attempt", "logical", "attempt-op", "fixture", "openai"),
+		targetRecord(9, "sdk.http_attempt.end", "attempt", "logical", "attempt-op", "fixture", "openai"),
+		targetRecord(10, "sdk.logical_request.end", "logical", "probe", "logical-op", "fixture", "openai"),
+		targetRecord(11, "sdk.probe.end", "probe", "suite", "probe-op", "fixture", "openai"),
+		targetRecord(12, "suite.end", "suite", "model", "suite-op", "fixture", "openai"),
+		targetRecord(13, "model.end", "model", "target", "model-op", "fixture", "openai"),
+		targetRecord(14, "target.end", "target", "run", "target-op", "fixture", "openai"),
+		traceRecord(15, "run.end", "run", "", "run-op"),
+	}
+	verdict := Verify(strings.NewReader(trace(records...)))
+	if verdict.Status != Pass || coverageStatus(verdict, "fixture", "openai", "sdk") != "complete" {
+		t.Fatalf("verdict=%+v", verdict)
+	}
+}
+
+func TestVerifySelectedExecutorDispositionClosesBlockedAndNoWorkScope(t *testing.T) {
+	for _, disposition := range []string{"blocked", "no_work"} {
+		t.Run(disposition, func(t *testing.T) {
+			plan := targetPlanRecord(3, "target", "run", "target-op", "fixture", "openai", false, true, false)
+			d := targetRecord(4, "target.executor_disposition", "target", "run", "target-op", "fixture", "openai")
+			d["executor"], d["disposition"] = "sdk", disposition
+			verdict := Verify(strings.NewReader(trace(
+				traceRecord(1, "run.start", "run", "", "run-op"),
+				targetRecord(2, "target.start", "target", "run", "target-op", "fixture", "openai"),
+				plan, d,
+				targetRecord(5, "target.end", "target", "run", "target-op", "fixture", "openai"),
+				traceRecord(6, "run.end", "run", "", "run-op"),
+			)))
+			if verdict.Status != Pass || coverageStatus(verdict, "fixture", "openai", "sdk") != disposition {
+				t.Fatalf("verdict=%+v", verdict)
+			}
+		})
+	}
+}
+
+func TestVerifySelectedExecutorWithoutDispositionFails(t *testing.T) {
+	plan := targetPlanRecord(3, "target", "run", "target-op", "fixture", "openai", false, true, false)
+	verdict := Verify(strings.NewReader(trace(
+		traceRecord(1, "run.start", "run", "", "run-op"),
+		targetRecord(2, "target.start", "target", "run", "target-op", "fixture", "openai"), plan,
+		targetRecord(4, "target.end", "target", "run", "target-op", "fixture", "openai"),
+		traceRecord(5, "run.end", "run", "", "run-op"),
+	)))
+	wantViolation(t, verdict, "selected_executor_unobserved")
+}
+
+func TestVerifyRejectsInvalidExecutorDispositions(t *testing.T) {
+	for name, test := range map[string]struct {
+		mutate func(map[string]any)
+		want   string
+	}{
+		"malformed":      {mutate: func(d map[string]any) { d["disposition"] = "complete" }, want: "executor_disposition_invalid"},
+		"spoofed-target": {mutate: func(d map[string]any) { d["target"] = "other" }, want: "executor_disposition_scope_invalid"},
+		"duplicate":      {mutate: func(map[string]any) {}, want: "duplicate_executor_disposition"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			plan := targetPlanRecord(3, "target", "run", "target-op", "fixture", "openai", false, true, false)
+			d := targetRecord(4, "target.executor_disposition", "target", "run", "target-op", "fixture", "openai")
+			d["executor"], d["disposition"] = "sdk", "blocked"
+			test.mutate(d)
+			records := []map[string]any{traceRecord(1, "run.start", "run", "", "run-op"), targetRecord(2, "target.start", "target", "run", "target-op", "fixture", "openai"), plan, d}
+			if name == "duplicate" {
+				second := targetRecord(5, "target.executor_disposition", "target", "run", "target-op", "fixture", "openai")
+				second["executor"], second["disposition"] = "sdk", "blocked"
+				records = append(records, second)
+			}
+			records = append(records, targetRecord(6, "target.end", "target", "run", "target-op", "fixture", "openai"), traceRecord(7, "run.end", "run", "", "run-op"))
+			verdict := Verify(strings.NewReader(trace(records...)))
+			if verdict.Status != Fail {
+				t.Fatalf("verdict=%+v", verdict)
+			}
+			wantViolation(t, verdict, test.want)
+		})
+	}
+}
+
+func TestVerifyRejectsDispositionThatFabricatesNoExecution(t *testing.T) {
+	plan := targetPlanRecord(3, "target", "run", "target-op", "fixture", "openai", false, true, false)
+	d := targetRecord(4, "target.executor_disposition", "target", "run", "target-op", "fixture", "openai")
+	d["executor"], d["disposition"] = "sdk", "blocked"
+	verdict := Verify(strings.NewReader(trace(
+		traceRecord(1, "run.start", "run", "", "run-op"),
+		targetRecord(2, "target.start", "target", "run", "target-op", "fixture", "openai"), plan, d,
+		targetRecord(5, "model.start", "model", "target", "model-op", "fixture", "openai"),
+		targetRecord(6, "suite.start", "suite", "model", "suite-op", "fixture", "openai"),
+		targetRecord(7, "sdk.probe.start", "probe", "suite", "probe-op", "fixture", "openai"),
+		targetRecord(8, "sdk.probe.end", "probe", "suite", "probe-op", "fixture", "openai"),
+		targetRecord(9, "suite.end", "suite", "model", "suite-op", "fixture", "openai"),
+		targetRecord(10, "model.end", "model", "target", "model-op", "fixture", "openai"),
+		targetRecord(11, "target.end", "target", "run", "target-op", "fixture", "openai"),
+		traceRecord(12, "run.end", "run", "", "run-op"),
+	)))
+	wantViolation(t, verdict, "executor_disposition_conflicts_with_evidence")
+}
+
+func TestVerifyDispositionDoesNotCrossTargetBoundary(t *testing.T) {
+	planA := targetPlanRecord(4, "target-a", "run", "target-a-op", "a", "openai", false, true, false)
+	planB := targetPlanRecord(5, "target-b", "run", "target-b-op", "b", "anthropic", false, true, false)
+	blocked := targetRecord(6, "target.executor_disposition", "target-a", "run", "target-a-op", "a", "openai")
+	blocked["executor"], blocked["disposition"] = "sdk", "blocked"
+	// Target b has lifecycle evidence; target a's blocked disposition must not
+	// be reused to close it.
+	records := []map[string]any{
+		traceRecord(1, "run.start", "run", "", "run-op"),
+		targetRecord(2, "target.start", "target-a", "run", "target-a-op", "a", "openai"),
+		targetRecord(3, "target.start", "target-b", "run", "target-b-op", "b", "anthropic"), planA, planB, blocked,
+		targetRecord(7, "model.start", "model-b", "target-b", "model-b-op", "b", "anthropic"),
+		targetRecord(8, "suite.start", "suite-b", "model-b", "suite-b-op", "b", "anthropic"),
+		targetRecord(9, "sdk.probe.start", "probe-b", "suite-b", "probe-b-op", "b", "anthropic"),
+		targetRecord(10, "sdk.probe.end", "probe-b", "suite-b", "probe-b-op", "b", "anthropic"),
+		targetRecord(11, "suite.end", "suite-b", "model-b", "suite-b-op", "b", "anthropic"),
+		targetRecord(12, "model.end", "model-b", "target-b", "model-b-op", "b", "anthropic"),
+		targetRecord(13, "target.end", "target-a", "run", "target-a-op", "a", "openai"),
+		targetRecord(14, "target.end", "target-b", "run", "target-b-op", "b", "anthropic"), traceRecord(15, "run.end", "run", "", "run-op"),
+	}
+	verdict := Verify(strings.NewReader(trace(records...)))
+	if verdict.Status != Pass || coverageStatus(verdict, "a", "openai", "sdk") != "blocked" || coverageStatus(verdict, "b", "anthropic", "sdk") != "complete" {
+		t.Fatalf("verdict=%+v", verdict)
+	}
+}
+
 func TestVerifyRejectsUnsafeDerivedReference(t *testing.T) {
 	record := traceRecord(1, "run.start", "run", "", "run-op")
 	record["derived_from"] = "https://provider.example/secret"
@@ -377,4 +508,25 @@ func traceRecord(seq int, event, spanID, parentID, operationID string) map[strin
 		record["probe"] = "fixture.probe"
 	}
 	return record
+}
+
+func targetRecord(seq int, event, spanID, parentID, operationID, target, protocol string) map[string]any {
+	record := traceRecord(seq, event, spanID, parentID, operationID)
+	record["target"], record["protocol"] = target, protocol
+	return record
+}
+
+func targetPlanRecord(seq int, spanID, parentID, operationID, target, protocol string, native, sdk, extension bool) map[string]any {
+	record := targetRecord(seq, "target.plan", spanID, parentID, operationID, target, protocol)
+	record["native_selected"], record["sdk_selected"], record["extension_selected"] = native, sdk, extension
+	return record
+}
+
+func coverageStatus(verdict Verdict, target, protocol, executor string) string {
+	for _, item := range verdict.Coverage {
+		if item.Target == target && item.Protocol == protocol && item.Executor == executor {
+			return item.Status
+		}
+	}
+	return ""
 }

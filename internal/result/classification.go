@@ -20,12 +20,14 @@ func ClassifyResult(status Status, id, requirementID, profileRevision string, ht
 func ClassifyTestResult(test TestResult, profileRevision string) *Classification {
 	c := classifyResult(test.Status, test.ID, test.RequirementID, profileRevision, test.HTTP, test.Summary+" "+test.Expected+" "+test.Observation)
 	classifyExecutionSignals(c, test.Status, test.Signals)
+	classifySemanticSignals(c, test.Status, test.Signals)
 	return c
 }
 
 func ClassifyExtensionResult(suite ExtensionSuiteResult, profileRevision string) *Classification {
 	c := ClassifyResult(suite.Status, "extension."+suite.ExtensionID+"."+suite.SuiteID, suite.RequirementID, profileRevision, suite.HTTP)
 	classifyExecutionSignals(c, suite.Status, suite.Signals)
+	classifySemanticSignals(c, suite.Status, suite.Signals)
 	return c
 }
 
@@ -43,6 +45,25 @@ func classifyExecutionSignals(c *Classification, status Status, signals []Eviden
 			c.Kind, c.Reason = ClassificationExecutionGap, "model access is unavailable; protocol conformance was not evaluated"
 		case "execution.daily_quota_exhausted":
 			c.Kind, c.Reason = ClassificationExecutionGap, "daily quota is exhausted; lowering concurrency does not restore it"
+		case "execution.credentials_rejected":
+			c.Kind, c.Reason = ClassificationExecutionGap, "configured credentials were rejected; protocol conformance was not evaluated"
+		}
+	}
+}
+
+// These signals are emitted only after a successful protocol-level exchange
+// whose requested model behavior was not observed. Keep the status guard
+// narrow: malformed protocol output carrying a different failure remains a
+// conformance failure, even if its text happens to mention a marker or tool.
+func classifySemanticSignals(c *Classification, status Status, signals []EvidenceSignal) {
+	if c == nil || status != StatusWarn {
+		return
+	}
+	for _, signal := range signals {
+		switch signal.Code {
+		case "behavior.marker_missing", "behavior.marker_mismatch", "behavior.tool_not_called":
+			c.Kind, c.Reason = ClassificationBehavioralObservation, "model semantic behavior was not demonstrated; protocol conformance was not disproved"
+			return
 		}
 	}
 }

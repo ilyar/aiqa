@@ -50,3 +50,25 @@ func TestClassifyResultTreatsNoHTTPTimeoutAsExecutionGap(t *testing.T) {
 		t.Fatalf("classification = %+v, want execution gap", classification)
 	}
 }
+
+func TestConfiguredCredentialRejectionIsExecutionGap(t *testing.T) {
+	test := TestResult{ID: "models.list.http", Status: StatusError, HTTP: HTTPObservation{StatusCode: 401}, Signals: []EvidenceSignal{{Code: "execution.credentials_rejected"}}}
+	if c := ClassifyTestResult(test, "revision"); c == nil || c.Kind != ClassificationExecutionGap {
+		t.Fatalf("classification=%+v, want execution gap", c)
+	}
+}
+
+func TestTypedSemanticWarningsAreBehavioralObservations(t *testing.T) {
+	for _, code := range []string{"behavior.marker_missing", "behavior.marker_mismatch", "behavior.tool_not_called"} {
+		t.Run(code, func(t *testing.T) {
+			test := TestResult{ID: "google.generate-content.basic", Status: StatusWarn, Signals: []EvidenceSignal{{Code: code}}}
+			if c := ClassifyTestResult(test, "revision"); c == nil || c.Kind != ClassificationBehavioralObservation {
+				t.Fatalf("native classification=%+v", c)
+			}
+			suite := ExtensionSuiteResult{ExtensionID: "official-sdk.google-genai", SuiteID: "generate-content", Status: StatusWarn, Signals: test.Signals}
+			if c := ClassifyExtensionResult(suite, "revision"); c == nil || c.Kind != ClassificationBehavioralObservation {
+				t.Fatalf("extension classification=%+v", c)
+			}
+		})
+	}
+}

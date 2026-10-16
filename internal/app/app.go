@@ -352,6 +352,56 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 			"sdk_selected":    cfg.HasTest("sdk"), "extension_selected": cfg.HasTest("ext-suite"),
 		})
 	}
+	selectedExecutors := func() map[string]bool {
+		return map[string]bool{
+			"native":    cfg.HasTest("compat") || cfg.HasTest("model-param"),
+			"sdk":       cfg.HasTest("sdk"),
+			"extension": cfg.HasTest("ext-suite"),
+		}
+	}
+	// Native preparation already produces native lifecycle evidence (inventory
+	// requests) before a prerequisite can fail. SDK and executable-extension
+	// branches are different: they have not begun yet, so close only those
+	// selected branches with a truthful target-scoped disposition.
+	emitSelectedDisposition := func(targetOp *telemetry.Operation, target config.TargetConfig, disposition string) {
+		if targetOp == nil {
+			return
+		}
+		for executor, selected := range selectedExecutors() {
+			if !selected || executor == "native" {
+				continue
+			}
+			targetOp.Event(logging.Trace, "executor_disposition", logging.Fields{
+				"target": target.ID, "protocol": string(target.Protocol),
+				"executor": executor, "disposition": disposition,
+			})
+		}
+	}
+	emitNoWorkDisposition := func(targetOp *telemetry.Operation, target config.TargetConfig, frozen extsuite.FrozenInvocations) {
+		if targetOp == nil {
+			return
+		}
+		hasSource := map[string]bool{}
+		for _, binding := range extsuite.InvocationBindingsForFrozen(target, frozen) {
+			hasSource[binding.Source] = true
+		}
+		for executor, selected := range selectedExecutors() {
+			if !selected || executor == "native" {
+				continue
+			}
+			source := "builtin"
+			if executor == "extension" {
+				source = "executable"
+			}
+			if hasSource[source] {
+				continue
+			}
+			targetOp.Event(logging.Trace, "executor_disposition", logging.Fields{
+				"target": target.ID, "protocol": string(target.Protocol),
+				"executor": executor, "disposition": "no_work",
+			})
+		}
+	}
 	parallelTargets(targetWorkflowLimit(cfg, len(targets)), len(targets), func(index int) {
 		target := targets[index]
 		reporter.Planning("Discovering " + target.ID)
@@ -378,6 +428,10 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 			for targetIndex, targetOp := range targetOps {
 				outcome := "completed"
 				fields := logging.Fields{"status": outcome}
+				// Preparation is a global freeze barrier. Even a target whose
+				// inventory succeeded cannot start its selected SDK/extension
+				// branches once another target prevents a frozen run plan.
+				emitSelectedDisposition(targetOp, targets[targetIndex], "blocked")
 				if prepareErrs[targetIndex] != nil {
 					outcome = "error"
 					fields = logging.Fields{"status": outcome, "error_present": true, "error_kind": "prepare"}
@@ -440,8 +494,13 @@ func runMultiTarget(ctx context.Context, cfg config.Config, build BuildInfo) (ou
 		guidance.Apply(&tmp, p, guidance.Options{Mode: cfg.Guidance, Pack: cfg.GuidancePack, Locale: cfg.GuidanceLocale})
 		targetReport.Guidance = tmp.Guidance
 		if executionErr != nil {
+			emitSelectedDisposition(targetOp, target, "blocked")
 			logf(logging.Error, "[%s] target runner returned an error", target.ID)
 		} else {
+			// The frozen provenance is the authority for each executor branch.
+			// Defer no_work until native execution returns so a native failure
+			// closes unstarted branches as blocked instead.
+			emitNoWorkDisposition(targetOp, target, frozenExtensions[index])
 			targetReport, extensionErr = finishTargetExtensions(targetCtx, extensionCfg, target, p, targetPlan, targetReport, frozenExtensions[index], native.Runtime.Client, native.Runtime.Executor, logger, tracing, reporter)
 			if extensionErr != nil {
 				logf(logging.Error, "[%s] extension suites returned an error", target.ID)

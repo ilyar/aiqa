@@ -67,6 +67,12 @@ type Runtime struct {
 	Executor *probe.Executor
 }
 
+// GenerationMaxOutputTokens is deliberately a modest, fixed ceiling shared by
+// native and official-SDK text probes. Gemini accounts thinking tokens against
+// this limit, so 32 can leave a valid response with no visible answer. This is
+// not a model-specific budget and probes never retry or raise it dynamically.
+const GenerationMaxOutputTokens = 256
+
 // progressPlan serializes revisions from concurrent model workers. Dynamic
 // children reserve their unit immediately before creating its lifecycle probe.
 type progressPlan struct {
@@ -299,6 +305,9 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 		selected, metadata = options.frozen.selected, options.frozen.metadata
 	}
 	if len(selected) == 0 {
+		// Discovery still performed transport work even when authorization failed
+		// or the selected inventory was empty; retain it on this early path.
+		tmp.RateLimit = *protocolpkg.RateLimitStats(client.PacingStats())
 		reportpkg.Finalize(&tmp)
 		guidance.ExtractArtifacts(&tmp)
 		guidance.QualifyArtifacts(&tmp, target.ID)
@@ -1311,10 +1320,9 @@ func runGenerateContentWithPreflight(parent context.Context, client *Client, tim
 	base.Usage = ParseUsage(resp.JSON)
 	setHTTPStatus(&base, resp, err, !p.Probe(base.ID).Required)
 	if base.Status == result.StatusPass {
-		if !strings.Contains(generateText(resp.JSON), "AIQA_OK") {
-			base.Status, base.Summary = result.StatusWarn, "generateContent completed but did not return AIQA_OK"
-		} else {
-			base.Summary = "generateContent returned the requested marker"
+		base.Summary = "generateContent returned a successful response"
+		if reasons := allowlistedFinishReasons(generateFinishReasons(resp.JSON)); len(reasons) > 0 {
+			base.Metrics = map[string]any{"finish_reasons": reasons}
 		}
 	}
 	schema := derived(p, "google.generate-content.schema", base)
@@ -1325,9 +1333,11 @@ func runGenerateContentWithPreflight(parent context.Context, client *Client, tim
 			schema.Summary = "GenerateContent response schema is valid"
 		}
 	}
-	textTest := derived(p, "google.generate-content.output-text", base)
-	textTest.Summary = "GenerateContent output text was extracted"
-	usage := derived(p, "google.generate-content.usage", base)
+	textTest := derived(p, "google.generate-content.output-text", schema)
+	if schema.Status == result.StatusPass {
+		applyMarkerObservation(&textTest, generateText(resp.JSON), generateFinishReasons(resp.JSON))
+	}
+	usage := derived(p, "google.generate-content.usage", schema)
 	usage.Usage = ParseUsage(resp.JSON)
 	if base.Status == result.StatusPass && len(ValidateUsage(usageMap(resp.JSON))) > 0 {
 		usage.Status, usage.Summary, usage.Observation = result.StatusFail, "GenerateContent usage metadata is invalid", strings.Join(ValidateUsage(usageMap(resp.JSON)), "; ")
@@ -1373,21 +1383,25 @@ func runGenerateStream(parent context.Context, client *Client, timeout time.Dura
 			schema.Summary = "GenerateContent stream chunks have valid response shapes"
 		}
 	}
-	textTest := derived(p, "google.generate-content.stream.text", sequence)
-	if sequence.Status == result.StatusPass && !strings.Contains(validation.Text, "AIQA_OK") {
-		textTest.Status, textTest.Summary = result.StatusFail, "GenerateContent stream did not reconstruct AIQA_OK"
-	} else if sequence.Status == result.StatusPass {
-		textTest.Summary = "GenerateContent stream reconstructed response text"
+	textTest := derived(p, "google.generate-content.stream.text", schema)
+	if schema.Status == result.StatusPass {
+		applyMarkerObservation(&textTest, validation.Text, validation.FinishReasons)
+		if textTest.Status == result.StatusPass {
+			textTest.Summary = "GenerateContent stream reconstructed the requested marker"
+		}
 	}
-	finish := derived(p, "google.generate-content.stream.finish_reason", sequence)
-	if sequence.Status == result.StatusPass {
+	finish := derived(p, "google.generate-content.stream.finish_reason", schema)
+	if schema.Status == result.StatusPass {
+		if reasons := allowlistedFinishReasons(validation.FinishReasons); len(reasons) > 0 {
+			finish.Metrics = map[string]any{"finish_reasons": reasons}
+		}
 		if validation.SawFinishReason || len(stream.FinishReasons) > 0 {
 			finish.Summary = "GenerateContent stream exposed a finish reason"
 		} else {
 			finish.Status, finish.Summary = result.StatusWarn, "GenerateContent stream did not expose a finish reason"
 		}
 	}
-	usage := derived(p, "google.generate-content.stream.usage", sequence)
+	usage := derived(p, "google.generate-content.stream.usage", schema)
 	usage.Usage = validation.Usage
 	if sequence.Status == result.StatusPass {
 		if validation.SawUsage {
@@ -1408,12 +1422,18 @@ func runGenerateTools(parent context.Context, client *Client, timeout time.Durat
 	t.Usage = ParseUsage(resp.JSON)
 	setHTTPStatus(&t, resp, err, true)
 	if t.Status == result.StatusPass {
-		name, args, found := generateToolCall(resp.JSON)
-		t.Metrics = map[string]any{"tool_call_observed": found}
-		if found && name == "get_status" && json.Valid([]byte(args)) {
-			t.Summary = "GenerateContent function declaration was accepted and a valid function call was returned"
+		if problems := ValidateGenerateContent(resp.JSON); len(problems) > 0 {
+			t.Status, t.Summary, t.Observation = result.StatusFail, "GenerateContent tool response schema is invalid", strings.Join(problems, "; ")
+		} else if applyGenerateTruncation(&t, generateFinishReasons(resp.JSON)) {
 		} else {
-			t.Status, t.Summary = result.StatusWarn, "GenerateContent accepted the tool declaration but did not return the expected valid function call"
+			name, args, found := generateToolCall(resp.JSON)
+			t.Metrics = map[string]any{"tool_call_observed": found}
+			if found && name == "get_status" && json.Valid([]byte(args)) {
+				t.Summary = "GenerateContent function declaration was accepted and a valid function call was returned"
+			} else {
+				t.Status, t.Summary = result.StatusWarn, "GenerateContent accepted the tool declaration but did not return the expected valid function call"
+				t.Signals = []result.EvidenceSignal{{Code: "behavior.tool_not_called", RootCause: "model-output"}}
+			}
 		}
 	}
 	return []result.TestResult{t}
@@ -1421,14 +1441,19 @@ func runGenerateTools(parent context.Context, client *Client, timeout time.Durat
 
 func runGenerateStructured(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string) []result.TestResult {
 	body := generationBody(model, "Return JSON with ok=true and value=AIQA_OK.")
-	body["generationConfig"] = map[string]any{"responseMimeType": "application/json", "responseSchema": map[string]any{"type": "OBJECT", "properties": map[string]any{"ok": map[string]any{"type": "BOOLEAN"}, "value": map[string]any{"type": "STRING"}}, "required": []string{"ok", "value"}}}
+	generationConfig := body["generationConfig"].(map[string]any)
+	generationConfig["responseMimeType"] = "application/json"
+	generationConfig["responseSchema"] = map[string]any{"type": "OBJECT", "properties": map[string]any{"ok": map[string]any{"type": "BOOLEAN"}, "value": map[string]any{"type": "STRING"}}, "required": []string{"ok", "value"}}
 	resp, err := call(parent, timeout, func(ctx context.Context) (api.Response, error) { return client.GenerateContent(ctx, model, body) })
 	t := testBase(p, "google.generate-content.structured-output")
 	t.DurationMS, t.HTTP = resp.Duration.Milliseconds(), observation(resp)
 	t.Usage = ParseUsage(resp.JSON)
 	setHTTPStatus(&t, resp, err, true)
 	if t.Status == result.StatusPass {
-		if !validStructured(generateText(resp.JSON)) {
+		if problems := ValidateGenerateContent(resp.JSON); len(problems) > 0 {
+			t.Status, t.Summary, t.Observation = result.StatusFail, "GenerateContent structured response schema is invalid", strings.Join(problems, "; ")
+		} else if applyGenerateTruncation(&t, generateFinishReasons(resp.JSON)) {
+		} else if !validStructured(generateText(resp.JSON)) {
 			t.Status, t.Summary = result.StatusFail, "GenerateContent structured output violated the local JSON schema"
 		} else {
 			t.Summary = "GenerateContent structured output conforms to the local JSON schema"
@@ -1477,7 +1502,7 @@ func runEmbedding(parent context.Context, client *Client, timeout time.Duration,
 
 func runThinking(parent context.Context, client *Client, timeout time.Duration, p profile.Profile, model string, legacy bool) []result.TestResult {
 	body := generationBody(model, "Reply with exactly AIQA_OK.")
-	body["generationConfig"] = map[string]any{"thinkingConfig": map[string]any{"thinkingBudget": 256}}
+	body["generationConfig"].(map[string]any)["thinkingConfig"] = map[string]any{"thinkingBudget": 256}
 	var resp api.Response
 	var err error
 	probeID := "google.generate-content.thinking.basic"
@@ -1673,7 +1698,69 @@ func runGoogleInvalidJSON(parent context.Context, client *Client, timeout time.D
 }
 
 func generationBody(model, prompt string) map[string]any {
-	return map[string]any{"contents": []any{map[string]any{"role": "user", "parts": []any{map[string]any{"text": prompt}}}}, "generationConfig": map[string]any{"maxOutputTokens": 32}}
+	return map[string]any{"contents": []any{map[string]any{"role": "user", "parts": []any{map[string]any{"text": prompt}}}}, "generationConfig": map[string]any{"maxOutputTokens": GenerationMaxOutputTokens}}
+}
+
+func applyMarkerObservation(t *result.TestResult, text string, finishReasons []string) {
+	if hasMaxTokens(finishReasons) {
+		applyGenerateTruncation(t, finishReasons)
+		return
+	}
+	if strings.TrimSpace(text) == "" {
+		t.Status, t.Summary = result.StatusWarn, "GenerateContent returned no visible output; marker compliance is inconclusive"
+		t.Signals = []result.EvidenceSignal{{Code: "behavior.marker_missing", RootCause: "model-output"}}
+		return
+	}
+	if !strings.Contains(text, "AIQA_OK") {
+		t.Status, t.Summary = result.StatusWarn, "GenerateContent completed but did not return the requested marker"
+		t.Signals = []result.EvidenceSignal{{Code: "behavior.marker_mismatch", RootCause: "model-output"}}
+		return
+	}
+	t.Summary = "GenerateContent returned the requested marker"
+}
+
+func applyGenerateTruncation(t *result.TestResult, finishReasons []string) bool {
+	if !hasMaxTokens(finishReasons) {
+		return false
+	}
+	t.Status, t.Summary = result.StatusError, "GenerateContent output ended at MAX_TOKENS; compatibility is inconclusive"
+	t.Signals = []result.EvidenceSignal{{Code: "execution.output_truncated", RootCause: "max-output-tokens"}}
+	return true
+}
+
+func generateFinishReasons(root map[string]any) []string {
+	var reasons []string
+	candidates, _ := root["candidates"].([]any)
+	for _, raw := range candidates {
+		candidate, _ := raw.(map[string]any)
+		if reason := stringValue(candidate["finishReason"]); reason != "" {
+			reasons = append(reasons, reason)
+		}
+	}
+	return reasons
+}
+
+func hasMaxTokens(reasons []string) bool {
+	for _, reason := range reasons {
+		if strings.EqualFold(strings.TrimSpace(reason), "MAX_TOKENS") {
+			return true
+		}
+	}
+	return false
+}
+
+func allowlistedFinishReasons(reasons []string) []string {
+	allowed := map[string]bool{"STOP": true, "MAX_TOKENS": true, "SAFETY": true, "RECITATION": true, "LANGUAGE": true, "OTHER": true, "BLOCKLIST": true, "PROHIBITED_CONTENT": true, "SPII": true, "MALFORMED_FUNCTION_CALL": true, "IMAGE_SAFETY": true, "UNEXPECTED_TOOL_CALL": true, "TOO_MANY_TOOL_CALLS": true, "IMAGE_PROHIBITED_CONTENT": true, "NO_IMAGE": true, "IMAGE_RECITATION": true, "IMAGE_OTHER": true}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(reasons))
+	for _, reason := range reasons {
+		value := strings.ToUpper(strings.TrimSpace(reason))
+		if allowed[value] && !seen[value] && len(out) < 16 {
+			seen[value] = true
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 func interactionText(root map[string]any) string {

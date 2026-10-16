@@ -2,6 +2,22 @@
   "revision": "2026-09-15.1",
   "entries": [
     {
+      "id": "execution.credentials-rejected",
+      "revision": "1",
+      "finding_code": "execution.credentials_rejected",
+      "finding_title": "Configured API credentials were rejected",
+      "recommendation_title": "Restore the configured API credentials before assessing compatibility",
+      "default_priority": "p2",
+      "action_kind": "configure",
+      "guidance_level": 2,
+      "audiences": ["qa_operator", "client_developer"],
+      "why": "HTTP 401 or 403 from a request using the configured credential blocks compatibility execution. It does not demonstrate a provider protocol defect.",
+      "attribution": {"component": "client_configuration", "confidence": "high", "basis": "The target rejected the configured credential before the protocol requirement could be evaluated."},
+      "steps": [{"id": "verify-credential", "text": "Verify the selected API key, project or organization, endpoint, API version, and model authorization for this target."}, {"id": "rerun-after-authorization", "text": "After access is restored, rerun the same selected checks before changing provider protocol behavior."}],
+      "verification": [],
+      "references": [{"title": "AIQA compatibility report semantics", "url": "https://github.com/ilyar/aiqa/blob/main/docs/architecture.md", "source_kind": "project"}]
+    },
+    {
       "id": "metadata.model-capability-unknown",
       "revision": "1",
       "finding_code": "metadata.model_capability_unknown",

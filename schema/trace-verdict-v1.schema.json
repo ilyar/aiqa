@@ -19,7 +19,7 @@
   "$defs": {
     "coverage": {
       "type": "object", "required": ["target", "protocol", "executor", "status", "count"],
-      "properties": {"target": {"type": "string"}, "protocol": {"type": "string"}, "executor": {"enum": ["native", "sdk", "extension"]}, "status": {"enum": ["observed", "complete", "not_selected", "missing"]}, "count": {"type": "integer", "minimum": 0}},
+      "properties": {"target": {"type": "string"}, "protocol": {"type": "string"}, "executor": {"enum": ["native", "sdk", "extension"]}, "status": {"enum": ["observed", "complete", "not_selected", "missing", "blocked", "no_work"]}, "count": {"type": "integer", "minimum": 0}},
       "additionalProperties": false
     },
     "violation": {

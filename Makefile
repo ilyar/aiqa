@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-VERSION ?= 1.0.0-beta.1
+VERSION ?= 1.0.0-beta.2
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || printf unknown)
 DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
@@ -75,7 +75,7 @@ qa: check example-check security-check race scheduler-check monitoring-check bui
 # The operator skill has a pinned CLI contract independent of CI's version label.
 skill-check:
 	@mkdir -p build/skill-check
-	CGO_ENABLED=0 go build -trimpath -ldflags '-X main.version=1.0.0-beta.1' -o build/skill-check/aiqa ./cmd/aiqa
+	CGO_ENABLED=0 go build -trimpath -ldflags '-X main.version=1.0.0-beta.2' -o build/skill-check/aiqa ./cmd/aiqa
 	AIQA_TEST_BINARY="$(CURDIR)/build/skill-check/aiqa" python3 -m unittest discover -s test/skills/aiqa-provider-operator -v
 
 scheduler-check:

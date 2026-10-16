@@ -365,6 +365,11 @@ func buildRecommendations(r result.Report, p profile.Profile, catalog Catalog, p
 			if moreUrgent(entry.DefaultPriority, priority) {
 				priority = entry.DefaultPriority
 			}
+			// A rejected configured credential can block a core requirement, but
+			// it is an operator configuration action rather than a provider P0.
+			if credentialsRejected(finding) {
+				priority = entry.DefaultPriority
+			}
 			actionKind = entry.ActionKind
 			guidanceLevel = entry.GuidanceLevel
 			title, why = entry.RecommendationTitle, entry.Why
@@ -681,6 +686,9 @@ func actionFor(finding result.Finding, requirements map[string]result.Requiremen
 }
 
 func genericRecommendationTitle(finding result.Finding, action string) string {
+	if credentialsRejected(finding) {
+		return "Restore the configured API credentials before assessing compatibility"
+	}
 	if modelAccessUnavailable(finding) {
 		return "Restore model access or explicitly select an available model"
 	}
@@ -702,6 +710,9 @@ func genericRecommendationTitle(finding result.Finding, action string) string {
 }
 
 func genericWhy(finding result.Finding, requirements map[string]result.RequirementAssessment) string {
+	if credentialsRejected(finding) {
+		return "The configured credential was rejected with HTTP 401 or 403. This blocks execution and does not establish a protocol incompatibility."
+	}
 	if modelAccessUnavailable(finding) {
 		return "The provider explicitly restricted access to the selected model. Its catalog entry does not prove this account can use it; this is incomplete evidence, not a protocol failure."
 	}
@@ -723,6 +734,9 @@ func genericWhy(finding result.Finding, requirements map[string]result.Requireme
 }
 
 func genericSteps(finding result.Finding, action string) []result.RecommendationStep {
+	if credentialsRejected(finding) {
+		return []result.RecommendationStep{{ID: "verify-credential", Text: "Verify that the selected API key, project, organization, endpoint, and API version are authorized for this target."}, {ID: "rerun-after-authorization", Text: "After access is restored, rerun the same selected checks before changing provider protocol behavior."}}
+	}
 	if modelAccessUnavailable(finding) {
 		return []result.RecommendationStep{{ID: "restore-model-access", Text: "Verify model availability for this project and API version with the provider."}, {ID: "select-available-model", Text: "Obtain access or explicitly approve a replacement model, then rerun the requested checks; do not silently change the selected model."}}
 	}
@@ -747,6 +761,10 @@ func dailyQuotaExhausted(finding result.Finding) bool {
 
 func modelAccessUnavailable(finding result.Finding) bool {
 	return finding.EvidenceState == "inconclusive" && finding.Code == "execution.model_access_unavailable"
+}
+
+func credentialsRejected(finding result.Finding) bool {
+	return finding.EvidenceState == "inconclusive" && finding.Code == "execution.credentials_rejected"
 }
 
 func potentialImpact(r result.Report, finding result.Finding, action string, requirements map[string]result.RequirementAssessment) result.PotentialImpact {

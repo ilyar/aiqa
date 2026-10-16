@@ -1,7 +1,7 @@
 """Black-box safety tests for the aiqa-provider-operator runner.
 
 The integration cases deliberately use only a loopback HTTP server.  Set
-AIQA_TEST_BINARY to the absolute beta.1 binary to enable them in CI.
+AIQA_TEST_BINARY to an absolute supported beta binary to enable them in CI.
 """
 import json
 import os
@@ -128,6 +128,19 @@ exit "${code:-0}"
                 result = self.invoke("--model", model, execute=True)
                 self.assertEqual(expected, result.returncode, result.stderr)
                 self.assertEqual(expected, json.loads(result.stdout)["exit_code"])
+
+    def test_supported_beta_versions_and_unknown_version_rejection(self):
+        original = self.binary.read_text(encoding="utf-8")
+        for version, expected in (("1.0.0-beta.1", 0), ("1.0.0-beta.2", 0),
+                                  ("1.0.0-beta.3", 2), ("1.0.0-beta.20", 2)):
+            with self.subTest(version=version):
+                self.binary.write_text(original.replace("1.0.0-beta.1", version), encoding="utf-8")
+                result = self.invoke(execute=True)
+                self.assertEqual(expected, result.returncode, result.stderr)
+                if expected == 0:
+                    self.assertEqual("report-inspected", json.loads(result.stdout)["completion"])
+                else:
+                    self.assertEqual("", result.stdout)
 
     def test_execute_rejects_malformed_or_empty_reports(self):
         for body in ("not json", "{}"):

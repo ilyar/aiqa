@@ -121,7 +121,7 @@ run_installer() {
         FAKE_UNAME_S="$os" \
         FAKE_UNAME_M="$arch" \
         FAKE_DOWNLOAD_DIR="$downloads" \
-        AIQA_VERSION="${TEST_VERSION:-1.0.0-beta.1}" \
+        AIQA_VERSION="${TEST_VERSION:-1.0.0-beta.2}" \
         AIQA_INSTALL_DIR="$destination" \
         FAKE_CURL_FAIL="${TEST_CURL_FAIL:-}" \
         /bin/sh "$installer" "$@" >"$stdout" 2>"$stderr"

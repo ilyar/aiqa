@@ -295,6 +295,9 @@ func Run(ctx context.Context, options RunOptions) (result.TargetReport, error) {
 		selected, metadata = options.frozen.selected, options.frozen.metadata
 	}
 	if len(selected) == 0 {
+		// Discovery still performed transport work when authorization failed or
+		// the selected inventory was empty. Retain it on this early-return path.
+		tmp.RateLimit = *rateLimitStats(client.PacingStats())
 		reportpkg.Finalize(&tmp)
 		guidance.ExtractArtifacts(&tmp)
 		guidance.QualifyArtifacts(&tmp, target.ID)

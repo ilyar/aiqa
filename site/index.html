@@ -34,21 +34,21 @@
       <h2>One binary.<br>Ready for your terminal.</h2>
       <p>Linux, macOS, and FreeBSD · amd64 / arm64</p>
       <pre class="command"><code>curl -LsSf https://ilyar.github.io/aiqa/install.sh | sh</code></pre>
-      <p class="fine">Installs beta.1 to <code>~/.local/bin</code> and verifies SHA-256. Add that directory to your PATH. No sudo or shell-profile changes. <a href="install.sh">Read the installer</a>.</p>
+      <p class="fine">Installs beta.2 to <code>~/.local/bin</code> and verifies SHA-256. Add that directory to your PATH. No sudo or shell-profile changes. <a href="install.sh">Read the installer</a>.</p>
       <details><summary>Custom directory or version</summary><pre><code>curl -LsSf https://ilyar.github.io/aiqa/install.sh -o install.sh
-AIQA_INSTALL_DIR="$HOME/bin" AIQA_VERSION=1.0.0-beta.1 sh install.sh
+AIQA_INSTALL_DIR="$HOME/bin" AIQA_VERSION=1.0.0-beta.2 sh install.sh
 export PATH="$HOME/bin:$PATH"
 aiqa --version</code></pre></details>
       <div class="downloads">
         <h3>Prefer a direct download?</h3>
         <p>Choose your operating system and CPU. On Unix, rename the download to <code>aiqa</code>, run <code>chmod +x aiqa</code>, and move it into your PATH. On Windows, rename it to <code>aiqa.exe</code> and place it in a directory on PATH.</p>
-        <table><caption>Version 1.0.0-beta.1 downloads</caption><thead><tr><th scope="col">System</th><th scope="col">Intel / AMD 64-bit</th><th scope="col">ARM 64-bit</th></tr></thead><tbody>
-          <tr><th scope="row">Linux</th><td><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.1/aiqa-linux-amd64">amd64 ↓</a></td><td><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.1/aiqa-linux-arm64">arm64 ↓</a></td></tr>
-          <tr><th scope="row">macOS</th><td><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.1/aiqa-darwin-amd64">Intel ↓</a></td><td><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.1/aiqa-darwin-arm64">Apple silicon ↓</a></td></tr>
-          <tr><th scope="row">Windows</th><td><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.1/aiqa-windows-amd64.exe">amd64 .exe ↓</a></td><td><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.1/aiqa-windows-arm64.exe">arm64 .exe ↓</a></td></tr>
-          <tr><th scope="row">FreeBSD</th><td><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.1/aiqa-freebsd-amd64">amd64 ↓</a></td><td><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.1/aiqa-freebsd-arm64">arm64 ↓</a></td></tr>
+        <table><caption>Version 1.0.0-beta.2 downloads</caption><thead><tr><th scope="col">System</th><th scope="col">Intel / AMD 64-bit</th><th scope="col">ARM 64-bit</th></tr></thead><tbody>
+          <tr><th scope="row">Linux</th><td><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.2/aiqa-linux-amd64">amd64 ↓</a></td><td><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.2/aiqa-linux-arm64">arm64 ↓</a></td></tr>
+          <tr><th scope="row">macOS</th><td><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.2/aiqa-darwin-amd64">Intel ↓</a></td><td><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.2/aiqa-darwin-arm64">Apple silicon ↓</a></td></tr>
+          <tr><th scope="row">Windows</th><td><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.2/aiqa-windows-amd64.exe">amd64 .exe ↓</a></td><td><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.2/aiqa-windows-arm64.exe">arm64 .exe ↓</a></td></tr>
+          <tr><th scope="row">FreeBSD</th><td><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.2/aiqa-freebsd-amd64">amd64 ↓</a></td><td><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.2/aiqa-freebsd-arm64">arm64 ↓</a></td></tr>
         </tbody></table>
-        <p class="fine"><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.1/SHA256SUMS">SHA256SUMS</a> · <a href="https://github.com/ilyar/aiqa/releases/tag/v1.0.0-beta.1">Release notes</a>. Windows users can also run the shell installer in Git Bash.</p>
+        <p class="fine"><a href="https://github.com/ilyar/aiqa/releases/download/v1.0.0-beta.2/SHA256SUMS">SHA256SUMS</a> · <a href="https://github.com/ilyar/aiqa/releases/tag/v1.0.0-beta.2">Release notes</a>. Windows users can also run the shell installer in Git Bash.</p>
       </div>
     </div></section>
     <section class="start wrap" id="agent">
@@ -56,7 +56,7 @@ aiqa --version</code></pre></details>
       <h2>Your agent.<br>Protocol evidence.</h2>
       <p>Use the <strong>AIQA Provider Operator</strong> skill with Codex, Claude Code, or another skill-capable coding agent. It helps define the compatibility you need, run bounded checks, explain failures, and propose configuration changes backed by report evidence.</p>
       <pre class="command"><code>npx skills add ilyar/aiqa --skill aiqa-provider-operator</code></pre>
-      <p class="fine">Skill version 1.0.0, designed for AIQA 1.0.0-beta.1. Install the AIQA binary separately using the instructions above. The bounded runner requires Python 3.10+ on a POSIX host; Windows users can run it in WSL. Installing the skill does not run checks or change your provider.</p>
+      <p class="fine">Skill version 1.0.1, designed for AIQA 1.0.0-beta.2. Install the AIQA binary separately using the instructions above. The bounded runner requires Python 3.10+ on a POSIX host; Windows users can run it in WSL. Installing the skill does not run checks or change your provider.</p>
       <h3>Then ask your agent</h3>
       <pre class="agent-prompt"><code>Use $aiqa-provider-operator to check my staging API for OpenAI compatibility. Help me choose the profile and model, agree the paid-request scope, and read the key from my environment. Explain the report and propose configuration fixes before applying changes.</code></pre>
       <div class="features">
@@ -65,7 +65,7 @@ aiqa --version</code></pre></details>
         <article><span class="number">03</span><h3>Fix, then recheck.</h3><p>Review changes to routing, authentication, streaming, or response mapping. Recheck the same contract after approved changes; keep the before-and-after evidence private.</p></article>
       </div>
       <p class="fine">Compatibility checks can incur provider charges. The runner does not enable image generation, high-token probing, persistent-resource creation, or external extensions. It does not deploy changes or upload your reports. Limits bound work, not an exact monetary spend.</p>
-      <a class="text-link" href="https://github.com/ilyar/aiqa/tree/skill-aiqa-provider-operator-v1.0.0/skills/aiqa-provider-operator">Review the versioned skill ↗</a>
+      <a class="text-link" href="https://github.com/ilyar/aiqa/tree/v1.0.0-beta.2/skills/aiqa-provider-operator">Review the versioned skill ↗</a>
     </section>
     <section class="start wrap">
       <p class="eyebrow">04 / YOUR FIRST CLI CHECK</p>

@@ -267,6 +267,7 @@ func runTarget(ctx context.Context, options protocolpkg.RunOptions, frozen *froz
 	}
 	selected, metadata := execution.selected, execution.metadata
 	if len(selected) == 0 {
+		tmp.RateLimit = *protocolpkg.RateLimitStats(client.PacingStats())
 		// Endpoint compatibility is reserved in the frozen OpenAI plan whenever
 		// compat is selected. With no usable model there is no representative
 		// endpoint to exercise, so close the conditional unit explicitly instead

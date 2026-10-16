@@ -9,13 +9,13 @@ main() {
         --help|-h)
             printf '%s\n' 'Install AIQA for Linux, macOS, FreeBSD, or Windows (Git Bash).' \
                 'Options: --help' \
-                'Environment: AIQA_VERSION (default 1.0.0-beta.1), AIQA_INSTALL_DIR.' \
+                'Environment: AIQA_VERSION (default 1.0.0-beta.2), AIQA_INSTALL_DIR.' \
                 'Default directory: XDG_BIN_HOME, or HOME/.local/bin. Shell profiles are not modified.'
             return ;;
         '') ;;
         *) fail "unknown option: $1" ;;
     esac
-    version=${AIQA_VERSION:-1.0.0-beta.1}
+    version=${AIQA_VERSION:-1.0.0-beta.2}
     version=${version#v}
     case "$version" in ''|*[!0-9A-Za-z.-]*|.*|-*) fail 'invalid AIQA_VERSION' ;; esac
     case "$(uname -s)" in

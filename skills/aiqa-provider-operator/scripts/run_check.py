@@ -64,7 +64,7 @@ def main():
     if not os.environ.get(key): fail(f"selected canonical credential {key} is not set")
     binary = posix_safe(args.aiqa, "AIQA binary")
     version = subprocess.run([str(binary), "--version"], capture_output=True, text=True, timeout=10, env={"PATH": os.defpath})
-    if version.returncode != 0 or not re.search(r"(?<![0-9.])1\.0\.0-beta\.1(?![0-9.])", version.stdout + version.stderr): fail("trusted AIQA binary is not version 1.0.0-beta.1")
+    if version.returncode != 0 or not re.search(r"(?<![0-9.])1\.0\.0-beta\.[12](?![0-9.])", version.stdout + version.stderr): fail("trusted AIQA binary is not a supported 1.0.0-beta.1 or 1.0.0-beta.2 release")
     previous_umask = os.umask(0o077)
     work = pathlib.Path(tempfile.mkdtemp(prefix="aiqa-operator-")); os.chmod(work, 0o700)
     artifacts = work / "artifacts"; artifacts.mkdir(mode=0o700)

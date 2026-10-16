@@ -3,8 +3,8 @@ name: aiqa-provider-operator
 description: Run one tightly bounded, authorized AIQA compatibility check against an OpenAI, Anthropic, or Google GenAI provider, triage its v3 report, and prepare approved local configuration fixes. Do not use for provider installation, deployment, or broad benchmarking.
 metadata:
   catalog_name: aiqa-provider-operator
-  version: 1.0.0
-  compatibility: AIQA 1.0.0-beta.1
+  version: 1.0.1
+  compatibility: AIQA 1.0.0-beta.1 and 1.0.0-beta.2
 ---
 
 # AIQA provider operator

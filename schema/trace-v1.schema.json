@@ -13,7 +13,9 @@
     "trace_id": {"type": "string"},
     "span_id": {"type": "string"},
     "parent_span_id": {"type": "string"},
-    "operation_id": {"type": "string"}
+    "operation_id": {"type": "string"},
+    "executor": {"enum": ["native", "sdk", "extension"]},
+    "disposition": {"enum": ["blocked", "no_work"]}
   },
   "additionalProperties": true
 }

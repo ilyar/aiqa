@@ -1,4 +1,4 @@
-# Publishing 1.0.0-beta.1
+# Publishing 1.0.0-beta.2
 
 The release consists of eight standalone binaries (Linux, macOS, Windows, and
 FreeBSD, each on amd64 and arm64), `SHA256SUMS`, and the license. Profiles and
@@ -19,23 +19,22 @@ does; the output binaries target all four operating systems.
    `bash script/install_test.sh`. Run `make qa` before committing, as required
    by the repository's local gate.
 5. Confirm `Makefile`, `cmd/aiqa/main.go`, `CHANGELOG.md`, and `site/` all identify
-   the same release. Build with `make dist VERSION=1.0.0-beta.1`; existing output
+   the same release. Build with `make dist VERSION=1.0.0-beta.2`; existing output
    must be preserved or moved before rebuilding into the same destination.
 6. Verify the eight checksums and run native smoke tests on supported systems.
    Cross-compilation proves build support, not native runtime correctness.
 
 ## GitHub release
 
-The repository is currently private. Public distribution also requires an
-explicit decision to change its visibility after the history/security review.
-Verify the resulting access without an authenticated session; a private draft
-release is not a public download source.
+The repository is public. Verify release downloads without an authenticated
+session; a draft release is not a public download source. Keep provider reports,
+trace files, and credentials private, including the ignored `local/report/`.
 
 The release workflow builds the tagged commit and prepares a draft prerelease.
 Review its results and asset inventory before making it public. Do not replace
 assets in an already published release; issue a new version for corrections.
 
-Use tag `v1.0.0-beta.1` only after the candidate passes review. This preparation
+Use tag `v1.0.0-beta.2` only after the candidate passes review. This preparation
 does not itself create a tag, push changes, or publish a release.
 
 ## GitHub Pages
@@ -52,7 +51,7 @@ test the exact public command in a clean environment:
 curl -LsSf https://ilyar.github.io/aiqa/install.sh | sh
 ```
 
-The installer pins beta.1 because GitHub's latest-release endpoint does not
+The installer pins beta.2 because GitHub's latest-release endpoint does not
 select prereleases. Future versions require updating the default installer
 version and direct download links together.
 

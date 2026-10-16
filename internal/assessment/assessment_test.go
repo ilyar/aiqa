@@ -85,6 +85,97 @@ func TestCoreErrorIsInconclusiveAndNotRankable(t *testing.T) {
 	}
 }
 
+func TestConfiguredCredentialRejectionIsIncompleteEvidenceForEveryProtocol(t *testing.T) {
+	for _, id := range []string{
+		"models.list.http",
+		"anthropic.models.list.http",
+		"google.models.list.http",
+	} {
+		t.Run(id, func(t *testing.T) {
+			r := reportWithTest(result.TestResult{ID: id, Required: true, Status: result.StatusFail, HTTP: result.HTTPObservation{StatusCode: 401}})
+			Apply(&r, profile.Profile{})
+			if r.Discovery.Tests[0].Status != result.StatusError {
+				t.Fatalf("raw probe status=%q, want execution error", r.Discovery.Tests[0].Status)
+			}
+			if !hasSignal(r.Discovery.Tests[0].Signals, "execution.credentials_rejected") {
+				t.Fatalf("credential signal missing: %+v", r.Discovery.Tests[0].Signals)
+			}
+			if got := r.Summary.Assessment; got.Verdict != "inconclusive" || got.Comparison.Rankable || got.Core.Error != 1 {
+				t.Fatalf("credential rejection became a compatibility verdict: %+v", got)
+			}
+		})
+	}
+}
+
+func TestTypedMarkerObservationDoesNotDowngradeProtocolFailure(t *testing.T) {
+	for _, semantic := range []string{"behavior.marker_missing", "behavior.marker_mismatch", "behavior.tool_not_called"} {
+		t.Run("mixed protocol failure "+semantic, func(t *testing.T) {
+			r := reportWithTest(result.TestResult{ID: "google.generate-content.schema", Required: true, Status: result.StatusFail, Signals: []result.EvidenceSignal{{Code: semantic}, {Code: "google.generate-content.invalid_envelope"}}})
+			Apply(&r, profile.Profile{})
+			if got := r.Summary.Assessment; got.Verdict != "fail" || got.Core.Fail != 1 {
+				t.Fatalf("mixed protocol failure was downgraded: %+v", got)
+			}
+		})
+	}
+	t.Run("typed marker", func(t *testing.T) {
+		r := reportWithTest(result.TestResult{ID: "google.generate-content.basic", Required: true, Status: result.StatusFail, Signals: []result.EvidenceSignal{{Code: "behavior.marker_missing"}}})
+		Apply(&r, profile.Profile{})
+		if got := r.Summary.Assessment; got.Verdict != "inconclusive" || got.Core.Warn != 1 || got.Comparison.Rankable {
+			t.Fatalf("marker observation=%+v", got)
+		}
+	})
+	t.Run("schema remains failure", func(t *testing.T) {
+		r := reportWithTest(result.TestResult{ID: "google.generate-content.schema", Required: true, Status: result.StatusFail, Signals: []result.EvidenceSignal{{Code: "google.generate-content.invalid_envelope"}}})
+		Apply(&r, profile.Profile{})
+		if got := r.Summary.Assessment; got.Verdict != "fail" || got.Core.Fail != 1 {
+			t.Fatalf("schema failure was downgraded: %+v", got)
+		}
+	})
+	t.Run("typed missing tool", func(t *testing.T) {
+		r := reportWithTest(result.TestResult{ID: "google.generate-content.tools", Required: true, Status: result.StatusFail, Signals: []result.EvidenceSignal{{Code: "behavior.tool_not_called"}}})
+		Apply(&r, profile.Profile{})
+		if got := r.Summary.Assessment; got.Verdict != "inconclusive" || got.Core.Warn != 1 || got.Comparison.Rankable {
+			t.Fatalf("tool observation=%+v", got)
+		}
+	})
+}
+
+func TestCredentialRejectionDoesNotHideNegativeControlOrIndependentFailure(t *testing.T) {
+	t.Run("negative auth control", func(t *testing.T) {
+		r := reportWithTest(result.TestResult{ID: "chat.error.invalid_auth", Required: true, Status: result.StatusFail, HTTP: result.HTTPObservation{StatusCode: 401}})
+		Apply(&r, profile.Profile{})
+		if got := r.Summary.Assessment; got.Verdict != "fail" || got.Core.Fail != 1 {
+			t.Fatalf("invalid-auth control was downgraded: %+v", got)
+		}
+	})
+	t.Run("independent core failure", func(t *testing.T) {
+		r := result.Report{Discovery: result.Discovery{Tests: []result.TestResult{
+			{ID: "models.list.http", Required: true, Status: result.StatusFail, HTTP: result.HTTPObservation{StatusCode: 403}},
+			{ID: "models.list.schema", Required: true, Status: result.StatusFail},
+		}}}
+		Apply(&r, profile.Profile{})
+		if got := r.Summary.Assessment; got.Verdict != "fail" || got.Core.Error != 1 || got.Core.Fail != 1 {
+			t.Fatalf("credential gap hid independent core failure: %+v", got)
+		}
+	})
+	t.Run("model access blocker", func(t *testing.T) {
+		r := reportWithTest(result.TestResult{ID: "google.generate-content.basic", Required: true, Status: result.StatusError, HTTP: result.HTTPObservation{StatusCode: 403}, Signals: []result.EvidenceSignal{{Code: "execution.model_access_unavailable"}}})
+		Apply(&r, profile.Profile{})
+		if hasSignal(r.Discovery.Tests[0].Signals, "execution.credentials_rejected") {
+			t.Fatalf("credential signal displaced model access signal: %+v", r.Discovery.Tests[0].Signals)
+		}
+	})
+}
+
+func hasSignal(signals []result.EvidenceSignal, code string) bool {
+	for _, signal := range signals {
+		if signal.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
 func TestOptionalUnsupportedIsPassWithGaps(t *testing.T) {
 	r := reportWithTest(result.TestResult{ID: "models.retrieve", Name: "retrieve", Status: result.StatusUnsupported})
 	Apply(&r, profile.Profile{})

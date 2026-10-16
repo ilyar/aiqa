@@ -97,6 +97,8 @@ func Verify(input io.Reader, secrets ...string) Verdict {
 	runSpans := []string{}
 	executors := map[coverageKey]int{}
 	planned := map[coverageKey]bool{}
+	dispositions := map[coverageKey]string{}
+	planSpans := map[coverageKey]string{}
 	executableInvocations := []string{}
 
 	add := func(code, severity string, r record, remediation string) {
@@ -147,8 +149,29 @@ func Verify(input io.Reader, secrets ...string) Verdict {
 		}
 		if r.Event == "target.plan" {
 			target, protocol := stringField(r.Fields, "target"), stringField(r.Fields, "protocol")
+			if !validTargetLifecycleSpan(spans, r, target, protocol) {
+				add("target_plan_scope_invalid", "error", r, "emit target plans on their active target lifecycle span")
+			}
 			for executor, selected := range map[string]bool{"native": boolField(r.Fields, "native_selected"), "sdk": boolField(r.Fields, "sdk_selected"), "extension": boolField(r.Fields, "extension_selected")} {
-				planned[coverageKey{target: target, protocol: protocol, executor: executor}] = selected
+				key := coverageKey{target: target, protocol: protocol, executor: executor}
+				if _, exists := planned[key]; exists {
+					add("duplicate_target_plan", "error", r, "emit exactly one target plan for each target and executor")
+				}
+				planned[key] = selected
+				planSpans[key] = r.SpanID
+			}
+		}
+		if r.Event == "target.executor_disposition" {
+			target, protocol, executor, disposition := stringField(r.Fields, "target"), stringField(r.Fields, "protocol"), stringField(r.Fields, "executor"), stringField(r.Fields, "disposition")
+			key := coverageKey{target: target, protocol: protocol, executor: executor}
+			if !validTargetLifecycleSpan(spans, r, target, protocol) || planSpans[key] != r.SpanID || !planned[key] {
+				add("executor_disposition_scope_invalid", "error", r, "bind each disposition to its selected target plan and active target lifecycle span")
+			} else if disposition != "blocked" && disposition != "no_work" {
+				add("executor_disposition_invalid", "error", r, "use blocked or no_work as a terminal executor disposition")
+			} else if _, exists := dispositions[key]; exists {
+				add("duplicate_executor_disposition", "error", r, "emit at most one terminal disposition for each selected executor")
+			} else {
+				dispositions[key] = disposition
 			}
 		}
 
@@ -277,9 +300,14 @@ func Verify(input io.Reader, secrets ...string) Verdict {
 		}
 	}
 	v.RunID = runID
-	v.Coverage = coverage(executors, planned)
+	for key := range dispositions {
+		if executors[key] != 0 {
+			v.Violations = append(v.Violations, Violation{Code: "executor_disposition_conflicts_with_evidence", Severity: "error", Remediation: "do not mark an executor blocked or no_work after its lifecycle evidence begins"})
+		}
+	}
+	v.Coverage = coverage(executors, planned, dispositions)
 	for key, selected := range planned {
-		if selected && executors[key] == 0 {
+		if selected && executors[key] == 0 && dispositions[key] == "" {
 			v.Violations = append(v.Violations, Violation{Code: "selected_executor_unobserved", Severity: "error", Remediation: "emit complete lifecycle evidence for every selected executor or mark it not_selected in the execution plan"})
 		}
 	}
@@ -627,7 +655,15 @@ func executorFor(operation, source string) string {
 
 type coverageKey struct{ target, protocol, executor string }
 
-func coverage(executors map[coverageKey]int, planned map[coverageKey]bool) []Coverage {
+func validTargetLifecycleSpan(spans map[string]*span, r record, target, protocol string) bool {
+	if target == "" || protocol == "" || r.SpanID == "" {
+		return false
+	}
+	s, ok := spans[r.SpanID]
+	return ok && s.operation == "target" && s.endSeq == 0 && s.target == target && s.protocol == protocol && s.operationID == r.OperationID
+}
+
+func coverage(executors map[coverageKey]int, planned map[coverageKey]bool, dispositions map[coverageKey]string) []Coverage {
 	keys := make([]coverageKey, 0, len(executors)+len(planned))
 	seen := map[coverageKey]struct{}{}
 	for key := range executors {
@@ -653,6 +689,8 @@ func coverage(executors map[coverageKey]int, planned map[coverageKey]bool) []Cov
 		status := "not_selected"
 		if executors[executor] > 0 {
 			status = "complete"
+		} else if disposition := dispositions[executor]; disposition != "" {
+			status = disposition
 		} else if planned[executor] {
 			status = "missing"
 		}

@@ -85,9 +85,22 @@ func ValidateGenerateContent(root map[string]any) []string {
 				problems = append(problems, fmt.Sprintf("candidates[%d] is not an object", index))
 				continue
 			}
-			content, ok := candidate["content"].(map[string]any)
+			finish, hasFinish := candidate["finishReason"]
+			finishReason, finishIsString := finish.(string)
+			if hasFinish && !finishIsString {
+				problems = append(problems, fmt.Sprintf("candidates[%d].finishReason is not a string", index))
+				continue
+			}
+			rawContent, hasContent := candidate["content"]
+			content, ok := rawContent.(map[string]any)
 			if !ok {
-				problems = append(problems, fmt.Sprintf("candidates[%d].content is missing", index))
+				// A thinking model can consume the bounded generation budget before
+				// producing a visible part. MAX_TOKENS is terminal execution evidence,
+				// not a malformed protocol envelope.
+				if !hasContent && finishIsString && strings.EqualFold(strings.TrimSpace(finishReason), "MAX_TOKENS") {
+					continue
+				}
+				problems = append(problems, fmt.Sprintf("candidates[%d].content is missing or not an object", index))
 				continue
 			}
 			parts, ok := content["parts"].([]any)

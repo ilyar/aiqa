@@ -97,6 +97,14 @@ func ApplyGloballyUnmatchedRequestedScope(r *result.Report, targetID, protocol s
 
 func apply(r *result.Report, p profile.Profile, targetID, protocol string) {
 	ensureSignals(r)
+	normalizeMarkerObservations(r)
+	// A 401/403 on a request using the configured credential establishes an
+	// account/configuration blocker, not a protocol defect. Preserve the raw
+	// HTTP observation, but make its canonical effect incomplete evidence. The
+	// explicit invalid-credential controls are excluded: their expected 401/403
+	// responses are conformance evidence and a failed control must remain a
+	// genuine failure.
+	normalizeCredentialRejections(r)
 	items := map[requirementKey]*result.RequirementAssessment{}
 	provider := result.SubjectRef{TargetID: targetID, Protocol: protocol, Kind: "provider", ID: normalizedEndpoint(r.Config.BaseURL)}
 
@@ -159,6 +167,131 @@ func apply(r *result.Report, p profile.Profile, targetID, protocol string) {
 	})
 	r.Requirements = requirements
 	refreshAssessment(r, targetID != "")
+}
+
+// A missing requested marker or tool call is a model-semantic observation only
+// when the producing runner explicitly labels it as such. Do not infer this
+// from IDs or text: malformed protocol envelopes, SSE frames, tool calls, and
+// structured output must retain their independently established failures.
+func normalizeMarkerObservations(r *result.Report) {
+	normalizeTest := func(test *result.TestResult) {
+		if test.Status == result.StatusFail && hasMarkerObservation(test.Signals) {
+			test.Status = result.StatusWarn
+		}
+	}
+	for i := range r.Discovery.Tests {
+		normalizeTest(&r.Discovery.Tests[i])
+	}
+	for i := range r.Discovery.Compatibility {
+		normalizeTest(&r.Discovery.Compatibility[i])
+	}
+	for modelIndex := range r.Models {
+		for i := range r.Models[modelIndex].Compatibility {
+			normalizeTest(&r.Models[modelIndex].Compatibility[i])
+		}
+	}
+	for runIndex := range r.Extensions {
+		for suiteIndex := range r.Extensions[runIndex].Suites {
+			suite := &r.Extensions[runIndex].Suites[suiteIndex]
+			if suite.Status == result.StatusFail && hasMarkerObservation(suite.Signals) {
+				suite.Status = result.StatusWarn
+			}
+		}
+	}
+}
+
+func hasMarkerObservation(signals []result.EvidenceSignal) bool {
+	if len(signals) == 0 {
+		return false
+	}
+	for _, signal := range signals {
+		switch signal.Code {
+		case "behavior.marker_missing", "behavior.marker_mismatch", "behavior.tool_not_called":
+			// Only purely semantic observations can be downgraded. Any other
+			// signal may independently establish a protocol failure.
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func normalizeCredentialRejections(r *result.Report) {
+	normalizeTest := func(test *result.TestResult) {
+		if !credentialRejectionBlocks(test.ID, test.HTTP.StatusCode) || hasSpecificExecutionBlocker(test.Signals) {
+			return
+		}
+		test.Status = result.StatusError
+		test.Summary = "Configured credentials were rejected; compatibility outcome is inconclusive"
+		test.Signals = appendCredentialRejectionSignal(test.Signals, test.HTTP.StatusCode)
+	}
+	normalizeParameter := func(parameter *result.ParameterResult) {
+		if (parameter.HTTP.StatusCode != 401 && parameter.HTTP.StatusCode != 403) || hasSpecificExecutionBlocker(parameter.Signals) {
+			return
+		}
+		parameter.Status = result.StatusError
+		parameter.Summary = "Configured credentials were rejected; compatibility outcome is inconclusive"
+		parameter.Signals = appendCredentialRejectionSignal(parameter.Signals, parameter.HTTP.StatusCode)
+	}
+	for i := range r.Discovery.Tests {
+		normalizeTest(&r.Discovery.Tests[i])
+	}
+	for i := range r.Discovery.Compatibility {
+		normalizeTest(&r.Discovery.Compatibility[i])
+	}
+	for modelIndex := range r.Models {
+		for i := range r.Models[modelIndex].Compatibility {
+			normalizeTest(&r.Models[modelIndex].Compatibility[i])
+		}
+		for i := range r.Models[modelIndex].Parameters {
+			normalizeParameter(&r.Models[modelIndex].Parameters[i])
+		}
+	}
+	for runIndex := range r.Extensions {
+		for suiteIndex := range r.Extensions[runIndex].Suites {
+			suite := &r.Extensions[runIndex].Suites[suiteIndex]
+			if (suite.HTTP.StatusCode != 401 && suite.HTTP.StatusCode != 403) || hasSpecificExecutionBlocker(suite.Signals) {
+				continue
+			}
+			suite.Status = result.StatusError
+			suite.Summary = "Configured credentials were rejected; compatibility outcome is inconclusive"
+			suite.Signals = appendCredentialRejectionSignal(suite.Signals, suite.HTTP.StatusCode)
+		}
+	}
+}
+
+func hasSpecificExecutionBlocker(signals []result.EvidenceSignal) bool {
+	for _, signal := range signals {
+		switch signal.Code {
+		case "execution.model_access_unavailable", "execution.daily_quota_exhausted":
+			return true
+		}
+	}
+	return false
+}
+
+func credentialRejectionBlocks(id string, status int) bool {
+	if status != 401 && status != 403 {
+		return false
+	}
+	// These are deliberately-invalid controls. A response from them tests the
+	// error contract rather than the operator's configured credential.
+	id = strings.ToLower(id)
+	return !strings.Contains(id, "invalid_auth") &&
+		!strings.Contains(id, "invalid_api_key") &&
+		!strings.Contains(id, "invalid_key")
+}
+
+func appendCredentialRejectionSignal(signals []result.EvidenceSignal, status int) []result.EvidenceSignal {
+	for _, signal := range signals {
+		if signal.Code == "execution.credentials_rejected" {
+			return signals
+		}
+	}
+	return append(signals, result.EvidenceSignal{
+		Code: "execution.credentials_rejected", RootCause: "configured-credential-rejected",
+		Parameters: map[string]any{"http_status": status},
+	})
 }
 
 // Catalog discovery is not compatibility evidence. If a requested native

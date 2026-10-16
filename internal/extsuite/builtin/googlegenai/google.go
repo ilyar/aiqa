@@ -24,6 +24,47 @@ const (
 	sdkVersion  = "v1.71.0"
 )
 
+type generationSemanticWarning struct {
+	stream bool
+	empty  bool
+	code   string
+}
+
+func (e *generationSemanticWarning) Error() string {
+	if e.code == "behavior.tool_not_called" {
+		return "Google Gen AI SDK accepted the tool declaration but the model did not call it"
+	}
+	surface := "response"
+	if e.stream {
+		surface = "stream"
+	}
+	if e.empty {
+		return "Google Gen AI SDK " + surface + " completed with no visible output; marker observation is inconclusive"
+	}
+	return "Google Gen AI SDK " + surface + " completed but did not return the requested marker"
+}
+
+type generationTruncated struct{ stream bool }
+
+func (e *generationTruncated) Error() string {
+	if e.stream {
+		return "Google Gen AI SDK stream ended at MAX_TOKENS; marker observation is inconclusive"
+	}
+	return "Google Gen AI SDK response ended at MAX_TOKENS; marker observation is inconclusive"
+}
+
+func generationWasTruncated(response *genai.GenerateContentResponse) bool {
+	if response == nil {
+		return false
+	}
+	for _, candidate := range response.Candidates {
+		if candidate != nil && candidate.FinishReason == genai.FinishReasonMaxTokens {
+			return true
+		}
+	}
+	return false
+}
+
 type Extension struct{}
 
 func New() *Extension { return &Extension{} }
@@ -103,6 +144,29 @@ func runSuite(parent context.Context, client *genai.Client, request extsuite.Run
 		event.Summary = "Google Gen AI Go SDK sent and parsed the suite"
 		return event
 	}
+	var semantic *generationSemanticWarning
+	if errors.As(err, &semantic) {
+		// The SDK completed a valid request. Marker obedience is model behavior,
+		// not evidence that the wire protocol is incompatible.
+		event.Outcome = result.ExtensionOutcomeAssertionFailed
+		event.Summary = semantic.Error()
+		code := semantic.code
+		if code == "" {
+			code = "behavior.marker_mismatch"
+		}
+		if semantic.empty {
+			code = "behavior.marker_missing"
+		}
+		event.Signals = append(event.Signals, result.EvidenceSignal{Code: code, RootCause: "model-output"})
+		return event
+	}
+	var truncated *generationTruncated
+	if errors.As(err, &truncated) {
+		event.Outcome = result.ExtensionOutcomeExecutionError
+		event.Summary = truncated.Error()
+		event.Signals = append(event.Signals, result.EvidenceSignal{Code: "execution.output_truncated", RootCause: "max-output-tokens"})
+		return event
+	}
 	applyError(&event, err)
 	return event
 }
@@ -129,28 +193,42 @@ func runCase(ctx context.Context, client *genai.Client, suiteID, model string) (
 		}
 		return result.Usage{}, nil
 	case "generate-content":
-		response, err := client.Models.GenerateContent(ctx, model, genai.Text("Reply with exactly AIQA_OK."), &genai.GenerateContentConfig{MaxOutputTokens: 32})
+		response, err := client.Models.GenerateContent(ctx, model, genai.Text("Reply with exactly AIQA_OK."), &genai.GenerateContentConfig{MaxOutputTokens: protocolgoogle.GenerationMaxOutputTokens})
 		if err != nil {
 			return result.Usage{}, err
 		}
-		if response == nil || !strings.Contains(response.Text(), "AIQA_OK") {
-			return responseUsage(response), errors.New("SDK response did not contain AIQA_OK")
+		if generationWasTruncated(response) {
+			return responseUsage(response), &generationTruncated{stream: false}
+		}
+		if response == nil || strings.TrimSpace(response.Text()) == "" {
+			return responseUsage(response), &generationSemanticWarning{stream: false, empty: true}
+		}
+		if !strings.Contains(response.Text(), "AIQA_OK") {
+			return responseUsage(response), &generationSemanticWarning{stream: false}
 		}
 		return responseUsage(response), nil
 	case "generate-content-stream":
 		var text strings.Builder
 		var usage result.Usage
-		for response, err := range client.Models.GenerateContentStream(ctx, model, genai.Text("Reply with exactly AIQA_OK."), &genai.GenerateContentConfig{MaxOutputTokens: 32}) {
+		truncated := false
+		for response, err := range client.Models.GenerateContentStream(ctx, model, genai.Text("Reply with exactly AIQA_OK."), &genai.GenerateContentConfig{MaxOutputTokens: protocolgoogle.GenerationMaxOutputTokens}) {
 			if err != nil {
 				return usage, err
 			}
 			if response != nil {
 				text.WriteString(response.Text())
 				usage = responseUsage(response)
+				truncated = truncated || generationWasTruncated(response)
 			}
 		}
+		if truncated {
+			return usage, &generationTruncated{stream: true}
+		}
+		if strings.TrimSpace(text.String()) == "" {
+			return usage, &generationSemanticWarning{stream: true, empty: true}
+		}
 		if !strings.Contains(text.String(), "AIQA_OK") {
-			return usage, errors.New("SDK stream did not reconstruct AIQA_OK")
+			return usage, &generationSemanticWarning{stream: true}
 		}
 		return usage, nil
 	case "count-tokens":
@@ -173,18 +251,27 @@ func runCase(ctx context.Context, client *genai.Client, suiteID, model string) (
 		return result.Usage{}, nil
 	case "tools":
 		tool := &genai.Tool{FunctionDeclarations: []*genai.FunctionDeclaration{{Name: "get_status", Description: "Return status.", Parameters: &genai.Schema{Type: genai.TypeObject, Properties: map[string]*genai.Schema{"resource_id": {Type: genai.TypeString}}, Required: []string{"resource_id"}}}}}
-		response, err := client.Models.GenerateContent(ctx, model, genai.Text("Call get_status for resource-alpha."), &genai.GenerateContentConfig{Tools: []*genai.Tool{tool}, MaxOutputTokens: 32})
+		response, err := client.Models.GenerateContent(ctx, model, genai.Text("Call get_status for resource-alpha."), &genai.GenerateContentConfig{Tools: []*genai.Tool{tool}, MaxOutputTokens: protocolgoogle.GenerationMaxOutputTokens})
 		if err != nil {
 			return result.Usage{}, err
 		}
-		if response == nil || len(response.FunctionCalls()) == 0 {
-			return responseUsage(response), errors.New("SDK returned no function call")
+		if generationWasTruncated(response) {
+			return responseUsage(response), &generationTruncated{}
+		}
+		if response == nil || len(response.Candidates) == 0 {
+			return responseUsage(response), errors.New("SDK tool response has no candidates")
+		}
+		if len(response.FunctionCalls()) == 0 {
+			return responseUsage(response), &generationSemanticWarning{code: "behavior.tool_not_called"}
 		}
 		return responseUsage(response), nil
 	case "structured-output":
-		response, err := client.Models.GenerateContent(ctx, model, genai.Text("Return JSON with ok=true and value=AIQA_OK."), &genai.GenerateContentConfig{ResponseMIMEType: "application/json", ResponseSchema: &genai.Schema{Type: genai.TypeObject, Properties: map[string]*genai.Schema{"ok": {Type: genai.TypeBoolean}, "value": {Type: genai.TypeString}}, Required: []string{"ok", "value"}}, MaxOutputTokens: 32})
+		response, err := client.Models.GenerateContent(ctx, model, genai.Text("Return JSON with ok=true and value=AIQA_OK."), &genai.GenerateContentConfig{ResponseMIMEType: "application/json", ResponseSchema: &genai.Schema{Type: genai.TypeObject, Properties: map[string]*genai.Schema{"ok": {Type: genai.TypeBoolean}, "value": {Type: genai.TypeString}}, Required: []string{"ok", "value"}}, MaxOutputTokens: protocolgoogle.GenerationMaxOutputTokens})
 		if err != nil {
 			return result.Usage{}, err
+		}
+		if generationWasTruncated(response) {
+			return responseUsage(response), &generationTruncated{}
 		}
 		var structured map[string]any
 		if response == nil || json.Unmarshal([]byte(response.Text()), &structured) != nil || !protocolgoogle.ValidateStructuredJSON(response.Text()) {
@@ -196,9 +283,12 @@ func runCase(ctx context.Context, client *genai.Client, suiteID, model string) (
 		if err != nil {
 			return result.Usage{}, err
 		}
-		response, err := client.Models.GenerateContent(ctx, model, []*genai.Content{{Role: genai.RoleUser, Parts: []*genai.Part{{InlineData: &genai.Blob{MIMEType: "image/png", Data: image}}, {Text: "Reply with exactly AIQA_OK."}}}}, &genai.GenerateContentConfig{MaxOutputTokens: 32})
+		response, err := client.Models.GenerateContent(ctx, model, []*genai.Content{{Role: genai.RoleUser, Parts: []*genai.Part{{InlineData: &genai.Blob{MIMEType: "image/png", Data: image}}, {Text: "Reply with exactly AIQA_OK."}}}}, &genai.GenerateContentConfig{MaxOutputTokens: protocolgoogle.GenerationMaxOutputTokens})
 		if err != nil {
 			return result.Usage{}, err
+		}
+		if generationWasTruncated(response) {
+			return responseUsage(response), &generationTruncated{}
 		}
 		return responseUsage(response), nil
 	default:

@@ -147,6 +147,7 @@ func ValidateInteractionStream(stream api.StreamResponse) InteractionStreamValid
 type LegacyStreamValidation struct {
 	Text            string
 	Usage           result.Usage
+	FinishReasons   []string
 	Problems        []string
 	ProviderError   bool
 	Complete        bool
@@ -191,8 +192,13 @@ func ValidateGenerateContentStream(stream api.StreamResponse) LegacyStreamValida
 					out.Problems = append(out.Problems, fmt.Sprintf("stream candidates[%d] is not an object", index))
 					continue
 				}
-				if stringValue(candidate["finishReason"]) != "" || stringValue(candidate["finish_reason"]) != "" {
+				finishReason := stringValue(candidate["finishReason"])
+				if finishReason == "" {
+					finishReason = stringValue(candidate["finish_reason"])
+				}
+				if finishReason != "" {
 					out.SawFinishReason = true
+					out.FinishReasons = append(out.FinishReasons, finishReason)
 				}
 				if candidateUsage, ok := candidate["usageMetadata"].(map[string]any); ok {
 					out.Usage = ParseUsage(map[string]any{"usageMetadata": candidateUsage})
@@ -206,14 +212,20 @@ func ValidateGenerateContentStream(stream api.StreamResponse) LegacyStreamValida
 						out.Problems = append(out.Problems, fmt.Sprintf("stream candidates[%d].content is not an object", index))
 						continue
 					}
-					if parts, present := contentObject["parts"]; present {
-						if list, ok := parts.([]any); !ok || len(list) == 0 {
-							out.Problems = append(out.Problems, fmt.Sprintf("stream candidates[%d].content.parts is not a non-empty array", index))
-						}
+					parts, present := contentObject["parts"]
+					if !present {
+						out.Problems = append(out.Problems, fmt.Sprintf("stream candidates[%d].content.parts is missing", index))
+					} else if list, ok := parts.([]any); !ok || len(list) == 0 {
+						out.Problems = append(out.Problems, fmt.Sprintf("stream candidates[%d].content.parts is not a non-empty array", index))
 					}
+				} else if finishReason == "" && candidate["usageMetadata"] == nil {
+					out.Problems = append(out.Problems, fmt.Sprintf("stream candidates[%d] has neither content nor terminal metadata", index))
 				}
 			}
 		}
+	}
+	if !out.SawChunk && !out.ProviderError && len(out.Problems) == 0 {
+		out.Problems = append(out.Problems, "stream has no candidates chunks")
 	}
 	out.Complete = len(stream.Events) > 0 && !out.ProviderError && len(out.Problems) == 0
 	return out

@@ -4,9 +4,9 @@ Compatibility and behavior testing for OpenAI, Anthropic, and Google GenAI API f
 
 ## Install the beta
 
-Standalone binaries for **1.0.0-beta.1** are available for Linux, macOS,
+Standalone binaries for **1.0.0-beta.2** are available for Linux, macOS,
 Windows, and FreeBSD, each on amd64 and arm64, in the
-[beta release](https://github.com/ilyar/aiqa/releases/tag/v1.0.0-beta.1).
+[beta release](https://github.com/ilyar/aiqa/releases/tag/v1.0.0-beta.2).
 
 On Linux, macOS, and FreeBSD:
 
@@ -23,7 +23,7 @@ destination with `AIQA_INSTALL_DIR` or select a release with `AIQA_VERSION`:
 
 ```sh
 curl -LsSf https://ilyar.github.io/aiqa/install.sh -o install.sh
-AIQA_INSTALL_DIR="$HOME/bin" AIQA_VERSION=1.0.0-beta.1 sh install.sh
+AIQA_INSTALL_DIR="$HOME/bin" AIQA_VERSION=1.0.0-beta.2 sh install.sh
 ```
 
 On Windows, download `aiqa-windows-amd64.exe` or `aiqa-windows-arm64.exe`
@@ -49,12 +49,12 @@ npx skills add ilyar/aiqa --skill aiqa-provider-operator
 ```
 
 Install AIQA separately using the instructions above. The skill's bounded runner
-requires Python 3.10+ on POSIX (use WSL on Windows). Skill **1.0.0** is designed
-for AIQA **1.0.0-beta.1**; it has its own version and does not replace the binary
+requires Python 3.10+ on POSIX (use WSL on Windows). Skill **1.0.1** is designed
+for AIQA **1.0.0-beta.2**; it has its own version and does not replace the binary
 release. For a version-pinned installation:
 
 ```sh
-npx skills add https://github.com/ilyar/aiqa/tree/skill-aiqa-provider-operator-v1.0.0/skills/aiqa-provider-operator
+npx skills add https://github.com/ilyar/aiqa/tree/v1.0.0-beta.2/skills/aiqa-provider-operator
 ```
 
 Example request:

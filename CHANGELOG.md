@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.0.0-beta.2 – 2026-10-16
+
+- Distinguish credential/access prerequisites from provider conformance. Keep
+  authentication failures visible without recommending protocol implementation
+  changes; preserve explicit invalid-auth contract checks and independent failures.
+- Separate Google GenerateContent protocol validation from exact-text and tool
+  obedience. Use a bounded generation budget shared by native and SDK checks,
+  and retain safe finish-reason diagnostics for incomplete generation.
+- Represent selected but prerequisite-blocked or empty executors explicitly in
+  forensic traces, without treating absent execution as successful coverage.
+- Preserve discovery request statistics when execution stops before
+  any model is selected, including rejected credentials.
+- Update public binaries, download links, and installer defaults to beta.2.
+  Operator skill 1.0.1 accepts both beta.1 and beta.2; the original pinned skill
+  1.0.0 release remains unchanged.
+
 ## 1.0.0-beta.1 – 2026-10-16
 
 - Publish the first public AIQA distribution, with static binaries for Linux,

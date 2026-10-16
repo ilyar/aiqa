@@ -73,6 +73,10 @@ type FrozenInvocationBinding struct {
 	JobID   string
 	SuiteID string
 	ModelID string
+	// Source preserves the trusted local provenance selected during Freeze.
+	// Consumers may use it to keep built-in SDK and executable-extension
+	// lifecycle accounting separate without parsing extension IDs.
+	Source string
 }
 
 // InvocationBindingsForFrozen exposes the exact frozen suite identities for
@@ -81,7 +85,7 @@ func InvocationBindingsForFrozen(target config.TargetConfig, frozen FrozenInvoca
 	var bindings []FrozenInvocationBinding
 	for _, planned := range frozen.invocations {
 		for _, suiteID := range planned.suiteIDs {
-			bindings = append(bindings, FrozenInvocationBinding{JobID: extensionJobID(target.ID, planned, suiteID), SuiteID: suiteID, ModelID: subjectModel(planned.subject)})
+			bindings = append(bindings, FrozenInvocationBinding{JobID: extensionJobID(target.ID, planned, suiteID), SuiteID: suiteID, ModelID: subjectModel(planned.subject), Source: planned.extension.Provenance().Source})
 		}
 	}
 	return bindings
